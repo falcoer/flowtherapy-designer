@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import YAML from 'yaml';
+import { ANCHOR_FRAMES } from './anchors.js';
 
 /* ---------- Éléments de bibliothèque ---------- */
 
@@ -88,7 +89,7 @@ export type PaletteElement = z.infer<typeof PaletteElementSchema>;
 export const ALIGNS = ['top-left', 'top', 'top-right', 'left', 'center', 'right', 'bottom-left', 'bottom', 'bottom-right'] as const;
 
 export const AnchorRefSchema = z.object({
-  frame: z.enum(['repartition', 'grid']).default('repartition'),
+  frame: z.enum(ANCHOR_FRAMES).default('repartition'),
   point: z.string(),
 });
 

@@ -8,7 +8,8 @@
   --accent-soft: rgba(122, 92, 255, 0.14);
   --guide-strong: rgba(122, 92, 255, 0.55);
   --guide: rgba(122, 92, 255, 0.32);
-  --guide-radial: rgba(232, 120, 60, 0.28);
+  --guide-radial: rgba(232, 120, 60, 0.45);
+  --guide-golden: rgba(196, 150, 20, 0.6);
   --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-display: 'Agbalumo', 'Georgia', serif;
   --radius: 16px;
@@ -49,7 +50,6 @@ button, input, select { font: inherit; color: inherit; }
 .ws-item:active { cursor: grabbing; }
 
 .anchor { fill: var(--guide); transition: r 0.15s, fill 0.15s; }
-.anchor-radial { fill: var(--guide-radial); }
 .anchors.lit .anchor { fill: var(--accent); }
 
 .glass {

@@ -2,6 +2,7 @@ import {
   anchorsFor,
   computeLayout,
   effectiveElement,
+  FRAME_TITLES,
   libraryKey,
   nearestAnchor,
   toYaml,
@@ -18,6 +19,13 @@ import { AttributeBar } from './components/AttributeBar';
 import { InsertPanel, Preview } from './components/InsertPanel';
 import { PalettePanel } from './components/PalettePanel';
 import { Workspace, clientToFormat } from './components/Workspace';
+
+const FRAME_BUTTONS: Array<{ frame: AnchorFrame; icon: string }> = [
+  { frame: 'repartition', icon: '⊕' },
+  { frame: 'or', icon: 'φ' },
+  { frame: 'armature', icon: '✕' },
+  { frame: 'grid', icon: '▦' },
+];
 
 type Ghost = { el: LibraryElement; x: number; y: number };
 
@@ -243,16 +251,16 @@ export function App() {
         <button className="rail-btn primary" onClick={() => setInsertOpen(true)} title="Insérer depuis la bibliothèque">
           ＋
         </button>
-        <button
-          className={frame === 'repartition' ? 'rail-btn on' : 'rail-btn'}
-          onClick={() => setFrame('repartition')}
-          title="Référentiel par répartition"
-        >
-          ⊕
-        </button>
-        <button className={frame === 'grid' ? 'rail-btn on' : 'rail-btn'} onClick={() => setFrame('grid')} title="Grille classique">
-          ▦
-        </button>
+        {FRAME_BUTTONS.map((b) => (
+          <button
+            key={b.frame}
+            className={frame === b.frame ? 'rail-btn on' : 'rail-btn'}
+            onClick={() => setFrame(b.frame)}
+            title={FRAME_TITLES[b.frame]}
+          >
+            {b.icon}
+          </button>
+        ))}
         <button className={showGuides ? 'rail-btn on' : 'rail-btn'} onClick={() => setShowGuides((v) => !v)} title="Afficher les repères">
           ⌗
         </button>

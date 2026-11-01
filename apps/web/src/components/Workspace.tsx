@@ -1,7 +1,6 @@
 import {
   anchorsFor,
-  gridGuides,
-  repartitionGuides,
+  guidesFor,
   resolveColor,
   type AnchorFrame,
   type Format,
@@ -34,7 +33,10 @@ const STROKE: Record<GuideLine['weight'], { w: number; dash?: string; color: str
   half: { w: 1.4, color: 'var(--guide-strong)' },
   third: { w: 1, dash: '6 4', color: 'var(--guide)' },
   quarter: { w: 1, dash: '2 4', color: 'var(--guide)' },
-  radial: { w: 1, color: 'var(--guide-radial)' },
+  golden: { w: 1.4, color: 'var(--guide-golden)' },
+  diagonal: { w: 1.2, color: 'var(--guide-radial)' },
+  reciprocal: { w: 1, dash: '5 3', color: 'var(--guide-radial)' },
+  rabattement: { w: 1, dash: '8 4', color: 'var(--guide-golden)' },
   grid: { w: 1, color: 'var(--guide)' },
 };
 
@@ -53,7 +55,7 @@ export function Workspace(props: Props) {
   const W = format.width;
   const H = format.height;
   const palette = project.palette ? (library.get(`palette/${project.palette}`) as PaletteElement | undefined) : undefined;
-  const guides = useMemo(() => (frame === 'grid' ? gridGuides(format) : repartitionGuides()), [frame, format]);
+  const guides = useMemo(() => guidesFor(frame, format), [frame, format]);
   const anchors = useMemo(() => anchorsFor(frame, format), [frame, format]);
   const drag = useRef<{ id: string; startX: number; startY: number } | null>(null);
   const [offset, setOffset] = useState<{ id: string; dx: number; dy: number } | null>(null);
@@ -164,8 +166,8 @@ export function Workspace(props: Props) {
               key={a.id}
               cx={a.x * W}
               cy={a.y * H}
-              r={(a.kind === 'radial' ? 2.2 : 3) * unit}
-              className={`anchor anchor-${a.kind}`}
+              r={3 * unit}
+              className="anchor"
             />
           ))}
         </g>

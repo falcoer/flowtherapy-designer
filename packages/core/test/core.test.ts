@@ -10,7 +10,7 @@ import {
   oklchToHex,
   parseFraction,
   parseProject,
-  repartitionAnchors,
+  anchorsFor,
   resolveAnchor,
   substitute,
   type Format,
@@ -31,15 +31,14 @@ describe('fractions', () => {
 });
 
 describe('ancrages par répartition', () => {
-  it('contient les intersections axiales et radiales, sans doublon', () => {
-    const pts = repartitionAnchors();
+  it('contient les intersections axiales, sans doublon', () => {
+    const pts = anchorsFor('repartition', a4);
     const ids = pts.map((p) => p.id);
     expect(ids).toContain('h1/2 v1/4');
     expect(ids).toContain('h1/3 v2/3');
+    expect(ids).toContain('h0 v0');
     expect(new Set(ids).size).toBe(ids.length);
-    expect(pts.some((p) => p.kind === 'radial')).toBe(true);
-    const keys = pts.map((p) => `${p.x.toFixed(6)},${p.y.toFixed(6)}`);
-    expect(new Set(keys).size).toBe(keys.length);
+    expect(pts).toHaveLength(25 + 8);
   });
 
   it('résout le même ancrage proportionnellement sur deux formats', () => {
@@ -47,15 +46,52 @@ describe('ancrages par répartition', () => {
     expect(resolveAnchor('repartition', 'h1/2 v2/3', square)).toEqual({ x: 0.5, y: 2 / 3 });
   });
 
-  it('résout un point radial', () => {
-    const p = resolveAnchor('repartition', 'ray h1/4 v0 @1/2', a4);
-    expect(p.x).toBeCloseTo(0.375);
-    expect(p.y).toBeCloseTo(0.25);
+  it('trouve l’ancrage le plus proche', () => {
+    const p = nearestAnchor(anchorsFor('repartition', a4), 0.49, 0.26, a4);
+    expect(p.id).toBe('h1/2 v1/4');
+  });
+});
+
+describe('nombre d’or', () => {
+  it('croise les sections dorées', () => {
+    const p = resolveAnchor('or', 'h-or-a × v-or-b', a4);
+    expect(p.x).toBeCloseTo(0.382, 3);
+    expect(p.y).toBeCloseTo(0.618, 3);
+    expect(anchorsFor('or', a4)).toHaveLength(4);
+  });
+});
+
+describe('armature harmonique', () => {
+  it('place l’œil de la réciproque au pied de la perpendiculaire', () => {
+    // sur un carré, la réciproque se confond avec l'autre diagonale : croisement au centre
+    const c = resolveAnchor('armature', 'd1 × mh', square);
+    expect(c).toEqual({ x: 0.5, y: 0.5 });
+    // sur l'A4, le pied de la perpendiculaire depuis le coin haut-droit tombe sur la diagonale
+    const p = resolveAnchor('armature', 'd1 × r1', a4);
+    const W = 210, H = 297;
+    const dot = (p.x * W - W) * W + (p.y * H) * H; // (P - coin) · direction de d1
+    expect(Math.abs(dot)).toBeLessThan(1e-6);
   });
 
-  it('trouve l’ancrage le plus proche', () => {
-    const p = nearestAnchor(repartitionAnchors(), 0.49, 0.26, a4);
-    expect(p.id).toBe('h1/2 v1/4');
+  it('dépend du rapport largeur/hauteur, contrairement à la répartition', () => {
+    const onA4 = resolveAnchor('armature', 'd1 × r1', a4);
+    const onBanner = resolveAnchor('armature', 'd1 × r1', { ...a4, width: 1640, height: 624, unit: 'px' });
+    expect(onA4.x).not.toBeCloseTo(onBanner.x, 2);
+  });
+
+  it('nomme chaque ancrage de façon résoluble', () => {
+    for (const f of [a4, square]) {
+      for (const pt of anchorsFor('armature', f)) {
+        const r = resolveAnchor('armature', pt.id, f);
+        expect(r.x).toBeCloseTo(pt.x, 9);
+        expect(r.y).toBeCloseTo(pt.y, 9);
+      }
+    }
+  });
+
+  it('ajoute les rabattements du petit côté sur un format allongé', () => {
+    const ids = anchorsFor('armature', a4).map((p) => p.id);
+    expect(ids.some((id) => id.includes('rb1'))).toBe(true);
   });
 });
 

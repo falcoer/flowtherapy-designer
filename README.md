@@ -6,7 +6,7 @@ Proposition d'architecture complète : voir le document partagé dans le projet 
 
 ## État : phase 0 (socle)
 
-- `packages/core` : schémas YAML (zod), référentiels d'ancrage (répartition axiale/radiale et grille), deltas, couleurs OKLCH et harmonies, balises `{{…}}`, calcul de mise en page. Partagé entre navigateur et serveur.
+- `packages/core` : schémas YAML (zod), référentiels d'ancrage (répartition, nombre d'or, armature harmonique, grille), deltas, couleurs OKLCH et harmonies, balises `{{…}}`, calcul de mise en page. Partagé entre navigateur et serveur.
 - `apps/server` : API Fastify qui lit et écrit la bibliothèque (`library/`) et les projets YAML, protection optionnelle par mot de passe.
 - `apps/web` : surface de travail tactile (React + SVG) : changement de format, repères, glisser-déposer depuis la bibliothèque vers un ancrage, pastilles d'attributs et curseur de delta centré, palette et suggestions d'harmonies, aperçu du YAML.
 - `library/` : bibliothèque d'exemple (logo et photo issus du site bio, palette, textes, formats, un projet).
@@ -24,9 +24,12 @@ npm run build && npm start   # mode production sur http://localhost:4310
 
 | Référentiel | Exemple | Sens |
 | --- | --- | --- |
-| Répartition axiale | `h1/2 v2/3` | milieu de la largeur, deux tiers de la hauteur |
-| Répartition radiale | `ray h1/4 v0 @1/2` | à mi-chemin du centre vers le point `h1/4 v0` du bord |
+| Répartition | `h1/2 v2/3` | milieu de la largeur, deux tiers de la hauteur (fractions libres) |
+| Nombre d'or | `h-or-a × v-or-b` | croisement des sections dorées 0,382 et 0,618 |
+| Armature harmonique | `d1 × r1` | croisement d'une diagonale et d'une réciproque ; suit le rapport largeur/hauteur |
 | Grille | `c2 r3`, `c2 r3 nw` | centre ou coin de la cellule colonne 2, rangée 3 |
+
+Chaque référentiel est un jeu de lignes caractéristiques ; ses ancrages sont leurs intersections, nommées par les lignes qui les forment. En ajouter un (spirale dorée, tracés à racine de 2…) revient à déclarer de nouvelles lignes dans `packages/core/src/anchors.ts`.
 
 Sur un format autre que le premier du projet, les déplacements et deltas s'enregistrent comme `overrides` propres à ce format.
 
