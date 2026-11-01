@@ -137,3 +137,9 @@ export const RotateIcon = () => (
     <path d="M16.5 3.5v4.2h-4.2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
+
+export const SolidIcon = () => (
+  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden>
+    <rect x="4" y="4" width="16" height="16" rx="3" fill="currentColor" stroke="currentColor" strokeWidth="1.5" />
+  </svg>
+);

@@ -1,7 +1,7 @@
-import { contrastRatio, gradientCss, harmonies, hexToOklch, type Gradient, type GradientType, type HarmonyKind, type PaletteElement } from '@ftd/core';
+import { contrastRatio, gradientCss, gradientStops, harmonies, hexToOklch, type Gradient, type GradientType, type HarmonyKind, type PaletteElement } from '@ftd/core';
 import { useEffect, useState } from 'react';
 import { ColorPlane } from './ColorPlane';
-import { BackgroundIcon, GradientFillIcon, GradientTypeIcon, HarmonyIcon, RampIcon, RotateIcon, SaveIcon, ShapeIcon, TextIcon } from './Icons';
+import { BackgroundIcon, GradientTypeIcon, SolidIcon, HarmonyIcon, RampIcon, RotateIcon, SaveIcon, ShapeIcon, TextIcon } from './Icons';
 
 const KINDS: Array<[HarmonyKind, string]> = [
   ['complementary', 'Complémentaire'],
@@ -11,7 +11,9 @@ const KINDS: Array<[HarmonyKind, string]> = [
   ['analogous', 'Analogues'],
   ['tints', 'Clair / foncé'],
 ];
-const TYPES: Array<[GradientType, string]> = [
+type Fill = 'solid' | GradientType;
+const FILLS: Array<[Fill, string]> = [
+  ['solid', 'Uni'],
   ['linear', 'Linéaire'],
   ['radial', 'Radial'],
   ['sphere', 'Sphérique'],
@@ -55,17 +57,7 @@ export function PalettePanel(props: Props) {
   const [steps, setSteps] = useState(5);
   const [ramp, setRamp] = useState(false);
   const [stops, setStops] = useState<string[] | null>(null);
-  const [gType, setGType] = useState<GradientType>('linear');
   const [angle, setAngle] = useState(180);
-  // une fois appliqué, le dégradé suit les réglages en direct
-  const [live, setLive] = useState(false);
-  useEffect(() => setLive(false), [aim, element?.id]);
-
-  const gradient: Gradient | null = stops ? { type: gType, stops, angle } : null;
-  useEffect(() => {
-    if (live && gradient) props.onGradient(aim, gradient);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, stops, gType, angle]);
 
   const colors = palette?.colors ?? [];
   const resolve = (v: string | undefined) => {
@@ -76,15 +68,41 @@ export function PalettePanel(props: Props) {
   const currentValue = aim === 'element' ? props.elementColor : props.background;
   const currentGradient = aim === 'element' ? props.elementGradient : props.backgroundGradient;
   const currentHex = resolve(currentValue);
-  const apply = (value: string) => {
-    setLive(false);
-    props.onColor(aim, value);
+  // mode de remplissage de la cible : uni, ou le type de son dégradé
+  const fill: Fill = currentGradient?.type ?? 'solid';
+  const apply = (value: string) => props.onColor(aim, value);
+
+  // en mode dégradé, tout réglage (ligne tracée, orientation, teintes) s'applique en direct
+  const pushGradient = (type: GradientType, s: string[], a: number) => props.onGradient(aim, { type, stops: s, angle: a });
+  // tracer une ligne passe la cible en dégradé (linéaire si elle était unie)
+  useEffect(() => {
+    if (stops) pushGradient(fill === 'solid' ? 'linear' : fill, stops, angle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stops]);
+  useEffect(() => {
+    if (currentGradient && fill !== 'solid') pushGradient(fill, currentGradient.stops, angle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [angle]);
+  // l'orientation affichée suit la cible
+  useEffect(() => setAngle(currentGradient?.angle ?? 180), [aim, element?.id]);
+
+  const cycleFill = () => {
+    const nextFill = next(FILLS, fill);
+    if (nextFill === 'solid') {
+      apply(currentValue ?? currentGradient?.stops[0] ?? base);
+      return;
+    }
+    // sans ligne tracée : de la couleur actuelle vers une version nettement plus claire ou plus foncée
+    const from = hexToOklch(base);
+    const to = { ...hexToOklch(h.analogous[0] ?? base), l: from.l > 0.55 ? from.l - 0.45 : from.l + 0.45 };
+    const s = stops ?? currentGradient?.stops ?? gradientStops(from, to, steps);
+    pushGradient(nextFill, s, angle);
   };
 
   const base = (currentHex && /^#/.test(currentHex) ? currentHex : undefined) ?? colors[picked]?.hex ?? '#7a5cff';
   const h = harmonies(base);
   const other = resolve(aim === 'element' ? props.background : props.elementColor) ?? colors.find((c) => c.role === 'fond')?.hex;
-  const ratio = element?.kind === 'text' && currentHex && other && /^#/.test(currentHex) && /^#/.test(other) ? contrastRatio(currentHex, other) : null;
+  const ratio = element?.kind === 'text' && !currentGradient && currentHex && other && /^#/.test(currentHex) && /^#/.test(other) ? contrastRatio(currentHex, other) : null;
 
   return (
     <div className="color-panel">
@@ -162,14 +180,14 @@ export function PalettePanel(props: Props) {
         ))}
       </div>
 
-      <div className="cp-strip" style={{ background: gradient ? gradientCss({ ...gradient, type: 'linear', angle: 90 }) : undefined }} title={gradient ? undefined : 'Trace une ligne sur la roue'}>
+      <div className="cp-strip" style={{ background: stops ? `linear-gradient(90deg, ${stops.join(', ')})` : undefined }} title={stops ? undefined : 'Trace une ligne sur la roue'}>
         {stops?.map((hex, i) => <button key={i} style={{ background: hex }} title={hex} onClick={() => apply(hex)} />)}
       </div>
       <div className="cp-line cp-tools">
-        <button className="tool" onClick={() => setGType(next(TYPES, gType))} title={`Type : ${TYPES.find(([k]) => k === gType)![1]} (toucher pour changer)`}>
-          <GradientTypeIcon type={gType} />
+        <button className={`tool fill ${fill !== 'solid' ? 'on' : ''}`} onClick={cycleFill} title={`Remplissage : ${FILLS.find(([k]) => k === fill)![1]} (toucher pour changer)`}>
+          {fill === 'solid' ? <SolidIcon /> : <GradientTypeIcon type={fill} />}
         </button>
-        <button className="tool" disabled={gType === 'radial'} onClick={() => setAngle((a) => (a + 45) % 360)} title={`Orientation ${angle}°`}>
+        <button className="tool" disabled={fill === 'solid' || fill === 'radial'} onClick={() => setAngle((a) => (a + 45) % 360)} title={`Orientation ${angle}°`}>
           <RotateIcon />
         </button>
         <button className="tool num" onClick={() => setSteps((s) => (s >= 9 ? 2 : s + 1))} title="Nombre de teintes">
@@ -179,19 +197,7 @@ export function PalettePanel(props: Props) {
           <RampIcon />
         </button>
         <span className="cp-sep" />
-        <button
-          className={`tool ${live ? 'on' : ''}`}
-          disabled={!gradient}
-          onClick={() => {
-            if (!gradient) return;
-            props.onGradient(aim, gradient);
-            setLive(true);
-          }}
-          title={aim === 'element' ? 'Appliquer le dégradé à l’élément' : 'Appliquer le dégradé au fond'}
-        >
-          <GradientFillIcon />
-        </button>
-        <button className="tool" disabled={!stops} onClick={() => stops && props.onSavePalette(stops)} title="Enregistrer comme palette">
+        <button className="tool" disabled={!stops} onClick={() => stops && props.onSavePalette(stops)} title="Enregistrer le dégradé comme palette">
           <SaveIcon />
         </button>
       </div>
