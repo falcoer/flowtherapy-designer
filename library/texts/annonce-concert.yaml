@@ -1,0 +1,10 @@
+id: annonce-concert
+type: text
+title: Annonce de concert
+body: |
+  En concert le {{date}}
+  {{lieu}}
+slots:
+  date: { kind: string, default: "14 novembre" }
+  lieu: { kind: string, default: Marseille, cardinality: list }
+tags: [concert, annonce]

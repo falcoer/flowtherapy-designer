@@ -1,0 +1,7 @@
+id: accroche
+type: text
+title: Accroche
+body: "{{accroche}}"
+slots:
+  accroche: { kind: string, default: "Soul, funk et groove méditerranéen" }
+tags: [accroche]

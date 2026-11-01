@@ -1,0 +1,8 @@
+# /etc/caddy/Caddyfile — HTTPS automatique (Let's Encrypt)
+designer.flowtherapymusic.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:4310
+	request_body {
+		max_size 200MB
+	}
+}

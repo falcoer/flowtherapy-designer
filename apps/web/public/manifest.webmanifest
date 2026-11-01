@@ -1,0 +1,9 @@
+{
+  "name": "FT Designer",
+  "short_name": "FT Designer",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f2ee",
+  "theme_color": "#f4f2ee",
+  "start_url": "/"
+}

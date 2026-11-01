@@ -1,0 +1,18 @@
+# /etc/systemd/system/ft-designer.service
+[Unit]
+Description=FT Designer
+After=network.target
+
+[Service]
+Type=simple
+User=ftdesigner
+WorkingDirectory=/opt/ft-designer
+Environment=NODE_ENV=production
+Environment=PORT=4310
+Environment=FTD_LIBRARY=/srv/ft-designer/library
+EnvironmentFile=-/etc/ft-designer.env
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
