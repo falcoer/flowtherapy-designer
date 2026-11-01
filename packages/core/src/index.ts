@@ -8,3 +8,4 @@ export * from './schema.js';
 export * from './layout.js';
 export * from './palette.js';
 export * from './render.js';
+export * from './snap.js';

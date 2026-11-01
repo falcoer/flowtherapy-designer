@@ -22,6 +22,8 @@ export interface LayoutItem {
   h: number;
   rotation: number;
   opacity: number;
+  /** Point de l'élément posé sur l'ancrage (pivot du redimensionnement). */
+  align: Placed['align'];
   href?: string;
   text?: string;
   fontSize?: number;
@@ -67,6 +69,15 @@ export function resolveColor(value: string | undefined, palette: PaletteElement 
   return (byIndex ?? byRole)?.hex ?? fallback;
 }
 
+/** Couleur finale du fond : palette résolue puis deltas de couleur. */
+export function resolveBackground(project: Project, palette: PaletteElement | undefined): string {
+  const d = project.backgroundDeltas ?? {};
+  return shiftColor(resolveColor(project.background, palette, '#ffffff'), { h: d['color.hue'], l: d['color.lightness'], c: d['color.chroma'] });
+}
+
+/** Opacité d'une image attachée au document (delta d'opacité). */
+export const globalOpacity = (deltas: Record<string, number> = {}) => Math.max(0, 1 + clampDelta('opacity', deltas.opacity ?? 0));
+
 function alignOffset(align: Placed['align'], w: number, h: number): { ox: number; oy: number } {
   const ox = align.includes('left') ? 0 : align.includes('right') ? w : w / 2;
   const oy = align.startsWith('top') ? 0 : align.startsWith('bottom') ? h : h / 2;
@@ -95,6 +106,7 @@ export function computeLayout(project: Project, formatId: string, ctx: LayoutCon
       rotation: clampDelta('rotation', d.rotation ?? 0),
       opacity: Math.max(0, 1 + clampDelta('opacity', d.opacity ?? 0)),
       fit: el.fit,
+      align: el.align,
     };
     const colorDelta = { h: d['color.hue'], l: d['color.lightness'], c: d['color.chroma'] };
 

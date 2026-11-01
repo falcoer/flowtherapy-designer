@@ -5,7 +5,8 @@ import {
   expandRecords,
   formatPixelSize,
   renderSvg,
-  resolveColor,
+  globalOpacity,
+  resolveBackground,
   type Format,
   type LibraryElement,
   type PaletteElement,
@@ -66,12 +67,12 @@ export class Exporter {
 
     const palette = project.palette ? (library.get(`palette/${project.palette}`) as PaletteElement | undefined) : undefined;
     const globals = project.globals
-      .map((g) => ({ el: library.get(g.ref), fit: g.fit }))
-      .filter((g): g is { el: Extract<LibraryElement, { type: 'image' }>; fit: 'contain' | 'cover' | 'stretch' } => g.el?.type === 'image')
-      .map((g) => ({ href: uris.get(g.el.source) ?? '', fit: g.fit }));
+      .map((g) => ({ el: library.get(g.ref), fit: g.fit, opacity: globalOpacity(g.deltas) }))
+      .filter((g): g is { el: Extract<LibraryElement, { type: 'image' }>; fit: 'contain' | 'cover' | 'stretch'; opacity: number } => g.el?.type === 'image')
+      .map((g) => ({ href: uris.get(g.el.source) ?? '', fit: g.fit, opacity: g.opacity }));
 
     return renderSvg(format, items, {
-      background: resolveColor(project.background, palette, '#ffffff'),
+      background: resolveBackground(project, palette),
       globals,
       css: await this.fontCss(project, library),
     });

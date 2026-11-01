@@ -9,7 +9,7 @@ import type { LayoutItem } from './layout.js';
 export interface RenderOptions {
   background: string;
   /** Images attachées au document entier (déjà résolues en URL ou data URI). */
-  globals: Array<{ href: string; fit: 'contain' | 'cover' | 'stretch' }>;
+  globals: Array<{ href: string; fit: 'contain' | 'cover' | 'stretch'; opacity?: number }>;
   /** Règles CSS ajoutées (polices @font-face). */
   css?: string;
 }
@@ -30,7 +30,8 @@ export function renderSvg(format: Format, items: LayoutItem[], opts: RenderOptio
   parts.push(`<defs><clipPath id="f"><rect width="${W}" height="${H}"/></clipPath></defs>`);
   parts.push(`<g clip-path="url(#f)"><rect width="${W}" height="${H}" fill="${esc(opts.background)}"/>`);
   for (const g of opts.globals) {
-    parts.push(`<image href="${esc(g.href)}" width="${W}" height="${H}" preserveAspectRatio="${par(g.fit)}"/>`);
+    const op = g.opacity !== undefined && g.opacity < 1 ? ` opacity="${n(g.opacity)}"` : '';
+    parts.push(`<image href="${esc(g.href)}" width="${W}" height="${H}" preserveAspectRatio="${par(g.fit)}"${op}/>`);
   }
   for (const it of items) {
     const cx = n(it.x + it.w / 2);

@@ -13,6 +13,7 @@
   --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-display: 'Agbalumo', 'Georgia', serif;
   --radius: 16px;
+  --danger: #c0392b;
   color-scheme: light;
 }
 
@@ -57,7 +58,31 @@ button, input, select { font: inherit; color: inherit; }
 .stage { position: absolute; inset: 64px 16px 16px 80px; }
 .workspace-svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; overflow: visible; }
 .ws-item { cursor: grab; }
-.ws-item:active { cursor: grabbing; }
+.ws-item:active, .dragging .ws-item { cursor: grabbing; }
+.ws-item .hit { stroke: transparent; stroke-width: 2px; transition: stroke 0.12s; }
+.ws-item:hover:not(.selected) .hit { stroke: var(--guide-strong); }
+
+.sel-outline { fill: none; stroke: var(--accent); pointer-events: none; }
+.sel-pivot { fill: var(--accent); stroke: #fff; }
+.handle { cursor: nwse-resize; touch-action: none; }
+.handle.rotate { cursor: grab; }
+.handle-dot { fill: #fff; stroke: var(--accent); }
+.handle.rotate .handle-dot { fill: var(--accent); stroke: #fff; }
+.magnet-zone { fill: var(--accent-soft); }
+.magnet-ring { fill: none; stroke: var(--accent); }
+.workspace-svg { touch-action: none; }
+
+.sel-toolbar {
+  position: absolute; transform: translate(-50%, -100%); z-index: 5;
+  display: flex; gap: 2px; padding: 4px; border-radius: 14px; white-space: nowrap;
+}
+.sel-toolbar button {
+  border: none; background: transparent; border-radius: 10px; padding: 8px 10px; cursor: pointer;
+  display: flex; gap: 6px; align-items: center; font-size: 14px;
+}
+.sel-toolbar button:hover { background: var(--accent-soft); }
+.sel-toolbar button.danger { color: var(--danger); }
+@media (max-width: 700px) { .sel-toolbar button span { display: none; } }
 
 .anchor { fill: var(--guide); transition: r 0.15s, fill 0.15s; }
 .anchors.lit .anchor { fill: var(--accent); }
@@ -88,7 +113,7 @@ button, input, select { font: inherit; color: inherit; }
 .chip.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .chip.changed { font-weight: 600; }
 .chip.changed::after { content: ' •'; color: var(--accent); }
-.chip.danger { color: #c0392b; }
+.chip.danger { color: var(--danger); }
 .chip:disabled { opacity: 0.55; cursor: default; }
 
 .rail {
@@ -100,6 +125,8 @@ button, input, select { font: inherit; color: inherit; }
   font-size: 20px; cursor: pointer; display: grid; place-items: center;
 }
 .rail-btn.on { background: var(--accent-soft); }
+.rail-btn:disabled { opacity: 0.3; cursor: default; }
+.rail-sep { width: 28px; height: 1px; background: var(--line); margin: 2px 0; }
 .rail-btn.primary { background: var(--accent); color: #fff; font-size: 24px; }
 .rail-palette { display: grid; grid-template-columns: 1fr 1fr; width: 24px; height: 24px; border-radius: 6px; overflow: hidden; }
 .rail-palette i { display: block; }
@@ -176,3 +203,27 @@ button, input, select { font: inherit; color: inherit; }
 .export-buttons { display: flex; gap: 8px; }
 .field { display: grid; gap: 4px; font-size: 13px; color: var(--ink-soft); }
 .field select { padding: 6px; border-radius: 8px; border: 1px solid var(--line); background: transparent; }
+
+.palette-panel { display: grid; gap: 10px; }
+.palette-panel .field { display: grid; gap: 4px; font-size: 13px; color: var(--ink-soft); }
+.palette-panel .field select { width: 100%; }
+.segmented { display: flex; background: var(--line); border-radius: 12px; padding: 3px; gap: 3px; }
+.segmented button { flex: 1; border: none; background: transparent; border-radius: 9px; padding: 7px 8px; cursor: pointer; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.segmented button.on { background: var(--glass); box-shadow: 0 1px 3px rgba(0,0,0,0.12); font-weight: 600; }
+.segmented button:disabled { opacity: 0.45; cursor: default; }
+.swatch-list { display: grid; gap: 4px; }
+.swatch-row { display: flex; align-items: center; gap: 10px; border: none; background: transparent; border-radius: 10px; padding: 5px 6px; cursor: pointer; text-align: left; }
+.swatch-row:hover { background: var(--accent-soft); }
+.swatch-row.on { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.swatch-row .swatch { width: 28px; height: 28px; flex: none; }
+.swatch-name { flex: 1; }
+.swatch-role { font-size: 12px; color: var(--ink-soft); background: var(--line); border-radius: 8px; padding: 1px 7px; }
+.section-title { margin: 6px 0 -6px; font-weight: 600; font-size: 13px; }
+.harmony .swatch { border: none; cursor: pointer; padding: 0; }
+.swatch.on { box-shadow: 0 0 0 2px var(--accent); }
+.page { cursor: pointer; }
+.chip.layer { display: inline-flex; padding: 0; overflow: hidden; }
+.chip.layer button { border: none; background: transparent; padding: 6px 4px 6px 12px; cursor: pointer; }
+.chip.layer .layer-x { padding: 6px 10px 6px 6px; color: var(--ink-soft); }
+.attr-bar .hint { margin: 0; }
+.chip.layer button:first-child { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

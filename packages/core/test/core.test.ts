@@ -175,3 +175,27 @@ overrides:
     expect(titre.anchor.y).toBeCloseTo(0.75);
   });
 });
+
+import { snapBox, alignPoint } from '../src/snap.js';
+describe('aimantation', () => {
+  const format = { id: 'f', title: 'f', unit: 'px', width: 1000, height: 1000 } as never;
+  const anchors = [
+    { id: 'a', frame: 'repartition', x: 0.5, y: 0.5 },
+    { id: 'b', frame: 'repartition', x: 0.25, y: 0.25 },
+  ] as never;
+  it('attire le coin le plus proche dans le rayon', () => {
+    const s = snapBox({ x: 255, y: 262, w: 100, h: 50 }, anchors, format, 30);
+    expect(s?.anchor.id).toBe('b');
+    expect(s?.align).toBe('top-left');
+    expect(s?.dx).toBeCloseTo(-5);
+    expect(s?.dy).toBeCloseTo(-12);
+  });
+  it('préfère le centre à distance égale', () => {
+    const s = snapBox({ x: 450, y: 475, w: 100, h: 50 }, anchors, format, 30);
+    expect(s?.align).toBe('center');
+  });
+  it("ne s'accroche pas hors du rayon", () => {
+    expect(snapBox({ x: 600, y: 700, w: 10, h: 10 }, anchors, format, 30)).toBeNull();
+    expect(alignPoint({ x: 0, y: 0, w: 10, h: 20 }, 'bottom-right')).toEqual({ x: 10, y: 20 });
+  });
+});

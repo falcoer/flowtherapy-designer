@@ -133,7 +133,10 @@ export const ProjectSchema = z.object({
     .optional(),
   formats: z.array(z.string()).min(1),
   palette: z.string().optional(),
+  /** Couleur du fond (valeur ou palette.<rôle>). */
   background: z.string().optional(),
+  /** Deltas du fond : teinte, clarté, saturation. */
+  backgroundDeltas: z.record(z.string(), z.number()).default({}),
   globals: z.array(GlobalSchema).default([]),
   elements: z.array(PlacedSchema).default([]),
   values: z.record(z.string(), z.unknown()).default({}),

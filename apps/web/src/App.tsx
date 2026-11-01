@@ -1,5 +1,9 @@
 import {
+  alignPoint,
   anchorsFor,
+  clampDelta,
+  type Box,
+  type Snap,
   computeLayout,
   effectiveElement,
   FRAME_TITLES,
@@ -19,7 +23,8 @@ import { DEMO } from './demo';
 import { AttributeBar } from './components/AttributeBar';
 import { InsertPanel, Preview } from './components/InsertPanel';
 import { PalettePanel } from './components/PalettePanel';
-import { Workspace, clientToFormat } from './components/Workspace';
+import { BackgroundBar } from './components/BackgroundBar';
+import { BACKGROUND_ID, MAGNET_PX, Workspace, clientToFormat, formatPerPixel } from './components/Workspace';
 
 const FRAME_BUTTONS: Array<{ frame: AnchorFrame; icon: string }> = [
   { frame: 'repartition', icon: '⊕' },
@@ -135,9 +140,43 @@ export function App() {
     }
   };
 
+  // historique pour annuler / rétablir (l'état courant est aussi gardé dans une ref)
+  const current = useRef<Project | null>(null);
+  current.current = project;
+  const past = useRef<Project[]>([]);
+  const future = useRef<Project[]>([]);
+  const [, setHistoryTick] = useState(0);
+
   const update = useCallback((fn: (p: Project) => Project) => {
-    setProject((p) => (p ? fn(structuredClone(p)) : p));
+    const cur = current.current;
+    if (!cur) return;
+    const next = fn(structuredClone(cur));
+    past.current = [...past.current.slice(-99), cur];
+    future.current = [];
+    current.current = next;
+    setProject(next);
     setDirty(true);
+    setHistoryTick((t) => t + 1);
+  }, []);
+
+  const undo = useCallback(() => {
+    const prev = past.current.pop();
+    if (!prev || !current.current) return;
+    future.current.push(current.current);
+    current.current = prev;
+    setProject(prev);
+    setDirty(true);
+    setHistoryTick((t) => t + 1);
+  }, []);
+
+  const redo = useCallback(() => {
+    const next = future.current.pop();
+    if (!next || !current.current) return;
+    past.current.push(current.current);
+    current.current = next;
+    setProject(next);
+    setDirty(true);
+    setHistoryTick((t) => t + 1);
   }, []);
 
   /**
@@ -162,14 +201,104 @@ export function App() {
     [update, formatId],
   );
 
-  const onMoveEnd = (id: string, nx: number, ny: number) => {
+  /**
+   * Fin de déplacement. Accroché par l'aimant : le point de l'élément est posé
+   * sur l'ancrage. Lâché librement : ancrage le plus proche + petit décalage.
+   */
+  const onMoveEnd = (id: string, box: Box, snap: Snap | null) => {
     if (!format) return;
-    const a = nearestAnchor(anchorsFor(frame, format), nx, ny, format);
     patchElement(id, (el) => {
       const { dx: _dx, dy: _dy, ...deltas } = el.deltas;
+      if (snap) return { anchor: { frame, point: snap.anchor.id }, align: snap.align, deltas };
+      const p = alignPoint(box, el.align);
+      const a = nearestAnchor(anchorsFor(frame, format), p.x / format.width, p.y / format.height, format);
+      const dx = clampDelta('dx', p.x / format.width - a.x);
+      const dy = clampDelta('dy', p.y / format.height - a.y);
+      if (Math.abs(dx) > 0.0005) deltas.dx = Math.round(dx * 1e4) / 1e4;
+      if (Math.abs(dy) > 0.0005) deltas.dy = Math.round(dy * 1e4) / 1e4;
       return { anchor: { frame, point: a.id }, deltas };
     });
   };
+
+  /** Poignée de taille : on agrandit la mesure de base, le delta de taille reste un réglage fin. */
+  const onScale = (id: string, k: number) => {
+    const r = (v: number) => Math.round(v * k * 1e4) / 1e4;
+    patchElement(id, (el) => {
+      const kind = libMap.get(el.ref)?.type;
+      if (kind === 'text') return { size: { ...el.size, w: r(el.size.w ?? 0.8) }, style: { ...el.style, size: r(el.style.size ?? 0.06) } };
+      const size = Object.fromEntries(Object.entries(el.size).map(([key, v]) => [key, r(v as number)]));
+      if (!Object.keys(size).length) size.min = r(0.3);
+      return { size };
+    });
+  };
+
+  const onRotate = (id: string, deg: number) =>
+    patchElement(id, (el) => {
+      const deltas = { ...el.deltas };
+      if (deg === 0) delete deltas.rotation;
+      else deltas.rotation = deg;
+      return { deltas };
+    });
+
+  const removeElement = (id: string) => {
+    update((p) => ({
+      ...p,
+      elements: p.elements.filter((e) => e.id !== id),
+      overrides: Object.fromEntries(
+        Object.entries(p.overrides).map(([f, o]) => [f, Object.fromEntries(Object.entries(o).filter(([k]) => k !== id))]),
+      ),
+    }));
+    setSelectedId(null);
+    setToast('Élément supprimé (Annuler pour le récupérer)');
+  };
+
+  const duplicateElement = (id: string) => {
+    if (!project) return;
+    const src = project.elements.find((e) => e.id === id);
+    if (!src) return;
+    const copy: Placed = { ...structuredClone(src), id: uniqueId(project, src.id) };
+    copy.deltas = { ...copy.deltas, dx: clampDelta('dx', (copy.deltas.dx ?? 0) + 0.03), dy: clampDelta('dy', (copy.deltas.dy ?? 0) + 0.03) };
+    update((p) => ({ ...p, elements: [...p.elements, copy] }));
+    setSelectedId(copy.id);
+  };
+
+  /** L'ordre de la liste est l'ordre d'empilement : le dernier est devant. */
+  const moveLayer = (id: string, step: 1 | -1) => {
+    if (!project) return;
+    const i = project.elements.findIndex((e) => e.id === id);
+    const j = i + step;
+    if (i < 0 || j < 0 || j >= project.elements.length) {
+      setToast(step > 0 ? 'Déjà au premier plan' : "Déjà à l'arrière-plan");
+      return;
+    }
+    update((p) => {
+      const els = [...p.elements];
+      [els[i], els[j]] = [els[j]!, els[i]!];
+      return { ...p, elements: els };
+    });
+  };
+
+  // clavier : Suppr, Échap, Cmd/Ctrl+Z, Cmd/Ctrl+Maj+Z
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest('input, textarea, select, [contenteditable]')) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+      } else if (mod && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        redo();
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId && selectedId !== BACKGROUND_ID) {
+        e.preventDefault();
+        removeElement(selectedId);
+      } else if (e.key === 'Escape') setSelectedId(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   // glisser depuis la bibliothèque, suivi au niveau de la fenêtre (tactile compris)
   useEffect(() => {
@@ -190,11 +319,15 @@ export function App() {
       if (!inside) {
         if (g.el.type === 'image') {
           update((pr) => ({ ...pr, globals: [...pr.globals, { ref, fit: 'cover', deltas: {} }] }));
-          setToast('Image attachée au document entier');
+          setSelectedId(BACKGROUND_ID);
+          setInsertOpen(false);
+          setToast('Image attachée au fond');
         }
         return;
       }
-      const a = nearestAnchor(anchorsFor(frame, format), nx, ny, format);
+      const target = ghostTargetAt(svg, format, frame, e.clientX, e.clientY);
+      const a = target ?? nearestAnchor(anchorsFor(frame, format), nx, ny, format);
+      const free: Record<string, number> = target ? {} : { dx: clampDelta('dx', nx - a.x), dy: clampDelta('dy', ny - a.y) };
       const id = uniqueId(project, g.el.id);
       const el: Placed = {
         id,
@@ -204,7 +337,7 @@ export function App() {
         size: g.el.type === 'text' ? { w: 0.8 } : { w: 0.4 },
         fit: 'contain',
         style: g.el.type === 'text' ? { size: 0.05, color: 'palette.texte' } : {},
-        deltas: {},
+        deltas: free,
       };
       update((pr) => ({ ...pr, elements: [...pr.elements, el] }));
       setSelectedId(id);
@@ -268,13 +401,18 @@ export function App() {
           frame={frame}
           showGuides={showGuides}
           highlightAnchors={ghost !== null}
+          ghostTarget={ghost && svgRef.current ? ghostTargetAt(svgRef.current, format, frame, ghost.x, ghost.y) : null}
           selectedId={selectedId}
           svgRef={svgRef}
           onSelect={(id) => {
             setSelectedId(id);
-            setPaletteOpen(false);
           }}
           onMoveEnd={onMoveEnd}
+          onScale={onScale}
+          onRotate={onRotate}
+          onDuplicate={duplicateElement}
+          onLayer={moveLayer}
+          onDelete={removeElement}
         />
       </main>
 
@@ -340,15 +478,22 @@ export function App() {
         <button className={showGuides ? 'rail-btn on' : 'rail-btn'} onClick={() => setShowGuides((v) => !v)} title="Afficher les repères">
           ⌗
         </button>
-        {palette && (
+        {library.some((el) => el.type === 'palette') && (
           <button className={paletteOpen ? 'rail-btn on' : 'rail-btn'} onClick={() => setPaletteOpen((v) => !v)} title="Palette">
             <span className="rail-palette">
-              {palette.colors.slice(0, 4).map((c, i) => (
+              {(palette?.colors ?? []).slice(0, 4).map((c, i) => (
                 <i key={i} style={{ background: c.hex }} />
               ))}
             </span>
           </button>
         )}
+        <span className="rail-sep" />
+        <button className="rail-btn" onClick={undo} disabled={!past.current.length} title="Annuler (Cmd/Ctrl+Z)">
+          ↶
+        </button>
+        <button className="rail-btn" onClick={redo} disabled={!future.current.length} title="Rétablir (Cmd/Ctrl+Maj+Z)">
+          ↷
+        </button>
       </nav>
 
       {exportOpen && (
@@ -383,10 +528,45 @@ export function App() {
         </div>
       )}
 
-      {paletteOpen && palette && (
+      {paletteOpen && (
         <div className="popover glass">
-          <PalettePanel palette={palette} />
+          <PalettePanel
+            palette={palette}
+            palettes={library.filter((el): el is PaletteElement => el.type === 'palette')}
+            textSelected={selectedItem?.kind === 'text' ? selectedItem.id : null}
+            textColor={selected ? effectiveElement(project, formatId, selected).style.color : undefined}
+            background={project.background}
+            onPalette={(id) => update((p) => ({ ...p, palette: id }))}
+            onTextColor={(color) => selected && patchElement(selected.id, (el) => ({ style: { ...el.style, color } }))}
+            onBackground={(background) => update((p) => ({ ...p, background }))}
+          />
         </div>
+      )}
+
+      {selectedId === BACKGROUND_ID && !insertOpen && (
+        <BackgroundBar
+          project={project}
+          library={libMap}
+          onColor={() => setPaletteOpen(true)}
+          onDelta={(key, value) =>
+            update((p) => {
+              const d = { ...p.backgroundDeltas };
+              if (value === 0) delete d[key];
+              else d[key] = value;
+              return { ...p, backgroundDeltas: d };
+            })
+          }
+          onLayerDelta={(i, key, value) =>
+            update((p) => {
+              const g = p.globals[i];
+              if (!g) return p;
+              if (value === 0) delete g.deltas[key];
+              else g.deltas[key] = value;
+              return p;
+            })
+          }
+          onRemoveLayer={(i) => update((p) => ({ ...p, globals: p.globals.filter((_, j) => j !== i) }))}
+        />
       )}
 
       {selected && selectedItem && !insertOpen && (
@@ -405,16 +585,8 @@ export function App() {
               return { deltas };
             })
           }
-          onRemove={() => {
-            update((p) => ({
-              ...p,
-              elements: p.elements.filter((e) => e.id !== selected.id),
-              overrides: Object.fromEntries(
-                Object.entries(p.overrides).map(([f, o]) => [f, Object.fromEntries(Object.entries(o).filter(([k]) => k !== selected.id))]),
-              ),
-            }));
-            setSelectedId(null);
-          }}
+          onRemove={() => removeElement(selected.id)}
+          onColor={() => setPaletteOpen(true)}
         />
       )}
 
@@ -465,6 +637,14 @@ export function App() {
       {toast && <div className="toast">{toast}</div>}
     </div>
   );
+}
+
+/** Ancrage attiré par le pointeur (glisser depuis la bibliothèque), s'il est assez proche. */
+function ghostTargetAt(svg: SVGSVGElement, format: Format, frame: AnchorFrame, clientX: number, clientY: number) {
+  const p = clientToFormat(svg, clientX, clientY);
+  const radius = MAGNET_PX * formatPerPixel(svg);
+  const a = nearestAnchor(anchorsFor(frame, format), p.x / format.width, p.y / format.height, format);
+  return Math.hypot(a.x * format.width - p.x, a.y * format.height - p.y) <= radius ? a : null;
 }
 
 function uniqueId(project: Project, base: string): string {

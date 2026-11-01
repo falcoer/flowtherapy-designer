@@ -20,7 +20,7 @@ export const DELTA_SPECS: DeltaSpec[] = [
   { key: 'size', label: 'Taille', min: -1, max: 1, step: 0.01, describe: (v) => `×${(2 ** v).toFixed(2)}` },
   { key: 'dx', label: 'Décalage horizontal', min: -0.25, max: 0.25, step: 0.005, describe: pct },
   { key: 'dy', label: 'Décalage vertical', min: -0.25, max: 0.25, step: 0.005, describe: pct },
-  { key: 'rotation', label: 'Rotation', min: -45, max: 45, step: 1, unit: '°', describe: (v) => `${v > 0 ? '+' : ''}${v}°` },
+  { key: 'rotation', label: 'Rotation', min: -180, max: 180, step: 1, unit: '°', describe: (v) => `${v > 0 ? '+' : ''}${v}°` },
   { key: 'opacity', label: 'Opacité', min: -1, max: 0, step: 0.01, describe: pct },
   { key: 'color.hue', label: 'Teinte', min: -180, max: 180, step: 1, unit: '°', describe: (v) => `${v > 0 ? '+' : ''}${v}°` },
   { key: 'color.lightness', label: 'Clarté', min: -0.5, max: 0.5, step: 0.01, describe: pct },
