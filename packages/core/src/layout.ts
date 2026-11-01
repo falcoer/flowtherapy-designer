@@ -1,6 +1,7 @@
 import { resolveAnchor } from './anchors.js';
 import { shiftColor } from './color.js';
 import type { Gradient } from './gradient.js';
+import { effectsOf, type Effects } from './effects.js';
 import type { ShapeKind } from './shapes.js';
 import { clampDelta, sizeFactor } from './deltas.js';
 import type { Format } from './formats.js';
@@ -24,6 +25,8 @@ export interface LayoutItem {
   h: number;
   rotation: number;
   opacity: number;
+  /** Effets (dilution, flou, couleur), absents si neutres. */
+  effects?: Effects;
   /** Point de l'élément posé sur l'ancrage (pivot du redimensionnement). */
   align: Placed['align'];
   href?: string;
@@ -113,6 +116,7 @@ export function computeLayout(project: Project, formatId: string, ctx: LayoutCon
       opacity: Math.max(0, 1 + clampDelta('opacity', d.opacity ?? 0)),
       fit: el.fit,
       align: el.align,
+      effects: effectsOf(d),
     };
     const colorDelta = { h: d['color.hue'], l: d['color.lightness'], c: d['color.chroma'] };
 

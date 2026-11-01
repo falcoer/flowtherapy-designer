@@ -26,7 +26,8 @@ import { PalettePanel } from './components/PalettePanel';
 import { BackgroundBar } from './components/BackgroundBar';
 import { GridBar } from './components/GridBar';
 import { FloatingPanel, type Dock } from './components/FloatingPanel';
-import { PaletteIcon, StyleIcon } from './components/Icons';
+import { EffectsIcon, PaletteIcon, StyleIcon } from './components/Icons';
+import { EffectsPanel } from './components/EffectsPanel';
 import { FormatMenu } from './components/FormatMenu';
 import { StylePanel } from './components/StylePanel';
 import { BACKGROUND_ID, MAGNET_PX, Workspace, clientToFormat, formatPerPixel } from './components/Workspace';
@@ -54,6 +55,8 @@ export function App() {
   const [dock, setDock] = useState<Dock>(null);
   const [styleOpen, setStyleOpen] = useState(false);
   const [styleDock, setStyleDock] = useState<Dock>(null);
+  const [fxOpen, setFxOpen] = useState(false);
+  const [fxDock, setFxDock] = useState<Dock>(null);
   const [yamlOpen, setYamlOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [type, setType] = useState('');
@@ -397,7 +400,7 @@ export function App() {
   const palette = project.palette ? (libMap.get(`palette/${project.palette}`) as PaletteElement | undefined) : undefined;
 
   return (
-    <div className={['app', paletteOpen && dock ? `dock-${dock}` : '', styleOpen && selected && styleDock ? `dock-${styleDock}` : ''].join(' ')}>
+    <div className={['app', paletteOpen && dock ? `dock-${dock}` : '', styleOpen && selected && styleDock ? `dock-${styleDock}` : '', fxOpen && selectedId && fxDock ? `dock-${fxDock}` : ''].join(' ')}>
       <main className="stage">
         <Workspace
           format={format}
@@ -420,7 +423,14 @@ export function App() {
           onLayer={moveLayer}
           onDelete={removeElement}
           onColor={() => setPaletteOpen(true)}
-          onStyle={() => setStyleOpen(true)}
+          onStyle={() => {
+            setFxOpen(false);
+            setStyleOpen(true);
+          }}
+          onEffects={() => {
+            setStyleOpen(false);
+            setFxOpen(true);
+          }}
         />
       </main>
 
@@ -568,6 +578,10 @@ export function App() {
           project={project}
           library={libMap}
           onColor={() => setPaletteOpen(true)}
+          onEffects={() => {
+            setStyleOpen(false);
+            setFxOpen(true);
+          }}
           onDelta={(key, value) =>
             update((p) => {
               const d = { ...p.backgroundDeltas };
@@ -593,21 +607,50 @@ export function App() {
         />
       )}
 
-      {styleOpen && selected && selectedItem && (
+      {styleOpen && selected && selectedItem?.kind === 'text' && (
         <FloatingPanel id="style" icon={<StyleIcon />} label="Style" defaultDock="left" onClose={() => setStyleOpen(false)} onDock={setStyleDock}>
           <StylePanel
             element={effectiveElement(project, formatId, selected)}
             kind={selectedItem.kind}
             fonts={library.flatMap((el) => (el.type === 'font' ? [{ id: el.id, family: el.family }] : []))}
             onStyle={(patch) => patchElement(selected.id, (el) => ({ style: { ...el.style, ...patch } }))}
-            onOpacity={(v) =>
-              patchElement(selected.id, (el) => {
-                const deltas = { ...el.deltas };
-                if (Math.abs(v) < 0.005) delete deltas.opacity;
-                else deltas.opacity = Math.round(v * 100) / 100;
-                return { deltas };
-              })
-            }
+          />
+        </FloatingPanel>
+      )}
+
+      {fxOpen && (selected || selectedId === BACKGROUND_ID) && (
+        <FloatingPanel
+          id="effects"
+          icon={<EffectsIcon />}
+          label={selected ? 'Effets' : 'Effets du fond'}
+          defaultDock="left"
+          onClose={() => setFxOpen(false)}
+          onDock={setFxDock}
+        >
+          <EffectsPanel
+            deltas={selected ? effectiveElement(project, formatId, selected).deltas : project.backgroundDeltas}
+            onChange={(key, v) => {
+              const set = (deltas: Record<string, number>) => {
+                const d = { ...deltas };
+                // sur un format secondaire, 0 doit rester écrit pour masquer la valeur du format principal
+                if (Math.abs(v) < 0.005) {
+                  if (formatId === project.formats[0]) delete d[key];
+                  else d[key] = 0;
+                } else d[key] = key === 'fx.hue' ? Math.round(v) : Math.round(v * 100) / 100;
+                return d;
+              };
+              if (selected) patchElement(selected.id, (el) => ({ deltas: set(el.deltas) }));
+              else update((p) => ({ ...p, backgroundDeltas: set(p.backgroundDeltas) }));
+            }}
+            onReset={() => {
+              const isFx = (k: string) => k === 'opacity' || k.startsWith('fx.');
+              const clear = (deltas: Record<string, number>) =>
+                selected && formatId !== project.formats[0]
+                  ? Object.fromEntries(Object.entries(deltas).map(([k, v]) => [k, isFx(k) ? 0 : v]))
+                  : Object.fromEntries(Object.entries(deltas).filter(([k]) => !isFx(k)));
+              if (selected) patchElement(selected.id, (el) => ({ deltas: clear(el.deltas) }));
+              else update((p) => ({ ...p, backgroundDeltas: clear(p.backgroundDeltas) }));
+            }}
           />
         </FloatingPanel>
       )}

@@ -264,3 +264,36 @@ elements:
     expect(gradientSpec({ type: 'sphere', stops: ['#fff', '#000'], angle: 180 }).attrs.fx).toBeLessThan(0.5);
   });
 });
+
+import { effectsOf, effectPrimitives } from '../src/index.js';
+describe('effets', () => {
+  it('ignore les deltas neutres et borne les valeurs', () => {
+    expect(effectsOf({ opacity: -0.3, size: 0.2 })).toBeUndefined();
+    expect(effectsOf({ 'fx.blur': 4 })?.blur).toBe(1);
+  });
+  it('enchaîne couleur, dilution puis flou', () => {
+    const fx = effectsOf({ 'fx.saturation': -1, 'fx.dilution': 0.4, 'fx.blur': 0.5 })!;
+    const p = effectPrimitives(fx, 1000);
+    expect(p.map((x) => x.tag)).toEqual(['feColorMatrix', 'feComponentTransfer', 'feGaussianBlur']);
+    expect(p[1]!.linear).toEqual({ slope: 0.6, intercept: 0.4 });
+    expect(p[2]!.attrs.stdDeviation).toBe(10);
+  });
+  it('rend le filtre sur l\'élément et sur le fond à l\'export', () => {
+    const library = new Map<string, never>([['shape/rond', { id: 'rond', type: 'shape', shape: 'ellipse', tags: [] } as never]]);
+    const project = parseProject(`
+id: p
+formats: [sq]
+backgroundDeltas: { fx.blur: 0.5 }
+elements:
+  - id: rond
+    ref: shape/rond
+    anchor: { frame: repartition, point: h1/2 v1/2 }
+    deltas: { fx.dilution: 0.5 }
+`);
+    const items = computeLayout(project, 'sq', { formats: [square], library });
+    const svg = renderSvg(square, items, { background: '#fff', globals: [], effects: effectsOf(project.backgroundDeltas) });
+    expect(svg).toContain('<filter id="fx-rond"');
+    expect(svg).toContain('<g filter="url(#fx-rond)">');
+    expect(svg).toMatch(/<filter id="fx-bg" filterUnits="userSpaceOnUse" x="-\d/);
+  });
+});

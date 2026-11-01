@@ -1,4 +1,5 @@
 import type { Format } from './formats.js';
+import { blurRadius, effectFilterSvg, type Effects } from './effects.js';
 import { gradientSvg, type Gradient } from './gradient.js';
 import type { LayoutItem } from './layout.js';
 import { shapeSvg } from './shapes.js';
@@ -14,6 +15,8 @@ export interface RenderOptions {
   gradient?: Gradient;
   /** Images attachées au document entier (déjà résolues en URL ou data URI). */
   globals: Array<{ href: string; fit: 'contain' | 'cover' | 'stretch'; opacity?: number }>;
+  /** Effets appliqués au fond (couleur, dégradé et images). */
+  effects?: Effects;
   /** Règles CSS ajoutées (polices @font-face). */
   css?: string;
 }
@@ -33,16 +36,26 @@ export function renderSvg(format: Format, items: LayoutItem[], opts: RenderOptio
   if (opts.css) parts.push(`<style>${opts.css}</style>`);
   const grad = opts.gradient ? gradientSvg('bg', opts.gradient) : '';
   parts.push(`<defs><clipPath id="f"><rect width="${W}" height="${H}"/></clipPath>${grad}</defs>`);
-  parts.push(`<g clip-path="url(#f)"><rect width="${W}" height="${H}" fill="${grad ? 'url(#bg)' : esc(opts.background)}"/>`);
+  const minSide = Math.min(W, H);
+  // avec un flou, le fond déborde du format pour que ses bords restent pleins
+  const m = n(3 * blurRadius(opts.effects, minSide));
+  const bgFx = opts.effects ? effectFilterSvg('fx-bg', opts.effects, minSide, { x: -m, y: -m, w: W + 2 * m, h: H + 2 * m }) : '';
+  parts.push(`<g clip-path="url(#f)">${bgFx ? `<defs>${bgFx}</defs><g filter="url(#fx-bg)">` : ''}`);
+  parts.push(`<rect x="${-m}" y="${-m}" width="${n(W + 2 * m)}" height="${n(H + 2 * m)}" fill="${grad ? 'url(#bg)' : esc(opts.background)}"/>`);
   for (const g of opts.globals) {
     const op = g.opacity !== undefined && g.opacity < 1 ? ` opacity="${n(g.opacity)}"` : '';
-    parts.push(`<image href="${esc(g.href)}" width="${W}" height="${H}" preserveAspectRatio="${par(g.fit)}"${op}/>`);
+    parts.push(`<image href="${esc(g.href)}" x="${-m}" y="${-m}" width="${n(W + 2 * m)}" height="${n(H + 2 * m)}" preserveAspectRatio="${par(g.fit)}"${op}/>`);
   }
+  if (bgFx) parts.push('</g>');
   for (const it of items) {
     const cx = n(it.x + it.w / 2);
     const cy = n(it.y + it.h / 2);
     const tr = it.rotation ? ` transform="rotate(${it.rotation} ${cx} ${cy})"` : '';
+    const fid = `fx-${it.id}`;
+    if (it.effects) parts.push(`<defs>${effectFilterSvg(fid, it.effects, minSide)}</defs>`);
     parts.push(`<g opacity="${n(it.opacity)}"${tr}>`);
+    // le filtre s'applique dans un groupe intérieur, avant la rotation
+    if (it.effects) parts.push(`<g filter="url(#${fid})">`);
     const gid = `g-${it.id}`;
     if (it.gradient) parts.push(`<defs>${gradientSvg(gid, it.gradient)}</defs>`);
     const fill = it.gradient ? `url(#${gid})` : esc(it.color ?? '#111');
@@ -66,6 +79,7 @@ export function renderSvg(format: Format, items: LayoutItem[], opts: RenderOptio
         } fill="${fill}" text-anchor="${anchor}">${lines}</text>`,
       );
     }
+    if (it.effects) parts.push('</g>');
     parts.push('</g>');
   }
   parts.push('</g></svg>');

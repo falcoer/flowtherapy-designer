@@ -6,6 +6,7 @@ interface Props {
   project: Project;
   library: Map<string, LibraryElement>;
   onColor: () => void;
+  onEffects: () => void;
   onDelta: (key: string, value: number) => void;
   onLayerDelta: (index: number, key: string, value: number) => void;
   onRemoveLayer: (index: number) => void;
@@ -19,7 +20,7 @@ const COLOR_KEYS = ['color.hue', 'color.lightness', 'color.chroma'];
  * Le fond est un élément fixe : on ne le déplace pas, mais on règle sa couleur,
  * ses deltas, et les images attachées au document entier.
  */
-export function BackgroundBar({ project, library, onColor, onDelta, onLayerDelta, onRemoveLayer, onRotateGradient, onRemoveGradient }: Props) {
+export function BackgroundBar({ project, library, onColor, onEffects, onDelta, onLayerDelta, onRemoveLayer, onRotateGradient, onRemoveGradient }: Props) {
   // cible : 'color.*' pour le fond, 'layer:<i>' pour l'opacité d'une image de fond
   const [active, setActive] = useState<string>('color.lightness');
   const layer = active.startsWith('layer:') ? Number(active.slice(6)) : null;
@@ -71,7 +72,7 @@ export function BackgroundBar({ project, library, onColor, onDelta, onLayerDelta
             </span>
           );
         })}
-        <button className="chip" disabled title="Arrive avec les shaders GLSL (phase 2)">
+        <button className={`chip ${Object.keys(project.backgroundDeltas).some((k) => k.startsWith('fx.')) ? 'changed' : ''}`} onClick={onEffects}>
           Effets
         </button>
       </div>

@@ -185,3 +185,54 @@ export const DropIcon = () => (
     <path d="M12 4c3 4 5.5 6.6 5.5 9.5a5.5 5.5 0 0 1-11 0C6.5 10.6 9 8 12 4z" fill="currentColor" fillOpacity="0.3" />
   </I>
 );
+
+/* Effets */
+export const EffectsIcon = () => (
+  <I>
+    <path d="M12 3.5l1.9 4.6 4.6 1.9-4.6 1.9-1.9 4.6-1.9-4.6-4.6-1.9 4.6-1.9z" fill="currentColor" fillOpacity="0.25" />
+    <path d="M18.5 15.5l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z" />
+  </I>
+);
+export const OpacityIcon = () => (
+  <I>
+    <circle cx="12" cy="12" r="8" />
+    <path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" fillOpacity="0.5" stroke="none" />
+  </I>
+);
+export const DilutionIcon = () => (
+  <I>
+    <path d="M9 3.5c2 2.7 3.6 4.4 3.6 6.4a3.6 3.6 0 0 1-7.2 0c0-2 1.6-3.7 3.6-6.4z" fill="currentColor" fillOpacity="0.55" />
+    <path d="M4 17c2.7-1.3 5.3 1.3 8 0s5.3 1.3 8 0M4 20.5c2.7-1.3 5.3 1.3 8 0s5.3 1.3 8 0" strokeOpacity="0.55" />
+  </I>
+);
+export const BlurIcon = () => (
+  <I>
+    <circle cx="12" cy="12" r="3.5" fill="currentColor" fillOpacity="0.6" stroke="none" />
+    <circle cx="12" cy="12" r="6" strokeOpacity="0.45" strokeDasharray="2 2.4" />
+    <circle cx="12" cy="12" r="8.6" strokeOpacity="0.25" strokeDasharray="1.5 3" />
+  </I>
+);
+export const SaturationIcon = () => (
+  <I>
+    <path d="M4 18h16L20 6z" fill="currentColor" fillOpacity="0.3" />
+  </I>
+);
+export const HueIcon = () => (
+  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden>
+    <circle cx="12" cy="12" r="7.5" fill="none" stroke="url(#hue-ring)" strokeWidth="3.4" />
+    <defs>
+      <linearGradient id="hue-ring" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stopColor="#e5484d" />
+        <stop offset="0.35" stopColor="#f5d90a" />
+        <stop offset="0.65" stopColor="#30a46c" />
+        <stop offset="1" stopColor="#3e63dd" />
+      </linearGradient>
+    </defs>
+  </svg>
+);
+export const ContrastIcon = () => (
+  <I>
+    <circle cx="12" cy="12" r="8" />
+    <path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor" stroke="none" />
+  </I>
+);

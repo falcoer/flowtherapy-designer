@@ -5,6 +5,7 @@ import {
   expandRecords,
   formatPixelSize,
   renderSvg,
+  effectsOf,
   globalOpacity,
   resolveBackground,
   type Format,
@@ -74,6 +75,7 @@ export class Exporter {
     return renderSvg(format, items, {
       background: resolveBackground(project, palette),
       gradient: project.backgroundGradient,
+      effects: effectsOf(project.backgroundDeltas),
       globals,
       css: await this.fontCss(project, library),
     });

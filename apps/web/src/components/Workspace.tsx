@@ -15,13 +15,18 @@ import {
   type Project,
   alignPoint,
   snapBox,
+  blurRadius,
+  effectPrimitives,
+  effectsOf,
+  filterRegion,
+  type Effects,
   type Align,
   type Box,
   type Snap,
 } from '@ftd/core';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { fileUrl } from '../api';
-import { BackIcon, DropIcon, DuplicateIcon, FrontIcon, StyleIcon, TrashIcon } from './Icons';
+import { BackIcon, DropIcon, DuplicateIcon, EffectsIcon, FrontIcon, StyleIcon, TrashIcon } from './Icons';
 
 interface Props {
   format: Format;
@@ -48,6 +53,7 @@ interface Props {
   onDelete: (id: string) => void;
   onColor: (id: string) => void;
   onStyle: (id: string) => void;
+  onEffects: (id: string) => void;
 }
 
 const STROKE: Record<GuideLine['weight'], { w: number; dash?: string; color: string }> = {
@@ -272,6 +278,9 @@ export function Workspace(props: Props) {
   };
 
   const bg = resolveBackground(project, palette);
+  const minSide = Math.min(W, H);
+  const bgFx = effectsOf(project.backgroundDeltas);
+  const bgM = 3 * blurRadius(bgFx, minSide);
   const bgSelected = selectedId === BACKGROUND_ID;
   const dragging = live !== null && gesture.current?.kind === 'move';
   const lit = highlightAnchors || dragging;
@@ -294,7 +303,10 @@ export function Workspace(props: Props) {
         ...(selected.kind === 'text' || selected.kind === 'shape'
           ? [{ key: 'color', title: 'Couleur', icon: <DropIcon />, run: () => props.onColor(selected.id) }]
           : []),
-        { key: 'style', title: selected.kind === 'text' ? 'Police et style' : 'Style', icon: <StyleIcon />, run: () => props.onStyle(selected.id) },
+        ...(selected.kind === 'text'
+          ? [{ key: 'style', title: 'Police et style', icon: <StyleIcon />, run: () => props.onStyle(selected.id) }]
+          : []),
+        { key: 'fx', title: 'Effets', icon: <EffectsIcon />, run: () => props.onEffects(selected.id) },
         { key: 'front', title: "Avancer d'un plan", icon: <FrontIcon />, run: () => props.onLayer(selected.id, 1) },
         { key: 'back', title: "Reculer d'un plan", icon: <BackIcon />, run: () => props.onLayer(selected.id, -1) },
         { key: 'del', title: 'Supprimer (touche Suppr)', icon: <TrashIcon />, run: () => props.onDelete(selected.id), danger: true },
@@ -338,7 +350,31 @@ export function Workspace(props: Props) {
           }}
         />
         <g clipPath="url(#format-clip)">
-          {project.globals.map((g, i) => {
+          {bgFx && (
+            <g pointerEvents="none" filter="url(#fx-bg)">
+              <defs>
+                <EffectFilter id="fx-bg" fx={bgFx} minSide={minSide} region={{ x: -bgM, y: -bgM, w: W + 2 * bgM, h: H + 2 * bgM }} />
+              </defs>
+              <rect x={-bgM} y={-bgM} width={W + 2 * bgM} height={H + 2 * bgM} fill={project.backgroundGradient ? 'url(#bg-gradient)' : bg} />
+              {project.globals.map((g, i) => {
+                const el = library.get(g.ref);
+                if (el?.type !== 'image') return null;
+                return (
+                  <image
+                    key={i}
+                    href={fileUrl(el.source)}
+                    x={-bgM}
+                    y={-bgM}
+                    width={W + 2 * bgM}
+                    height={H + 2 * bgM}
+                    opacity={globalOpacity(g.deltas)}
+                    preserveAspectRatio={g.fit === 'contain' ? 'xMidYMid meet' : g.fit === 'stretch' ? 'none' : 'xMidYMid slice'}
+                  />
+                );
+              })}
+            </g>
+          )}
+          {!bgFx && project.globals.map((g, i) => {
             const el = library.get(g.ref);
             if (el?.type !== 'image') return null;
             return (
@@ -366,7 +402,16 @@ export function Workspace(props: Props) {
                 opacity={it.opacity}
                 onPointerDown={(e) => begin(e, it, 'move')}
               >
-                {renderItem(it)}
+                {it.effects ? (
+                  <g filter={`url(#fx-${it.id})`}>
+                    <defs>
+                      <EffectFilter id={`fx-${it.id}`} fx={it.effects} minSide={minSide} />
+                    </defs>
+                    {renderItem(it)}
+                  </g>
+                ) : (
+                  renderItem(it)
+                )}
                 <rect className="hit" x={it.x} y={it.y} width={it.w} height={it.h} fill="transparent" vectorEffect="non-scaling-stroke" />
               </g>
             );
@@ -532,6 +577,28 @@ export function GradientDef({ id, gradient }: { id: string; gradient: Gradient }
         <stop key={i} offset={st.offset} stopColor={st.color} />
       ))}
     </Tag>
+  );
+}
+
+/** Filtre d'effets SVG (même chaîne que l'export). */
+function EffectFilter({ id, fx, minSide, region }: { id: string; fx: Effects; minSide: number; region?: { x: number; y: number; w: number; h: number } }) {
+  return (
+    <filter id={id} {...filterRegion(region)} colorInterpolationFilters="sRGB">
+      {effectPrimitives(fx, minSide).map((p, i) => {
+        if (p.tag === 'feComponentTransfer' && p.linear) {
+          const f = { type: 'linear' as const, slope: p.linear.slope, intercept: p.linear.intercept };
+          return (
+            <feComponentTransfer key={i}>
+              <feFuncR {...f} />
+              <feFuncG {...f} />
+              <feFuncB {...f} />
+            </feComponentTransfer>
+          );
+        }
+        const Tag = p.tag;
+        return <Tag key={i} {...(p.attrs as Record<string, string>)} />;
+      })}
+    </filter>
   );
 }
 

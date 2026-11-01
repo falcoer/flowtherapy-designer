@@ -5,7 +5,6 @@ interface Props {
   kind: 'image' | 'text' | 'shape' | 'missing';
   fonts: Array<{ id: string; family: string }>;
   onStyle: (patch: Partial<Placed['style']>) => void;
-  onOpacity: (delta: number) => void;
 }
 
 const ALIGN_ICONS: Array<['start' | 'middle' | 'end', string, string]> = [
@@ -21,9 +20,8 @@ const BUILTIN = [
   { id: 'Georgia', family: 'Georgia' },
 ];
 
-/** Police et style (texte) ; opacité pour tous les éléments. */
-export function StylePanel({ element, kind, fonts, onStyle, onOpacity }: Props) {
-  const opacity = 1 + (element.deltas.opacity ?? 0);
+/** Police et style d'un texte (l'opacité est dans les effets). */
+export function StylePanel({ element, kind, fonts, onStyle }: Props) {
   const weight = element.style.weight ?? 400;
   const align = element.style.align ?? 'middle';
   return (
@@ -62,14 +60,6 @@ export function StylePanel({ element, kind, fonts, onStyle, onOpacity }: Props) 
           </div>
         </>
       )}
-      <label className="opacity-row" title="Opacité">
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
-          <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.8" />
-          <path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" fillOpacity="0.5" />
-        </svg>
-        <input type="range" min={0} max={1} step={0.01} value={opacity} onChange={(e) => onOpacity(Number(e.target.value) - 1)} />
-        <strong>{Math.round(opacity * 100)} %</strong>
-      </label>
     </div>
   );
 }
