@@ -86,6 +86,8 @@ export const GradientSchema = z.object({
   type: z.enum(['linear', 'radial', 'sphere']).default('linear'),
   stops: z.array(z.string()).min(2),
   angle: z.number().default(180),
+  /** Paliers nets (2 à 12) ; absent = lissé. */
+  bands: z.number().int().min(2).max(12).optional(),
 });
 
 export const LibraryElementSchema = z.discriminatedUnion('type', [

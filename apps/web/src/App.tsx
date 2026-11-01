@@ -56,6 +56,7 @@ export function App() {
   const [styleOpen, setStyleOpen] = useState(false);
   const [styleDock, setStyleDock] = useState<Dock>(null);
   const [fxOpen, setFxOpen] = useState(false);
+  const [colorSelection, setColorSelection] = useState<string[] | null>(null);
   const [fxDock, setFxDock] = useState<Dock>(null);
   const [yamlOpen, setYamlOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -546,6 +547,8 @@ export function App() {
             elementGradient={selected ? effectiveElement(project, formatId, selected).style.gradient : undefined}
             background={project.background}
             backgroundGradient={project.backgroundGradient}
+            selection={colorSelection}
+            onSelection={setColorSelection}
             onPalette={(id) => update((p) => ({ ...p, palette: id }))}
             onColor={(target, color) => {
               if (target === 'background') update((p) => ({ ...p, background: color, backgroundGradient: undefined }));
@@ -555,12 +558,11 @@ export function App() {
               if (target === 'background') update((p) => ({ ...p, backgroundGradient: gradient }));
               else if (selected) patchElement(selected.id, (el) => ({ style: { ...el.style, gradient } }));
             }}
-            onSavePalette={async (stops) => {
+            onSavePalette={async (title, colors) => {
               try {
-                const n = library.filter((el) => el.type === 'palette').length + 1;
-                await api.createPalette({ title: `Dégradé ${n}`, colors: stops.map((hex) => ({ hex })), tags: ['dégradé'] });
+                await api.createPalette({ title, colors: colors.map((hex) => ({ hex })) });
                 setLibrary(await api.library());
-                setToast(`Palette « Dégradé ${n} » enregistrée dans la bibliothèque`);
+                setToast(`Palette « ${title} » enregistrée`);
               } catch (e) {
                 setToast(`Enregistrement impossible : ${(e as Error).message}`);
               }

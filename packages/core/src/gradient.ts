@@ -4,6 +4,8 @@
  * est au départ : en haut à gauche pour la sphère, au centre pour le radial.
  */
 
+import { sampleColors } from './color.js';
+
 export type GradientType = 'linear' | 'radial' | 'sphere';
 
 export interface Gradient {
@@ -11,6 +13,8 @@ export interface Gradient {
   stops: string[];
   /** Linéaire : 180 = de haut en bas. Sphère : 180 = lumière en haut à gauche, tourne avec l'angle. */
   angle: number;
+  /** Paliers : nombre de bandes nettes ; absent = dégradé lissé. */
+  bands?: number;
 }
 
 /** Coordonnées d'un dégradé linéaire orienté comme en CSS (180° = de haut en bas). */
@@ -29,8 +33,20 @@ export interface GradientSpec {
 
 const r3 = (v: number) => Math.round(v * 1000) / 1000;
 
+/** Arrêts du dégradé : réguliers (lissé) ou doublés aux frontières (paliers). */
+export function gradientOffsets(g: Gradient): Array<{ offset: number; color: string }> {
+  if (g.bands && g.bands >= 2) {
+    const colors = sampleColors(g.stops, g.bands);
+    return colors.flatMap((color, i) => [
+      { offset: r3(i / colors.length), color },
+      { offset: r3((i + 1) / colors.length), color },
+    ]);
+  }
+  return g.stops.map((color, i) => ({ offset: r3(i / Math.max(1, g.stops.length - 1)), color }));
+}
+
 export function gradientSpec(g: Gradient): GradientSpec {
-  const stops = g.stops.map((color, i) => ({ offset: r3(i / Math.max(1, g.stops.length - 1)), color }));
+  const stops = gradientOffsets(g);
   if (g.type === 'radial') return { tag: 'radialGradient', attrs: { cx: 0.5, cy: 0.5, r: 0.5 }, stops };
   if (g.type === 'sphere') {
     // point lumineux : l'angle par défaut (180°) le place en haut à gauche
@@ -57,8 +73,9 @@ export function gradientSvg(id: string, g: Gradient): string {
 
 /** Aperçu CSS (vignettes, bandeaux). */
 export function gradientCss(g: Gradient): string {
-  if (g.type === 'linear') return `linear-gradient(${g.angle}deg, ${g.stops.join(', ')})`;
-  if (g.type === 'radial') return `radial-gradient(circle, ${g.stops.join(', ')})`;
+  const list = g.bands && g.bands >= 2 ? gradientOffsets(g).map((s) => `${s.color} ${Math.round(s.offset * 1000) / 10}%`).join(', ') : g.stops.join(', ');
+  if (g.type === 'linear') return `linear-gradient(${g.angle}deg, ${list})`;
+  if (g.type === 'radial') return `radial-gradient(circle, ${list})`;
   const a = ((g.angle + 135) * Math.PI) / 180;
-  return `radial-gradient(circle at ${Math.round(50 + Math.sin(a) * 22)}% ${Math.round(50 - Math.cos(a) * 22)}%, ${g.stops.join(', ')})`;
+  return `radial-gradient(circle at ${Math.round(50 + Math.sin(a) * 22)}% ${Math.round(50 - Math.cos(a) * 22)}%, ${list})`;
 }

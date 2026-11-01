@@ -153,3 +153,22 @@ export function gradientStops(from: Oklch, to: Oklch, n: number): string[] {
     return oklchToHex(gamutMap(lch));
   });
 }
+
+/**
+ * Échantillonne n couleurs le long d'une suite ordonnée de couleurs
+ * (interpolation OKLab par morceaux) : sert aux dégradés en paliers.
+ */
+export function sampleColors(stops: string[], n: number): string[] {
+  if (stops.length === 0) return [];
+  if (stops.length === 1 || n <= 1) return Array.from({ length: Math.max(1, n) }, () => stops[0]!);
+  return Array.from({ length: n }, (_, i) => {
+    const t = (i / (n - 1)) * (stops.length - 1);
+    const k = Math.min(stops.length - 2, Math.floor(t));
+    const f = t - k;
+    if (f < 1e-6) return stops[k]!;
+    if (f > 1 - 1e-6) return stops[k + 1]!;
+    // trois points : début, milieu, fin ; on garde le point du milieu
+    const seg = gradientStops(hexToOklch(stops[k]!), hexToOklch(stops[k + 1]!), 1001);
+    return seg[Math.round(f * 1000)]!;
+  });
+}

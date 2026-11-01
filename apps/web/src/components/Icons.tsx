@@ -261,3 +261,52 @@ export const LightIcon = () => (
     <path d="M8 2.5v1.2M2.5 8h1.2M4.1 4.1l.9.9M12 12l6.5 6.5M15 18.5h3.5V15" />
   </I>
 );
+
+/* Outils de sélection de couleur */
+export const PointIcon = () => (
+  <I>
+    <circle cx="12" cy="12" r="7.5" strokeOpacity="0.45" />
+    <circle cx="14.5" cy="9.5" r="2.6" fill="currentColor" />
+  </I>
+);
+export const LineToolIcon = () => (
+  <I>
+    <circle cx="12" cy="12" r="7.5" strokeOpacity="0.45" />
+    <path d="M7.5 15.5l9-7" />
+    <circle cx="7.5" cy="15.5" r="1.8" fill="currentColor" />
+    <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+    <circle cx="16.5" cy="8.5" r="1.8" fill="currentColor" />
+  </I>
+);
+export const PlusIcon = () => (
+  <I>
+    <path d="M12 5v14M5 12h14" />
+  </I>
+);
+export const ChevronIcon = () => (
+  <I>
+    <path d="M7 10l5 5 5-5" />
+  </I>
+);
+/** Paliers : bandes nettes, ou lissé quand n est absent. */
+export function BandsIcon({ n }: { n?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden>
+      <defs>
+        <linearGradient id="bands-smooth" x1="0" x2="1">
+          <stop offset="0" stopColor="currentColor" stopOpacity="0.15" />
+          <stop offset="1" stopColor="currentColor" stopOpacity="0.95" />
+        </linearGradient>
+      </defs>
+      {n ? (
+        Array.from({ length: Math.min(n, 6) }, (_, i) => {
+          const k = Math.min(n, 6);
+          return <rect key={i} x={4 + (16 / k) * i} y="7" width={16 / k} height="10" fill="currentColor" fillOpacity={0.15 + (0.8 * i) / Math.max(1, k - 1)} />;
+        })
+      ) : (
+        <rect x="4" y="7" width="16" height="10" fill="url(#bands-smooth)" />
+      )}
+      <rect x="4" y="7" width="16" height="10" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+}

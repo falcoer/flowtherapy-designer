@@ -309,3 +309,21 @@ elements:
     expect(flat.find((x) => x.tag === 'feFlood')!.attrs['flood-color']).toBe('#123456');
   });
 });
+
+import { gradientOffsets, sampleColors } from '../src/index.js';
+describe('dégradés en paliers', () => {
+  it('échantillonne une palette ordonnée et garde ses extrémités', () => {
+    const c = sampleColors(['#000000', '#ffffff', '#ff0000'], 5);
+    expect(c).toHaveLength(5);
+    expect(c[0]).toBe('#000000');
+    expect(c[2]).toBe('#ffffff');
+    expect(c[4]).toBe('#ff0000');
+  });
+  it('double les arrêts aux frontières des paliers', () => {
+    const s = gradientOffsets({ type: 'linear', stops: ['#000000', '#ffffff'], angle: 180, bands: 4 });
+    expect(s).toHaveLength(8);
+    expect(s[1]!.offset).toBe(0.25);
+    expect(s[2]!.offset).toBe(0.25);
+    expect(s[1]!.color).not.toBe(s[2]!.color);
+  });
+});
