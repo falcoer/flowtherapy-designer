@@ -27,6 +27,7 @@ import { BackgroundBar } from './components/BackgroundBar';
 import { GridBar } from './components/GridBar';
 import { FloatingPanel, type Dock } from './components/FloatingPanel';
 import { PaletteIcon, StyleIcon } from './components/Icons';
+import { FormatMenu } from './components/FormatMenu';
 import { StylePanel } from './components/StylePanel';
 import { BACKGROUND_ID, MAGNET_PX, Workspace, clientToFormat, formatPerPixel } from './components/Workspace';
 
@@ -394,7 +395,6 @@ export function App() {
   const selected = project.elements.find((e) => e.id === selectedId);
   const selectedItem = items.find((i) => i.id === selectedId);
   const palette = project.palette ? (libMap.get(`palette/${project.palette}`) as PaletteElement | undefined) : undefined;
-  const otherFormats = formats.filter((f) => !project.formats.includes(f.id));
 
   return (
     <div className={['app', paletteOpen && dock ? `dock-${dock}` : '', styleOpen && selected && styleDock ? `dock-${styleDock}` : ''].join(' ')}>
@@ -426,31 +426,21 @@ export function App() {
 
       <header className="top-bar glass">
         <strong className="project-title">{project.title ?? project.id}</strong>
-        <nav className="formats">
-          {project.formats.map((id) => (
-            <button key={id} className={id === formatId ? 'chip on' : 'chip'} onClick={() => setFormatId(id)}>
-              {formats.find((f) => f.id === id)?.title ?? id}
-            </button>
-          ))}
-          {otherFormats.length > 0 && (
-            <select
-              className="chip"
-              value=""
-              onChange={(e) => {
-                const id = e.target.value;
-                update((p) => ({ ...p, formats: [...p.formats, id] }));
-                setFormatId(id);
-              }}
-            >
-              <option value="">+ format</option>
-              {otherFormats.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.title}
-                </option>
-              ))}
-            </select>
-          )}
-        </nav>
+        <FormatMenu
+          formats={formats}
+          used={project.formats}
+          current={formatId}
+          margin={project.grid.margin}
+          onSelect={setFormatId}
+          onAdd={(id) => update((p) => ({ ...p, formats: [...p.formats, id] }))}
+          onRemove={(id) => {
+            update((p) => {
+              const { [id]: _removed, ...overrides } = p.overrides;
+              return { ...p, formats: p.formats.filter((f) => f !== id), overrides };
+            });
+            if (formatId === id) setFormatId(project.formats[0]!);
+          }}
+        />
         <div className="actions">
           <button className="chip" onClick={() => setYamlOpen(true)}>
             YAML
