@@ -1,0 +1,11 @@
+id: flow-therapy
+type: palette
+title: Flow Therapy (logo)
+from: image/logo-ft
+tags: [flow-therapy, pastel]
+colors:
+  - { name: nuit, hex: "#1b1530", role: fond }
+  - { name: creme, hex: "#f8f4ec", role: texte }
+  - { name: rose, hex: "#e9a7c3", role: accent }
+  - { name: menthe, hex: "#8ed9d0" }
+  - { name: violet, hex: "#6c4fa1" }

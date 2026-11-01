@@ -1,0 +1,7 @@
+id: logo-ft
+type: image
+title: Logo Flow Therapy
+source: source.svg
+meta: { width: 620, height: 170 }
+tags: [logo, flow-therapy, typographie]
+origin: { url: "https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/images/logo.svg" }

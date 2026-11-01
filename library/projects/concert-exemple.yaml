@@ -1,0 +1,38 @@
+# Projet d'exemple : une annonce déclinée en affiche A4, post carré et story.
+id: concert-exemple
+type: project
+title: Concert d'automne
+axis:
+  title: Concert d'automne
+  description: Annonce du concert de novembre, ton chaleureux
+  audience: public local, abonnés Instagram
+formats: [a4-portrait, insta-carre, insta-story]
+palette: flow-therapy
+background: palette.fond
+elements:
+  - id: photo
+    ref: image/trio-concert
+    anchor: { frame: repartition, point: "h1/2 v1/3" }
+    align: center
+    size: { w: 0.9 }
+  - id: logo
+    ref: image/logo-ft
+    anchor: { frame: repartition, point: "h1/2 v1/4" }
+    align: center
+    size: { w: 0.7 }
+    deltas: { size: 0.1 }
+  - id: accroche
+    ref: text/accroche
+    anchor: { frame: repartition, point: "h1/2 v2/3" }
+    style: { size: 0.04, color: palette.accent }
+  - id: annonce
+    ref: text/annonce-concert
+    anchor: { frame: repartition, point: "h1/2 v3/4" }
+    align: top
+    style: { size: 0.06, color: palette.texte, weight: 700 }
+values:
+  date: "14 novembre"
+  lieu: Marseille
+overrides:
+  insta-story:
+    photo: { anchor: { point: "h1/2 v1/3" }, size: { h: 0.4 } }
