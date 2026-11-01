@@ -5,7 +5,7 @@
   "description": "FT Designer : composition de publications multi-formats, entièrement décrites en YAML.",
   "type": "module",
   "workspaces": ["packages/*", "apps/*"],
-  "engines": { "node": ">=22" },
+  "engines": { "node": ">=22.13" },
   "scripts": {
     "dev": "npm run dev -w @ftd/server & npm run dev -w @ftd/web",
     "build": "npm run build -w @ftd/web",

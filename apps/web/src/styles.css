@@ -155,3 +155,12 @@ button, input, select { font: inherit; color: inherit; }
   .search-bar .chips { display: none; }
   .project-title { display: none; }
 }
+
+.panel-actions { display: flex; gap: 8px; margin: 2px 2px 10px; }
+.tag-cloud { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 2px 6px; }
+.chip.small { padding: 3px 10px; min-height: 28px; font-size: 13px; }
+.preview-font { display: grid; place-items: center; font-size: 30px; color: #f8f4ec; }
+.export-popover { left: auto; right: 16px; top: 64px; width: 300px; display: grid; gap: 10px; }
+.export-buttons { display: flex; gap: 8px; }
+.field { display: grid; gap: 4px; font-size: 13px; color: var(--ink-soft); }
+.field select { padding: 6px; border-radius: 8px; border: 1px solid var(--line); background: transparent; }

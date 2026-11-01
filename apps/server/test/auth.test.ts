@@ -30,7 +30,8 @@ async function setup(claims: object) {
     sessionSecret: 'x'.repeat(40),
     fetch: fakeFetch,
   };
-  return { app: await buildApp({ libraryRoot: root, auth }), calls, root };
+  const cacheRoot = await mkdtemp(path.join(os.tmpdir(), 'ftd-cache-'));
+  return { app: await buildApp({ libraryRoot: root, cacheRoot, auth, webFonts: false }), calls, root };
 }
 
 const cookiesOf = (res: { headers: Record<string, unknown> }) =>

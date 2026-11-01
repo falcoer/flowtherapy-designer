@@ -127,7 +127,7 @@ export function computeLayout(project: Project, formatId: string, ctx: LayoutCon
         kind: 'text',
         text,
         fontSize,
-        fontFamily: el.style.font,
+        fontFamily: fontFamily(el.style.font, ctx),
         fontWeight: el.style.weight,
         textAlign: el.style.align ?? 'middle',
         color: shiftColor(resolveColor(el.style.color, palette, '#111111'), colorDelta),
@@ -151,4 +151,11 @@ export function computeLayout(project: Project, formatId: string, ctx: LayoutCon
 
 function defaultsOf(slots: Record<string, { default?: unknown }>): Values {
   return Object.fromEntries(Object.entries(slots).filter(([, s]) => s.default !== undefined).map(([k, s]) => [k, s.default]));
+}
+
+/** Une police peut être un élément de bibliothèque ("inter" → font/inter) ou un nom de famille. */
+function fontFamily(font: string | undefined, ctx: LayoutContext): string | undefined {
+  if (!font) return undefined;
+  const el = ctx.library.get(`font/${font}`);
+  return el?.type === 'font' ? el.family : font;
 }

@@ -188,7 +188,7 @@ export function registerAuth(app: FastifyInstance, cfg: AuthConfig) {
     if (user) req.user = { email: user.email, name: user.name };
     const path = req.url.split('?')[0]!;
     if (req.user || path.startsWith('/auth/') || path === '/api/health') return;
-    if (path.startsWith('/api/') || path.startsWith('/files/')) {
+    if (path.startsWith('/api/') || path.startsWith('/files/') || path.startsWith('/cache/')) {
       return reply.code(401).send({ error: 'Connexion requise', login: '/auth/login' });
     }
     return reply.redirect('/auth/login');

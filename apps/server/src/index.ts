@@ -10,6 +10,9 @@ const webDist = path.join(repo, 'apps/web/dist');
 
 const app = await buildApp({
   libraryRoot: process.env.FTD_LIBRARY ?? path.join(repo, 'library'),
+  cacheRoot: process.env.FTD_CACHE,
+  webFonts: process.env.FTD_WEB_FONTS !== 'off',
+  chromiumPath: process.env.FTD_CHROMIUM_PATH,
   webDist: process.env.NODE_ENV === 'production' && existsSync(webDist) ? webDist : undefined,
   auth: authFromEnv(),
   password: process.env.FTD_PASSWORD,

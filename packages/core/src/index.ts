@@ -6,3 +6,5 @@ export * from './tags.js';
 export * from './deltas.js';
 export * from './schema.js';
 export * from './layout.js';
+export * from './palette.js';
+export * from './render.js';

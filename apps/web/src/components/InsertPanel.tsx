@@ -1,19 +1,26 @@
 import type { LibraryElement } from '@ftd/core';
-import { fileUrl } from '../api';
+import { useRef } from 'react';
+import { thumbUrl } from '../api';
 
 const TYPES = [
   { id: '', label: 'Tout' },
   { id: 'image', label: 'Images' },
   { id: 'text', label: 'Textes' },
   { id: 'palette', label: 'Palettes' },
+  { id: 'font', label: 'Polices' },
 ];
 
 interface Props {
   results: LibraryElement[];
   query: string;
   type: string;
+  tags: Array<{ tag: string; count: number }>;
+  activeTag: string;
+  uploading: boolean;
   onQuery: (q: string) => void;
   onType: (t: string) => void;
+  onTag: (t: string) => void;
+  onUpload: (files: File[]) => void;
   onClose: () => void;
   /** Début d'un glisser depuis une vignette (doigt, stylet ou souris). */
   onDragStart: (el: LibraryElement, e: React.PointerEvent) => void;
@@ -22,6 +29,7 @@ interface Props {
 
 /** Seul panneau ouvert en mode insertion : recherche en haut, vignettes sur le côté. */
 export function InsertPanel(props: Props) {
+  const fileInput = useRef<HTMLInputElement>(null);
   return (
     <>
       <div className="search-bar glass">
@@ -44,13 +52,39 @@ export function InsertPanel(props: Props) {
         </button>
       </div>
       <aside className="side-panel glass">
+        <div className="panel-actions">
+          <button className="chip primary" onClick={() => fileInput.current?.click()} disabled={props.uploading}>
+            {props.uploading ? 'Import…' : 'Importer des fichiers'}
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            hidden
+            accept="image/*,.svg,.ttf,.otf,.woff,.woff2"
+            onChange={(e) => {
+              const files = [...(e.target.files ?? [])];
+              e.target.value = '';
+              if (files.length) props.onUpload(files);
+            }}
+          />
+        </div>
+        {props.tags.length > 0 && (
+          <div className="tag-cloud">
+            {props.tags.slice(0, 16).map((t) => (
+              <button key={t.tag} className={props.activeTag === t.tag ? 'chip small on' : 'chip small'} onClick={() => props.onTag(props.activeTag === t.tag ? '' : t.tag)}>
+                {t.tag}
+              </button>
+            ))}
+          </div>
+        )}
         <p className="hint">Glisse un élément sur un point d'ancrage, ou hors du format pour l'attacher au document.</p>
         <ul className="thumbs">
           {props.results.map((el) => (
             <li
               key={`${el.type}/${el.id}`}
               className="thumb"
-              onPointerDown={(e) => el.type !== 'palette' && props.onDragStart(el, e)}
+              onPointerDown={(e) => (el.type === 'image' || el.type === 'text') && props.onDragStart(el, e)}
               onClick={() => el.type === 'palette' && props.onApplyPalette(el.id)}
             >
               <Preview el={el} />
@@ -68,7 +102,13 @@ export function InsertPanel(props: Props) {
 }
 
 export function Preview({ el }: { el: LibraryElement }) {
-  if (el.type === 'image') return <img className="preview" src={fileUrl(el.source)} alt="" draggable={false} />;
+  if (el.type === 'image') return <img className="preview" src={thumbUrl(el)} alt="" draggable={false} loading="lazy" />;
+  if (el.type === 'font')
+    return (
+      <div className="preview preview-font" style={{ fontFamily: `"${el.family}"` }}>
+        Aa
+      </div>
+    );
   if (el.type === 'text') return <div className="preview preview-text">{el.body.trim()}</div>;
   if (el.type === 'palette')
     return (

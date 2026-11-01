@@ -14,7 +14,7 @@ import {
   type Project,
 } from '@ftd/core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, fileUrl } from './api';
+import { api, exportUrl, fileUrl } from './api';
 import { AttributeBar } from './components/AttributeBar';
 import { InsertPanel, Preview } from './components/InsertPanel';
 import { PalettePanel } from './components/PalettePanel';
@@ -47,6 +47,12 @@ export function App() {
   const [ghost, setGhost] = useState<Ghost | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [me, setMe] = useState<{ email: string; name?: string } | null>(null);
+  const [results, setResults] = useState<LibraryElement[]>([]);
+  const [tags, setTags] = useState<Array<{ tag: string; count: number }>>([]);
+  const [activeTag, setActiveTag] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [record, setRecord] = useState(0);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
@@ -81,14 +87,52 @@ export function App() {
     }
   }, [project, format, formats, libMap]);
 
-  const results = useMemo(() => {
-    const q = query.toLowerCase().trim();
-    return library.filter((el) => {
-      if (type && el.type !== type) return false;
-      if (!q) return true;
-      return [el.id, el.title ?? '', ...el.tags, el.type === 'text' ? el.body : ''].join(' ').toLowerCase().includes(q);
-    });
-  }, [library, query, type]);
+  // recherche côté serveur (index SQLite), légèrement différée pendant la frappe
+  useEffect(() => {
+    if (!insertOpen) return;
+    const t = setTimeout(() => {
+      api
+        .library({ q: query, type, tags: activeTag })
+        .then(setResults)
+        .catch((e) => setToast(`Recherche impossible : ${e.message}`));
+    }, 180);
+    return () => clearTimeout(t);
+  }, [insertOpen, query, type, activeTag, library]);
+
+  useEffect(() => {
+    if (insertOpen) api.tags().then(setTags).catch(() => undefined);
+  }, [insertOpen, library]);
+
+  // polices de la bibliothèque disponibles sur la surface de travail
+  useEffect(() => {
+    const css = library
+      .flatMap((el) =>
+        el.type === 'font'
+          ? el.files.map((f) => `@font-face{font-family:"${el.family}";font-weight:${f.weight};font-style:${f.style};src:url("${fileUrl(f.path)}")}`)
+          : [],
+      )
+      .join('\n');
+    let tag = document.getElementById('library-fonts') as HTMLStyleElement | null;
+    if (!tag) {
+      tag = document.createElement('style');
+      tag.id = 'library-fonts';
+      document.head.appendChild(tag);
+    }
+    tag.textContent = css;
+  }, [library]);
+
+  const upload = async (files: File[]) => {
+    setUploading(true);
+    try {
+      const { created } = await api.upload(files, activeTag ? { tags: activeTag } : {});
+      setLibrary(await api.library());
+      setToast(`${created.filter((c) => c.type !== 'palette').length} élément(s) importé(s)`);
+    } catch (e) {
+      setToast(`Import impossible : ${(e as Error).message}`);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const update = useCallback((fn: (p: Project) => Project) => {
     setProject((p) => (p ? fn(structuredClone(p)) : p));
@@ -173,15 +217,31 @@ export function App() {
     };
   }, [ghost, format, project, frame, update]);
 
-  const save = async () => {
-    if (!project) return;
+  const save = async (quiet = false) => {
+    if (!project) return false;
     try {
       await api.saveProject(project.id, toYaml(project));
       setDirty(false);
-      setToast('Projet enregistré');
+      if (!quiet) setToast('Projet enregistré');
+      return true;
     } catch (e) {
       setToast(`Erreur : ${(e as Error).message}`);
+      return false;
     }
+  };
+
+  /** L'export lit le projet enregistré : on enregistre d'abord les changements. */
+  const download = async (kind: 'png' | 'pdf' | 'svg') => {
+    if (!project || !format) return;
+    if (dirty && !(await save(true))) return;
+    setToast('Export en cours…');
+    const a = document.createElement('a');
+    a.href = exportUrl(project.id, format.id, kind, record);
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setExportOpen(false);
   };
 
   if (!project || !format) return <div className="loading">{toast ?? 'Chargement…'}</div>;
@@ -243,7 +303,10 @@ export function App() {
           <button className="chip" onClick={() => setYamlOpen(true)}>
             YAML
           </button>
-          <button className={dirty ? 'chip primary' : 'chip'} onClick={save} disabled={!dirty}>
+          <button className={exportOpen ? 'chip on' : 'chip'} onClick={() => setExportOpen((v) => !v)}>
+            Exporter
+          </button>
+          <button className={dirty ? 'chip primary' : 'chip'} onClick={() => save()} disabled={!dirty}>
             {dirty ? 'Enregistrer' : 'Enregistré'}
           </button>
           {me && (
@@ -282,6 +345,38 @@ export function App() {
         )}
       </nav>
 
+      {exportOpen && (
+        <div className="popover export-popover glass">
+          <strong>Exporter « {format.title} »</strong>
+          {(project.records?.length ?? 0) > 1 && (
+            <label className="field">
+              Ligne de la liste
+              <select value={record} onChange={(e) => setRecord(Number(e.target.value))}>
+                {project.records!.map((r, i) => (
+                  <option key={i} value={i}>
+                    {i + 1}. {Object.values(r).join(' · ')}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <div className="export-buttons">
+            <button className="chip" onClick={() => download('png')}>
+              PNG
+            </button>
+            <button className="chip" onClick={() => download('pdf')}>
+              PDF
+            </button>
+            <button className="chip" onClick={() => download('svg')}>
+              SVG
+            </button>
+          </div>
+          <p className="hint">
+            {format.unit === 'mm' ? `Impression : ${format.dpi ?? 300} dpi, images originales.` : 'Écran : images optimisées pour le web.'}
+          </p>
+        </div>
+      )}
+
       {paletteOpen && palette && (
         <div className="popover glass">
           <PalettePanel palette={palette} />
@@ -293,6 +388,8 @@ export function App() {
           element={effectiveElement(project, formatId, selected)}
           kind={selectedItem.kind}
           activeKey={activeDelta}
+          fonts={library.flatMap((el) => (el.type === 'font' ? [{ id: el.id, family: el.family }] : []))}
+          onFont={(font) => patchElement(selected.id, (el) => ({ style: { ...el.style, font: font || undefined } }))}
           onPick={setActiveDelta}
           onChange={(key, value) =>
             patchElement(selected.id, (el) => {
@@ -320,8 +417,13 @@ export function App() {
           results={results}
           query={query}
           type={type}
+          tags={tags}
+          activeTag={activeTag}
+          uploading={uploading}
           onQuery={setQuery}
           onType={setType}
+          onTag={setActiveTag}
+          onUpload={upload}
           onClose={() => setInsertOpen(false)}
           onDragStart={(el, e) => {
             e.preventDefault();

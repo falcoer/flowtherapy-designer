@@ -4,6 +4,8 @@ interface Props {
   element: Placed;
   kind: 'image' | 'text' | 'missing';
   activeKey: string | null;
+  fonts: Array<{ id: string; family: string }>;
+  onFont: (font: string) => void;
   onPick: (key: string) => void;
   onChange: (key: string, value: number) => void;
   onRemove: () => void;
@@ -15,7 +17,7 @@ const TEXT_ONLY = ['color.hue', 'color.lightness', 'color.chroma'];
  * Pastilles d'attributs de l'élément sélectionné, puis curseur centré :
  * on fait dévier l'attribut autour de sa valeur de base (0 = valeur d'origine).
  */
-export function AttributeBar({ element, kind, activeKey, onPick, onChange, onRemove }: Props) {
+export function AttributeBar({ element, kind, activeKey, fonts, onFont, onPick, onChange, onRemove }: Props) {
   const specs = DELTA_SPECS.filter((s) => kind === 'text' || !TEXT_ONLY.includes(s.key));
   const spec = activeKey ? deltaSpec(activeKey) : undefined;
   const value = activeKey ? (element.deltas[activeKey] ?? 0) : 0;
@@ -24,6 +26,16 @@ export function AttributeBar({ element, kind, activeKey, onPick, onChange, onRem
     <div className="attr-bar glass">
       <div className="attr-chips">
         <span className="attr-title">{element.id}</span>
+        {kind === 'text' && (
+          <select className="chip" value={element.style.font ?? ''} onChange={(e) => onFont(e.target.value)} aria-label="Police">
+            <option value="">Police par défaut</option>
+            {fonts.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.family}
+              </option>
+            ))}
+          </select>
+        )}
         {specs.map((s) => {
           const v = element.deltas[s.key] ?? 0;
           return (
