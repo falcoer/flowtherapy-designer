@@ -32,7 +32,7 @@ Sur un format autre que le premier du projet, les déplacements et deltas s'enre
 
 ## Déploiement
 
-Voir [`deploy/README.md`](deploy/README.md) (VPS Hetzner, `designer.flowtherapymusic.com`).
+Voir [`deploy/README.md`](deploy/README.md) (VPS Hetzner partagé avec Odoo, nginx, `designer.flowtherapymusic.com`).
 
 ## Limites connues de la phase 0
 
