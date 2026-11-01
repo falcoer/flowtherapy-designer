@@ -1,5 +1,6 @@
 import { gamutMap, gradientStops, hexToOklch, oklabToRgb8, oklchToHex, type Oklch } from '@ftd/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { SunIcon } from './Icons';
 
 /** Saturation (chroma OKLCH) au bord de la roue. */
 const CMAX = 0.27;
@@ -9,8 +10,14 @@ const RES = 124; // résolution du calcul, agrandie à l'affichage
 interface Props {
   /** Couleurs de la palette, placées sur la roue. */
   colors: string[];
-  /** Couleur de base des harmonies (dessinées en pointillés). */
+  /** Couleurs de l'harmonie choisie (dessinées en pointillés). */
   harmony: string[];
+  /** Couleur actuellement appliquée (repère). */
+  current?: string;
+  l: number;
+  onL: (l: number) => void;
+  steps: number;
+  ramp: boolean;
   onPick: (hex: string) => void;
   onGradient: (stops: string[]) => void;
 }
@@ -37,11 +44,8 @@ const lchAt = (p: Pt, l: number): Oklch => {
  * pour une clarté donnée. Les zones grises ne sont pas affichables.
  * Toucher choisit une couleur ; tracer une ligne donne un dégradé.
  */
-export function ColorPlane({ colors, harmony, onPick, onGradient }: Props) {
+export function ColorPlane({ colors, harmony, current, l, onL, steps, ramp, onPick, onGradient }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const [l, setL] = useState(0.72);
-  const [steps, setSteps] = useState(5);
-  const [ramp, setRamp] = useState(false);
   const [line, setLine] = useState<{ a: Pt; b: Pt } | null>(null);
   const drag = useRef<{ start: Pt; moved: boolean } | null>(null);
 
@@ -125,6 +129,10 @@ export function ColorPlane({ colors, harmony, onPick, onGradient }: Props) {
           {harmonyPts.map((p, i) => (
             <circle key={`h${i}`} cx={p.x} cy={p.y} r={4} className="plane-harmony-dot" />
           ))}
+          {current && /^#/.test(current) && (() => {
+            const p = fromLch(hexToOklch(current));
+            return <circle cx={p.x} cy={p.y} r={11} className="plane-current" />;
+          })()}
           {colors.map((hex, i) => {
             const p = fromLch(hexToOklch(hex));
             return <circle key={i} cx={p.x} cy={p.y} r={7} fill={hex} className="plane-color" />;
@@ -149,27 +157,20 @@ export function ColorPlane({ colors, harmony, onPick, onGradient }: Props) {
           )}
         </svg>
       </div>
-      <label className="plane-row">
-        <span>Clarté</span>
-        <input type="range" min={0.08} max={0.98} step={0.01} value={l} onChange={(e) => setL(Number(e.target.value))} />
-        <strong>{Math.round(l * 100)} %</strong>
-      </label>
-      <div className="plane-row">
-        <span>Dégradé</span>
-        <div className="stepper">
-          <button onClick={() => setSteps((s) => Math.max(2, s - 1))} disabled={steps <= 2} aria-label="Moins d'étapes">
-            −
-          </button>
-          <strong>{steps}</strong>
-          <button onClick={() => setSteps((s) => Math.min(9, s + 1))} disabled={steps >= 9} aria-label="Plus d'étapes">
-            +
-          </button>
-        </div>
-        <label className="plane-check">
-          <input type="checkbox" checked={ramp} onChange={(e) => setRamp(e.target.checked)} /> clair → foncé
-        </label>
+      <div className="lightness">
+        <SunIcon dim />
+        <input
+          type="range"
+          min={0.08}
+          max={0.98}
+          step={0.01}
+          value={l}
+          onChange={(e) => onL(Number(e.target.value))}
+          aria-label="Clarté"
+          title={`Clarté ${Math.round(l * 100)} %`}
+        />
+        <SunIcon />
       </div>
-      <p className="hint">Touche la roue pour choisir une couleur, trace une ligne pour obtenir un dégradé.</p>
     </div>
   );
 }

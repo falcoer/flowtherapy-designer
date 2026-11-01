@@ -26,6 +26,8 @@ import { InsertPanel, Preview } from './components/InsertPanel';
 import { PalettePanel } from './components/PalettePanel';
 import { BackgroundBar } from './components/BackgroundBar';
 import { GridBar } from './components/GridBar';
+import { FloatingPanel, type Dock } from './components/FloatingPanel';
+import { PaletteIcon } from './components/Icons';
 import { BACKGROUND_ID, MAGNET_PX, Workspace, clientToFormat, formatPerPixel } from './components/Workspace';
 
 const FRAME_BUTTONS: Array<{ frame: AnchorFrame; icon: string }> = [
@@ -49,6 +51,7 @@ export function App() {
   const [activeDelta, setActiveDelta] = useState<string | null>('size');
   const [insertOpen, setInsertOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [dock, setDock] = useState<Dock>(null);
   const [yamlOpen, setYamlOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [type, setType] = useState('');
@@ -393,7 +396,7 @@ export function App() {
   const otherFormats = formats.filter((f) => !project.formats.includes(f.id));
 
   return (
-    <div className="app">
+    <div className={paletteOpen && dock ? `app dock-${dock}` : 'app'}>
       <main className="stage">
         <Workspace
           format={format}
@@ -531,7 +534,7 @@ export function App() {
       )}
 
       {paletteOpen && (
-        <div className="popover glass">
+        <FloatingPanel id="couleur" icon={<PaletteIcon />} label="Couleur" onClose={() => setPaletteOpen(false)} onDock={setDock}>
           <PalettePanel
             palette={palette}
             palettes={library.filter((el): el is PaletteElement => el.type === 'palette')}
@@ -556,7 +559,7 @@ export function App() {
               }
             }}
           />
-        </div>
+        </FloatingPanel>
       )}
 
       {frame === 'grid' && !insertOpen && !paletteOpen && !exportOpen && (
