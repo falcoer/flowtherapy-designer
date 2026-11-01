@@ -1,4 +1,5 @@
 import type { Format, LibraryElement, Project } from '@ftd/core';
+import { DEMO, demoFile } from './demo';
 
 async function json<T>(res: Response): Promise<T> {
   if (res.status === 401 && (await res.clone().json().catch(() => ({}))).login) {
@@ -30,11 +31,11 @@ export const api = {
     ),
 };
 
-export const fileUrl = (p: string) => `/files/${p}`;
+export const fileUrl = (p: string) => (DEMO ? (demoFile(p) ?? p) : `/files/${p}`);
 
 /** Vignette optimisée (cache serveur) ; les SVG restent vectoriels. */
 export const thumbUrl = (el: { id: string; source: string }) =>
-  el.source.toLowerCase().endsWith('.svg') ? fileUrl(el.source) : `/cache/images/${el.id}/thumb`;
+  DEMO || el.source.toLowerCase().endsWith('.svg') ? fileUrl(el.source) : `/cache/images/${el.id}/thumb`;
 
 export const exportUrl = (projectId: string, format: string, type: 'png' | 'pdf' | 'svg', record = 0) =>
   `/api/projects/${projectId}/export?${new URLSearchParams({ format, type, record: String(record) })}`;

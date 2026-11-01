@@ -15,6 +15,7 @@ import {
 } from '@ftd/core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, exportUrl, fileUrl } from './api';
+import { DEMO } from './demo';
 import { AttributeBar } from './components/AttributeBar';
 import { InsertPanel, Preview } from './components/InsertPanel';
 import { PalettePanel } from './components/PalettePanel';
@@ -234,6 +235,11 @@ export function App() {
   const download = async (kind: 'png' | 'pdf' | 'svg') => {
     if (!project || !format) return;
     if (dirty && !(await save(true))) return;
+    if (DEMO) {
+      setExportOpen(false);
+      setToast("Démo : l'export PNG/PDF/SVG fonctionnera sur designer.flowtherapymusic.com");
+      return;
+    }
     setToast('Export en cours…');
     const a = document.createElement('a');
     a.href = exportUrl(project.id, format.id, kind, record);
