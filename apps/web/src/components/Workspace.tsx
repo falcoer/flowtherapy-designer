@@ -1,9 +1,11 @@
 import {
+  gradientSpec,
+  shapeGeometry,
+  type Gradient,
   anchorsFor,
   guidesFor,
   resolveBackground,
   globalOpacity,
-  gradientVector,
   type AnchorFrame,
   type Format,
   type GuideLine,
@@ -239,13 +241,7 @@ export function Workspace(props: Props) {
         onPointerCancel={onPointerUp}
       >
         <defs>
-          {project.backgroundGradient && (
-            <linearGradient id="bg-gradient" {...gradientVector(project.backgroundGradient.angle)}>
-              {project.backgroundGradient.stops.map((c, i, all) => (
-                <stop key={i} offset={i / (all.length - 1)} stopColor={c} />
-              ))}
-            </linearGradient>
-          )}
+          {project.backgroundGradient && <GradientDef id="bg-gradient" gradient={project.backgroundGradient} />}
           <clipPath id="format-clip">
             <rect width={W} height={H} />
           </clipPath>
@@ -388,7 +384,36 @@ function Handle({ at, px, rotate, onDown }: { at: Pt; px: number; rotate?: boole
   );
 }
 
+/** Définition d'un dégradé SVG (même géométrie que l'export). */
+export function GradientDef({ id, gradient }: { id: string; gradient: Gradient }) {
+  const s = gradientSpec(gradient);
+  const Tag = s.tag;
+  return (
+    <Tag id={id} {...s.attrs}>
+      {s.stops.map((st, i) => (
+        <stop key={i} offset={st.offset} stopColor={st.color} />
+      ))}
+    </Tag>
+  );
+}
+
 function renderItem(it: LayoutItem) {
+  const fill = it.gradient ? `url(#g-${it.id})` : it.color;
+  const defs = it.gradient ? (
+    <defs>
+      <GradientDef id={`g-${it.id}`} gradient={it.gradient} />
+    </defs>
+  ) : null;
+  if (it.kind === 'shape' && it.shape) {
+    const g = shapeGeometry(it.shape, it.x, it.y, it.w, it.h, it.radius ?? 0);
+    const Tag = g.tag;
+    return (
+      <>
+        {defs}
+        <Tag {...g.attrs} fill={fill} />
+      </>
+    );
+  }
   if (it.kind === 'image') {
     const par = it.fit === 'cover' ? 'xMidYMid slice' : it.fit === 'stretch' ? 'none' : 'xMidYMid meet';
     return <image href={it.href} x={it.x} y={it.y} width={it.w} height={it.h} preserveAspectRatio={par} />;
@@ -398,13 +423,15 @@ function renderItem(it: LayoutItem) {
     const tx = anchor === 'start' ? it.x : anchor === 'end' ? it.x + it.w : it.x + it.w / 2;
     const lines = (it.text ?? '').split('\n');
     return (
+      <>
+      {defs}
       <text
         x={tx}
         y={it.y}
         fontSize={it.fontSize}
         fontFamily={it.fontFamily ?? 'var(--font-display)'}
         fontWeight={it.fontWeight}
-        fill={it.color}
+        fill={fill}
         textAnchor={anchor}
       >
         {lines.map((line, i) => (
@@ -413,6 +440,7 @@ function renderItem(it: LayoutItem) {
           </tspan>
         ))}
       </text>
+      </>
     );
   }
   return (

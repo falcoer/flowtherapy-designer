@@ -1,0 +1,6 @@
+id: rectangle-arrondi
+type: shape
+title: Rectangle arrondi
+shape: rect
+radius: 0.12
+tags: [forme]

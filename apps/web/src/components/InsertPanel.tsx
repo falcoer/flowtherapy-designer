@@ -1,4 +1,4 @@
-import type { LibraryElement } from '@ftd/core';
+import { shapeGeometry, type LibraryElement } from '@ftd/core';
 import { useRef } from 'react';
 import { thumbUrl } from '../api';
 
@@ -6,6 +6,7 @@ const TYPES = [
   { id: '', label: 'Tout' },
   { id: 'image', label: 'Images' },
   { id: 'text', label: 'Textes' },
+  { id: 'shape', label: 'Formes' },
   { id: 'palette', label: 'Palettes' },
   { id: 'font', label: 'Polices' },
 ];
@@ -84,7 +85,7 @@ export function InsertPanel(props: Props) {
             <li
               key={`${el.type}/${el.id}`}
               className="thumb"
-              onPointerDown={(e) => (el.type === 'image' || el.type === 'text') && props.onDragStart(el, e)}
+              onPointerDown={(e) => (el.type === 'image' || el.type === 'text' || el.type === 'shape') && props.onDragStart(el, e)}
               onClick={() => el.type === 'palette' && props.onApplyPalette(el.id)}
             >
               <Preview el={el} />
@@ -118,5 +119,14 @@ export function Preview({ el }: { el: LibraryElement }) {
         ))}
       </div>
     );
+  if (el.type === 'shape') {
+    const g = shapeGeometry(el.shape, 14, 10, 52, 44, el.radius ?? 0);
+    const Tag = g.tag;
+    return (
+      <svg className="preview preview-shape" viewBox="0 0 80 64">
+        <Tag {...g.attrs} fill="currentColor" />
+      </svg>
+    );
+  }
   return <div className="preview">{el.type}</div>;
 }

@@ -2,7 +2,7 @@ import { DELTA_SPECS, deltaSpec, type DeltaSpec, type Placed } from '@ftd/core';
 
 interface Props {
   element: Placed;
-  kind: 'image' | 'text' | 'missing';
+  kind: 'image' | 'text' | 'shape' | 'missing';
   activeKey: string | null;
   fonts: Array<{ id: string; family: string }>;
   onFont: (font: string) => void;
@@ -20,7 +20,7 @@ const TEXT_ONLY = ['color.hue', 'color.lightness', 'color.chroma'];
  * on fait dévier l'attribut autour de sa valeur de base (0 = valeur d'origine).
  */
 export function AttributeBar({ element, kind, activeKey, fonts, onFont, onPick, onChange, onRemove, onColor }: Props) {
-  const specs = DELTA_SPECS.filter((s) => kind === 'text' || !TEXT_ONLY.includes(s.key));
+  const specs = DELTA_SPECS.filter((s) => kind === 'text' || kind === 'shape' || !TEXT_ONLY.includes(s.key));
   const spec = activeKey ? deltaSpec(activeKey) : undefined;
   const value = activeKey ? (element.deltas[activeKey] ?? 0) : 0;
 
@@ -38,7 +38,7 @@ export function AttributeBar({ element, kind, activeKey, fonts, onFont, onPick, 
             ))}
           </select>
         )}
-        {kind === 'text' && (
+        {(kind === 'text' || kind === 'shape') && (
           <button className="chip" onClick={onColor}>
             Couleur
           </button>

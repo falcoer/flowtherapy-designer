@@ -9,3 +9,5 @@ export * from './layout.js';
 export * from './palette.js';
 export * from './render.js';
 export * from './snap.js';
+export * from './gradient.js';
+export * from './shapes.js';

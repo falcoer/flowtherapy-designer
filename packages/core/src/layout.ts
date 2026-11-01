@@ -1,5 +1,7 @@
 import { resolveAnchor } from './anchors.js';
 import { shiftColor } from './color.js';
+import type { Gradient } from './gradient.js';
+import type { ShapeKind } from './shapes.js';
 import { clampDelta, sizeFactor } from './deltas.js';
 import type { Format } from './formats.js';
 import type { LibraryElement, PaletteElement, Placed, Project } from './schema.js';
@@ -14,7 +16,7 @@ import { substitute, type Values } from './tags.js';
 export interface LayoutItem {
   id: string;
   ref: string;
-  kind: 'image' | 'text' | 'missing';
+  kind: 'image' | 'text' | 'shape' | 'missing';
   anchor: { frame: string; point: string; x: number; y: number };
   x: number;
   y: number;
@@ -31,6 +33,10 @@ export interface LayoutItem {
   fontWeight?: number;
   textAlign?: 'start' | 'middle' | 'end';
   color?: string;
+  /** Remplissage en dégradé (texte, forme), teintes déjà ajustées par les deltas. */
+  gradient?: Gradient;
+  shape?: ShapeKind;
+  radius?: number;
   fit: 'contain' | 'cover' | 'stretch';
 }
 
@@ -144,6 +150,16 @@ export function computeLayout(project: Project, formatId: string, ctx: LayoutCon
         textAlign: el.style.align ?? 'middle',
         color: shiftColor(resolveColor(el.style.color, palette, '#111111'), colorDelta),
       };
+    } else if (lib?.type === 'shape') {
+      // forme : largeur en fraction de la largeur ; hauteur en fraction de la hauteur, sinon carrée
+      w = (el.size.w ?? (el.size.min !== undefined ? (el.size.min * minSide) / W : 0.3)) * W;
+      h = el.size.h !== undefined ? el.size.h * H : el.size.min !== undefined ? el.size.min * minSide : lib.shape === 'pill' ? w * 0.4 : w;
+      item = {
+        kind: 'shape',
+        shape: lib.shape,
+        radius: lib.radius,
+        color: shiftColor(resolveColor(el.style.color, palette, '#7a5cff'), colorDelta),
+      };
     } else {
       w = (el.size.w ?? 0.2) * W;
       h = (el.size.h ?? el.size.w ?? 0.2) * H;
@@ -153,6 +169,9 @@ export function computeLayout(project: Project, formatId: string, ctx: LayoutCon
     if (!scaled) {
       w *= k;
       h *= k;
+    }
+    if (el.style.gradient && (item.kind === 'text' || item.kind === 'shape')) {
+      item.gradient = { ...el.style.gradient, stops: el.style.gradient.stops.map((c) => shiftColor(resolveColor(c, palette, '#888888'), colorDelta)) };
     }
     const { ox, oy } = alignOffset(el.align, w, h);
     const x = anchor.x * W + (d.dx ?? 0) * W - ox;

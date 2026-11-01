@@ -339,9 +339,9 @@ export function App() {
         ref,
         anchor: { frame, point: a.id },
         align: 'center',
-        size: g.el.type === 'text' ? { w: 0.8 } : { w: 0.4 },
+        size: g.el.type === 'text' ? { w: 0.8 } : g.el.type === 'shape' ? { w: 0.3 } : { w: 0.4 },
         fit: 'contain',
-        style: g.el.type === 'text' ? { size: 0.05, color: 'palette.texte' } : {},
+        style: g.el.type === 'text' ? { size: 0.05, color: 'palette.texte' } : g.el.type === 'shape' ? { color: 'palette.accent' } : {},
         deltas: free,
       };
       update((pr) => ({ ...pr, elements: [...pr.elements, el] }));
@@ -538,15 +538,19 @@ export function App() {
           <PalettePanel
             palette={palette}
             palettes={library.filter((el): el is PaletteElement => el.type === 'palette')}
-            textSelected={selectedItem?.kind === 'text' ? selectedItem.id : null}
-            textColor={selected ? effectiveElement(project, formatId, selected).style.color : undefined}
+            element={selectedItem && (selectedItem.kind === 'text' || selectedItem.kind === 'shape') ? { id: selectedItem.id, kind: selectedItem.kind } : null}
+            elementColor={selected ? effectiveElement(project, formatId, selected).style.color : undefined}
+            elementGradient={selected ? effectiveElement(project, formatId, selected).style.gradient : undefined}
             background={project.background}
+            backgroundGradient={project.backgroundGradient}
             onPalette={(id) => update((p) => ({ ...p, palette: id }))}
-            onTextColor={(color) => selected && patchElement(selected.id, (el) => ({ style: { ...el.style, color } }))}
-            onBackground={(background) => update((p) => ({ ...p, background, backgroundGradient: undefined }))}
-            onGradientBackground={(stops) => {
-              update((p) => ({ ...p, backgroundGradient: { stops, angle: p.backgroundGradient?.angle ?? 180 } }));
-              setToast('Dégradé appliqué au fond');
+            onColor={(target, color) => {
+              if (target === 'background') update((p) => ({ ...p, background: color, backgroundGradient: undefined }));
+              else if (selected) patchElement(selected.id, (el) => ({ style: { ...el.style, color, gradient: undefined } }));
+            }}
+            onGradient={(target, gradient) => {
+              if (target === 'background') update((p) => ({ ...p, backgroundGradient: gradient }));
+              else if (selected) patchElement(selected.id, (el) => ({ style: { ...el.style, gradient } }));
             }}
             onSavePalette={async (stops) => {
               try {

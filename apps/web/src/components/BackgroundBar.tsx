@@ -1,4 +1,4 @@
-import { deltaSpec, type LibraryElement, type Project } from '@ftd/core';
+import { deltaSpec, gradientCss, type LibraryElement, type Project } from '@ftd/core';
 import { useState } from 'react';
 import { DeltaSlider } from './AttributeBar';
 
@@ -44,7 +44,7 @@ export function BackgroundBar({ project, library, onColor, onDelta, onLayerDelta
         ))}
         {project.backgroundGradient && (
           <span className="chip layer">
-            <span className="grad-chip" style={{ background: `linear-gradient(90deg, ${project.backgroundGradient.stops.join(', ')})` }} />
+            <span className="grad-chip" style={{ background: gradientCss(project.backgroundGradient) }} />
             <button onClick={onRotateGradient} title="Tourner le dégradé de 45°">
               Dégradé ↻ {project.backgroundGradient.angle}°
             </button>

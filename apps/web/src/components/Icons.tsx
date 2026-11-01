@@ -97,3 +97,43 @@ export const PaletteIcon = () => (
     <circle cx="16.5" cy="11" r="1.7" fill="currentColor" />
   </svg>
 );
+
+export function GradientTypeIcon({ type }: { type: 'linear' | 'radial' | 'sphere' }) {
+  const id = `gt-${type}`;
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden>
+      <defs>
+        {type === 'linear' ? (
+          <linearGradient id={id} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stopColor="currentColor" stopOpacity="0.05" />
+            <stop offset="1" stopColor="currentColor" />
+          </linearGradient>
+        ) : (
+          <radialGradient id={id} {...(type === 'sphere' ? { cx: 0.35, cy: 0.35, fx: 0.35, fy: 0.35, r: 0.75 } : { cx: 0.5, cy: 0.5, r: 0.5 })}>
+            <stop offset="0" stopColor="currentColor" stopOpacity="0.05" />
+            <stop offset="1" stopColor="currentColor" />
+          </radialGradient>
+        )}
+      </defs>
+      {type === 'linear' ? (
+        <rect x="4" y="4" width="16" height="16" rx="3" fill={`url(#${id})`} stroke="currentColor" strokeWidth="1.5" />
+      ) : (
+        <circle cx="12" cy="12" r="8.5" fill={`url(#${id})`} stroke="currentColor" strokeWidth="1.5" />
+      )}
+    </svg>
+  );
+}
+
+export const ShapeIcon = () => (
+  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden>
+    <circle cx="9" cy="10" r="5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    <rect x="11" y="11" width="9" height="9" rx="1.5" fill="currentColor" fillOpacity="0.35" stroke="currentColor" strokeWidth="1.8" />
+  </svg>
+);
+
+export const RotateIcon = () => (
+  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden>
+    <path d="M18 12a6 6 0 1 1-2-4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    <path d="M16.5 3.5v4.2h-4.2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);

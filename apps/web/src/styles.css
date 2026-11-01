@@ -332,3 +332,25 @@ button, input, select { font: inherit; color: inherit; }
   .float-panel.docked-left, .float-panel.docked-right { left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; max-height: 60%; }
   .app.dock-left .stage, .app.dock-right .stage { left: 72px; right: 8px; }
 }
+
+/* ---------- composant couleur compact ---------- */
+.float-panel { width: 268px; }
+.float-panel.docked-left, .float-panel.docked-right { bottom: auto; max-height: calc(100% - 76px); }
+.app.dock-left .stage { left: 360px; }
+.app.dock-right .stage { right: 292px; }
+.app.dock-right .top-bar { right: 292px; }
+.float-body { padding: 0 12px 12px; }
+.color-panel { gap: 10px; }
+.color-plane .plane-wrap { max-width: 236px; }
+.color-plane { gap: 6px; }
+.cp-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cp-line .cp-swatch { width: 32px; height: 32px; }
+.cp-swatch.small, .cp-line .cp-swatch.small { width: 26px; height: 26px; }
+.cp-pal-pick { position: relative; margin-left: auto; font-size: 18px; }
+.cp-pal-pick select { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.cp-strip { height: 26px; }
+.cp-tools { gap: 2px; flex-wrap: nowrap; }
+.cp-tools .tool { width: 34px; }
+.tool.num { font-weight: 700; font-variant-numeric: tabular-nums; }
+.cp-sep { flex: 1; }
+.preview-shape { color: var(--accent); padding: 6px; }

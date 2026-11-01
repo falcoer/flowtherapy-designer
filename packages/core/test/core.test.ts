@@ -213,7 +213,7 @@ describe('aimantation', () => {
 });
 
 import { gradientStops, maxChroma, oklabToRgb8, hexToOklch as toLch } from '../src/color.js';
-import { gradientVector } from '../src/render.js';
+import { gradientVector } from '../src/gradient.js';
 describe('plan de couleur', () => {
   it('borne la saturation au gamut sRGB', () => {
     const c = maxChroma(0.7, 30);
@@ -233,5 +233,34 @@ describe('plan de couleur', () => {
     const v = gradientVector(180);
     expect(v.y1).toBeCloseTo(0);
     expect(v.y2).toBeCloseTo(1);
+  });
+});
+
+import { renderSvg, gradientSpec } from '../src/index.js';
+describe('formes et dégradés', () => {
+  const library = new Map<string, never>([['shape/rond', { id: 'rond', type: 'shape', shape: 'ellipse', tags: [] } as never]]);
+  const project = parseProject(`
+id: p
+formats: [sq]
+backgroundGradient: { type: radial, stops: ['#ffffff', '#000000'] }
+elements:
+  - id: rond
+    ref: shape/rond
+    anchor: { frame: repartition, point: h1/2 v1/2 }
+    size: { w: 0.5 }
+    style: { gradient: { type: sphere, stops: ['#ffffff', '#6c4fa1'] } }
+`);
+  it('calcule une forme carrée par défaut avec son dégradé', () => {
+    const [it] = computeLayout(project, 'sq', { formats: [square], library });
+    expect(it).toMatchObject({ kind: 'shape', shape: 'ellipse', w: 540, h: 540 });
+    expect(it!.gradient?.type).toBe('sphere');
+  });
+  it('rend dégradés et forme dans le SVG exporté', () => {
+    const items = computeLayout(project, 'sq', { formats: [square], library });
+    const svg = renderSvg(square, items, { background: '#fff', globals: [], gradient: project.backgroundGradient });
+    expect(svg).toContain('<radialGradient id="bg"');
+    expect(svg).toContain('<radialGradient id="g-rond"');
+    expect(svg).toMatch(/<ellipse [^>]*fill="url\(#g-rond\)"/);
+    expect(gradientSpec({ type: 'sphere', stops: ['#fff', '#000'], angle: 180 }).attrs.fx).toBeLessThan(0.5);
   });
 });

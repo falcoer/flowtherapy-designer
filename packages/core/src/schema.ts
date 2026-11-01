@@ -72,7 +72,24 @@ export const FontElementSchema = z.object({
   files: z.array(z.object({ weight: z.number(), style: z.enum(['normal', 'italic']).default('normal'), path: z.string() })),
 });
 
+/** Forme simple, remplie d'une couleur ou d'un dégradé. */
+export const SHAPES = ['rect', 'ellipse', 'triangle', 'pill', 'diamond'] as const;
+export const ShapeElementSchema = z.object({
+  ...Base,
+  type: z.literal('shape'),
+  shape: z.enum(SHAPES),
+  /** Arrondi des coins du rectangle, fraction du petit côté. */
+  radius: z.number().min(0).max(0.5).optional(),
+});
+
+export const GradientSchema = z.object({
+  type: z.enum(['linear', 'radial', 'sphere']).default('linear'),
+  stops: z.array(z.string()).min(2),
+  angle: z.number().default(180),
+});
+
 export const LibraryElementSchema = z.discriminatedUnion('type', [
+  ShapeElementSchema,
   ImageElementSchema,
   TextElementSchema,
   PaletteElementSchema,
@@ -83,6 +100,7 @@ export type LibraryElement = z.infer<typeof LibraryElementSchema>;
 export type ImageElement = z.infer<typeof ImageElementSchema>;
 export type TextElement = z.infer<typeof TextElementSchema>;
 export type PaletteElement = z.infer<typeof PaletteElementSchema>;
+export type ShapeElement = z.infer<typeof ShapeElementSchema>;
 
 /* ---------- Projets et templates ---------- */
 
@@ -110,6 +128,8 @@ export const PlacedSchema = z.object({
       color: z.string().optional(),
       weight: z.number().optional(),
       align: z.enum(['start', 'middle', 'end']).optional(),
+      /** Dégradé de remplissage (texte, forme), prioritaire sur la couleur. */
+      gradient: GradientSchema.optional(),
     })
     .default({}),
   params: z.record(z.string(), z.unknown()).optional(),
@@ -138,7 +158,7 @@ export const ProjectSchema = z.object({
   /** Deltas du fond : teinte, clarté, saturation. */
   backgroundDeltas: z.record(z.string(), z.number()).default({}),
   /** Dégradé de fond (remplace la couleur unie). angle : 180 = de haut en bas. */
-  backgroundGradient: z.object({ stops: z.array(z.string()).min(2), angle: z.number().default(180) }).optional(),
+  backgroundGradient: GradientSchema.optional(),
   globals: z.array(GlobalSchema).default([]),
   /** Grille du projet : mêmes colonnes et rangées sur tous les formats. */
   grid: z
