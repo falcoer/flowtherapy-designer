@@ -21,13 +21,13 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, exportUrl, fileUrl } from './api';
 import { DEMO } from './demo';
-import { AttributeBar } from './components/AttributeBar';
 import { InsertPanel, Preview } from './components/InsertPanel';
 import { PalettePanel } from './components/PalettePanel';
 import { BackgroundBar } from './components/BackgroundBar';
 import { GridBar } from './components/GridBar';
 import { FloatingPanel, type Dock } from './components/FloatingPanel';
-import { PaletteIcon } from './components/Icons';
+import { PaletteIcon, StyleIcon } from './components/Icons';
+import { StylePanel } from './components/StylePanel';
 import { BACKGROUND_ID, MAGNET_PX, Workspace, clientToFormat, formatPerPixel } from './components/Workspace';
 
 const FRAME_BUTTONS: Array<{ frame: AnchorFrame; icon: string }> = [
@@ -48,10 +48,11 @@ export function App() {
   const [frame, setFrame] = useState<AnchorFrame>('repartition');
   const [showGuides, setShowGuides] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [activeDelta, setActiveDelta] = useState<string | null>('size');
   const [insertOpen, setInsertOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [dock, setDock] = useState<Dock>(null);
+  const [styleOpen, setStyleOpen] = useState(false);
+  const [styleDock, setStyleDock] = useState<Dock>(null);
   const [yamlOpen, setYamlOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [type, setType] = useState('');
@@ -396,7 +397,7 @@ export function App() {
   const otherFormats = formats.filter((f) => !project.formats.includes(f.id));
 
   return (
-    <div className={paletteOpen && dock ? `app dock-${dock}` : 'app'}>
+    <div className={['app', paletteOpen && dock ? `dock-${dock}` : '', styleOpen && selected && styleDock ? `dock-${styleDock}` : ''].join(' ')}>
       <main className="stage">
         <Workspace
           format={format}
@@ -418,6 +419,8 @@ export function App() {
           onDuplicate={duplicateElement}
           onLayer={moveLayer}
           onDelete={removeElement}
+          onColor={() => setPaletteOpen(true)}
+          onStyle={() => setStyleOpen(true)}
         />
       </main>
 
@@ -600,25 +603,23 @@ export function App() {
         />
       )}
 
-      {selected && selectedItem && !insertOpen && (
-        <AttributeBar
-          element={effectiveElement(project, formatId, selected)}
-          kind={selectedItem.kind}
-          activeKey={activeDelta}
-          fonts={library.flatMap((el) => (el.type === 'font' ? [{ id: el.id, family: el.family }] : []))}
-          onFont={(font) => patchElement(selected.id, (el) => ({ style: { ...el.style, font: font || undefined } }))}
-          onPick={setActiveDelta}
-          onChange={(key, value) =>
-            patchElement(selected.id, (el) => {
-              const deltas = { ...el.deltas };
-              if (value === 0) delete deltas[key];
-              else deltas[key] = value;
-              return { deltas };
-            })
-          }
-          onRemove={() => removeElement(selected.id)}
-          onColor={() => setPaletteOpen(true)}
-        />
+      {styleOpen && selected && selectedItem && (
+        <FloatingPanel id="style" icon={<StyleIcon />} label="Style" defaultDock="left" onClose={() => setStyleOpen(false)} onDock={setStyleDock}>
+          <StylePanel
+            element={effectiveElement(project, formatId, selected)}
+            kind={selectedItem.kind}
+            fonts={library.flatMap((el) => (el.type === 'font' ? [{ id: el.id, family: el.family }] : []))}
+            onStyle={(patch) => patchElement(selected.id, (el) => ({ style: { ...el.style, ...patch } }))}
+            onOpacity={(v) =>
+              patchElement(selected.id, (el) => {
+                const deltas = { ...el.deltas };
+                if (Math.abs(v) < 0.005) delete deltas.opacity;
+                else deltas.opacity = Math.round(v * 100) / 100;
+                return { deltas };
+              })
+            }
+          />
+        </FloatingPanel>
       )}
 
       {insertOpen && (

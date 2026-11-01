@@ -9,6 +9,7 @@ interface Props {
   children: ReactNode;
   onClose: () => void;
   onDock?: (dock: Dock) => void;
+  defaultDock?: Dock;
 }
 
 interface State {
@@ -19,22 +20,22 @@ interface State {
 
 const SNAP = 72; // px du bord pour s'accrocher
 
-function load(id: string): State {
+function load(id: string, dock: Dock): State {
   try {
     const s = JSON.parse(localStorage.getItem(`ftd-panel-${id}`) ?? '');
     if (s && typeof s.x === 'number') return s;
   } catch {
     /* stockage indisponible */
   }
-  return { dock: 'right', x: 0, y: 0 };
+  return { dock, x: 0, y: 0 };
 }
 
 /**
  * Panneau flottant : on le déplace par sa poignée ; lâché près d'un bord,
  * il s'y accroche sur toute la hauteur.
  */
-export function FloatingPanel({ id, icon, label, children, onClose, onDock }: Props) {
-  const [st, setSt] = useState<State>(() => load(id));
+export function FloatingPanel({ id, icon, label, children, onClose, onDock, defaultDock = 'right' }: Props) {
+  const [st, setSt] = useState<State>(() => load(id, defaultDock));
   const [drag, setDrag] = useState<{ x: number; y: number; dx: number; dy: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 

@@ -1,3 +1,4 @@
+import type React from 'react';
 import type { HarmonyKind } from '@ftd/core';
 
 /** Petites icônes dessinées (traits en currentColor). */
@@ -142,4 +143,45 @@ export const SolidIcon = () => (
   <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden>
     <rect x="4" y="4" width="16" height="16" rx="3" fill="currentColor" stroke="currentColor" strokeWidth="1.5" />
   </svg>
+);
+
+const I = ({ children }: { children: React.ReactNode }) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    {children}
+  </svg>
+);
+export const DuplicateIcon = () => (
+  <I>
+    <rect x="8" y="8" width="11" height="11" rx="2" />
+    <path d="M5 15V6a1 1 0 0 1 1-1h9" />
+  </I>
+);
+export const FrontIcon = () => (
+  <I>
+    <rect x="4" y="9" width="10" height="10" rx="1.5" strokeOpacity="0.45" />
+    <rect x="9" y="4" width="10" height="10" rx="1.5" fill="currentColor" fillOpacity="0.35" />
+  </I>
+);
+export const BackIcon = () => (
+  <I>
+    <rect x="9" y="4" width="10" height="10" rx="1.5" strokeOpacity="0.45" />
+    <rect x="4" y="9" width="10" height="10" rx="1.5" fill="currentColor" fillOpacity="0.35" />
+  </I>
+);
+export const TrashIcon = () => (
+  <I>
+    <path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" />
+  </I>
+);
+export const StyleIcon = () => (
+  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden>
+    <text x="12" y="17" textAnchor="middle" fontSize="15" fontWeight="700" fontFamily="Georgia, serif" fill="currentColor">
+      Aa
+    </text>
+  </svg>
+);
+export const DropIcon = () => (
+  <I>
+    <path d="M12 4c3 4 5.5 6.6 5.5 9.5a5.5 5.5 0 0 1-11 0C6.5 10.6 9 8 12 4z" fill="currentColor" fillOpacity="0.3" />
+  </I>
 );

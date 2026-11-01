@@ -19,8 +19,9 @@ import {
   type Box,
   type Snap,
 } from '@ftd/core';
-import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { fileUrl } from '../api';
+import { BackIcon, DropIcon, DuplicateIcon, FrontIcon, StyleIcon, TrashIcon } from './Icons';
 
 interface Props {
   format: Format;
@@ -45,6 +46,8 @@ interface Props {
   /** Ordre d'empilement : +1 avance d'un cran, -1 recule d'un cran. */
   onLayer: (id: string, step: 1 | -1) => void;
   onDelete: (id: string) => void;
+  onColor: (id: string) => void;
+  onStyle: (id: string) => void;
 }
 
 const STROKE: Record<GuideLine['weight'], { w: number; dash?: string; color: string }> = {
@@ -60,6 +63,9 @@ const STROKE: Record<GuideLine['weight'], { w: number; dash?: string; color: str
 
 /** Identifiant de sélection du fond (élément fixe). */
 export const BACKGROUND_ID = '@fond';
+
+/** Rayon du menu en arc, en pixels. */
+const ARC_R = 92;
 
 /** Rayon d'attraction des ancrages, en pixels d'écran. */
 export const MAGNET_PX = 30;
@@ -99,7 +105,13 @@ interface Live {
   dy: number;
   scale: number;
   rotation?: number;
+  /** Rotation tombée sur un cran (affichée en couleur). */
+  rotationSnapped?: boolean;
   snap: Snap | null;
+  /** Point d'ancrage qui attire le coin pendant un redimensionnement (unités du format). */
+  magnet?: Pt;
+  /** Position de l'étiquette (taille, angle). */
+  label?: { at: Pt; text: string; snapped: boolean };
 }
 
 const NO_LIVE = { dx: 0, dy: 0, scale: 1, rotation: undefined, snap: null };
@@ -124,6 +136,23 @@ export function Workspace(props: Props) {
   const anchors = useMemo(() => anchorsFor(frame, format, project.grid), [frame, format, project.grid]);
   const gesture = useRef<Gesture | null>(null);
   const [live, setLive] = useState<Live | null>(null);
+  // menu en arc : ouvert par appui long, clic droit ou bouton du stylet
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const press = useRef<number | null>(null);
+  const cancelPress = () => {
+    if (press.current !== null) clearTimeout(press.current);
+    press.current = null;
+  };
+  const openMenu = (id: string, clientX: number, clientY: number) => {
+    const r = svgRef.current!.getBoundingClientRect();
+    cancelPress();
+    gesture.current = null;
+    setLive(null);
+    setMenu({ id, x: clientX - r.left, y: clientY - r.top });
+  };
+  useEffect(() => {
+    if (menu && menu.id !== selectedId) setMenu(null);
+  }, [selectedId, menu]);
   // unités du format par pixel d'écran : poignées et traits gardent une taille constante
   const [px, setPx] = useState(1);
   const [, setTick] = useState(0);
@@ -146,6 +175,19 @@ export function Workspace(props: Props) {
   const begin = (e: React.PointerEvent, it: LayoutItem, kind: Gesture['kind']) => {
     e.stopPropagation();
     props.onSelect(it.id);
+    setMenu(null);
+    // clic droit, ou bouton latéral d'un stylet
+    if (e.button === 2 || (e.pointerType === 'pen' && (e.buttons & 2) !== 0)) {
+      openMenu(it.id, e.clientX, e.clientY);
+      return;
+    }
+    if (kind === 'move') {
+      const { clientX, clientY } = e;
+      cancelPress();
+      press.current = window.setTimeout(() => {
+        if (gesture.current && !gesture.current.moved) openMenu(it.id, clientX, clientY);
+      }, 480);
+    }
     const p = clientToFormat(svgRef.current!, e.clientX, e.clientY);
     const pivot = pivotOf(it);
     const center = { x: it.x + it.w / 2, y: it.y + it.h / 2 };
@@ -168,8 +210,9 @@ export function Workspace(props: Props) {
     const it = items.find((i) => i.id === g.id);
     if (!it) return;
     const p = clientToFormat(svgRef.current!, e.clientX, e.clientY);
-    if (!g.moved && Math.hypot(p.x - g.start.x, p.y - g.start.y) < 4 * px) return;
+    if (!g.moved && Math.hypot(p.x - g.start.x, p.y - g.start.y) < 6 * px) return;
     g.moved = true;
+    cancelPress();
     if (g.kind === 'move') {
       const dx = p.x - g.start.x;
       const dy = p.y - g.start.y;
@@ -178,19 +221,45 @@ export function Workspace(props: Props) {
       setLive({ ...NO_LIVE, id: it.id, dx: dx + (snap?.dx ?? 0), dy: dy + (snap?.dy ?? 0), snap });
     } else if (g.kind === 'scale') {
       const d = Math.hypot(p.x - g.pivot.x, p.y - g.pivot.y);
-      const scale = Math.min(8, Math.max(0.1, d / Math.max(g.startDist, 1e-9)));
-      setLive({ ...NO_LIVE, id: it.id, scale });
+      let scale = Math.min(8, Math.max(0.1, d / Math.max(g.startDist, 1e-9)));
+      // le coin tiré est attiré par le point d'ancrage le plus proche
+      const corner = { x: g.pivot.x + (g.start.x - g.pivot.x) * scale, y: g.pivot.y + (g.start.y - g.pivot.y) * scale };
+      let magnet: Pt | undefined;
+      let best = MAGNET_PX * px;
+      for (const a of anchors) {
+        const ax = a.x * W;
+        const ay = a.y * H;
+        const dist = Math.hypot(ax - corner.x, ay - corner.y);
+        if (dist < best) {
+          best = dist;
+          magnet = { x: ax, y: ay };
+        }
+      }
+      if (magnet) scale = Math.hypot(magnet.x - g.pivot.x, magnet.y - g.pivot.y) / Math.max(g.startDist, 1e-9);
+      // sinon, crans doux sur ×1 et les moitiés
+      else if (Math.abs(scale - Math.round(scale * 2) / 2) < 0.04) scale = Math.round(scale * 2) / 2;
+      const tip = { x: g.pivot.x + (g.start.x - g.pivot.x) * scale, y: g.pivot.y + (g.start.y - g.pivot.y) * scale };
+      setLive({
+        ...NO_LIVE,
+        id: it.id,
+        scale,
+        magnet,
+        label: { at: tip, text: `×${scale.toFixed(2)}`, snapped: !!magnet || Math.abs(scale * 2 - Math.round(scale * 2)) < 1e-6 },
+      });
     } else {
       const c = { x: it.x + it.w / 2, y: it.y + it.h / 2 };
       let r = g.baseRotation + ((Math.atan2(p.y - c.y, p.x - c.x) - g.startAngle) * 180) / Math.PI;
       r = ((((r + 180) % 360) + 360) % 360) - 180;
       const step = Math.round(r / 15) * 15; // crans tous les 15°
-      if (Math.abs(r - step) < 4) r = step;
-      setLive({ ...NO_LIVE, id: it.id, rotation: Math.round(r) });
+      const snapped = Math.abs(r - step) < 4;
+      if (snapped) r = step;
+      r = Math.round(r);
+      setLive({ ...NO_LIVE, id: it.id, rotation: r, rotationSnapped: snapped, label: { at: p, text: `${r}°`, snapped } });
     }
   };
 
   const onPointerUp = () => {
+    cancelPress();
     const g = gesture.current;
     gesture.current = null;
     const it = g && items.find((i) => i.id === g.id);
@@ -211,22 +280,26 @@ export function Workspace(props: Props) {
   const selected = items.find((it) => it.id === selectedId);
   const sel = selected && selectionGeometry(selected, live?.id === selected.id ? live : null, px);
 
-  // barre d'actions au-dessus de la sélection (en pixels, relative à la surface)
-  let toolbar: Pt | null = null;
+  // menu en arc autour du point d'appui (en pixels, relatif à la surface)
+  let arc: { x: number; y: number; below: boolean } | null = null;
   const svg = svgRef.current;
-  if (sel && !live && svg) {
-    const ctm = svg.getScreenCTM();
+  if (menu && selected && menu.id === selected.id && !live && svg) {
     const rect = svg.getBoundingClientRect();
-    if (ctm) {
-      const top = Math.min(...sel.corners.map((c) => c.y), sel.rotHandle.y);
-      const bottom = Math.max(...sel.corners.map((c) => c.y));
-      const cx = sel.corners.reduce((s, c) => s + c.x, 0) / 4;
-      const toScreen = (x: number, y: number) => ({ x: ctm.a * x + ctm.e - rect.left, y: ctm.d * y + ctm.f - rect.top });
-      const above = toScreen(cx, top);
-      toolbar = above.y > 70 ? { x: above.x, y: above.y - 12 } : { ...toScreen(cx, bottom), y: toScreen(cx, bottom).y + 56 };
-      toolbar.x = Math.min(Math.max(toolbar.x, 130), rect.width - 130);
-    }
+    const below = menu.y < ARC_R + 30;
+    arc = { x: Math.min(Math.max(menu.x, ARC_R + 30), rect.width - ARC_R - 30), y: menu.y + (below ? 16 : -16), below };
   }
+  const actions = selected
+    ? [
+        { key: 'dup', title: 'Dupliquer', icon: <DuplicateIcon />, run: () => props.onDuplicate(selected.id) },
+        ...(selected.kind === 'text' || selected.kind === 'shape'
+          ? [{ key: 'color', title: 'Couleur', icon: <DropIcon />, run: () => props.onColor(selected.id) }]
+          : []),
+        { key: 'style', title: selected.kind === 'text' ? 'Police et style' : 'Style', icon: <StyleIcon />, run: () => props.onStyle(selected.id) },
+        { key: 'front', title: "Avancer d'un plan", icon: <FrontIcon />, run: () => props.onLayer(selected.id, 1) },
+        { key: 'back', title: "Reculer d'un plan", icon: <BackIcon />, run: () => props.onLayer(selected.id, -1) },
+        { key: 'del', title: 'Supprimer (touche Suppr)', icon: <TrashIcon />, run: () => props.onDelete(selected.id), danger: true },
+      ]
+    : [];
 
   return (
     <>
@@ -235,7 +308,11 @@ export function Workspace(props: Props) {
         className={dragging ? 'workspace-svg dragging' : 'workspace-svg'}
         viewBox={`${-W * 0.04} ${-H * 0.04} ${W * 1.08} ${H * 1.08}`}
         preserveAspectRatio="xMidYMid meet"
-        onPointerDown={() => props.onSelect(null)}
+        onPointerDown={() => {
+          setMenu(null);
+          props.onSelect(null);
+        }}
+        onContextMenu={(e) => e.preventDefault()}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
@@ -328,6 +405,23 @@ export function Workspace(props: Props) {
           </g>
         )}
         {bgSelected && <rect width={W} height={H} className="sel-outline" strokeWidth={3 * px} pointerEvents="none" />}
+        {live?.magnet && (
+          <g pointerEvents="none" className="magnet">
+            <circle cx={live.magnet.x} cy={live.magnet.y} r={MAGNET_PX * px} className="magnet-zone" />
+            <circle cx={live.magnet.x} cy={live.magnet.y} r={9 * px} className="magnet-ring" strokeWidth={2.5 * px} />
+          </g>
+        )}
+        {selected && live?.id === selected.id && live.rotation !== undefined && (
+          <RotationDial item={selected} rotation={live.rotation} snapped={!!live.rotationSnapped} px={px} />
+        )}
+        {live?.label && (
+          <g pointerEvents="none" transform={`translate(${live.label.at.x} ${live.label.at.y - 26 * px})`}>
+            <rect x={-30 * px} y={-12 * px} width={60 * px} height={24 * px} rx={12 * px} className={live.label.snapped ? 'live-label snapped' : 'live-label'} />
+            <text textAnchor="middle" dy="0.35em" fontSize={13 * px} className="live-label-text">
+              {live.label.text}
+            </text>
+          </g>
+        )}
         {sel && selected && (
           <g className="selection">
             <polygon points={sel.corners.map((c) => `${c.x},${c.y}`).join(' ')} className="sel-outline" strokeWidth={1.5 * px} />
@@ -345,12 +439,31 @@ export function Workspace(props: Props) {
           </g>
         )}
       </svg>
-      {toolbar && selected && (
-        <div className="sel-toolbar glass" style={{ left: toolbar.x, top: toolbar.y }} onPointerDown={(e) => e.stopPropagation()}>
-          <button onClick={() => props.onDuplicate(selected.id)} title="Dupliquer">⧉ <span>Dupliquer</span></button>
-          <button onClick={() => props.onLayer(selected.id, 1)} title="Avancer d'un plan">⬆ <span>Avancer</span></button>
-          <button onClick={() => props.onLayer(selected.id, -1)} title="Reculer d'un plan">⬇ <span>Reculer</span></button>
-          <button className="danger" onClick={() => props.onDelete(selected.id)} title="Supprimer (touche Suppr)">🗑 <span>Supprimer</span></button>
+      {arc && selected && (
+        <div className="arc-menu" style={{ left: arc.x, top: arc.y }} onPointerDown={(e) => e.stopPropagation()}>
+          {actions.map((a, i) => {
+            // éventail de 140° centré au-dessus (ou au-dessous) de la sélection
+            const n = actions.length;
+            const deg = (n === 1 ? 0 : -70 + (140 * i) / (n - 1)) * (arc!.below ? -1 : 1);
+            const r = (deg * Math.PI) / 180;
+            const x = Math.sin(r) * ARC_R;
+            const y = (arc!.below ? 1 : -1) * Math.cos(r) * ARC_R;
+            return (
+              <button
+                key={a.key}
+                className={`arc-btn glass ${'danger' in a && a.danger ? 'danger' : ''}`}
+                style={{ transform: `translate(${x}px, ${y}px)`, transitionDelay: `${i * 18}ms` }}
+                onClick={() => {
+                  setMenu(null);
+                  a.run();
+                }}
+                title={a.title}
+                aria-label={a.title}
+              >
+                {a.icon}
+              </button>
+            );
+          })}
         </div>
       )}
     </>
@@ -373,6 +486,31 @@ function selectionGeometry(it: LayoutItem, l: Live | null, px: number) {
   const n = Math.hypot(ux, uy) || 1;
   const rotHandle = { x: topMid.x + (ux / n) * 32 * px, y: topMid.y + (uy / n) * 32 * px };
   return { corners, topMid, rotHandle, pivot: { x: pivot.x + dx, y: pivot.y + dy } };
+}
+
+/** Cadran de rotation : crans tous les 15°, l'angle courant en couleur. */
+function RotationDial({ item, rotation, snapped, px }: { item: LayoutItem; rotation: number; snapped: boolean; px: number }) {
+  const cx = item.x + item.w / 2;
+  const cy = item.y + item.h / 2;
+  const R = Math.max(item.w, item.h) / 2 + 40 * px;
+  const ticks = Array.from({ length: 24 }, (_, i) => i * 15);
+  const at = (deg: number, r: number) => {
+    const a = ((deg - 90) * Math.PI) / 180;
+    return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
+  };
+  const end = at(rotation, R);
+  return (
+    <g pointerEvents="none" className="rot-dial">
+      <circle cx={cx} cy={cy} r={R} className="rot-ring" strokeWidth={1.2 * px} />
+      {ticks.map((t) => {
+        const a = at(t, R - (t % 90 === 0 ? 12 : 6) * px);
+        const b = at(t, R);
+        return <line key={t} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={t % 90 === 0 ? 'rot-tick major' : 'rot-tick'} strokeWidth={(t % 90 === 0 ? 2 : 1.2) * px} />;
+      })}
+      <line x1={cx} y1={cy} x2={end.x} y2={end.y} className={snapped ? 'rot-hand snapped' : 'rot-hand'} strokeWidth={2 * px} />
+      <circle cx={end.x} cy={end.y} r={(snapped ? 7 : 5) * px} className={snapped ? 'rot-tip snapped' : 'rot-tip'} />
+    </g>
+  );
 }
 
 function Handle({ at, px, rotate, onDown }: { at: Pt; px: number; rotate?: boolean; onDown: (e: React.PointerEvent) => void }) {
