@@ -1,4 +1,5 @@
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import YAML from 'yaml';
 import path from 'node:path';
 import {
   FormatsDocSchema,
@@ -73,11 +74,14 @@ export class Library {
     return { yaml, project: parseYaml(ProjectSchema, yaml) };
   }
 
-  /** Valide puis écrit le YAML tel quel (les commentaires sont conservés). */
-  async writeProject(id: string, yaml: string): Promise<Project> {
+  /** Valide puis écrit le YAML (commentaires conservés), en notant qui l'a modifié. */
+  async writeProject(id: string, yaml: string, author?: string): Promise<Project> {
     const project = parseYaml(ProjectSchema, yaml);
     if (project.id !== id) throw new Error(`L'id du YAML (${project.id}) ne correspond pas à l'URL (${id})`);
-    await writeFile(this.projectPath(id), yaml, 'utf8');
+    const doc = YAML.parseDocument(yaml);
+    if (author) doc.setIn(['meta', 'updatedBy'], author);
+    doc.setIn(['meta', 'updatedAt'], new Date().toISOString());
+    await writeFile(this.projectPath(id), doc.toString({ lineWidth: 0 }), 'utf8');
     return project;
   }
 }

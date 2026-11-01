@@ -26,7 +26,7 @@ node -v                                        # Node 22 requis
    sudo chown -R ftdesigner /srv/ft-designer
    ```
    La bibliothèque vit hors du dépôt (`/srv/ft-designer/library`) pour que les mises à jour du code n'y touchent pas. On peut la versionner avec git à part.
-4. **Mot de passe** : `echo 'FTD_PASSWORD=…' | sudo tee /etc/ft-designer.env && sudo chmod 600 /etc/ft-designer.env` (utilisateur `ft`).
+4. **Connexion** : configure Google et/ou Apple en suivant [AUTH.md](AUTH.md). En dépannage seulement, un mot de passe unique reste possible avec `FTD_PASSWORD` (utilisateur `ft`), utilisé quand aucun fournisseur n'est configuré.
 5. **Service** :
    ```bash
    sudo cp deploy/ft-designer.service /etc/systemd/system/

@@ -1,12 +1,15 @@
 import path from 'node:path';
 import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
+import { registerAuth, type AuthConfig } from './auth.js';
 import { Library } from './library.js';
 
 export interface AppOptions {
   libraryRoot: string;
   webDist?: string;
-  /** Mot de passe unique (HTTP Basic) ; aucun contrôle si absent. */
+  /** Connexion externe (Google, Microsoft…) avec liste blanche d'adresses. */
+  auth?: AuthConfig | null;
+  /** Repli : mot de passe unique (HTTP Basic), ignoré si `auth` est fourni. */
   password?: string;
 }
 
@@ -18,7 +21,9 @@ export async function buildApp(opts: AppOptions) {
     done(null, body),
   );
 
-  if (opts.password) {
+  if (opts.auth) {
+    registerAuth(app, opts.auth);
+  } else if (opts.password) {
     const expected = 'Basic ' + Buffer.from(`ft:${opts.password}`).toString('base64');
     app.addHook('onRequest', async (req, reply) => {
       if (req.url === '/api/health') return;
@@ -29,6 +34,7 @@ export async function buildApp(opts: AppOptions) {
   }
 
   app.get('/api/health', async () => ({ ok: true }));
+  app.get('/api/me', async (req) => req.user ?? null);
   app.get('/api/formats', async () => lib.formats());
 
   app.get<{ Querystring: { type?: string; tags?: string; q?: string } }>('/api/library', async (req) =>
@@ -51,7 +57,7 @@ export async function buildApp(opts: AppOptions) {
 
   app.put<{ Params: { id: string }; Body: string }>('/api/projects/:id', async (req, reply) => {
     try {
-      const project = await lib.writeProject(req.params.id, req.body);
+      const project = await lib.writeProject(req.params.id, req.body, req.user?.email);
       return { ok: true, project };
     } catch (err) {
       return reply.code(400).send({ error: (err as Error).message });

@@ -46,11 +46,13 @@ export function App() {
   const [type, setType] = useState('');
   const [ghost, setGhost] = useState<Ghost | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [me, setMe] = useState<{ email: string; name?: string } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
     (async () => {
-      const [f, l, list] = await Promise.all([api.formats(), api.library(), api.projects()]);
+      const [f, l, list, user] = await Promise.all([api.formats(), api.library(), api.projects(), api.me()]);
+      setMe(user);
       setFormats(f);
       setLibrary(l);
       if (list[0]) {
@@ -244,6 +246,11 @@ export function App() {
           <button className={dirty ? 'chip primary' : 'chip'} onClick={save} disabled={!dirty}>
             {dirty ? 'Enregistrer' : 'Enregistré'}
           </button>
+          {me && (
+            <a className="avatar" href="/auth/logout" title={`${me.name ?? me.email} — se déconnecter`}>
+              {(me.name ?? me.email).slice(0, 1).toUpperCase()}
+            </a>
+          )}
         </div>
       </header>
 

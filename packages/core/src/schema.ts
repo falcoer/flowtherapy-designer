@@ -140,6 +140,8 @@ export const ProjectSchema = z.object({
   records: z.array(z.record(z.string(), z.unknown())).optional(),
   /** Ajustements par format : { formatId: { elementId: champs partiels } }. */
   overrides: z.record(z.string(), z.record(z.string(), z.record(z.string(), z.unknown()))).default({}),
+  /** Renseigné par le serveur à chaque enregistrement. */
+  meta: z.object({ updatedBy: z.string().optional(), updatedAt: z.string().optional() }).optional(),
 });
 export type Project = z.infer<typeof ProjectSchema>;
 

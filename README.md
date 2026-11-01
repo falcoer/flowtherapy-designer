@@ -7,7 +7,7 @@ Proposition d'architecture complète : voir le document partagé dans le projet 
 ## État : phase 0 (socle)
 
 - `packages/core` : schémas YAML (zod), référentiels d'ancrage (répartition, nombre d'or, armature harmonique, grille), deltas, couleurs OKLCH et harmonies, balises `{{…}}`, calcul de mise en page. Partagé entre navigateur et serveur.
-- `apps/server` : API Fastify qui lit et écrit la bibliothèque (`library/`) et les projets YAML, protection optionnelle par mot de passe.
+- `apps/server` : API Fastify qui lit et écrit la bibliothèque (`library/`) et les projets YAML, connexion avec Google ou Apple réservée aux membres listés (voir [`deploy/AUTH.md`](deploy/AUTH.md)).
 - `apps/web` : surface de travail tactile (React + SVG) : changement de format, repères, glisser-déposer depuis la bibliothèque vers un ancrage, pastilles d'attributs et curseur de delta centré, palette et suggestions d'harmonies, aperçu du YAML.
 - `library/` : bibliothèque d'exemple (logo et photo issus du site bio, palette, textes, formats, un projet).
 
