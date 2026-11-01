@@ -18,8 +18,10 @@ import {
   blurRadius,
   effectPrimitives,
   effectsOf,
+  depthBaseOf,
   filterRegion,
   type Effects,
+  type FilterPrimitive,
   type Align,
   type Box,
   type Snap,
@@ -405,7 +407,7 @@ export function Workspace(props: Props) {
                 {it.effects ? (
                   <g filter={`url(#fx-${it.id})`}>
                     <defs>
-                      <EffectFilter id={`fx-${it.id}`} fx={it.effects} minSide={minSide} />
+                      <EffectFilter id={`fx-${it.id}`} fx={it.effects} minSide={minSide} rotation={it.rotation} depthBase={depthBaseOf(it.w, it.h, minSide)} />
                     </defs>
                     {renderItem(it)}
                   </g>
@@ -581,24 +583,26 @@ export function GradientDef({ id, gradient }: { id: string; gradient: Gradient }
 }
 
 /** Filtre d'effets SVG (même chaîne que l'export). */
-function EffectFilter({ id, fx, minSide, region }: { id: string; fx: Effects; minSide: number; region?: { x: number; y: number; w: number; h: number } }) {
+function EffectFilter({ id, fx, minSide, rotation = 0, depthBase, region }: { id: string; fx: Effects; minSide: number; rotation?: number; depthBase?: number; region?: { x: number; y: number; w: number; h: number } }) {
   return (
     <filter id={id} {...filterRegion(region)} colorInterpolationFilters="sRGB">
-      {effectPrimitives(fx, minSide).map((p, i) => {
-        if (p.tag === 'feComponentTransfer' && p.linear) {
-          const f = { type: 'linear' as const, slope: p.linear.slope, intercept: p.linear.intercept };
-          return (
-            <feComponentTransfer key={i}>
-              <feFuncR {...f} />
-              <feFuncG {...f} />
-              <feFuncB {...f} />
-            </feComponentTransfer>
-          );
-        }
-        const Tag = p.tag;
-        return <Tag key={i} {...(p.attrs as Record<string, string>)} />;
-      })}
+      {effectPrimitives(fx, minSide, rotation, depthBase).map((p, i) => (
+        <Primitive key={i} p={p} />
+      ))}
     </filter>
+  );
+}
+
+const camel = (k: string) => k.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+function Primitive({ p }: { p: FilterPrimitive }) {
+  const Tag = p.tag as 'feFlood';
+  const attrs = Object.fromEntries(Object.entries(p.attrs).map(([k, v]) => [camel(k), v]));
+  return (
+    <Tag {...(attrs as Record<string, string>)}>
+      {p.children?.map((c, i) => (
+        <Primitive key={i} p={c} />
+      ))}
+    </Tag>
   );
 }
 

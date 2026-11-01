@@ -236,3 +236,28 @@ export const ContrastIcon = () => (
     <path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor" stroke="none" />
   </I>
 );
+export const ShadowIcon = () => (
+  <I>
+    <rect x="8" y="8" width="11" height="11" rx="2.5" fill="currentColor" fillOpacity="0.35" stroke="none" />
+    <rect x="5" y="5" width="11" height="11" rx="2.5" />
+  </I>
+);
+export const SoftIcon = () => (
+  <I>
+    <rect x="6" y="6" width="12" height="12" rx="3" strokeDasharray="2 2.5" strokeOpacity="0.7" />
+    <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" fillOpacity="0.4" stroke="none" />
+  </I>
+);
+export const ReliefIcon = () => (
+  <I>
+    <rect x="4.5" y="6.5" width="15" height="11" rx="3.5" />
+    <path d="M7 9.5c0-.6.4-1 1-1h8" strokeOpacity="0.5" />
+    <path d="M17 14.5c0 .6-.4 1-1 1H8" strokeWidth="2.6" />
+  </I>
+);
+export const LightIcon = () => (
+  <I>
+    <circle cx="8" cy="8" r="3" fill="currentColor" fillOpacity="0.3" />
+    <path d="M8 2.5v1.2M2.5 8h1.2M4.1 4.1l.9.9M12 12l6.5 6.5M15 18.5h3.5V15" />
+  </I>
+);

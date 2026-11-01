@@ -1,5 +1,5 @@
 import type { Format } from './formats.js';
-import { blurRadius, effectFilterSvg, type Effects } from './effects.js';
+import { blurRadius, depthBaseOf, effectFilterSvg, type Effects } from './effects.js';
 import { gradientSvg, type Gradient } from './gradient.js';
 import type { LayoutItem } from './layout.js';
 import { shapeSvg } from './shapes.js';
@@ -52,7 +52,7 @@ export function renderSvg(format: Format, items: LayoutItem[], opts: RenderOptio
     const cy = n(it.y + it.h / 2);
     const tr = it.rotation ? ` transform="rotate(${it.rotation} ${cx} ${cy})"` : '';
     const fid = `fx-${it.id}`;
-    if (it.effects) parts.push(`<defs>${effectFilterSvg(fid, it.effects, minSide)}</defs>`);
+    if (it.effects) parts.push(`<defs>${effectFilterSvg(fid, it.effects, minSide, undefined, it.rotation, depthBaseOf(it.w, it.h, minSide))}</defs>`);
     parts.push(`<g opacity="${n(it.opacity)}"${tr}>`);
     // le filtre s'applique dans un groupe intérieur, avant la rotation
     if (it.effects) parts.push(`<g filter="url(#${fid})">`);

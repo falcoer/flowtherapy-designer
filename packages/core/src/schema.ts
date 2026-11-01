@@ -130,6 +130,8 @@ export const PlacedSchema = z.object({
       align: z.enum(['start', 'middle', 'end']).optional(),
       /** Dégradé de remplissage (texte, forme), prioritaire sur la couleur. */
       gradient: GradientSchema.optional(),
+      /** Couleur de l'ombre portée (hex ou palette.N). */
+      shadow: z.string().optional(),
     })
     .default({}),
   params: z.record(z.string(), z.unknown()).optional(),

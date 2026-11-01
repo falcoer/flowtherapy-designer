@@ -642,6 +642,18 @@ export function App() {
               if (selected) patchElement(selected.id, (el) => ({ deltas: set(el.deltas) }));
               else update((p) => ({ ...p, backgroundDeltas: set(p.backgroundDeltas) }));
             }}
+            depth={
+              selected
+                ? {
+                    color: effectiveElement(project, formatId, selected).style.shadow,
+                    swatches: [
+                      { value: '#000000', hex: '#000000', name: 'Noir' },
+                      ...(palette?.colors ?? []).map((c, i) => ({ value: `palette.${i + 1}`, hex: c.hex, name: c.name })),
+                    ],
+                    onColor: (value) => patchElement(selected.id, (el) => ({ style: { ...el.style, shadow: value } })),
+                  }
+                : undefined
+            }
             onReset={() => {
               const isFx = (k: string) => k === 'opacity' || k.startsWith('fx.');
               const clear = (deltas: Record<string, number>) =>

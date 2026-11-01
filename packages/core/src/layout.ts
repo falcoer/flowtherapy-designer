@@ -116,7 +116,7 @@ export function computeLayout(project: Project, formatId: string, ctx: LayoutCon
       opacity: Math.max(0, 1 + clampDelta('opacity', d.opacity ?? 0)),
       fit: el.fit,
       align: el.align,
-      effects: effectsOf(d),
+      effects: effectsOf(d, resolveColor(el.style.shadow, palette, '#000000')),
     };
     const colorDelta = { h: d['color.hue'], l: d['color.lightness'], c: d['color.chroma'] };
 

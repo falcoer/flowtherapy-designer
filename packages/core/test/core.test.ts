@@ -275,7 +275,7 @@ describe('effets', () => {
     const fx = effectsOf({ 'fx.saturation': -1, 'fx.dilution': 0.4, 'fx.blur': 0.5 })!;
     const p = effectPrimitives(fx, 1000);
     expect(p.map((x) => x.tag)).toEqual(['feColorMatrix', 'feComponentTransfer', 'feGaussianBlur']);
-    expect(p[1]!.linear).toEqual({ slope: 0.6, intercept: 0.4 });
+    expect(p[1]!.children![0]!.attrs).toEqual({ type: 'linear', slope: 0.6, intercept: 0.4 });
     expect(p[2]!.attrs.stdDeviation).toBe(10);
   });
   it('rend le filtre sur l\'élément et sur le fond à l\'export', () => {
@@ -295,5 +295,17 @@ elements:
     expect(svg).toContain('<filter id="fx-rond"');
     expect(svg).toContain('<g filter="url(#fx-rond)">');
     expect(svg).toMatch(/<filter id="fx-bg" filterUnits="userSpaceOnUse" x="-\d/);
+  });
+  it('garde la lumière fixe sur la page quand l\'objet tourne', () => {
+    const fx = effectsOf({ 'fx.shadow': 1, 'fx.relief': 0.5 }, '#123456')!;
+    const flat = effectPrimitives(fx, 1000);
+    const turned = effectPrimitives(fx, 1000, 90);
+    const az = (p: typeof flat) => p.find((x) => x.tag === 'feDiffuseLighting')!.children![0]!.attrs.azimuth;
+    expect(az(flat)).toBe(225);
+    expect(az(turned)).toBe(135);
+    const off = flat.find((x) => x.tag === 'feOffset')!.attrs;
+    expect(off.dx).toBeCloseTo(28.28, 1);
+    expect(off.dy).toBeCloseTo(28.28, 1);
+    expect(flat.find((x) => x.tag === 'feFlood')!.attrs['flood-color']).toBe('#123456');
   });
 });
