@@ -117,7 +117,7 @@ button, input, select { font: inherit; color: inherit; }
 .chip:disabled { opacity: 0.55; cursor: default; }
 
 .rail {
-  position: absolute; left: 12px; top: 10px; width: 56px;
+  position: absolute; z-index: 8; left: 12px; top: 10px; bottom: 12px; width: 56px;
   display: flex; flex-direction: column; gap: 6px; padding: 8px 6px; align-items: center;
 }
 .rail-btn {
@@ -130,6 +130,13 @@ button, input, select { font: inherit; color: inherit; }
 .rail-btn.primary { background: var(--accent); color: #fff; font-size: 24px; }
 .rail-palette { display: grid; grid-template-columns: 1fr 1fr; width: 24px; height: 24px; border-radius: 6px; overflow: hidden; }
 .rail-palette i { display: block; }
+.rail-btn svg { width: 22px; height: 22px; }
+.rail-spacer { flex: 1; }
+.rail-modes { position: relative; }
+.rail-flyout { position: absolute; left: calc(100% + 12px); bottom: 0; z-index: 8; display: grid; gap: 2px; padding: 6px; border-radius: 14px; min-width: 210px; box-shadow: 0 12px 36px rgba(0, 0, 0, 0.22); }
+.rail-flyout button { display: flex; align-items: center; gap: 10px; border: none; background: transparent; color: var(--ink); border-radius: 10px; padding: 8px 10px; font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.rail-flyout button:hover, .rail-flyout button.on { background: var(--accent-soft); }
+.rail-flyout-icon { width: 22px; text-align: center; font-size: 18px; }
 
 .popover { position: absolute; z-index: 6; left: 80px; top: 64px; width: 320px; padding: 14px; max-height: calc(100% - 80px); overflow: auto; }
 .palette-panel .swatches { display: flex; gap: 8px; flex-wrap: wrap; }

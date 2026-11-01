@@ -56,7 +56,18 @@ export function App() {
   const [styleOpen, setStyleOpen] = useState(false);
   const [styleDock, setStyleDock] = useState<Dock>(null);
   const [fxOpen, setFxOpen] = useState(false);
+  const [framesOpen, setFramesOpen] = useState(false);
   const [colorSelection, setColorSelection] = useState<string[] | null>(null);
+  // désélectionner ferme les panneaux d'édition (couleur, style, effets)
+  const prevSelected = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevSelected.current && !selectedId) {
+      setPaletteOpen(false);
+      setStyleOpen(false);
+      setFxOpen(false);
+    }
+    prevSelected.current = selectedId;
+  }, [selectedId]);
   const [fxDock, setFxDock] = useState<Dock>(null);
   const [yamlOpen, setYamlOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -474,21 +485,8 @@ export function App() {
         <button className="rail-btn primary" onClick={() => setInsertOpen(true)} title="Insérer depuis la bibliothèque">
           ＋
         </button>
-        {FRAME_BUTTONS.map((b) => (
-          <button
-            key={b.frame}
-            className={frame === b.frame ? 'rail-btn on' : 'rail-btn'}
-            onClick={() => setFrame(b.frame)}
-            title={FRAME_TITLES[b.frame]}
-          >
-            {b.icon}
-          </button>
-        ))}
-        <button className={showGuides ? 'rail-btn on' : 'rail-btn'} onClick={() => setShowGuides((v) => !v)} title="Afficher les repères">
-          ⌗
-        </button>
         {library.some((el) => el.type === 'palette') && (
-          <button className={paletteOpen ? 'rail-btn on' : 'rail-btn'} onClick={() => setPaletteOpen((v) => !v)} title="Palette">
+          <button className={paletteOpen ? 'rail-btn on' : 'rail-btn'} onClick={() => setPaletteOpen((v) => !v)} title="Couleur et palettes">
             <span className="rail-palette">
               {(palette?.colors ?? []).slice(0, 4).map((c, i) => (
                 <i key={i} style={{ background: c.hex }} />
@@ -496,6 +494,28 @@ export function App() {
             </span>
           </button>
         )}
+        <button
+          className={styleOpen && selectedItem?.kind === 'text' ? 'rail-btn on' : 'rail-btn'}
+          disabled={selectedItem?.kind !== 'text'}
+          onClick={() => {
+            setFxOpen(false);
+            setStyleOpen((v) => !v);
+          }}
+          title={selectedItem?.kind === 'text' ? 'Police et style du texte' : 'Police et style (sélectionne un texte)'}
+        >
+          <StyleIcon />
+        </button>
+        <button
+          className={fxOpen && (selected || selectedId === BACKGROUND_ID) ? 'rail-btn on' : 'rail-btn'}
+          disabled={!selected && selectedId !== BACKGROUND_ID}
+          onClick={() => {
+            setStyleOpen(false);
+            setFxOpen((v) => !v);
+          }}
+          title={selected || selectedId === BACKGROUND_ID ? 'Effets' : 'Effets (sélectionne un élément ou le fond)'}
+        >
+          <EffectsIcon />
+        </button>
         <span className="rail-sep" />
         <button className="rail-btn" onClick={undo} disabled={!past.current.length} title="Annuler (Cmd/Ctrl+Z)">
           ↶
@@ -503,6 +523,35 @@ export function App() {
         <button className="rail-btn" onClick={redo} disabled={!future.current.length} title="Rétablir (Cmd/Ctrl+Maj+Z)">
           ↷
         </button>
+        <span className="rail-spacer" />
+        <button className={showGuides ? 'rail-btn on' : 'rail-btn'} onClick={() => setShowGuides((v) => !v)} title={showGuides ? 'Masquer les repères' : 'Afficher les repères'}>
+          ⌗
+        </button>
+        <div className="rail-modes">
+          <button className={`rail-btn ${framesOpen ? 'on' : ''}`} onClick={() => setFramesOpen((v) => !v)} title={`Repères : ${FRAME_TITLES[frame]}`} aria-expanded={framesOpen}>
+            {FRAME_BUTTONS.find((b) => b.frame === frame)!.icon}
+          </button>
+          {framesOpen && (
+            <div className="rail-flyout glass" role="menu">
+              {FRAME_BUTTONS.map((b) => (
+                <button
+                  key={b.frame}
+                  role="menuitemradio"
+                  aria-checked={frame === b.frame}
+                  className={frame === b.frame ? 'on' : ''}
+                  onClick={() => {
+                    setFrame(b.frame);
+                    setShowGuides(true);
+                    setFramesOpen(false);
+                  }}
+                >
+                  <span className="rail-flyout-icon">{b.icon}</span>
+                  {FRAME_TITLES[b.frame]}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </nav>
 
       {exportOpen && (
