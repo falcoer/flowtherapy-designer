@@ -138,6 +138,15 @@ export const ProjectSchema = z.object({
   /** Deltas du fond : teinte, clarté, saturation. */
   backgroundDeltas: z.record(z.string(), z.number()).default({}),
   globals: z.array(GlobalSchema).default([]),
+  /** Grille du projet : mêmes colonnes et rangées sur tous les formats. */
+  grid: z
+    .object({
+      cols: z.number().int().min(1).max(24).default(4),
+      rows: z.number().int().min(1).max(24).default(6),
+      margin: z.number().min(0).max(0.3).default(0.06),
+      gutter: z.number().min(0).max(0.1).default(0),
+    })
+    .default({ cols: 4, rows: 6, margin: 0.06, gutter: 0 }),
   elements: z.array(PlacedSchema).default([]),
   values: z.record(z.string(), z.unknown()).default({}),
   records: z.array(z.record(z.string(), z.unknown())).optional(),

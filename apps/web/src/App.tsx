@@ -12,6 +12,7 @@ import {
   toYaml,
   type AnchorFrame,
   type Format,
+  type GridSpec,
   type LibraryElement,
   type PaletteElement,
   type Placed,
@@ -24,6 +25,7 @@ import { AttributeBar } from './components/AttributeBar';
 import { InsertPanel, Preview } from './components/InsertPanel';
 import { PalettePanel } from './components/PalettePanel';
 import { BackgroundBar } from './components/BackgroundBar';
+import { GridBar } from './components/GridBar';
 import { BACKGROUND_ID, MAGNET_PX, Workspace, clientToFormat, formatPerPixel } from './components/Workspace';
 
 const FRAME_BUTTONS: Array<{ frame: AnchorFrame; icon: string }> = [
@@ -211,7 +213,7 @@ export function App() {
       const { dx: _dx, dy: _dy, ...deltas } = el.deltas;
       if (snap) return { anchor: { frame, point: snap.anchor.id }, align: snap.align, deltas };
       const p = alignPoint(box, el.align);
-      const a = nearestAnchor(anchorsFor(frame, format), p.x / format.width, p.y / format.height, format);
+      const a = nearestAnchor(anchorsFor(frame, format, project?.grid), p.x / format.width, p.y / format.height, format);
       const dx = clampDelta('dx', p.x / format.width - a.x);
       const dy = clampDelta('dy', p.y / format.height - a.y);
       if (Math.abs(dx) > 0.0005) deltas.dx = Math.round(dx * 1e4) / 1e4;
@@ -325,8 +327,8 @@ export function App() {
         }
         return;
       }
-      const target = ghostTargetAt(svg, format, frame, e.clientX, e.clientY);
-      const a = target ?? nearestAnchor(anchorsFor(frame, format), nx, ny, format);
+      const target = ghostTargetAt(svg, format, frame, project.grid, e.clientX, e.clientY);
+      const a = target ?? nearestAnchor(anchorsFor(frame, format, project.grid), nx, ny, format);
       const free: Record<string, number> = target ? {} : { dx: clampDelta('dx', nx - a.x), dy: clampDelta('dy', ny - a.y) };
       const id = uniqueId(project, g.el.id);
       const el: Placed = {
@@ -401,7 +403,7 @@ export function App() {
           frame={frame}
           showGuides={showGuides}
           highlightAnchors={ghost !== null}
-          ghostTarget={ghost && svgRef.current ? ghostTargetAt(svgRef.current, format, frame, ghost.x, ghost.y) : null}
+          ghostTarget={ghost && svgRef.current ? ghostTargetAt(svgRef.current, format, frame, project.grid, ghost.x, ghost.y) : null}
           selectedId={selectedId}
           svgRef={svgRef}
           onSelect={(id) => {
@@ -543,6 +545,10 @@ export function App() {
         </div>
       )}
 
+      {frame === 'grid' && !insertOpen && !paletteOpen && !exportOpen && (
+        <GridBar grid={project.grid} onChange={(grid) => update((p) => ({ ...p, grid }))} />
+      )}
+
       {selectedId === BACKGROUND_ID && !insertOpen && (
         <BackgroundBar
           project={project}
@@ -640,10 +646,10 @@ export function App() {
 }
 
 /** Ancrage attiré par le pointeur (glisser depuis la bibliothèque), s'il est assez proche. */
-function ghostTargetAt(svg: SVGSVGElement, format: Format, frame: AnchorFrame, clientX: number, clientY: number) {
+function ghostTargetAt(svg: SVGSVGElement, format: Format, frame: AnchorFrame, grid: GridSpec, clientX: number, clientY: number) {
   const p = clientToFormat(svg, clientX, clientY);
   const radius = MAGNET_PX * formatPerPixel(svg);
-  const a = nearestAnchor(anchorsFor(frame, format), p.x / format.width, p.y / format.height, format);
+  const a = nearestAnchor(anchorsFor(frame, format, grid), p.x / format.width, p.y / format.height, format);
   return Math.hypot(a.x * format.width - p.x, a.y * format.height - p.y) <= radius ? a : null;
 }
 

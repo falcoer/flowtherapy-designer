@@ -14,7 +14,8 @@ import type { Format } from './formats.js';
  *                 du petit côté, médianes). Les angles dépendent
  *                 du rapport largeur/hauteur : les points bougent
  *                 avec le format, comme en peinture.                 "d1 × r2"
- * - grid        : colonnes et rangées (marges, gouttières).          "c2 r3", "c2 r3 nw"
+ * - grid        : colonnes et rangées du projet, identiques sur tous
+ *                 les formats (marge en fraction du petit côté).     "c2 r3" (case), "x1 y2" (croisement)
  *
  * h = position sur la largeur, v = position sur la hauteur.
  */
@@ -26,7 +27,7 @@ export const FRAME_TITLES: Record<AnchorFrame, string> = {
   repartition: 'Répartition (demis, tiers, quarts)',
   or: 'Nombre d’or',
   armature: 'Armature harmonique',
-  grid: 'Grille classique',
+  grid: 'Grille (colonnes, rangées, marges)',
 };
 
 export interface AnchorPoint {
@@ -180,9 +181,9 @@ const CROSS_RE = /^(\S+)\s*×\s*(\S+)$/;
 const GRID_RE = /^c(\d+)\s+r(\d+)(?:\s+(n|s|e|w|ne|nw|se|sw|c))?$/;
 
 /** Calcule la position normalisée (0..1) d'un ancrage sur un format donné. */
-export function resolveAnchor(frame: AnchorFrame, point: string, format: Format): { x: number; y: number } {
+export function resolveAnchor(frame: AnchorFrame, point: string, format: Format, grid: GridSpec = DEFAULT_GRID): { x: number; y: number } {
   const p = point.trim();
-  if (frame === 'grid') return resolveGrid(p, format);
+  if (frame === 'grid') return resolveGrid(p, format, grid);
   if (frame === 'repartition') {
     // les fractions sont libres : "h2/5 v3/7" est valide même hors des lignes affichées
     const ax = AXIAL_RE.exec(p);
@@ -200,10 +201,36 @@ export function resolveAnchor(frame: AnchorFrame, point: string, format: Format)
   return { x: q.x / format.width, y: q.y / format.height };
 }
 
-function resolveGrid(p: string, format: Format) {
+/**
+ * Grille du projet : même nombre de colonnes et de rangées sur tous les
+ * formats, marge et gouttière en fraction du petit côté. "c2 r3" désigne
+ * donc la même case partout, seule sa taille suit le format.
+ */
+export interface GridSpec {
+  cols: number;
+  rows: number;
+  /** Marge extérieure, fraction du petit côté (0,05 = 5 %). */
+  margin: number;
+  /** Espace entre colonnes et rangées, fraction du petit côté. */
+  gutter: number;
+}
+
+export const DEFAULT_GRID: GridSpec = { cols: 4, rows: 6, margin: 0.06, gutter: 0 };
+
+const LINE_RE = /^x(\d+)\s+y(\d+)$/;
+
+function resolveGrid(p: string, format: Format, grid: GridSpec) {
+  const l = LINE_RE.exec(p);
+  if (l) {
+    const pos = gridLines(format, grid);
+    const i = Number(l[1]);
+    const j = Number(l[2]);
+    if (i > grid.cols || j > grid.rows) throw new Error(`Ligne hors grille : "${p}" (grille ${grid.cols}×${grid.rows})`);
+    return { x: pos.xs[i]! / format.width, y: pos.ys[j]! / format.height };
+  }
   const g = GRID_RE.exec(p);
   if (!g) throw new Error(`Ancrage de grille invalide : "${p}"`);
-  const cell = gridCell(format, Number(g[1]), Number(g[2]));
+  const cell = gridCell(format, grid, Number(g[1]), Number(g[2]));
   const corner = g[3] ?? 'c';
   const fx = corner.includes('w') ? 0 : corner.includes('e') ? 1 : 0.5;
   const fy = corner.includes('n') ? 0 : corner.includes('s') ? 1 : 0.5;
@@ -213,50 +240,71 @@ function resolveGrid(p: string, format: Format) {
   };
 }
 
-function gridCell(format: Format, col: number, row: number) {
-  const grid = format.grid ?? { cols: 12, rows: 12, margin: 0, gutter: 0 };
+function gridCell(format: Format, grid: GridSpec, col: number, row: number) {
   if (col < 1 || col > grid.cols || row < 1 || row > grid.rows) {
     throw new Error(`Cellule hors grille : c${col} r${row} (grille ${grid.cols}×${grid.rows})`);
   }
-  const margin = grid.margin ?? 0;
-  const gutter = grid.gutter ?? 0;
+  const short = Math.min(format.width, format.height);
+  const margin = grid.margin * short;
+  const gutter = grid.gutter * short;
   const w = (format.width - 2 * margin - gutter * (grid.cols - 1)) / grid.cols;
   const h = (format.height - 2 * margin - gutter * (grid.rows - 1)) / grid.rows;
   return { x: margin + (col - 1) * (w + gutter), y: margin + (row - 1) * (h + gutter), w, h };
 }
 
-function gridAnchors(format: Format): AnchorPoint[] {
-  const grid = format.grid ?? { cols: 12, rows: 12, margin: 0, gutter: 0 };
+/** Lignes de séparation (sans gouttière : bord gauche de chaque colonne + bord droit). */
+function gridLines(format: Format, grid: GridSpec) {
+  const xs = Array.from({ length: grid.cols }, (_, c) => gridCell(format, grid, c + 1, 1).x);
+  xs.push(format.width - grid.margin * Math.min(format.width, format.height));
+  const ys = Array.from({ length: grid.rows }, (_, r) => gridCell(format, grid, 1, r + 1).y);
+  ys.push(format.height - grid.margin * Math.min(format.width, format.height));
+  return { xs, ys };
+}
+
+function gridAnchors(format: Format, grid: GridSpec): AnchorPoint[] {
   const out: AnchorPoint[] = [];
-  for (let c = 1; c <= grid.cols; c++) {
-    for (let r = 1; r <= grid.rows; r++) {
-      for (const corner of ['c', 'nw', 'ne', 'sw', 'se'] as const) {
-        const id = corner === 'c' ? `c${c} r${r}` : `c${c} r${r} ${corner}`;
-        out.push({ id, frame: 'grid', ...resolveGrid(id, format) });
-      }
-    }
+  for (let c = 1; c <= grid.cols; c++)
+    for (let r = 1; r <= grid.rows; r++) out.push({ id: `c${c} r${r}`, frame: 'grid', ...resolveGrid(`c${c} r${r}`, format, grid) });
+  if (grid.gutter > 0) {
+    // avec gouttière, chaque case a ses propres coins
+    for (let c = 1; c <= grid.cols; c++)
+      for (let r = 1; r <= grid.rows; r++)
+        for (const k of ['nw', 'ne', 'sw', 'se']) out.push({ id: `c${c} r${r} ${k}`, frame: 'grid', ...resolveGrid(`c${c} r${r} ${k}`, format, grid) });
+  } else {
+    for (let i = 0; i <= grid.cols; i++)
+      for (let j = 0; j <= grid.rows; j++) out.push({ id: `x${i} y${j}`, frame: 'grid', ...resolveGrid(`x${i} y${j}`, format, grid) });
   }
   return out;
 }
 
-function gridGuides(format: Format): GuideLine[] {
-  const grid = format.grid ?? { cols: 12, rows: 12, margin: 0, gutter: 0 };
+function gridGuides(format: Format, grid: GridSpec): GuideLine[] {
   const lines: GuideLine[] = [];
+  const W = format.width;
+  const H = format.height;
+  const xs = new Set<number>();
+  const ys = new Set<number>();
   for (let c = 1; c <= grid.cols; c++) {
-    for (const x of [resolveGrid(`c${c} r1 nw`, format).x, resolveGrid(`c${c} r1 ne`, format).x]) {
-      lines.push({ x1: x, y1: 0, x2: x, y2: 1, weight: 'grid' });
-    }
+    const cell = gridCell(format, grid, c, 1);
+    xs.add(cell.x / W);
+    xs.add((cell.x + cell.w) / W);
   }
   for (let r = 1; r <= grid.rows; r++) {
-    for (const y of [resolveGrid(`c1 r${r} nw`, format).y, resolveGrid(`c1 r${r} sw`, format).y]) {
-      lines.push({ x1: 0, y1: y, x2: 1, y2: y, weight: 'grid' });
-    }
+    const cell = gridCell(format, grid, 1, r);
+    ys.add(cell.y / H);
+    ys.add((cell.y + cell.h) / H);
   }
+  const yMin = Math.min(...ys);
+  const yMax = Math.max(...ys);
+  const xMin = Math.min(...xs);
+  const xMax = Math.max(...xs);
+  // les lignes s'arrêtent aux marges ; le cadre des marges est plus marqué
+  for (const x of xs) lines.push({ x1: x, y1: yMin, x2: x, y2: yMax, weight: x === xMin || x === xMax ? 'half' : 'grid' });
+  for (const y of ys) lines.push({ x1: xMin, y1: y, x2: xMax, y2: y, weight: y === yMin || y === yMax ? 'half' : 'grid' });
   return lines;
 }
 
-export function anchorsFor(frame: AnchorFrame, format: Format): AnchorPoint[] {
-  if (frame === 'grid') return gridAnchors(format);
+export function anchorsFor(frame: AnchorFrame, format: Format, grid: GridSpec = DEFAULT_GRID): AnchorPoint[] {
+  if (frame === 'grid') return gridAnchors(format, grid);
   const pts = lineAnchors(frame, format);
   if (frame === 'repartition') {
     // coins et milieux des bords, utiles pour caler un élément au bord
@@ -269,8 +317,8 @@ export function anchorsFor(frame: AnchorFrame, format: Format): AnchorPoint[] {
   return pts;
 }
 
-export function guidesFor(frame: AnchorFrame, format: Format): GuideLine[] {
-  return frame === 'grid' ? gridGuides(format) : lineGuides(frame, format);
+export function guidesFor(frame: AnchorFrame, format: Format, grid: GridSpec = DEFAULT_GRID): GuideLine[] {
+  return frame === 'grid' ? gridGuides(format, grid) : lineGuides(frame, format);
 }
 
 /**

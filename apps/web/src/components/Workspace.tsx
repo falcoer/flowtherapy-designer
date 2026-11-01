@@ -117,8 +117,8 @@ export function Workspace(props: Props) {
   const W = format.width;
   const H = format.height;
   const palette = project.palette ? (library.get(`palette/${project.palette}`) as PaletteElement | undefined) : undefined;
-  const guides = useMemo(() => guidesFor(frame, format), [frame, format]);
-  const anchors = useMemo(() => anchorsFor(frame, format), [frame, format]);
+  const guides = useMemo(() => guidesFor(frame, format, project.grid), [frame, format, project.grid]);
+  const anchors = useMemo(() => anchorsFor(frame, format, project.grid), [frame, format, project.grid]);
   const gesture = useRef<Gesture | null>(null);
   const [live, setLive] = useState<Live | null>(null);
   // unités du format par pixel d'écran : poignées et traits gardent une taille constante

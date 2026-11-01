@@ -96,7 +96,7 @@ export function computeLayout(project: Project, formatId: string, ctx: LayoutCon
   return project.elements.map((raw) => {
     const el = effectiveElement(project, formatId, raw);
     const lib = ctx.library.get(el.ref);
-    const anchor = resolveAnchor(el.anchor.frame, el.anchor.point, format);
+    const anchor = resolveAnchor(el.anchor.frame, el.anchor.point, format, project.grid);
     const d = el.deltas;
     const k = sizeFactor(d.size);
     const common = {

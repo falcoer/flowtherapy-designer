@@ -227,3 +227,16 @@ button, input, select { font: inherit; color: inherit; }
 .chip.layer .layer-x { padding: 6px 10px 6px 6px; color: var(--ink-soft); }
 .attr-bar .hint { margin: 0; }
 .chip.layer button:first-child { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grid-bar {
+  position: absolute; left: 80px; top: 64px; z-index: 4;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 8px 14px; font-size: 13px;
+  max-width: calc(100% - 96px);
+}
+.stepper { display: flex; align-items: center; gap: 6px; }
+.stepper span, .grid-margin span { color: var(--ink-soft); }
+.stepper button { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line); background: transparent; cursor: pointer; font-size: 16px; }
+.stepper button:disabled { opacity: 0.35; cursor: default; }
+.stepper strong { min-width: 20px; text-align: center; }
+.grid-margin { display: flex; align-items: center; gap: 8px; }
+.grid-margin input { width: 110px; accent-color: var(--accent); }
+.grid-margin strong { min-width: 44px; font-weight: 600; }

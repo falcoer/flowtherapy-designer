@@ -97,12 +97,24 @@ describe('armature harmonique', () => {
 
 describe('grille', () => {
   it('résout centre et coins de cellule', () => {
-    const f: Format = { ...a4, grid: { cols: 2, rows: 2, margin: 10, gutter: 10 } };
-    const c = resolveAnchor('grid', 'c1 r1 nw', f);
+    const g = { cols: 2, rows: 2, margin: 10 / 210, gutter: 10 / 210 };
+    const c = resolveAnchor('grid', 'c1 r1 nw', a4, g);
     expect(c.x * 210).toBeCloseTo(10);
     expect(c.y * 297).toBeCloseTo(10);
-    const e = resolveAnchor('grid', 'c2 r1 ne', f);
+    const e = resolveAnchor('grid', 'c2 r1 ne', a4, g);
     expect(e.x * 210).toBeCloseTo(200);
+  });
+  it('garde le même découpage sur tous les formats', () => {
+    const g = { cols: 4, rows: 6, margin: 0.05, gutter: 0 };
+    const story = { ...a4, width: 1080, height: 1920, unit: 'px' as const };
+    for (const f of [a4, story]) {
+      const ids = anchorsFor('grid', f, g).map((p) => p.id);
+      expect(ids).toHaveLength(4 * 6 + 5 * 7);
+      expect(ids).toContain('x4 y6');
+      // marge identique en haut et à gauche (fraction du petit côté)
+      const p = resolveAnchor('grid', 'x0 y0', f, g);
+      expect(p.x * f.width).toBeCloseTo(p.y * f.height);
+    }
   });
 });
 
