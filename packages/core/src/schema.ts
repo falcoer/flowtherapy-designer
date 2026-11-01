@@ -137,6 +137,8 @@ export const ProjectSchema = z.object({
   background: z.string().optional(),
   /** Deltas du fond : teinte, clarté, saturation. */
   backgroundDeltas: z.record(z.string(), z.number()).default({}),
+  /** Dégradé de fond (remplace la couleur unie). angle : 180 = de haut en bas. */
+  backgroundGradient: z.object({ stops: z.array(z.string()).min(2), angle: z.number().default(180) }).optional(),
   globals: z.array(GlobalSchema).default([]),
   /** Grille du projet : mêmes colonnes et rangées sur tous les formats. */
   grid: z

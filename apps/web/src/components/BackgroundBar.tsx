@@ -9,6 +9,8 @@ interface Props {
   onDelta: (key: string, value: number) => void;
   onLayerDelta: (index: number, key: string, value: number) => void;
   onRemoveLayer: (index: number) => void;
+  onRotateGradient: () => void;
+  onRemoveGradient: () => void;
 }
 
 const COLOR_KEYS = ['color.hue', 'color.lightness', 'color.chroma'];
@@ -17,7 +19,7 @@ const COLOR_KEYS = ['color.hue', 'color.lightness', 'color.chroma'];
  * Le fond est un élément fixe : on ne le déplace pas, mais on règle sa couleur,
  * ses deltas, et les images attachées au document entier.
  */
-export function BackgroundBar({ project, library, onColor, onDelta, onLayerDelta, onRemoveLayer }: Props) {
+export function BackgroundBar({ project, library, onColor, onDelta, onLayerDelta, onRemoveLayer, onRotateGradient, onRemoveGradient }: Props) {
   // cible : 'color.*' pour le fond, 'layer:<i>' pour l'opacité d'une image de fond
   const [active, setActive] = useState<string>('color.lightness');
   const layer = active.startsWith('layer:') ? Number(active.slice(6)) : null;
@@ -40,6 +42,17 @@ export function BackgroundBar({ project, library, onColor, onDelta, onLayerDelta
             {deltaSpec(k)!.label}
           </button>
         ))}
+        {project.backgroundGradient && (
+          <span className="chip layer">
+            <span className="grad-chip" style={{ background: `linear-gradient(90deg, ${project.backgroundGradient.stops.join(', ')})` }} />
+            <button onClick={onRotateGradient} title="Tourner le dégradé de 45°">
+              Dégradé ↻ {project.backgroundGradient.angle}°
+            </button>
+            <button className="layer-x" aria-label="Retirer le dégradé" onClick={onRemoveGradient}>
+              ✕
+            </button>
+          </span>
+        )}
         {project.globals.map((g, i) => {
           const el = library.get(g.ref);
           return (

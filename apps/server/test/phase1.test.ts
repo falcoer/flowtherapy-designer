@@ -79,6 +79,18 @@ describe('import dans la bibliothèque', () => {
     expect(res.json().created[0]).toMatchObject({ type: 'font', id: 'dejavu-serif', family: 'DejaVu Serif' });
   });
 
+  it('enregistre une palette tracée dans le plan de couleur', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/library/palettes',
+      payload: { title: 'Dégradé été', colors: [{ hex: '#e9a7c3' }, { hex: '#6c4fa1' }], tags: ['dégradé'] },
+    });
+    expect(res.json().created).toMatchObject({ type: 'palette', id: 'degrade-ete' });
+    expect(await readFile(path.join(root, 'palettes/degrade-ete.yaml'), 'utf8')).toContain('#6c4fa1');
+    const bad = await app.inject({ method: 'POST', url: '/api/library/palettes', payload: { title: 'x', colors: [{ hex: 'rouge' }] } });
+    expect(bad.statusCode).toBe(400);
+  });
+
   it('refuse un type de fichier inconnu', async () => {
     const { payload, headers } = multipart([{ name: 'notes.txt', data: Buffer.from('x') }]);
     expect((await app.inject({ method: 'POST', url: '/api/library/upload', payload, headers })).statusCode).toBe(400);

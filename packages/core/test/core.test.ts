@@ -211,3 +211,27 @@ describe('aimantation', () => {
     expect(alignPoint({ x: 0, y: 0, w: 10, h: 20 }, 'bottom-right')).toEqual({ x: 10, y: 20 });
   });
 });
+
+import { gradientStops, maxChroma, oklabToRgb8, hexToOklch as toLch } from '../src/color.js';
+import { gradientVector } from '../src/render.js';
+describe('plan de couleur', () => {
+  it('borne la saturation au gamut sRGB', () => {
+    const c = maxChroma(0.7, 30);
+    expect(c).toBeGreaterThan(0.1);
+    expect(oklabToRgb8(0.7, c * 0.99 * Math.cos(Math.PI / 6), c * 0.99 * Math.sin(Math.PI / 6))).not.toBeNull();
+    expect(oklabToRgb8(0.7, 0.4, 0)).toBeNull();
+  });
+  it('trace un dégradé régulier entre deux couleurs', () => {
+    const stops = gradientStops(toLch('#e9a7c3'), toLch('#6c4fa1'), 5);
+    expect(stops).toHaveLength(5);
+    expect(stops[0]).toBe('#e9a7c3');
+    expect(stops[4]).toBe('#6c4fa1');
+    const ls = stops.map((s) => toLch(s).l);
+    for (let i = 1; i < ls.length; i++) expect(ls[i]!).toBeLessThan(ls[i - 1]!);
+  });
+  it('oriente le dégradé comme en CSS', () => {
+    const v = gradientVector(180);
+    expect(v.y1).toBeCloseTo(0);
+    expect(v.y2).toBeCloseTo(1);
+  });
+});

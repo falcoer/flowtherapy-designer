@@ -3,6 +3,7 @@ import {
   guidesFor,
   resolveBackground,
   globalOpacity,
+  gradientVector,
   type AnchorFrame,
   type Format,
   type GuideLine,
@@ -238,6 +239,13 @@ export function Workspace(props: Props) {
         onPointerCancel={onPointerUp}
       >
         <defs>
+          {project.backgroundGradient && (
+            <linearGradient id="bg-gradient" {...gradientVector(project.backgroundGradient.angle)}>
+              {project.backgroundGradient.stops.map((c, i, all) => (
+                <stop key={i} offset={i / (all.length - 1)} stopColor={c} />
+              ))}
+            </linearGradient>
+          )}
           <clipPath id="format-clip">
             <rect width={W} height={H} />
           </clipPath>
@@ -248,7 +256,7 @@ export function Workspace(props: Props) {
         <rect
           width={W}
           height={H}
-          fill={bg}
+          fill={project.backgroundGradient ? 'url(#bg-gradient)' : bg}
           filter="url(#page-shadow)"
           className="page"
           onPointerDown={(e) => {

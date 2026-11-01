@@ -73,6 +73,7 @@ export class Exporter {
 
     return renderSvg(format, items, {
       background: resolveBackground(project, palette),
+      gradient: project.backgroundGradient,
       globals,
       css: await this.fontCss(project, library),
     });

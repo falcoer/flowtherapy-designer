@@ -23,6 +23,10 @@ export const api = {
     for (const f of files) fd.append('file', f, f.name);
     return fetch('/api/library/upload', { method: 'POST', body: fd }).then((r) => json<{ created: LibraryElement[] }>(r));
   },
+  createPalette: (body: { title: string; colors: Array<{ hex: string; name?: string }>; tags?: string[] }) =>
+    fetch('/api/library/palettes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) =>
+      json<{ created: LibraryElement }>(r),
+    ),
   projects: () => fetch('/api/projects').then((r) => json<Array<{ id: string; title?: string }>>(r)),
   project: (id: string) => fetch(`/api/projects/${id}`).then((r) => json<{ yaml: string; project: Project }>(r)),
   saveProject: (id: string, yaml: string) =>

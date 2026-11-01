@@ -138,6 +138,15 @@ export async function installDemo(load: () => Promise<DemoData>) {
       data!.elements.push(...created);
       return reply({ created });
     }
+    if (path === '/api/library/palettes' && method === 'POST') {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { title?: string; colors?: Array<{ hex: string; name?: string }>; tags?: string[] };
+      const base = (body.title ?? 'palette').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'palette';
+      let id = base;
+      for (let n = 2; data!.elements.some((e) => e.type === 'palette' && e.id === id); n++) id = `${base}-${n}`;
+      const created = { id, type: 'palette', title: body.title ?? id, tags: body.tags ?? [], colors: body.colors ?? [] } as unknown as LibraryElement;
+      data!.elements.push(created);
+      return reply({ created });
+    }
     if (path === '/api/projects') {
       return reply([...projects].map(([id, yaml]) => ({ id, title: parseProject(yaml).title })));
     }

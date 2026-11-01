@@ -88,6 +88,18 @@ export async function buildApp(opts: AppOptions) {
     return { created };
   });
 
+  app.post<{ Body: { title?: string; colors?: Array<{ hex: string; name?: string; role?: string }>; tags?: string[] } }>(
+    '/api/library/palettes',
+    async (req, reply) => {
+      try {
+        const { title, colors, tags } = req.body ?? {};
+        return { created: await lib.createPalette({ title: title || 'Palette', colors: colors ?? [], tags }) };
+      } catch (err) {
+        return reply.code(400).send({ error: (err as Error).message });
+      }
+    },
+  );
+
   app.post('/api/library/reindex', async () => ({ count: await lib.reindex() }));
 
   app.get<{ Params: { id: string; profile: string } }>('/cache/images/:id/:profile', async (req, reply) => {

@@ -141,6 +141,23 @@ export class Library {
     return created.map((c) => this.byKey.get(`${c.type}/${c.id}`) ?? c);
   }
 
+  /** Enregistre une palette (couleurs choisies ou dégradé tracé) dans palettes/. */
+  async createPalette(opts: { title: string; colors: Array<{ hex: string; name?: string; role?: string }>; tags?: string[] }) {
+    const parsed = LibraryElementSchema.parse({
+      id: 'tmp',
+      type: 'palette',
+      title: opts.title,
+      tags: opts.tags ?? [],
+      colors: opts.colors,
+    });
+    if (parsed.type !== 'palette' || parsed.colors.length < 1) throw new Error('Palette vide');
+    const id = await this.uniqueId('palettes', slugify(opts.title) || 'palette', '.yaml');
+    await mkdir(path.join(this.root, 'palettes'), { recursive: true });
+    await writeFile(path.join(this.root, 'palettes', `${id}.yaml`), toYaml({ ...parsed, id }));
+    await this.reindex();
+    return this.byKey.get(`palette/${id}`)!;
+  }
+
   private async uniqueId(dir: string, base: string, suffix = ''): Promise<string> {
     let id = base;
     for (let n = 2; ; n++) {

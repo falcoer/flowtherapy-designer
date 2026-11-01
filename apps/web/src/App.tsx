@@ -540,7 +540,21 @@ export function App() {
             background={project.background}
             onPalette={(id) => update((p) => ({ ...p, palette: id }))}
             onTextColor={(color) => selected && patchElement(selected.id, (el) => ({ style: { ...el.style, color } }))}
-            onBackground={(background) => update((p) => ({ ...p, background }))}
+            onBackground={(background) => update((p) => ({ ...p, background, backgroundGradient: undefined }))}
+            onGradientBackground={(stops) => {
+              update((p) => ({ ...p, backgroundGradient: { stops, angle: p.backgroundGradient?.angle ?? 180 } }));
+              setToast('Dégradé appliqué au fond');
+            }}
+            onSavePalette={async (stops) => {
+              try {
+                const n = library.filter((el) => el.type === 'palette').length + 1;
+                await api.createPalette({ title: `Dégradé ${n}`, colors: stops.map((hex) => ({ hex })), tags: ['dégradé'] });
+                setLibrary(await api.library());
+                setToast(`Palette « Dégradé ${n} » enregistrée dans la bibliothèque`);
+              } catch (e) {
+                setToast(`Enregistrement impossible : ${(e as Error).message}`);
+              }
+            }}
           />
         </div>
       )}
@@ -572,6 +586,10 @@ export function App() {
             })
           }
           onRemoveLayer={(i) => update((p) => ({ ...p, globals: p.globals.filter((_, j) => j !== i) }))}
+          onRotateGradient={() =>
+            update((p) => (p.backgroundGradient ? { ...p, backgroundGradient: { ...p.backgroundGradient, angle: (p.backgroundGradient.angle + 45) % 360 } } : p))
+          }
+          onRemoveGradient={() => update((p) => ({ ...p, backgroundGradient: undefined }))}
         />
       )}
 

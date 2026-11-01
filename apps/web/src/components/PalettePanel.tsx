@@ -1,5 +1,6 @@
 import { contrastRatio, harmonies, type HarmonyKind, type PaletteElement } from '@ftd/core';
 import { useState } from 'react';
+import { ColorPlane } from './ColorPlane';
 
 const LABELS: Record<HarmonyKind, string> = {
   complementary: 'Complémentaire',
@@ -20,6 +21,8 @@ interface Props {
   onPalette: (id: string) => void;
   onTextColor: (value: string) => void;
   onBackground: (value: string) => void;
+  onGradientBackground: (stops: string[]) => void;
+  onSavePalette: (stops: string[]) => void;
 }
 
 /** Référence vers une couleur de palette : par rôle si elle en a un, sinon par nom. */
@@ -32,6 +35,8 @@ const refOf = (c: PaletteElement['colors'][number], i: number) => `palette.${c.r
 export function PalettePanel(props: Props) {
   const { palette, palettes, textSelected } = props;
   const [picked, setPicked] = useState(0);
+  const [kind, setKind] = useState<HarmonyKind>('triadic');
+  const [gradient, setGradient] = useState<string[] | null>(null);
   const [target, setTarget] = useState<'text' | 'background'>(textSelected ? 'text' : 'background');
   const aim = textSelected ? target : 'background';
   const apply = (value: string) => (aim === 'text' ? props.onTextColor(value) : props.onBackground(value));
@@ -88,18 +93,41 @@ export function PalettePanel(props: Props) {
       )}
       {fond && base !== fond && <p className="hint">Contraste de « {palette?.colors[picked]?.name} » sur le fond : {contrastRatio(base, fond).toFixed(1)} : 1</p>}
 
-      <p className="section-title">Harmonies autour de « {palette?.colors[picked]?.name ?? base} »</p>
-      <p className="hint">Touche une couleur pour l'essayer.</p>
-      {(Object.keys(h) as HarmonyKind[]).map((k) => (
-        <div key={k} className="harmony">
-          <span>{LABELS[k]}</span>
+      <p className="section-title">Plan de couleur</p>
+      <ColorPlane colors={palette?.colors.map((c) => c.hex) ?? []} harmony={[base, ...h[kind]]} onPick={apply} onGradient={setGradient} />
+
+      {gradient && (
+        <div className="gradient-result">
+          <div className="gradient-strip" style={{ background: `linear-gradient(90deg, ${gradient.join(', ')})` }} />
           <div className="swatches small">
-            {h[k].map((hex) => (
-              <button key={hex} className={currentValue === hex ? 'swatch on' : 'swatch'} style={{ background: hex }} title={hex} onClick={() => apply(hex)} />
+            {gradient.map((hex, i) => (
+              <button key={i} className={currentValue === hex ? 'swatch on' : 'swatch'} style={{ background: hex }} title={hex} onClick={() => apply(hex)} />
             ))}
           </div>
+          <div className="panel-actions">
+            <button className="chip" onClick={() => props.onGradientBackground(gradient)}>
+              Dégradé en fond
+            </button>
+            <button className="chip" onClick={() => props.onSavePalette(gradient)}>
+              Enregistrer comme palette
+            </button>
+          </div>
         </div>
-      ))}
+      )}
+
+      <p className="section-title">Harmonies autour de « {palette?.colors[picked]?.name ?? base} »</p>
+      <div className="harmony-kinds">
+        {(Object.keys(h) as HarmonyKind[]).map((k) => (
+          <button key={k} className={k === kind ? 'chip on' : 'chip'} onClick={() => setKind(k)}>
+            {LABELS[k]}
+          </button>
+        ))}
+      </div>
+      <div className="swatches small">
+        {h[kind].map((hex) => (
+          <button key={hex} className={currentValue === hex ? 'swatch on' : 'swatch'} style={{ background: hex }} title={hex} onClick={() => apply(hex)} />
+        ))}
+      </div>
     </div>
   );
 }

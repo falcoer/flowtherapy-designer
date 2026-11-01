@@ -8,6 +8,8 @@ import type { LayoutItem } from './layout.js';
 
 export interface RenderOptions {
   background: string;
+  /** Dégradé de fond, prioritaire sur la couleur. */
+  gradient?: { stops: string[]; angle: number };
   /** Images attachées au document entier (déjà résolues en URL ou data URI). */
   globals: Array<{ href: string; fit: 'contain' | 'cover' | 'stretch'; opacity?: number }>;
   /** Règles CSS ajoutées (polices @font-face). */
@@ -18,6 +20,20 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 const par = (fit: string) => (fit === 'cover' ? 'xMidYMid slice' : fit === 'stretch' ? 'none' : 'xMidYMid meet');
 const n = (v: number) => Number(v.toFixed(3));
 
+/** Coordonnées d'un dégradé linéaire orienté comme en CSS (180° = de haut en bas). */
+export function gradientVector(angle: number) {
+  const r = (angle * Math.PI) / 180;
+  const dx = Math.sin(r) / 2;
+  const dy = -Math.cos(r) / 2;
+  return { x1: 0.5 - dx, y1: 0.5 - dy, x2: 0.5 + dx, y2: 0.5 + dy };
+}
+
+function gradientDef(id: string, g: { stops: string[]; angle: number }) {
+  const v = gradientVector(g.angle);
+  const stops = g.stops.map((c, i) => `<stop offset="${n(i / (g.stops.length - 1))}" stop-color="${esc(c)}"/>`).join('');
+  return `<linearGradient id="${id}" x1="${n(v.x1)}" y1="${n(v.y1)}" x2="${n(v.x2)}" y2="${n(v.y2)}">${stops}</linearGradient>`;
+}
+
 export function renderSvg(format: Format, items: LayoutItem[], opts: RenderOptions): string {
   const W = format.width;
   const H = format.height;
@@ -27,8 +43,9 @@ export function renderSvg(format: Format, items: LayoutItem[], opts: RenderOptio
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}${unit}" height="${H}${unit}" viewBox="0 0 ${W} ${H}">`,
   );
   if (opts.css) parts.push(`<style>${opts.css}</style>`);
-  parts.push(`<defs><clipPath id="f"><rect width="${W}" height="${H}"/></clipPath></defs>`);
-  parts.push(`<g clip-path="url(#f)"><rect width="${W}" height="${H}" fill="${esc(opts.background)}"/>`);
+  const grad = opts.gradient ? gradientDef('bg', opts.gradient) : '';
+  parts.push(`<defs><clipPath id="f"><rect width="${W}" height="${H}"/></clipPath>${grad}</defs>`);
+  parts.push(`<g clip-path="url(#f)"><rect width="${W}" height="${H}" fill="${grad ? 'url(#bg)' : esc(opts.background)}"/>`);
   for (const g of opts.globals) {
     const op = g.opacity !== undefined && g.opacity < 1 ? ` opacity="${n(g.opacity)}"` : '';
     parts.push(`<image href="${esc(g.href)}" width="${W}" height="${H}" preserveAspectRatio="${par(g.fit)}"${op}/>`);
