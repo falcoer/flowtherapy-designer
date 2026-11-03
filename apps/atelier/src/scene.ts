@@ -262,12 +262,13 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       const ly = -Math.cos(a);
       const r = Math.max(b.w, b.h) / 2;
       const grad = ctx.createLinearGradient(b.cx + lx * r, b.cy + ly * r, b.cx - lx * r, b.cy - ly * r);
-      grad.addColorStop(0, `rgba(255,255,255,${0.3 + 0.4 * bevel})`);
+      grad.addColorStop(0, `rgba(255,255,255,${Math.min(0.95, 0.3 + 0.5 * bevel)})`);
       grad.addColorStop(0.5, 'rgba(255,255,255,0)');
       grad.addColorStop(0.5, 'rgba(0,0,0,0)');
-      grad.addColorStop(1, `rgba(0,0,0,${0.2 + 0.3 * bevel})`);
+      grad.addColorStop(1, `rgba(0,0,0,${Math.min(0.7, 0.2 + 0.4 * bevel)})`);
       ctx.strokeStyle = grad;
-      ctx.lineWidth = 0.03 * bevel * minSide;
+      // amplitude : jusqu'à 9 % du petit côté (la moitié tombe dans la découpe)
+      ctx.lineWidth = 0.09 * bevel * minSide;
       ctx.stroke(path);
     }
     ctx.restore();

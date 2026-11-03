@@ -34,6 +34,13 @@ const TOP = 52;
 const MAGNET = 30;
 /** Rayon d'aimantation des ciseaux sur les contours détectés, en pixels écran. */
 const EDGE_RADIUS = 14;
+const BORDER_TYPES: Array<[BorderStyle | null, string, string]> = [
+  [null, 'Aucun', 'pas de bord'],
+  ['round', 'Arrondi', 'suit la découpe'],
+  ['straight', 'Droit', 'à facettes'],
+  ['torn', 'Déchiré', 'papier arraché'],
+];
+const swatch = (g: Guide | undefined) => (g?.type === 'gradient' ? `linear-gradient(135deg, ${g.stops.join(',')})` : guideColor(g));
 const EDGE_MODES: Array<[EdgeMode, string, string]> = [
   ['contrast', 'Contraste', 'bords de lumière'],
   ['color', 'Couleur', 'bords de teinte'],
@@ -119,6 +126,7 @@ export function App() {
   const [edgeSmooth, setEdgeSmooth] = useState(0.4);
   const [modePick, setModePick] = useState(false);
   const [borderPick, setBorderPick] = useState(false);
+  const [borderColorPick, setBorderColorPick] = useState(false);
   const trashRef = useRef<HTMLButtonElement>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const [trashHot, setTrashHot] = useState(false);
@@ -367,6 +375,7 @@ export function App() {
     setBubble(null);
     setModePick(false);
     setBorderPick(false);
+    setBorderColorPick(false);
     const touches = [...pointers.current.values()].filter((p) => p.type === 'touch');
     if (e.pointerType === 'touch' && touches.length >= 2) {
       // plusieurs doigts : on annule le geste à un doigt et on manipule la vue
@@ -937,7 +946,7 @@ export function App() {
             </div>
           </header>
 
-          <aside className="side">
+          <aside className={`side ${tool === 'move' && sel?.border ? 'dense' : ''}`}>
             {tool === 'paint' && (
               <>
                 <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
@@ -983,56 +992,54 @@ export function App() {
               <>
                 <VSlider label="Hauteur" value={sel.height} onChange={(v) => patchLayer(sel.id, { height: Math.round(v * 100) / 100 }, false)} />
                 <VSlider label="Biseau" value={sel.bevel ?? 0} onChange={(v) => patchLayer(sel.id, { bevel: Math.round(v * 100) / 100 }, false)} />
-                <button className={`btn small ${borderPick ? 'on' : ''}`} onClick={() => setBorderPick(!borderPick)} title="Bord">
-                  <Icon name="border" />
+                <button className={`btn small ${borderPick ? 'on' : ''}`} onClick={() => setBorderPick(!borderPick)} title={`Bord : ${BORDER_TYPES.find((x) => x[0] === (sel.border?.style ?? null))![1]}`}>
+                  <Icon name={`border-${sel.border?.style ?? 'none'}`} />
                 </button>
                 {borderPick && (
-                  <div className="mode-pop border-pop">
+                  <div className="mode-pop">
                     <div className="b-title">Bord</div>
-                    <div className="seg">
-                      {(
-                        [
-                          [null, 'Aucun'],
-                          ['round', 'Arrondi'],
-                          ['straight', 'Droit'],
-                          ['torn', 'Déchiré'],
-                        ] as Array<[BorderStyle | null, string]>
-                      ).map(([st, t]) => (
-                        <button
-                          key={t}
-                          className={(sel.border?.style ?? null) === st ? 'on' : ''}
-                          onClick={() => patchLayer(sel.id, { border: st ? { style: st, guide: sel.border?.guide ?? 0, width: sel.border?.width ?? 0.012 } : undefined })}
-                        >
-                          {t}
-                        </button>
-                      ))}
-                    </div>
-                    {sel.border && (
-                      <>
-                        <div className="b-title">Guide</div>
+                    {BORDER_TYPES.map(([st, t, hint]) => (
+                      <button
+                        key={t}
+                        className={`row ${(sel.border?.style ?? null) === st ? 'on' : ''}`}
+                        onClick={() => {
+                          patchLayer(sel.id, { border: st ? { style: st, guide: sel.border?.guide ?? 0, width: sel.border?.width ?? 0.012 } : undefined });
+                          setBorderPick(false);
+                        }}
+                      >
+                        <Icon name={`border-${st ?? 'none'}`} />
+                        <span>{t}</span>
+                        <small>{hint}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {sel.border && (
+                  <>
+                    <button className={`btn small guide-btn ${borderColorPick ? 'on' : ''}`} onClick={() => setBorderColorPick(!borderColorPick)} title="Couleur du bord">
+                      <span className="dot" style={{ background: swatch(doc.guides[sel.border.guide]) }} />
+                    </button>
+                    {borderColorPick && (
+                      <div className="mode-pop">
+                        <div className="b-title">Couleur du bord</div>
                         <div className="border-guides">
                           {doc.guides.map((x, i) => (
                             <button
                               key={i}
                               className={`sw ${sel.border!.guide === i ? 'on' : ''}`}
                               title={x.name}
-                              style={{ background: x.type === 'gradient' ? `linear-gradient(135deg, ${x.stops.join(',')})` : x.color }}
-                              onClick={() => patchLayer(sel.id, { border: { ...sel.border!, guide: i } })}
+                              style={{ background: swatch(x) }}
+                              onClick={() => {
+                                patchLayer(sel.id, { border: { ...sel.border!, guide: i } });
+                                setBorderColorPick(false);
+                              }}
                             />
                           ))}
                         </div>
-                        <div className="b-title">Largeur</div>
-                        <input
-                          type="range"
-                          min={0.002}
-                          max={0.06}
-                          step={0.001}
-                          value={sel.border.width}
-                          onChange={(e) => patchLayer(sel.id, { border: { ...sel.border!, width: Number(e.target.value) } }, false)}
-                        />
-                      </>
+                      </div>
                     )}
-                  </div>
+                    <VSlider label="Bord" value={(sel.border.width - 0.002) / 0.058} onChange={(v) => patchLayer(sel.id, { border: { ...sel.border!, width: 0.002 + Math.round(v * 58) / 1000 } }, false)} />
+                  </>
                 )}
               </>
             )}
