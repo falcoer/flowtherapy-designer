@@ -1103,7 +1103,7 @@ export function App() {
                   <Icon name={`brush-${brushKind}`} />
                 </button>
                 {brushPick && (
-                  <div className="mode-pop">
+                  <div className="mode-pop wide">
                     <div className="b-title">Pinceau</div>
                     {BRUSHES.map(([k, t, hint]) => (
                       <button
