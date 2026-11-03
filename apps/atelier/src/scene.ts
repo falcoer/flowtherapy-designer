@@ -575,7 +575,7 @@ function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElem
   const ph = Math.max(1, Math.round(b.h * k));
   const im = l.kind === 'photo' && l.src ? imageFor(l.src, o.onImage) : null;
   if (l.kind === 'photo' && !im) return null;
-  const key = JSON.stringify([pw, ph, l.kind, l.guide, l.src?.length, l.src?.slice(-40), l.look, l.fx, l.strokes.length, l.rot ?? 0, doc.light, doc.guides]);
+  const key = JSON.stringify([pw, ph, l.kind, l.guide, l.src?.length, l.src?.slice(-40), l.look, l.material, l.fx, l.strokes.length, l.rot ?? 0, doc.light, doc.guides]);
   const hit = fxBuffers.get(l.id);
   if (hit?.key === key) return hit.canvas;
   const c = hit?.canvas ?? document.createElement('canvas');
