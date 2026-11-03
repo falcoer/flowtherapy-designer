@@ -16,6 +16,9 @@ const PATHS: Record<string, string> = {
   trash: 'M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3',
   photo: 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z',
   magnet: 'M6 3v8a6 6 0 0 0 12 0V3h-4v8a2 2 0 0 1-4 0V3zM6 7h4M14 7h4',
+  'edge-contrast': 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 3v18M12 3a9 9 0 0 1 0 18z',
+  'edge-color': 'M8 9a3.5 3.5 0 1 0 0-.01zM16 9a3.5 3.5 0 1 0 0-.01zM12 16a3.5 3.5 0 1 0 0-.01z',
+  'edge-both': 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 3v18M16.5 9.5a1.5 1.5 0 1 0 0-.01zM16.5 14.5a1.5 1.5 0 1 0 0-.01z',
   import: 'M12 3v12M7 10l5 5 5-5M4 17v3h16v-3',
 };
 

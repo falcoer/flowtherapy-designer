@@ -19,8 +19,9 @@ import {
   type ShapeKind,
   type Stroke,
 } from './model';
-import { geomArea, insideRings, intersect, nearestOnSegments, ringsOfGeom, ringsToPath, simplifyRing, subtract } from './cut';
-import { cutOf, drawChecker, drawLayers, forgetPaint, localRings, maskPath2D, maskRings, paintTarget, tracePath } from './scene';
+import { geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRing, subtract } from './cut';
+import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
+import { cutOf, imageFor, drawChecker, drawLayers, forgetPaint, localRings, maskPath2D, maskRings, paintTarget, tracePath } from './scene';
 
 type Tool = 'cut' | 'paint' | 'move';
 type Bubble = 'layers' | 'palette' | 'light' | 'format' | null;
@@ -30,6 +31,8 @@ const STORE = 'ftd-atelier-doc';
 const TOP = 52;
 /** Rayon d'attraction des ancrages, en pixels écran. */
 const MAGNET = 30;
+/** Rayon d'aimantation des ciseaux sur les contours détectés, en pixels écran. */
+const EDGE_RADIUS = 14;
 
 function load(): Doc {
   try {
@@ -100,8 +103,9 @@ export function App() {
   const [view, setView] = useState<View>({ zoom: 1, rot: 0, px: 0, py: 0 });
   const [rendu, setRendu] = useState(false);
   const [magnet, setMagnet] = useState(true);
-  /** Seuil d'aimantation des ciseaux sur les contours, en pixels écran. */
-  const [edgeSnap, setEdgeSnap] = useState(12);
+  /** Détection des contours de l'image sélectionnée : critère et seuil (0..1). */
+  const [edgeMode, setEdgeMode] = useState<EdgeMode>('both');
+  const [edgeThreshold, setEdgeThreshold] = useState(0.35);
   const trashRef = useRef<HTMLButtonElement>(null);
   const [trashHot, setTrashHot] = useState(false);
   const [snapshot, setSnapshot] = useState<string | null>(null);
@@ -153,7 +157,7 @@ export function App() {
     last?: { x: number; y: number; t: number; p: number };
     snap?: { x: number; y: number } | null;
     /** Contours aimantés (unités du format) et indices des points aimantés. */
-    edges?: Array<[Pt, Pt]>;
+    grid?: EdgeGrid | null;
     snapped?: number[];
   }>({ kind: null });
   const pointers = useRef(new Map<number, { x: number; y: number; type: string }>());
@@ -208,28 +212,27 @@ export function App() {
         ctx.stroke();
       }
     }
-    // contours détectés : couleur complémentaire (différence) et zone d'attraction
-    if (tool === 'cut' && magnet) {
-      const edges = L.kind === 'cut' && L.edges ? L.edges : magnetEdges();
-      const path = new Path2D();
-      for (const [a, b] of edges) {
-        path.moveTo(a.x, a.y);
-        path.lineTo(b.x, b.y);
+    // contours détectés dans l'image sélectionnée : pointillés en couleur complémentaire
+    if (tool === 'cut' && magnet && sel) {
+      const m = edgesFor(sel);
+      if (m) {
+        const b = layerBox(sel, f);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, f.width, f.height);
+        ctx.clip();
+        ctx.globalCompositeOperation = 'difference';
+        ctx.globalAlpha = 0.85;
+        ctx.fillStyle = '#ffffff';
+        // chaque point fait au moins 1,6 px à l'écran, quel que soit le zoom
+        const d = Math.max(1.6 * px, b.w / m.w);
+        const x0 = b.cx - b.w / 2 - d / 2;
+        const y0 = b.cy - b.h / 2 - d / 2;
+        const dots = new Path2D();
+        for (let i = 0; i < m.dots.length; i += 2) dots.rect(x0 + m.dots[i]! * b.w, y0 + m.dots[i + 1]! * b.h, d, d);
+        ctx.fill(dots);
+        ctx.restore();
       }
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, 0, f.width, f.height);
-      ctx.clip();
-      ctx.globalCompositeOperation = 'difference';
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineCap = 'round';
-      ctx.globalAlpha = 0.1;
-      ctx.lineWidth = 2 * edgeSnap * px;
-      ctx.stroke(path);
-      ctx.globalAlpha = 0.75;
-      ctx.lineWidth = 1.5 * px;
-      ctx.stroke(path);
-      ctx.restore();
     }
     // ancrages pendant un déplacement
     if (L.kind === 'move') {
@@ -338,9 +341,9 @@ export function App() {
     }
     if (t === 'cut') {
       // lignes magnétiques : contours des couches visibles et bords du format
-      const edges = magnet ? magnetEdges() : [];
-      const s0 = snapEdge(edges, p);
-      live.current = { kind: 'cut', lasso: [s0.p], edges, snapped: s0.hit ? [0] : [] };
+      const grid = magnet && sel ? edgeGrid(sel) : null;
+      const s0 = snapEdge(grid, p);
+      live.current = { kind: 'cut', lasso: [s0.p], grid, snapped: s0.hit ? [0] : [] };
       redraw();
       return;
     }
@@ -420,7 +423,7 @@ export function App() {
     } else if (L.kind === 'cut' && L.lasso) {
       const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
       for (const ev of events) {
-        const s1 = snapEdge(L.edges ?? [], toPage(ev.clientX, ev.clientY));
+        const s1 = snapEdge(L.grid ?? null, toPage(ev.clientX, ev.clientY));
         if (s1.hit) L.snapped!.push(L.lasso.length);
         L.lasso.push(s1.p);
       }
@@ -498,24 +501,49 @@ export function App() {
     redraw();
   };
 
-  /** Contours détectés pour l'aimantation : couches visibles et bords du format. */
-  const magnetEdges = () => {
-    const edges: Array<[Pt, Pt]> = [];
-    const ring = (r: Pt[]) => r.forEach((a, i) => edges.push([a, r[(i + 1) % r.length]!]));
-    for (const l of doc.layers) if (l.visible && l.kind !== 'surface') maskRings(l, f).forEach(ring);
-    ring([
-      { x: 0, y: 0 },
-      { x: f.width, y: 0 },
-      { x: f.width, y: f.height },
-      { x: 0, y: f.height },
-    ]);
-    return edges;
+  // --- contours de l'image sélectionnée ---
+  const analysisCache = useRef<{ key: string; a: ReturnType<typeof analyse> } | null>(null);
+  const mapCache = useRef<{ key: string; m: EdgeMap } | null>(null);
+  /** Contours détectés dans l'image d'une couche (photo, matière et peinture), mis en cache. */
+  const edgesFor = (l: Layer): EdgeMap | null => {
+    const b = layerBox(l, f);
+    const key = JSON.stringify([l.id, l.cut, l.shape, l.src?.length, l.strokes.length, l.guide, doc.guides, l.w, l.h, f.id]);
+    if (analysisCache.current?.key !== key) {
+      if (l.kind === 'photo' && l.src && !imageFor(l.src, redraw)) return null;
+      const { w, h } = analysisSize(b.w, b.h);
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext('2d', { willReadFrequently: true })!;
+      ctx.setTransform(w / b.w, 0, 0, h / b.h, (-(b.cx - b.w / 2) * w) / b.w, (-(b.cy - b.h / 2) * h) / b.h);
+      // la couche seule, à plat : sans ombre ni liseré
+      drawLayers(ctx, { ...doc, layers: [{ ...l, height: 0, visible: true }] }, f, { scale: scale * dpr, onImage: redraw });
+      analysisCache.current = { key, a: analyse(c) };
+      mapCache.current = null;
+    }
+    const mk = `${key}|${edgeMode}|${edgeThreshold}`;
+    if (mapCache.current?.key !== mk) mapCache.current = { key: mk, m: edgeMap(analysisCache.current.a, edgeMode, edgeThreshold) };
+    return mapCache.current.m;
+  };
+  /** Grille de recherche des contours, en unités du format. */
+  const edgeGrid = (l: Layer): EdgeGrid | null => {
+    const m = edgesFor(l);
+    if (!m || !m.pts.length) return null;
+    const b = layerBox(l, f);
+    const n = m.pts.length / 2;
+    const xs = new Float32Array(n);
+    const ys = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      xs[i] = b.cx - b.w / 2 + m.pts[i * 2]! * b.w;
+      ys[i] = b.cy - b.h / 2 + m.pts[i * 2 + 1]! * b.h;
+    }
+    return new EdgeGrid(xs, ys, EDGE_RADIUS / scale);
   };
 
-  /** Aimante un point sur le contour le plus proche, s'il est assez près. */
-  const snapEdge = (edges: Array<[Pt, Pt]>, p: Pt) => {
-    const n = edges.length ? nearestOnSegments(edges, p) : null;
-    return n && n.d * scale < edgeSnap ? { p: n.p, hit: true } : { p, hit: false };
+  /** Aimante un point sur le contour détecté le plus proche, s'il est assez près. */
+  const snapEdge = (grid: EdgeGrid | null, p: Pt) => {
+    const q = grid?.nearest(p.x, p.y, EDGE_RADIUS / scale);
+    return q ? { p: q, hit: true } : { p, hit: false };
   };
 
   /**
@@ -756,7 +784,22 @@ export function App() {
                 <button className={`btn small ${magnet ? 'on' : ''}`} onClick={() => setMagnet(!magnet)} title="Lignes magnétiques : les ciseaux suivent les contours détectés">
                   <Icon name="magnet" />
                 </button>
-                {magnet && <VSlider label="Seuil" value={(edgeSnap - 4) / 36} onChange={(v) => setEdgeSnap(Math.round(4 + v * 36))} />}
+                {magnet && (
+                  <>
+                    {(
+                      [
+                        ['contrast', 'Contraste : bords de lumière'],
+                        ['color', 'Couleur : bords de teinte'],
+                        ['both', 'Contraste et couleur'],
+                      ] as Array<[EdgeMode, string]>
+                    ).map(([m, t]) => (
+                      <button key={m} className={`btn small ${edgeMode === m ? 'on' : ''}`} onClick={() => setEdgeMode(m)} title={t}>
+                        <Icon name={`edge-${m}`} />
+                      </button>
+                    ))}
+                    <VSlider label="Seuil" value={(edgeThreshold - 0.05) / 0.9} onChange={(v) => setEdgeThreshold(Math.round((0.05 + v * 0.9) * 50) / 50)} />
+                  </>
+                )}
               </>
             )}
             {tool === 'move' && sel && sel.kind !== 'surface' && (
@@ -936,10 +979,11 @@ export function App() {
             </div>
           )}
 
+          {!sel && tool === 'cut' && magnet && <div className="status">Sélectionne une image : ses contours guideront les ciseaux</div>}
           {sel && (
             <div className="status">
               {tool === 'paint' && `Peinture dans « ${sel.name} »`}
-              {tool === 'cut' && `Trace un contour : le morceau se détache de la couche touchée${magnet ? ', aimanté sur les contours' : ''}`}
+              {tool === 'cut' && `Trace un contour : le morceau se détache de la couche touchée${magnet ? `, aimanté sur les contours de « ${sel.name} »` : ''}`}
               {tool === 'move' && `« ${sel.name} » · ${sel.kind === 'surface' ? 'suit le format' : sel.anchor.point}`}
             </div>
           )}
