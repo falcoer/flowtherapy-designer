@@ -30,8 +30,6 @@ const STORE = 'ftd-atelier-doc';
 const TOP = 52;
 /** Rayon d'attraction des ancrages, en pixels écran. */
 const MAGNET = 30;
-/** Rayon d'aimantation des ciseaux sur les contours, en pixels écran. */
-const EDGE_MAGNET = 12;
 
 function load(): Doc {
   try {
@@ -102,6 +100,10 @@ export function App() {
   const [view, setView] = useState<View>({ zoom: 1, rot: 0, px: 0, py: 0 });
   const [rendu, setRendu] = useState(false);
   const [magnet, setMagnet] = useState(true);
+  /** Seuil d'aimantation des ciseaux sur les contours, en pixels écran. */
+  const [edgeSnap, setEdgeSnap] = useState(12);
+  const trashRef = useRef<HTMLButtonElement>(null);
+  const [trashHot, setTrashHot] = useState(false);
   const [snapshot, setSnapshot] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   useEffect(() => {
@@ -205,6 +207,29 @@ export function App() {
         ctx.fill();
         ctx.stroke();
       }
+    }
+    // contours détectés : couleur complémentaire (différence) et zone d'attraction
+    if (tool === 'cut' && magnet) {
+      const edges = L.kind === 'cut' && L.edges ? L.edges : magnetEdges();
+      const path = new Path2D();
+      for (const [a, b] of edges) {
+        path.moveTo(a.x, a.y);
+        path.lineTo(b.x, b.y);
+      }
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, f.width, f.height);
+      ctx.clip();
+      ctx.globalCompositeOperation = 'difference';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineCap = 'round';
+      ctx.globalAlpha = 0.1;
+      ctx.lineWidth = 2 * edgeSnap * px;
+      ctx.stroke(path);
+      ctx.globalAlpha = 0.75;
+      ctx.lineWidth = 1.5 * px;
+      ctx.stroke(path);
+      ctx.restore();
     }
     // ancrages pendant un déplacement
     if (L.kind === 'move') {
@@ -313,17 +338,7 @@ export function App() {
     }
     if (t === 'cut') {
       // lignes magnétiques : contours des couches visibles et bords du format
-      const edges: Array<[Pt, Pt]> = [];
-      if (magnet) {
-        const ring = (r: Pt[]) => r.forEach((a, i) => edges.push([a, r[(i + 1) % r.length]!]));
-        for (const l of doc.layers) if (l.visible && l.kind !== 'surface') maskRings(l, f).forEach(ring);
-        ring([
-          { x: 0, y: 0 },
-          { x: f.width, y: 0 },
-          { x: f.width, y: f.height },
-          { x: 0, y: f.height },
-        ]);
-      }
+      const edges = magnet ? magnetEdges() : [];
       const s0 = snapEdge(edges, p);
       live.current = { kind: 'cut', lasso: [s0.p], edges, snapped: s0.hit ? [0] : [] };
       redraw();
@@ -411,6 +426,9 @@ export function App() {
       }
       redraw();
     } else if (L.kind === 'move' && L.orig && L.start) {
+      const tr = trashRef.current?.getBoundingClientRect();
+      const hot = !!tr && e.clientX > tr.left - 14 && e.clientX < tr.right + 14 && e.clientY > tr.top - 14 && e.clientY < tr.bottom + 14;
+      if (hot !== trashHot) setTrashHot(hot);
       const o = L.orig;
       const b = layerBox(o, f);
       let cx = b.cx + p.x - L.start.x;
@@ -467,16 +485,37 @@ export function App() {
     }
     if (L.kind === 'move' && L.layer) {
       const l = doc.layers.find((x) => x.id === L.layer);
-      if (l) setToast(L.snap ? `Ancré sur ${l.anchor.point}` : `Près de ${l.anchor.point}`);
+      if (l && trashHot) {
+        // glissé sur la corbeille : suppression (annulable)
+        const o = L.orig!;
+        setDoc((d) => ({ ...d, layers: d.layers.filter((x) => x.id !== o.id) }));
+        setSelected(null);
+        setTrashHot(false);
+        setToast(`« ${o.name} » à la corbeille`);
+      } else if (l) setToast(L.snap ? `Ancré sur ${l.anchor.point}` : `Près de ${l.anchor.point}`);
     }
     live.current = { kind: null };
     redraw();
   };
 
+  /** Contours détectés pour l'aimantation : couches visibles et bords du format. */
+  const magnetEdges = () => {
+    const edges: Array<[Pt, Pt]> = [];
+    const ring = (r: Pt[]) => r.forEach((a, i) => edges.push([a, r[(i + 1) % r.length]!]));
+    for (const l of doc.layers) if (l.visible && l.kind !== 'surface') maskRings(l, f).forEach(ring);
+    ring([
+      { x: 0, y: 0 },
+      { x: f.width, y: 0 },
+      { x: f.width, y: f.height },
+      { x: 0, y: f.height },
+    ]);
+    return edges;
+  };
+
   /** Aimante un point sur le contour le plus proche, s'il est assez près. */
   const snapEdge = (edges: Array<[Pt, Pt]>, p: Pt) => {
     const n = edges.length ? nearestOnSegments(edges, p) : null;
-    return n && n.d * scale < EDGE_MAGNET ? { p: n.p, hit: true } : { p, hit: false };
+    return n && n.d * scale < edgeSnap ? { p: n.p, hit: true } : { p, hit: false };
   };
 
   /**
@@ -682,11 +721,6 @@ export function App() {
               <button className={`btn ${tool === 'cut' ? 'on' : ''}`} onClick={() => setTool('cut')} title="Découper (C) : trace un contour au stylet">
                 <Icon name="scissors" />
               </button>
-              {tool === 'cut' && (
-                <button className={`btn ${magnet ? 'on' : ''}`} onClick={() => setMagnet(!magnet)} title="Lignes magnétiques : les ciseaux suivent les contours proches">
-                  <Icon name="magnet" />
-                </button>
-              )}
               <button className={`btn ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre à l'aquarelle (B)">
                 <Icon name="brush" />
               </button>
@@ -711,14 +745,38 @@ export function App() {
           </header>
 
           <aside className="side">
-            <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
+            {tool === 'paint' && (
+              <>
+                <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
+                <VSlider label="Opacité" value={opacity} onChange={(v) => setOpacity(Math.max(0.05, v))} />
+              </>
+            )}
+            {tool === 'cut' && (
+              <>
+                <button className={`btn small ${magnet ? 'on' : ''}`} onClick={() => setMagnet(!magnet)} title="Lignes magnétiques : les ciseaux suivent les contours détectés">
+                  <Icon name="magnet" />
+                </button>
+                {magnet && <VSlider label="Seuil" value={(edgeSnap - 4) / 36} onChange={(v) => setEdgeSnap(Math.round(4 + v * 36))} />}
+              </>
+            )}
+            {tool === 'move' && sel && sel.kind !== 'surface' && (
+              <VSlider label="Hauteur" value={sel.height} onChange={(v) => patchLayer(sel.id, { height: Math.round(v * 100) / 100 }, false)} />
+            )}
+            <span className="side-sep" />
             <button className="btn small" onClick={undo} disabled={!past.current.length} title="Annuler (deux doigts)">
               <Icon name="undo" />
             </button>
             <button className="btn small" onClick={redo} disabled={!future.current.length} title="Rétablir (trois doigts)">
               <Icon name="redo" />
             </button>
-            <VSlider label="Opacité" value={opacity} onChange={(v) => setOpacity(Math.max(0.05, v))} />
+            <button
+              ref={trashRef}
+              className={`btn small trash ${trashHot ? 'hot' : ''} ${live.current.kind === 'move' ? 'armed' : ''}`}
+              onClick={() => setToast('Glisse un élément sur la corbeille pour le supprimer')}
+              title="Corbeille : glisse un élément dessus pour le supprimer"
+            >
+              <Icon name="trash" />
+            </button>
           </aside>
 
           {bubble === 'format' && (

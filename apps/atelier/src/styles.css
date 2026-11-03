@@ -79,11 +79,16 @@ button:disabled { opacity: 0.35; cursor: default; }
 
 /* curseurs verticaux du bord gauche */
 .side {
-  position: absolute; left: max(8px, env(safe-area-inset-left, 0px)); top: 50%; transform: translateY(-50%);
-  margin-top: 26px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  position: absolute; left: max(8px, env(safe-area-inset-left, 0px)); bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
   padding: 10px 5px; border-radius: 16px; background: var(--chrome);
   backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: var(--shadow); z-index: 4;
 }
+.side-sep { width: 22px; height: 1px; background: var(--line); }
+.side-sep:first-child { display: none; }
+.trash { transition: transform 0.12s, background 0.12s, color 0.12s; }
+.trash.armed { color: var(--danger); }
+.trash.hot { background: var(--danger); color: #fff; transform: scale(1.25); }
 .vslider { position: relative; width: 30px; height: 150px; border-radius: 15px; background: var(--line); touch-action: none; cursor: ns-resize; overflow: hidden; }
 .vs-fill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent-soft); }
 .vs-thumb { position: absolute; left: 3px; right: 3px; height: 18px; border-radius: 9px; background: var(--thumb); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); }
