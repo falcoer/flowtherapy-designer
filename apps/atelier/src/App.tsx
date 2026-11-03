@@ -1039,7 +1039,7 @@ export function App() {
                         </div>
                       </div>
                     )}
-                    <VSlider label="Bord" value={(sel.border.width - 0.002) / 0.058} onChange={(v) => patchLayer(sel.id, { border: { ...sel.border!, width: 0.002 + Math.round(v * 58) / 1000 } }, false)} />
+                    <VSlider label="Bord" value={Math.sqrt((sel.border.width - 0.002) / 0.198)} onChange={(v) => patchLayer(sel.id, { border: { ...sel.border!, width: 0.002 + Math.round(v * v * 198) / 1000 } }, false)} />
                   </>
                 )}
               </>
