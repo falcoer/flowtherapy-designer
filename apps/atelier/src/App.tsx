@@ -42,7 +42,8 @@ const BORDER_TYPES: Array<[BorderStyle | null, string, string]> = [
   ['round', 'Arrondi', 'suit la découpe'],
   ['straight', 'Droit', 'à facettes'],
   ['torn', 'Déchiré', 'papier arraché'],
-  ['zigzag', 'Zigzag', 'dents agressives'],
+  ['stamp', 'Timbre', 'bord dentelé perforé'],
+  ['burst', 'Explosion', 'pointes irrégulières'],
   ['double', 'Double', 'deux couleurs'],
 ];
 const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
@@ -79,6 +80,7 @@ function load(): Doc {
           if (e.id === 'sticker' && !l.border) l.border = { style: 'double', guide: e.guides[0] ?? 6, guide2: e.guides[1] ?? 1, width: 0.004 + e.amount * 0.03 };
         }
         if (l.fx) l.fx = l.fx.filter((e) => fxOf(e.id));
+        if ((l.border?.style as string) === 'zigzag') l.border!.style = 'stamp';
       }
       for (const l of d.layers)
         if (l.mask) {

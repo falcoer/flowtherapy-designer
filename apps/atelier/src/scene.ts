@@ -224,7 +224,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       if (l.border && l.border.width > 0) {
         ctx.strokeStyle = '#000';
         ctx.lineJoin = 'round';
-        ctx.lineWidth = 2 * l.border.width * minSide * (l.border.style === 'double' ? 2 : l.border.style === 'zigzag' ? 0.12 : 1);
+        ctx.lineWidth = 2 * l.border.width * minSide * (l.border.style === 'double' ? 2 : l.border.style === 'burst' ? 0.2 : l.border.style === 'stamp' ? 0.55 : 1);
         ctx.stroke(path);
       }
       ctx.restore();
@@ -318,29 +318,89 @@ function drawBorder(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format
     return;
   }
   const rings = maskRings(l, f);
-  if (bd.style === 'zigzag') {
-    // dents de scie : une pointe sur deux part loin vers l'extérieur
+  if (bd.style === 'stamp' || bd.style === 'burst') {
     const z = new Path2D();
+    let seed = 3;
+    for (const ch of l.id) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+    const rnd = rng(seed);
     for (const r of rings) {
-      const step = Math.max(wd * 1.4, minSide * 0.004);
-      const pts = resample(r, step);
-      if (pts.length < 4) continue;
+      if (bd.style === 'stamp') continue;
+      // explosion : des pointes de longueur et d'écart irréguliers, comme une onomatopée de BD
+      const pts = resampleArc(r, Math.max(wd * 0.3, minSide * 0.002));
+      if (pts.length < 8) continue;
       const nr = outwardNormals(r, pts);
-      pts.forEach((q, i) => {
-        const k = i % 2 ? wd * 2.8 : wd * 0.15;
-        const x = q.x + nr[i]!.x * k;
-        const y = q.y + nr[i]!.y * k;
-        if (i) z.lineTo(x, y);
-        else z.moveTo(x, y);
-      });
-      z.closePath();
+      const n = pts.length;
+      // chaque pointe est un triangle posé sur le contour, tous orientés pareil : leur union reste pleine
+      let i = 0;
+      while (i < n) {
+        const gap = 2 + Math.floor(rnd() * rnd() * 6);
+        const j = (i + gap) % n;
+        const pa = pts[i]!;
+        const pb = pts[j]!;
+        const na = nr[i]!;
+        const nb = nr[j]!;
+        let tx = na.x + nb.x;
+        let ty = na.y + nb.y;
+        const tl = Math.hypot(tx, ty) || 1;
+        tx /= tl;
+        ty /= tl;
+        const len = wd * (1.4 + rnd() * 2.2 + rnd() ** 4 * 4);
+        const side = (rnd() - 0.5) * 0.6;
+        const m = 0.3 + rnd() * 0.4;
+        const mx = pa.x + (pb.x - pa.x) * m;
+        const my = pa.y + (pb.y - pa.y) * m;
+        const tip = { x: mx + (tx - ty * side) * len, y: my + (ty + tx * side) * len };
+        const A = { x: pa.x - na.x * wd * 0.2, y: pa.y - na.y * wd * 0.2 };
+        const B = { x: pb.x - nb.x * wd * 0.2, y: pb.y - nb.y * wd * 0.2 };
+        const cross = (B.x - A.x) * (tip.y - A.y) - (B.y - A.y) * (tip.x - A.x);
+        const [p1, p2] = cross > 0 ? [A, B] : [B, A];
+        z.moveTo(p1.x, p1.y);
+        z.lineTo(p2.x, p2.y);
+        z.lineTo(tip.x, tip.y);
+        z.closePath();
+        i += gap;
+      }
+    }
+    if (bd.style === 'stamp') {
+      // timbre : une bande pleine, mordue de demi-cercles réguliers sur son bord extérieur.
+      // Rendue à part pour que les morsures n'effacent que la bande.
+      const c = (stampBuffer ??= document.createElement('canvas'));
+      c.width = ctx.canvas.width;
+      c.height = ctx.canvas.height;
+      const sx = c.getContext('2d')!;
+      sx.setTransform(ctx.getTransform());
+      sx.strokeStyle = ctx.strokeStyle;
+      sx.lineJoin = 'round';
+      sx.lineWidth = 2 * wd;
+      sx.stroke(path);
+      sx.globalCompositeOperation = 'destination-out';
+      const period = Math.max(wd * 1.1, minSide * 0.004);
+      const bites = new Path2D();
+      for (const r of rings) {
+        const pts = resampleArc(r, period);
+        if (pts.length < 4) continue;
+        const nr = outwardNormals(r, pts);
+        pts.forEach((q, i) => {
+          const x = q.x + nr[i]!.x * wd * 1.02;
+          const y = q.y + nr[i]!.y * wd * 1.02;
+          bites.moveTo(x + period * 0.3, y);
+          bites.arc(x, y, period * 0.3, 0, Math.PI * 2);
+        });
+      }
+      sx.fill(bites);
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(c, 0, 0);
+      ctx.restore();
+      return;
     }
     ctx.fillStyle = ctx.strokeStyle;
-    ctx.fill(z, 'evenodd');
-    ctx.lineJoin = 'miter';
-    ctx.miterLimit = 10;
-    ctx.lineWidth = wd * 0.25;
-    ctx.stroke(z);
+    ctx.fill(z, 'nonzero');
+
+    // la bande touche la découpe : pas de jour entre l'objet et son bord
+    ctx.lineWidth = wd * 0.4;
+    ctx.lineJoin = 'round';
+    ctx.stroke(path);
     return;
   }
   const p2 = new Path2D();
@@ -595,6 +655,26 @@ function drawFxInside(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
   }
 }
 
+
+let stampBuffer: HTMLCanvasElement | null = null;
+
+/** Points pris à intervalle régulier le long du contour (longueur d'arc). */
+function resampleArc(r: Pt[], step: number): Pt[] {
+  const out: Pt[] = [];
+  let carry = 0;
+  for (let i = 0; i < r.length; i++) {
+    const a = r[i]!;
+    const b = r[(i + 1) % r.length]!;
+    const d = Math.hypot(b.x - a.x, b.y - a.y);
+    let t = carry;
+    while (t < d) {
+      out.push({ x: a.x + ((b.x - a.x) * t) / d, y: a.y + ((b.y - a.y) * t) / d });
+      t += step;
+    }
+    carry = t - d;
+  }
+  return out;
+}
 
 /** Normales vers l'extérieur de la découpe, pour des points pris le long d'un contour. */
 function outwardNormals(ring: Pt[], pts: Pt[]): Pt[] {

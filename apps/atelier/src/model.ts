@@ -28,7 +28,7 @@ export interface Stroke {
   pts: Pt[];
 }
 
-export type BorderStyle = 'round' | 'straight' | 'torn' | 'zigzag' | 'double';
+export type BorderStyle = 'round' | 'straight' | 'torn' | 'stamp' | 'burst' | 'double';
 export type GlowStyle = 'neon' | 'laser' | 'electric' | 'particles' | 'smoke' | 'halo' | 'aura';
 export type LayerKind = 'surface' | 'support' | 'photo' | 'shape';
 export type ShapeKind = 'star' | 'circle' | 'arch' | 'blob';
