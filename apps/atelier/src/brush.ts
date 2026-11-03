@@ -195,91 +195,201 @@ function tangents(st: Array<{ x: number; y: number }>) {
   });
 }
 
-/** Acrylique au pinceau : pâte couvrante, stries des poils le long du geste, bords nets. */
-function acrylic(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
-  const g = guides[s.guide];
-  const st = stamps(s, t);
-  const { c: sil, ctx: sx } = buffer('a', t.pw, t.ph);
-  for (const q of st) {
-    sx.fillStyle = guideColor(g, q.t);
-    sx.beginPath();
-    sx.arc(q.x, q.y, Math.max(0.5, q.r * 0.92), 0, Math.PI * 2);
-    sx.fill();
-  }
-  // stries : chaque poil laisse un sillon plus clair ou plus sombre, la pâte s'épuise en fin de trait
-  sx.globalCompositeOperation = 'source-atop';
-  const tg = tangents(st);
-  const r = rng(s.seed ^ 0x51);
-  const n = 16;
-  for (let k = 0; k < n; k++) {
-    const o = (k / (n - 1)) * 2 - 1 + (r() - 0.5) * 0.08;
-    const light = r() < 0.5;
-    sx.strokeStyle = light ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.2)';
-    sx.lineWidth = Math.max(0.6, (st[0]?.r ?? 4) * (0.04 + r() * 0.06));
-    sx.beginPath();
-    st.forEach((q, i) => {
-      const x = q.x - tg[i]!.y * o * q.r * 0.9;
-      const y = q.y + tg[i]!.x * o * q.r * 0.9;
-      if (i) sx.lineTo(x, y);
-      else sx.moveTo(x, y);
-    });
-    sx.stroke();
-  }
-  // fin de trait sèche : la peinture se raréfie et laisse voir le fond
-  sx.globalCompositeOperation = 'destination-out';
-  st.forEach((q, i) => {
-    if (q.t < 0.8) return;
-    const dry = (q.t - 0.8) / 0.2;
-    for (let k = 0; k < 6; k++) {
-      if (r() > dry) continue;
-      const o = (r() * 2 - 1) * q.r;
-      sx.fillStyle = `rgba(0,0,0,${0.5 + r() * 0.5})`;
-      sx.fillRect(q.x - tg[i]!.y * o, q.y + tg[i]!.x * o, q.r * 0.5, Math.max(0.8, q.r * 0.06));
+/** Bruit de valeur 2D, doux. */
+function vn(x: number, y: number, seed: number): number {
+  const h = (i: number, j: number) => {
+    let v = Math.imul(i | 0, 374761393) + Math.imul(j | 0, 668265263) + Math.imul(seed | 0, 982451653);
+    v = Math.imul(v ^ (v >>> 13), 1274126177);
+    return ((v ^ (v >>> 16)) >>> 0) / 4294967296;
+  };
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  const u = x - xi;
+  const v = y - yi;
+  const su = u * u * (3 - 2 * u);
+  const sv = v * v * (3 - 2 * v);
+  const a = h(xi, yi);
+  const b = h(xi + 1, yi);
+  const c = h(xi, yi + 1);
+  const d = h(xi + 1, yi + 1);
+  return a + (b - a) * su + (c - a) * sv + (a - b - c + d) * su * sv;
+}
+
+/** Le trait rééchantillonné à pas régulier : position, normale lissée, pression, abscisse. */
+function track(s: Stroke, t: Target, step: number) {
+  const raw = s.pts.map((p) => ({ x: p.x * t.pw, y: p.y * t.ph, p: p.p ?? 0.6 }));
+  const out: Array<{ x: number; y: number; nx: number; ny: number; p: number; s: number }> = [];
+  let carry = 0;
+  let along = 0;
+  for (let i = 0; i + 1 < raw.length; i++) {
+    const a = raw[i]!;
+    const b = raw[i + 1]!;
+    const d = Math.hypot(b.x - a.x, b.y - a.y);
+    let u = carry;
+    while (u < d) {
+      const f = u / d;
+      out.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, nx: 0, ny: 0, p: a.p + (b.p - a.p) * f, s: along + u });
+      u += step;
     }
+    carry = u - d;
+    along += d;
+  }
+  if (!out.length && raw[0]) out.push({ ...raw[0], nx: 0, ny: -1, s: 0 });
+  // normales lissées sur une dizaine de pas : les poils restent parallèles dans les virages
+  const K = 6;
+  out.forEach((q, i) => {
+    const a = out[Math.max(0, i - K)]!;
+    const b = out[Math.min(out.length - 1, i + K)]!;
+    const d = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    q.nx = -(b.y - a.y) / d;
+    q.ny = (b.x - a.x) / d;
+    if (d === 1 && out.length === 1) [q.nx, q.ny] = [0, -1];
   });
+  return { pts: out, length: along };
+}
+
+/**
+ * Peinture en traînées : la largeur du trait est faite de pistes parallèles
+ * (poils, fibres du manchon) qui suivent le geste. Chaque piste est posée par
+ * petits tronçons dont la couverture varie : c'est ce qui donne le sens du
+ * coloriage, les manques et les bords irréguliers.
+ */
+function streaks(
+  dst: CanvasRenderingContext2D,
+  s: Stroke,
+  t: Target,
+  o: {
+    half: (p: number) => number;
+    lanes: number;
+    step: number;
+    cover: (lane: number, o: number, along: number, rel: number) => number;
+    color: (lane: number, o: number, along: number) => string;
+    width: number;
+  },
+) {
+  const { pts, length } = track(s, t, o.step);
+  if (!pts.length) return;
+  // zone touchée par le trait
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const q of pts) {
+    const h = o.half(q.p) + 4;
+    x0 = Math.min(x0, q.x - h);
+    y0 = Math.min(y0, q.y - h);
+    x1 = Math.max(x1, q.x + h);
+    y1 = Math.max(y1, q.y + h);
+  }
+  x0 = Math.max(0, Math.floor(x0));
+  y0 = Math.max(0, Math.floor(y0));
+  x1 = Math.min(t.pw, Math.ceil(x1));
+  y1 = Math.min(t.ph, Math.ceil(y1));
+  const W = x1 - x0;
+  const H = y1 - y0;
+  if (W <= 0 || H <= 0) return;
+  // deux tampons : la teinte (opaque) et la couverture (niveaux de gris, on garde le maximum,
+  // pour que les pistes qui se chevauchent ne foncent pas)
+  const { c: colC, ctx: cx } = buffer('a', W, H);
+  const { ctx: mx } = buffer('b', W, H);
+  mx.fillStyle = '#000';
+  mx.fillRect(0, 0, W, H);
+  mx.globalCompositeOperation = 'lighten';
+  for (const c of [cx, mx]) {
+    c.translate(-x0, -y0);
+    // bouts carrés : les tronçons se recouvrent, pas de jour entre eux
+    c.lineCap = 'square';
+  }
+  for (let k = 0; k < o.lanes; k++) {
+    const off = (k / Math.max(1, o.lanes - 1)) * 2 - 1;
+    let prev: { x: number; y: number } | null = null;
+    for (const q of pts) {
+      const h = o.half(q.p);
+      const x = q.x + q.nx * off * h;
+      const y = q.y + q.ny * off * h;
+      if (prev) {
+        const c = Math.min(1, o.cover(k, off, q.s, length ? q.s / length : 0));
+        if (c > 0.02) {
+          cx.strokeStyle = o.color(k, off, q.s);
+          cx.lineWidth = o.width * 1.8;
+          cx.beginPath();
+          cx.moveTo(prev.x, prev.y);
+          cx.lineTo(x, y);
+          cx.stroke();
+          const v = Math.round(c * 255);
+          mx.strokeStyle = `rgb(${v},${v},${v})`;
+          mx.lineWidth = o.width;
+          mx.beginPath();
+          mx.moveTo(prev.x, prev.y);
+          mx.lineTo(x, y);
+          mx.stroke();
+        }
+      }
+      prev = { x, y };
+    }
+  }
+  const ci = cx.getImageData(0, 0, W, H);
+  const mi = mx.getImageData(0, 0, W, H);
+  for (let i = 0; i < ci.data.length; i += 4) ci.data[i + 3] = Math.min(ci.data[i + 3]!, mi.data[i]!);
+  cx.setTransform(1, 0, 0, 1, 0, 0);
+  cx.putImageData(ci, 0, 0);
   dst.save();
-  dst.globalAlpha = Math.min(1, 0.4 + 0.6 * s.opacity);
-  dst.drawImage(sil, 0, 0);
+  // peinture couvrante : l'opacité du réglage pèse moins que pour un lavis
+  dst.globalAlpha = Math.min(1, 0.35 + 0.65 * s.opacity);
+  dst.drawImage(colC, 0, 0, W, H, x0, y0, W, H);
   dst.restore();
 }
 
-/** Acrylique au rouleau : une bande large et régulière, texture pochée, bourrelets sur les bords. */
+/** Acrylique au pinceau : des poils chargés inégalement, qui se vident le long du geste et laissent des manques. */
+function acrylic(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
+  const g = guides[s.guide];
+  const base = s.size * t.pxPerMin;
+  const r = rng(s.seed ^ 0x51);
+  const lanes = Math.max(10, Math.round(base * 1.4));
+  // charge et teinte propres à chaque poil
+  const load = Array.from({ length: lanes }, () => 0.55 + r() * 0.6);
+  const tone = Array.from({ length: lanes }, () => (r() - 0.5) * 0.22);
+  const seed = s.seed % 9973;
+  streaks(dst, s, t, {
+    half: (p) => base * (0.55 + 0.45 * p),
+    lanes,
+    step: Math.max(1.2, base * 0.06),
+    width: Math.max(1, ((base * 2) / lanes) * 1.35),
+    cover: (k, off, along, rel) => {
+      // le pinceau se vide : d'abord sur les bords, puis partout, avec des sauts
+      const dry = rel * rel * 0.9 + Math.abs(off) ** 3 * 0.35;
+      const n = vn(k * 0.7, along / (base * 0.5), seed);
+      const v = load[k]! - dry + (n - 0.5) * 0.7;
+      return v > 0.35 ? 0.92 : v > 0.2 ? (v - 0.2) * 6 : 0;
+    },
+    color: (k, _o, along) => shade(guideColor(g, along ? Math.min(1, along / (base * 20)) : 0), tone[k]!, 1),
+  });
+}
+
+/** Acrylique au rouleau : une bande large de largeur constante, fibres du manchon dans le sens du geste, bords effrangés. */
 function roller(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
   const g = guides[s.guide];
-  const pts = s.pts.map((p) => ({ x: p.x * t.pw, y: p.y * t.ph }));
-  const w = s.size * t.pxPerMin * 2.2;
-  const { c: sil, ctx: sx } = buffer('a', t.pw, t.ph);
-  const line = () => {
-    sx.beginPath();
-    pts.forEach((q, i) => (i ? sx.lineTo(q.x, q.y) : sx.moveTo(q.x, q.y)));
-  };
-  sx.lineCap = 'butt';
-  sx.lineJoin = 'round';
-  sx.strokeStyle = guideColor(g, 0.5);
-  sx.lineWidth = w;
-  line();
-  sx.stroke();
-  // bourrelets : la peinture s'accumule aux deux bords du rouleau
-  sx.globalCompositeOperation = 'source-atop';
-  sx.strokeStyle = shade(guideColor(g, 0.5), -0.25, 0.5);
-  sx.lineWidth = w;
-  sx.setLineDash([]);
-  line();
-  sx.stroke();
-  sx.strokeStyle = guideColor(g, 0.5);
-  sx.lineWidth = w * 0.86;
-  line();
-  sx.stroke();
-  // texture pochée du manchon
-  sx.globalCompositeOperation = 'destination-out';
-  sx.globalAlpha = 0.45;
-  sx.fillStyle = sx.createPattern(paperGrain(), 'repeat')!;
-  sx.fillRect(0, 0, t.pw, t.ph);
-  sx.globalAlpha = 1;
-  dst.save();
-  dst.globalAlpha = Math.min(1, 0.35 + 0.65 * s.opacity);
-  dst.drawImage(sil, 0, 0);
-  dst.restore();
+  const half = s.size * t.pxPerMin * 1.1;
+  const lanes = Math.max(16, Math.round(half * 1.2));
+  const seed = s.seed % 9973;
+  const col = guideColor(g, 0.5);
+  const edgeCol = shade(col, -0.2, 1);
+  const circ = half * 2.6;
+  streaks(dst, s, t, {
+    half: () => half,
+    lanes,
+    step: Math.max(1.5, half * 0.05),
+    width: Math.max(1, ((half * 2) / lanes) * 1.3),
+    cover: (k, off, along, rel) => {
+      // bords effrangés : la limite de la bande bouge lentement le long du geste
+      const edge = 0.8 + 0.14 * vn(along / (half * 0.45), off > 0 ? 3 : 7, seed) + 0.06 * vn(along / (half * 0.07), off > 0 ? 5 : 9, seed);
+      if (Math.abs(off) > edge) return 0;
+      // fibres du manchon (traînées dans le sens du geste) et charge du rouleau qui varie lentement
+      const fiber = vn(k * 0.9, along / (half * 1.6), seed + 1);
+      const turn = vn(k * 0.35, along / circ, seed + 2);
+      const fade = rel > 0.75 ? 1 - (rel - 0.75) * 2.2 * vn(k * 0.5, along * 0.05, seed + 3) : 1;
+      return (0.72 + 0.3 * fiber + 0.22 * (turn - 0.5)) * fade;
+    },
+    // la peinture s'accumule en bourrelet le long des deux bords
+    color: (_k, off) => (Math.abs(off) > 0.74 ? edgeCol : col),
+  });
 }
 
 /** Pistolet : un nuage de fines gouttelettes, dense au centre, qui s'éclaircit vers les bords. */
