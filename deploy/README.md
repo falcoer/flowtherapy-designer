@@ -8,7 +8,7 @@ Pour vérifier ce qui tourne avant de commencer :
 ```bash
 sudo ss -tlnp | grep -E ':(80|443|4310)\b'   # qui écoute sur 80/443, et 4310 doit être libre
 docker ps 2>/dev/null                          # si Odoo tourne dans Docker, le proxy peut être un conteneur
-node -v                                        # Node 22 requis
+node -v                                        # Node 22.13 ou plus récent requis (SQLite intégré)
 ```
 
 1. **DNS** : ajouter un enregistrement `A` `designer` → IP du VPS (et `AAAA` si IPv6).
@@ -22,10 +22,13 @@ node -v                                        # Node 22 requis
    sudo useradd --system --home /opt/ft-designer ftdesigner
    sudo git clone https://github.com/falcoer/flowtherapy-designer /opt/ft-designer
    cd /opt/ft-designer && sudo npm ci && sudo npm run build
-   sudo mkdir -p /srv/ft-designer && sudo cp -r library /srv/ft-designer/
+   sudo PLAYWRIGHT_BROWSERS_PATH=/opt/ft-designer/.browsers npx playwright-core install --with-deps chromium   # exports PNG/PDF
+   sudo mkdir -p /srv/ft-designer/cache && sudo cp -r library /srv/ft-designer/
    sudo chown -R ftdesigner /srv/ft-designer
    ```
-   La bibliothèque vit hors du dépôt (`/srv/ft-designer/library`) pour que les mises à jour du code n'y touchent pas. On peut la versionner avec git à part.
+   La bibliothèque vit hors du dépôt (`/srv/ft-designer/library`) pour que les mises à jour du code n'y touchent pas. On peut la versionner avec git à part. Le cache (`/srv/ft-designer/cache`) n'a pas besoin de sauvegarde.
+
+   Chromium va dans `/opt/ft-designer/.browsers`, le chemin que le service systemd déclare. On peut aussi pointer vers un Chromium existant avec `FTD_CHROMIUM_PATH`.
 4. **Connexion** : configure Google et/ou Apple en suivant [AUTH.md](AUTH.md). En dépannage seulement, un mot de passe unique reste possible avec `FTD_PASSWORD` (utilisateur `ft`), utilisé quand aucun fournisseur n'est configuré.
 5. **Service** :
    ```bash
@@ -40,3 +43,5 @@ node -v                                        # Node 22 requis
 
 `deploy/Caddyfile` reste fourni pour un serveur sans reverse proxy existant.
 6. **Mise à jour** : `git pull && npm ci && npm run build && sudo systemctl restart ft-designer`.
+
+Taille des imports : nginx limite à 200 Mo par requête (`client_max_body_size`), comme le serveur.

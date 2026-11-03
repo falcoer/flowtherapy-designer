@@ -10,7 +10,8 @@ const repoLibrary = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 async function setup(password?: string) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'ftd-'));
   await cp(repoLibrary, root, { recursive: true });
-  return { root, app: await buildApp({ libraryRoot: root, password }) };
+  const cacheRoot = await mkdtemp(path.join(os.tmpdir(), 'ftd-cache-'));
+  return { root, app: await buildApp({ libraryRoot: root, cacheRoot, password, webFonts: false }) };
 }
 
 describe('API', () => {

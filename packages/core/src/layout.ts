@@ -1,5 +1,8 @@
 import { resolveAnchor } from './anchors.js';
 import { shiftColor } from './color.js';
+import type { Gradient } from './gradient.js';
+import { effectsOf, type Effects } from './effects.js';
+import type { ShapeKind } from './shapes.js';
 import { clampDelta, sizeFactor } from './deltas.js';
 import type { Format } from './formats.js';
 import type { LibraryElement, PaletteElement, Placed, Project } from './schema.js';
@@ -14,7 +17,7 @@ import { substitute, type Values } from './tags.js';
 export interface LayoutItem {
   id: string;
   ref: string;
-  kind: 'image' | 'text' | 'missing';
+  kind: 'image' | 'text' | 'shape' | 'missing';
   anchor: { frame: string; point: string; x: number; y: number };
   x: number;
   y: number;
@@ -22,6 +25,10 @@ export interface LayoutItem {
   h: number;
   rotation: number;
   opacity: number;
+  /** Effets (dilution, flou, couleur), absents si neutres. */
+  effects?: Effects;
+  /** Point de l'élément posé sur l'ancrage (pivot du redimensionnement). */
+  align: Placed['align'];
   href?: string;
   text?: string;
   fontSize?: number;
@@ -29,6 +36,10 @@ export interface LayoutItem {
   fontWeight?: number;
   textAlign?: 'start' | 'middle' | 'end';
   color?: string;
+  /** Remplissage en dégradé (texte, forme), teintes déjà ajustées par les deltas. */
+  gradient?: Gradient;
+  shape?: ShapeKind;
+  radius?: number;
   fit: 'contain' | 'cover' | 'stretch';
 }
 
@@ -67,6 +78,15 @@ export function resolveColor(value: string | undefined, palette: PaletteElement 
   return (byIndex ?? byRole)?.hex ?? fallback;
 }
 
+/** Couleur finale du fond : palette résolue puis deltas de couleur. */
+export function resolveBackground(project: Project, palette: PaletteElement | undefined): string {
+  const d = project.backgroundDeltas ?? {};
+  return shiftColor(resolveColor(project.background, palette, '#ffffff'), { h: d['color.hue'], l: d['color.lightness'], c: d['color.chroma'] });
+}
+
+/** Opacité d'une image attachée au document (delta d'opacité). */
+export const globalOpacity = (deltas: Record<string, number> = {}) => Math.max(0, 1 + clampDelta('opacity', deltas.opacity ?? 0));
+
 function alignOffset(align: Placed['align'], w: number, h: number): { ox: number; oy: number } {
   const ox = align.includes('left') ? 0 : align.includes('right') ? w : w / 2;
   const oy = align.startsWith('top') ? 0 : align.startsWith('bottom') ? h : h / 2;
@@ -85,7 +105,7 @@ export function computeLayout(project: Project, formatId: string, ctx: LayoutCon
   return project.elements.map((raw) => {
     const el = effectiveElement(project, formatId, raw);
     const lib = ctx.library.get(el.ref);
-    const anchor = resolveAnchor(el.anchor.frame, el.anchor.point, format);
+    const anchor = resolveAnchor(el.anchor.frame, el.anchor.point, format, project.grid);
     const d = el.deltas;
     const k = sizeFactor(d.size);
     const common = {
@@ -95,6 +115,8 @@ export function computeLayout(project: Project, formatId: string, ctx: LayoutCon
       rotation: clampDelta('rotation', d.rotation ?? 0),
       opacity: Math.max(0, 1 + clampDelta('opacity', d.opacity ?? 0)),
       fit: el.fit,
+      align: el.align,
+      effects: effectsOf(d, resolveColor(el.style.shadow, palette, '#000000')),
     };
     const colorDelta = { h: d['color.hue'], l: d['color.lightness'], c: d['color.chroma'] };
 
@@ -127,10 +149,20 @@ export function computeLayout(project: Project, formatId: string, ctx: LayoutCon
         kind: 'text',
         text,
         fontSize,
-        fontFamily: el.style.font,
+        fontFamily: fontFamily(el.style.font, ctx),
         fontWeight: el.style.weight,
         textAlign: el.style.align ?? 'middle',
         color: shiftColor(resolveColor(el.style.color, palette, '#111111'), colorDelta),
+      };
+    } else if (lib?.type === 'shape') {
+      // forme : largeur en fraction de la largeur ; hauteur en fraction de la hauteur, sinon carrée
+      w = (el.size.w ?? (el.size.min !== undefined ? (el.size.min * minSide) / W : 0.3)) * W;
+      h = el.size.h !== undefined ? el.size.h * H : el.size.min !== undefined ? el.size.min * minSide : lib.shape === 'pill' ? w * 0.4 : w;
+      item = {
+        kind: 'shape',
+        shape: lib.shape,
+        radius: lib.radius,
+        color: shiftColor(resolveColor(el.style.color, palette, '#7a5cff'), colorDelta),
       };
     } else {
       w = (el.size.w ?? 0.2) * W;
@@ -142,6 +174,9 @@ export function computeLayout(project: Project, formatId: string, ctx: LayoutCon
       w *= k;
       h *= k;
     }
+    if (el.style.gradient && (item.kind === 'text' || item.kind === 'shape')) {
+      item.gradient = { ...el.style.gradient, stops: el.style.gradient.stops.map((c) => shiftColor(resolveColor(c, palette, '#888888'), colorDelta)) };
+    }
     const { ox, oy } = alignOffset(el.align, w, h);
     const x = anchor.x * W + (d.dx ?? 0) * W - ox;
     const y = anchor.y * H + (d.dy ?? 0) * H - oy;
@@ -151,4 +186,11 @@ export function computeLayout(project: Project, formatId: string, ctx: LayoutCon
 
 function defaultsOf(slots: Record<string, { default?: unknown }>): Values {
   return Object.fromEntries(Object.entries(slots).filter(([, s]) => s.default !== undefined).map(([k, s]) => [k, s.default]));
+}
+
+/** Une police peut être un élément de bibliothèque ("inter" → font/inter) ou un nom de famille. */
+function fontFamily(font: string | undefined, ctx: LayoutContext): string | undefined {
+  if (!font) return undefined;
+  const el = ctx.library.get(`font/${font}`);
+  return el?.type === 'font' ? el.family : font;
 }

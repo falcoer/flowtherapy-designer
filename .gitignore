@@ -4,3 +4,6 @@ cache/
 *.tsbuildinfo
 .env
 dist-types/
+.browsers/
+apps/web/dist-demo/
+apps/web/src/demo-data.json

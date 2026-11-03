@@ -4,10 +4,10 @@ Outil de composition de publications (affiches, flyers, posts, stories, mailings
 
 Proposition d'architecture complète : voir le document partagé dans le projet (« FT Designer — Proposition d'architecture et MVP »).
 
-## État : phase 0 (socle)
+## État : phase 1 (MVP)
 
 - `packages/core` : schémas YAML (zod), référentiels d'ancrage (répartition, nombre d'or, armature harmonique, grille), deltas, couleurs OKLCH et harmonies, balises `{{…}}`, calcul de mise en page. Partagé entre navigateur et serveur.
-- `apps/server` : API Fastify qui lit et écrit la bibliothèque (`library/`) et les projets YAML, connexion avec Google ou Apple réservée aux membres listés (voir [`deploy/AUTH.md`](deploy/AUTH.md)).
+- `apps/server` : API Fastify qui lit et écrit la bibliothèque (`library/`) et les projets YAML, index de recherche SQLite (FTS5) reconstruit depuis les YAML, import d'images, de logos et de polices (palette extraite automatiquement), cache de rendus optimisés (`sharp`), export PNG / PDF / SVG par format et par ligne de mailing (Chromium sans tête), connexion avec Google ou Apple réservée aux membres listés (voir [`deploy/AUTH.md`](deploy/AUTH.md)).
 - `apps/web` : surface de travail tactile (React + SVG) : changement de format, repères, glisser-déposer depuis la bibliothèque vers un ancrage, pastilles d'attributs et curseur de delta centré, palette et suggestions d'harmonies, aperçu du YAML.
 - `library/` : bibliothèque d'exemple (logo et photo issus du site bio, palette, textes, formats, un projet).
 
@@ -37,9 +37,13 @@ Sur un format autre que le premier du projet, les déplacements et deltas s'enre
 
 Voir [`deploy/README.md`](deploy/README.md) (VPS Hetzner partagé avec Odoo, nginx, `designer.flowtherapymusic.com`).
 
-## Limites connues de la phase 0
+## Cache et index
 
-- Pas encore d'upload ni de cache de rendus (`sharp`), ni d'index SQLite : la recherche lit les YAML directement.
-- L'enregistrement réécrit le YAML et perd les commentaires.
+`cache/` (ou `FTD_CACHE`) contient l'index `index.sqlite` et les rendus `images/<id>/{thumb,web,print}`. Tout se reconstruit depuis `library/` : on peut l'effacer sans perte. Après une modification manuelle des YAML, `POST /api/library/reindex` relit la bibliothèque.
+
+## Limites connues
+
 - Un SVG affiché comme image ne charge pas les polices web : le logo s'affiche avec une police de repli.
-- Pas encore d'export PNG/PDF, de générateurs ni d'effets.
+- La famille d'une police importée vient du titre saisi ou du nom du fichier ; on la corrige dans son `element.yaml`.
+- L'export d'une liste de mailing se fait ligne par ligne (pas encore d'archive de toutes les lignes).
+- Pas encore de templates, de générateurs ni d'effets (phase 2).

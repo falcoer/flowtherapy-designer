@@ -4,14 +4,20 @@
   "version": "0.1.0",
   "description": "FT Designer : composition de publications multi-formats, entièrement décrites en YAML.",
   "type": "module",
-  "workspaces": ["packages/*", "apps/*"],
-  "engines": { "node": ">=22" },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "dev": "npm run dev -w @ftd/server & npm run dev -w @ftd/web",
     "build": "npm run build -w @ftd/web",
     "start": "npm run start -w @ftd/server",
     "test": "vitest run",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "build:demo": "npx -w @ftd/server tsx scripts/build-demo-data.ts && VITE_DEMO=1 npm run build -w @ftd/web"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

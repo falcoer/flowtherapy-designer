@@ -9,15 +9,6 @@ export const FormatSchema = z.object({
   /** Résolution d'export pour les formats papier. */
   dpi: z.number().positive().optional(),
   target: z.enum(['print', 'social', 'mail', 'web']),
-  /** Grille classique par défaut pour ce format. */
-  grid: z
-    .object({
-      cols: z.number().int().positive(),
-      rows: z.number().int().positive(),
-      margin: z.number().nonnegative().default(0),
-      gutter: z.number().nonnegative().default(0),
-    })
-    .optional(),
 });
 export type Format = z.infer<typeof FormatSchema>;
 

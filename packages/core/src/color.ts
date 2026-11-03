@@ -93,3 +93,82 @@ export function contrastRatio(a: string, b: string): number {
   const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x) as [number, number];
   return (hi + 0.05) / (lo + 0.05);
 }
+
+/* ---------- plan OKLab : gamut et dégradés ---------- */
+
+/** OKLab → sRGB linéaire (non borné : hors de [0,1], la couleur n'est pas affichable). */
+export function oklabToLinear(L: number, A: number, B: number): [number, number, number] {
+  const l_ = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3;
+  const m_ = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3;
+  const s_ = (L - 0.0894841775 * A - 1.291485548 * B) ** 3;
+  return [
+    4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_,
+    -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_,
+    -0.0041960863 * l_ - 0.7034186147 * m_ + 1.707614701 * s_,
+  ];
+}
+
+const EPS = 1e-4;
+export const inGamut = ([r, g, b]: [number, number, number]) =>
+  r >= -EPS && r <= 1 + EPS && g >= -EPS && g <= 1 + EPS && b >= -EPS && b <= 1 + EPS;
+
+/** Octets sRGB d'un point OKLab, ou null s'il n'est pas affichable (pour peindre le plan). */
+export function oklabToRgb8(L: number, A: number, B: number): [number, number, number] | null {
+  const lin = oklabToLinear(L, A, B);
+  if (!inGamut(lin)) return null;
+  return lin.map((v) => fromLinear(Math.max(0, Math.min(1, v)))) as [number, number, number];
+}
+
+/** Saturation maximale affichable pour une clarté et une teinte. */
+export function maxChroma(l: number, h: number): number {
+  const hr = (h * Math.PI) / 180;
+  let lo = 0;
+  let hi = 0.4;
+  for (let i = 0; i < 20; i++) {
+    const mid = (lo + hi) / 2;
+    if (inGamut(oklabToLinear(l, mid * Math.cos(hr), mid * Math.sin(hr)))) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** Ramène une couleur dans l'espace affichable en réduisant sa saturation (teinte et clarté gardées). */
+export function gamutMap(c: Oklch): Oklch {
+  return { ...c, c: Math.min(c.c, maxChroma(c.l, c.h)) };
+}
+
+/**
+ * Dégradé le long d'un segment du plan OKLab : interpolation linéaire en
+ * clarté, a et b (perçue régulière), chaque étape ramenée dans le gamut.
+ */
+export function gradientStops(from: Oklch, to: Oklch, n: number): string[] {
+  const ab = (c: Oklch) => [c.c * Math.cos((c.h * Math.PI) / 180), c.c * Math.sin((c.h * Math.PI) / 180)] as const;
+  const [a1, b1] = ab(from);
+  const [a2, b2] = ab(to);
+  return Array.from({ length: Math.max(2, n) }, (_, i) => {
+    const t = i / (Math.max(2, n) - 1);
+    const A = a1 + (a2 - a1) * t;
+    const B = b1 + (b2 - b1) * t;
+    const lch = { l: from.l + (to.l - from.l) * t, c: Math.hypot(A, B), h: ((Math.atan2(B, A) * 180) / Math.PI + 360) % 360 };
+    return oklchToHex(gamutMap(lch));
+  });
+}
+
+/**
+ * Échantillonne n couleurs le long d'une suite ordonnée de couleurs
+ * (interpolation OKLab par morceaux) : sert aux dégradés en paliers.
+ */
+export function sampleColors(stops: string[], n: number): string[] {
+  if (stops.length === 0) return [];
+  if (stops.length === 1 || n <= 1) return Array.from({ length: Math.max(1, n) }, () => stops[0]!);
+  return Array.from({ length: n }, (_, i) => {
+    const t = (i / (n - 1)) * (stops.length - 1);
+    const k = Math.min(stops.length - 2, Math.floor(t));
+    const f = t - k;
+    if (f < 1e-6) return stops[k]!;
+    if (f > 1 - 1e-6) return stops[k + 1]!;
+    // trois points : début, milieu, fin ; on garde le point du milieu
+    const seg = gradientStops(hexToOklch(stops[k]!), hexToOklch(stops[k + 1]!), 1001);
+    return seg[Math.round(f * 1000)]!;
+  });
+}
