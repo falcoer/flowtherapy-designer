@@ -2,7 +2,7 @@
   "name": "flowtherapy-designer",
   "private": true,
   "version": "0.1.0",
-  "description": "FT Designer : composition de publications multi-formats, entièrement décrites en YAML.",
+  "description": "FT Designer : composition de publications multi-formats, enti\u00e8rement d\u00e9crites en YAML.",
   "type": "module",
   "workspaces": [
     "packages/*",
@@ -17,7 +17,8 @@
     "start": "npm run start -w @ftd/server",
     "test": "vitest run",
     "typecheck": "tsc -b",
-    "build:demo": "npx -w @ftd/server tsx scripts/build-demo-data.ts && VITE_DEMO=1 npm run build -w @ftd/web"
+    "build:demo": "npx -w @ftd/server tsx scripts/build-demo-data.ts && VITE_DEMO=1 npm run build -w @ftd/web",
+    "build:atelier": "npm run build -w @ftd/atelier"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
