@@ -975,7 +975,7 @@ export function App() {
             </div>
           </header>
 
-          <aside className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][2 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'transform' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0) + (sel.fx?.length ? 1 : 0)] : ''}`}>
+          <aside className="side tools-bar">
             <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => setTool('cut')} title="Découper (C) : trace un contour au stylet">
               <Icon name="scissors" />
             </button>
@@ -991,7 +991,9 @@ export function App() {
             <button className={`btn small ${tool === 'move' ? 'on' : ''}`} onClick={() => setTool('move')} title="Disposer (V) : déplacer, agrandir, ancrer">
               <Icon name="move" />
             </button>
-            <span className="side-sep" />
+          </aside>
+
+          <aside className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][2 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'transform' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0) + (sel.fx?.length ? 1 : 0)] : ''}`}>
             {tool === 'paint' && (
               <>
                 <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />

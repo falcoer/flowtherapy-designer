@@ -116,7 +116,9 @@ button:disabled { opacity: 0.35; cursor: default; }
 .side-sep + .side-sep { display: none; }
 .side > .btn { flex: none; }
 /* la barre tient dans la hauteur de l'écran : au-delà, elle passe sur une seconde colonne */
-.side { max-height: calc(100dvh - 52px - 24px - env(safe-area-inset-bottom, 0px)); flex-wrap: wrap; align-content: flex-start; column-gap: 6px; }
+.side { max-height: calc(100dvh - 52px - 24px - 238px - env(safe-area-inset-bottom, 0px)); flex-wrap: wrap; align-content: flex-start; column-gap: 6px; }
+/* outils : leur propre barre, fixe, en haut à gauche */
+.side.tools-bar { top: 64px; bottom: auto; max-height: none; flex-wrap: nowrap; }
 .side > * { flex: none; }
 .trash { transition: transform 0.12s, background 0.12s, color 0.12s; }
 .trash.armed { color: var(--danger); }
