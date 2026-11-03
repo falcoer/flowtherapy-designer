@@ -18,6 +18,7 @@ import {
   type Pt,
   type BorderStyle,
   type GlowStyle,
+  type BrushKind,
   type ShapeKind,
   type Stroke,
 } from './model';
@@ -45,6 +46,14 @@ const BORDER_TYPES: Array<[BorderStyle | null, string, string]> = [
   ['stamp', 'Timbre', 'bord dentelé perforé'],
   ['burst', 'Explosion', 'pointes irrégulières'],
   ['double', 'Double', 'deux couleurs'],
+];
+const BRUSHES: Array<[BrushKind, string, string]> = [
+  ['aquarelle', 'Aquarelle', 'lavis transparent'],
+  ['acrylic', 'Acrylique pinceau', 'pâte couvrante striée'],
+  ['roller', 'Acrylique rouleau', 'bande large pochée'],
+  ['spray', 'Acrylique pistolet', 'nuage de gouttelettes'],
+  ['glitter', 'Paillettes', 'éclats qui scintillent'],
+  ['hair', 'Poils', 'brins fins effilés'],
 ];
 const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
   [null, 'Aucune', 'pas de lueur'],
@@ -152,6 +161,10 @@ export function App() {
   const [modePick, setModePick] = useState(false);
   /** Bulle ouverte de l'outil Bords. */
   const [epop, setEpop] = useState<string | null>(null);
+  const [brushKind, setBrushKind] = useState<BrushKind>('aquarelle');
+  const [brushPick, setBrushPick] = useState(false);
+  /** Couleur glissée depuis la palette (position écran). */
+  const [dragGuide, setDragGuide] = useState<{ i: number; x: number; y: number } | null>(null);
   /** Bulle ouverte de l'outil Transformer : style, guide du style, effets, guide d'effet. */
   const [tpop, setTpop] = useState<string | null>(null);
   const [fxFocus, setFxFocus] = useState<number | null>(null);
@@ -417,6 +430,7 @@ export function App() {
     setBubble(null);
     setModePick(false);
     setEpop(null);
+    setBrushPick(false);
     const touches = [...pointers.current.values()].filter((p) => p.type === 'touch');
     if (e.pointerType === 'touch' && touches.length >= 2) {
       // plusieurs doigts : on annule le geste à un doigt et on manipule la vue
@@ -530,7 +544,7 @@ export function App() {
       wet,
       drawn: 0,
       last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
-      stroke: { brush: 'aquarelle', guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] },
+      stroke: { brush: brushKind, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] },
     };
   };
 
@@ -1068,7 +1082,7 @@ export function App() {
             <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => setTool('cut')} title="Découper (C) : trace un contour au stylet">
               <Icon name="scissors" />
             </button>
-            <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre à l'aquarelle (B)">
+            <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre (B) : aquarelle, acrylique, pistolet, paillettes, poils">
               <Icon name="brush" />
             </button>
             <button className={`btn small ${tool === 'edge' ? 'on' : ''}`} onClick={() => setTool('edge')} title="Bords (E) : bord, biseau, ombre intérieure, lueur">
@@ -1085,6 +1099,28 @@ export function App() {
           <aside className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][2 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'transform' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0) + (sel.fx?.length ? 1 : 0)] : ''}`}>
             {tool === 'paint' && (
               <>
+                <button className={`btn small ${brushPick ? 'on' : ''}`} onClick={() => setBrushPick(!brushPick)} title={`Pinceau : ${BRUSHES.find((x) => x[0] === brushKind)![1]}`}>
+                  <Icon name={`brush-${brushKind}`} />
+                </button>
+                {brushPick && (
+                  <div className="mode-pop">
+                    <div className="b-title">Pinceau</div>
+                    {BRUSHES.map(([k, t, hint]) => (
+                      <button
+                        key={k}
+                        className={`row ${brushKind === k ? 'on' : ''}`}
+                        onClick={() => {
+                          setBrushKind(k);
+                          setBrushPick(false);
+                        }}
+                      >
+                        <Icon name={`brush-${k}`} />
+                        <span>{t}</span>
+                        <small>{hint}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
                 <VSlider label="Opacité" value={opacity} onChange={(v) => setOpacity(Math.max(0.05, v))} />
               </>
@@ -1322,8 +1358,23 @@ export function App() {
               onPick={setGuide}
               onTint={() => sel && sel.kind !== 'photo' && patchLayer(sel.id, { guide })}
               onGuides={(guides) => update((d) => ({ ...d, guides }))}
+              onDrag={(i, x, y) => setDragGuide(i === null ? null : { i, x, y })}
+              onDrop={(i, x, y) => {
+                setDragGuide(null);
+                const el = document.elementFromPoint(x, y);
+                if (!el || el.tagName !== 'CANVAS') return;
+                const q = toPage(x, y);
+                const l = layerAt(q.x, q.y);
+                if (!l) return;
+                if (l.kind === 'photo') return setToast('Une photo n’a pas de couleur de fond : peins-la ou donne-lui un style');
+                patchLayer(l.id, { guide: i });
+                setSelected(l.id);
+                setToast(`« ${l.name} » prend la couleur « ${doc.guides[i]?.name} »`);
+              }}
             />
           )}
+
+          {dragGuide && <span className="drag-dot" style={{ left: dragGuide.x, top: dragGuide.y, background: swatch(doc.guides[dragGuide.i]) }} />}
 
           {bubble === 'light' && (
             <div className="bubble light-bubble">
@@ -1499,6 +1550,8 @@ function PaletteBubble({
   onPick,
   onTint,
   onGuides,
+  onDrag,
+  onDrop,
 }: {
   doc: Doc;
   active: number;
@@ -1506,7 +1559,11 @@ function PaletteBubble({
   onPick: (i: number) => void;
   onTint: () => void;
   onGuides: (g: Guide[]) => void;
+  onDrag: (i: number | null, x: number, y: number) => void;
+  onDrop: (i: number, x: number, y: number) => void;
 }) {
+  // glisser une couleur jusqu'à un objet : elle devient sa couleur de fond
+  const drag = useRef<{ i: number; x: number; y: number; on: boolean } | null>(null);
   const g = doc.guides[active];
   const [saved, setSaved] = useState<Array<{ name: string; guides: Guide[] }>>(() => {
     try {
@@ -1529,7 +1586,34 @@ function PaletteBubble({
       <div className="b-title">Palette du document</div>
       <div className="guides">
         {doc.guides.map((x, i) => (
-          <button key={i} className={`guide ${i === active ? 'on' : ''}`} onClick={() => onPick(i)} title={x.name}>
+          <button
+            key={i}
+            className={`guide ${i === active ? 'on' : ''}`}
+            onClick={() => onPick(i)}
+            title={`${x.name} : glisse-la sur un objet pour lui donner cette couleur`}
+            onPointerDown={(e) => {
+              (e.currentTarget as Element).setPointerCapture(e.pointerId);
+              drag.current = { i, x: e.clientX, y: e.clientY, on: false };
+            }}
+            onPointerMove={(e) => {
+              const d = drag.current;
+              if (!d) return;
+              if (!d.on && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) d.on = true;
+              if (d.on) onDrag(d.i, e.clientX, e.clientY);
+            }}
+            onPointerUp={(e) => {
+              const d = drag.current;
+              drag.current = null;
+              if (d?.on) {
+                e.preventDefault();
+                onDrop(d.i, e.clientX, e.clientY);
+              }
+            }}
+            onPointerCancel={() => {
+              drag.current = null;
+              onDrag(null, 0, 0);
+            }}
+          >
             <span className="sw" style={{ background: x.type === 'gradient' ? `linear-gradient(135deg, ${x.stops.join(',')})` : x.color }} />
             <span className="gname">{x.name}</span>
           </button>

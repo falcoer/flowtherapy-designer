@@ -105,8 +105,25 @@ function stamps(s: Stroke, t: Target) {
   return out;
 }
 
-/** Rend un trait aquarelle dans le canevas de peinture d'une couche. */
+/** Rend un trait dans le canevas de peinture d'une couche, selon son mode de projection. */
 export function paintStroke(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
+  switch (s.brush) {
+    case 'acrylic':
+      return acrylic(dst, s, guides, t);
+    case 'roller':
+      return roller(dst, s, guides, t);
+    case 'spray':
+      return spray(dst, s, guides, t);
+    case 'glitter':
+      return glitter(dst, s, guides, t);
+    case 'hair':
+      return hair(dst, s, guides, t);
+    default:
+      return aquarelle(dst, s, guides, t);
+  }
+}
+
+function aquarelle(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
   const { c: sil, ctx: sx } = buffer('a', t.pw, t.ph);
   const g = guides[s.guide];
   for (const st of stamps(s, t)) {
@@ -142,8 +159,9 @@ export function previewStamps(ctx: CanvasRenderingContext2D, s: Stroke, guides: 
   const g = guides[s.guide];
   const all = stamps(s, t);
   ctx.save();
-  ctx.globalCompositeOperation = 'multiply';
-  ctx.globalAlpha = 0.05 * s.opacity;
+  const water = s.brush === 'aquarelle' || !s.brush;
+  ctx.globalCompositeOperation = water ? 'multiply' : 'source-over';
+  ctx.globalAlpha = (water ? 0.05 : s.brush === 'spray' || s.brush === 'glitter' ? 0.03 : 0.12) * s.opacity;
   for (let i = from; i < all.length; i++) {
     const st = all[i]!;
     ctx.fillStyle = guideColor(g, st.t);
@@ -153,4 +171,222 @@ export function previewStamps(ctx: CanvasRenderingContext2D, s: Stroke, guides: 
   }
   ctx.restore();
   return all.length;
+}
+
+type RGB = [number, number, number];
+function rgbOf(c: string): RGB {
+  const n = parseInt(c.slice(1, 7), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+/** Variation d'une teinte : k > 0 éclaircit, k < 0 fonce. */
+function shade(c: string, k: number, a = 1): string {
+  const [r, g, b] = rgbOf(c);
+  const f = (v: number) => Math.round(k >= 0 ? v + (255 - v) * k : v * (1 + k));
+  return `rgba(${f(r)},${f(g)},${f(b)},${a})`;
+}
+
+/** Direction locale du trait en chaque tampon (unitaire). */
+function tangents(st: Array<{ x: number; y: number }>) {
+  return st.map((_, i) => {
+    const a = st[Math.max(0, i - 3)]!;
+    const b = st[Math.min(st.length - 1, i + 3)]!;
+    const d = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    return { x: (b.x - a.x) / d, y: (b.y - a.y) / d };
+  });
+}
+
+/** Acrylique au pinceau : pâte couvrante, stries des poils le long du geste, bords nets. */
+function acrylic(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
+  const g = guides[s.guide];
+  const st = stamps(s, t);
+  const { c: sil, ctx: sx } = buffer('a', t.pw, t.ph);
+  for (const q of st) {
+    sx.fillStyle = guideColor(g, q.t);
+    sx.beginPath();
+    sx.arc(q.x, q.y, Math.max(0.5, q.r * 0.92), 0, Math.PI * 2);
+    sx.fill();
+  }
+  // stries : chaque poil laisse un sillon plus clair ou plus sombre, la pâte s'épuise en fin de trait
+  sx.globalCompositeOperation = 'source-atop';
+  const tg = tangents(st);
+  const r = rng(s.seed ^ 0x51);
+  const n = 16;
+  for (let k = 0; k < n; k++) {
+    const o = (k / (n - 1)) * 2 - 1 + (r() - 0.5) * 0.08;
+    const light = r() < 0.5;
+    sx.strokeStyle = light ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.2)';
+    sx.lineWidth = Math.max(0.6, (st[0]?.r ?? 4) * (0.04 + r() * 0.06));
+    sx.beginPath();
+    st.forEach((q, i) => {
+      const x = q.x - tg[i]!.y * o * q.r * 0.9;
+      const y = q.y + tg[i]!.x * o * q.r * 0.9;
+      if (i) sx.lineTo(x, y);
+      else sx.moveTo(x, y);
+    });
+    sx.stroke();
+  }
+  // fin de trait sèche : la peinture se raréfie et laisse voir le fond
+  sx.globalCompositeOperation = 'destination-out';
+  st.forEach((q, i) => {
+    if (q.t < 0.8) return;
+    const dry = (q.t - 0.8) / 0.2;
+    for (let k = 0; k < 6; k++) {
+      if (r() > dry) continue;
+      const o = (r() * 2 - 1) * q.r;
+      sx.fillStyle = `rgba(0,0,0,${0.5 + r() * 0.5})`;
+      sx.fillRect(q.x - tg[i]!.y * o, q.y + tg[i]!.x * o, q.r * 0.5, Math.max(0.8, q.r * 0.06));
+    }
+  });
+  dst.save();
+  dst.globalAlpha = Math.min(1, 0.4 + 0.6 * s.opacity);
+  dst.drawImage(sil, 0, 0);
+  dst.restore();
+}
+
+/** Acrylique au rouleau : une bande large et régulière, texture pochée, bourrelets sur les bords. */
+function roller(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
+  const g = guides[s.guide];
+  const pts = s.pts.map((p) => ({ x: p.x * t.pw, y: p.y * t.ph }));
+  const w = s.size * t.pxPerMin * 2.2;
+  const { c: sil, ctx: sx } = buffer('a', t.pw, t.ph);
+  const line = () => {
+    sx.beginPath();
+    pts.forEach((q, i) => (i ? sx.lineTo(q.x, q.y) : sx.moveTo(q.x, q.y)));
+  };
+  sx.lineCap = 'butt';
+  sx.lineJoin = 'round';
+  sx.strokeStyle = guideColor(g, 0.5);
+  sx.lineWidth = w;
+  line();
+  sx.stroke();
+  // bourrelets : la peinture s'accumule aux deux bords du rouleau
+  sx.globalCompositeOperation = 'source-atop';
+  sx.strokeStyle = shade(guideColor(g, 0.5), -0.25, 0.5);
+  sx.lineWidth = w;
+  sx.setLineDash([]);
+  line();
+  sx.stroke();
+  sx.strokeStyle = guideColor(g, 0.5);
+  sx.lineWidth = w * 0.86;
+  line();
+  sx.stroke();
+  // texture pochée du manchon
+  sx.globalCompositeOperation = 'destination-out';
+  sx.globalAlpha = 0.45;
+  sx.fillStyle = sx.createPattern(paperGrain(), 'repeat')!;
+  sx.fillRect(0, 0, t.pw, t.ph);
+  sx.globalAlpha = 1;
+  dst.save();
+  dst.globalAlpha = Math.min(1, 0.35 + 0.65 * s.opacity);
+  dst.drawImage(sil, 0, 0);
+  dst.restore();
+}
+
+/** Pistolet : un nuage de fines gouttelettes, dense au centre, qui s'éclaircit vers les bords. */
+function spray(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
+  const g = guides[s.guide];
+  const st = stamps(s, t);
+  const r = rng(s.seed ^ 0x77);
+  dst.save();
+  for (let i = 0; i < st.length; i += 1) {
+    const q = st[i]!;
+    const R = q.r * 1.4;
+    const n = Math.round(10 + R * 0.9);
+    dst.fillStyle = guideColor(g, q.t);
+    for (let k = 0; k < n; k++) {
+      // répartition gaussienne autour de la buse
+      const u = Math.max(1e-6, r());
+      const rad = Math.sqrt(-2 * Math.log(u)) * R * 0.38;
+      const a = r() * Math.PI * 2;
+      const d = 0.3 + r() * Math.max(0.6, R * 0.025);
+      dst.globalAlpha = s.opacity * (0.25 + 0.5 * r());
+      dst.beginPath();
+      dst.arc(q.x + Math.cos(a) * rad, q.y + Math.sin(a) * rad, d, 0, Math.PI * 2);
+      dst.fill();
+    }
+  }
+  dst.restore();
+}
+
+/** Paillettes : petits éclats plats de tailles et d'angles variés, quelques-uns scintillent. */
+function glitter(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
+  const g = guides[s.guide];
+  const st = stamps(s, t);
+  const r = rng(s.seed ^ 0x99);
+  dst.save();
+  for (let i = 0; i < st.length; i += 2) {
+    const q = st[i]!;
+    const n = Math.round(3 + q.r * 0.25);
+    for (let k = 0; k < n; k++) {
+      const a = r() * Math.PI * 2;
+      const rad = Math.sqrt(r()) * q.r;
+      const x = q.x + Math.cos(a) * rad;
+      const y = q.y + Math.sin(a) * rad;
+      const sz = Math.max(1, q.r * (0.06 + r() * 0.1));
+      const base = guideColor(g, q.t);
+      // chaque éclat accroche la lumière différemment
+      const lit = r();
+      dst.fillStyle = lit > 0.85 ? shade(base, 0.75, 1) : lit < 0.3 ? shade(base, -0.35, 1) : shade(base, (lit - 0.5) * 0.5, 1);
+      dst.globalAlpha = Math.min(1, 0.5 + 0.5 * s.opacity);
+      dst.save();
+      dst.translate(x, y);
+      dst.rotate(r() * Math.PI);
+      if (r() < 0.5) dst.fillRect(-sz / 2, -sz / 2, sz, sz);
+      else {
+        dst.beginPath();
+        for (let h = 0; h < 6; h++) dst.lineTo(Math.cos((h * Math.PI) / 3) * sz * 0.6, Math.sin((h * Math.PI) / 3) * sz * 0.6);
+        dst.fill();
+      }
+      dst.restore();
+      // scintillement : une petite croix de lumière
+      if (lit > 0.965) {
+        const L = sz * 2.6;
+        dst.strokeStyle = 'rgba(255,255,255,0.9)';
+        dst.lineWidth = Math.max(0.6, sz * 0.18);
+        dst.beginPath();
+        dst.moveTo(x - L, y);
+        dst.lineTo(x + L, y);
+        dst.moveTo(x, y - L);
+        dst.lineTo(x, y + L);
+        dst.stroke();
+      }
+    }
+  }
+  dst.restore();
+}
+
+/** Poils : des brins fins et effilés qui suivent le geste, avec des teintes voisines. */
+function hair(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
+  const g = guides[s.guide];
+  const st = stamps(s, t);
+  const tg = tangents(st);
+  const r = rng(s.seed ^ 0x33);
+  dst.save();
+  dst.lineCap = 'round';
+  for (let i = 0; i < st.length; i++) {
+    const q = st[i]!;
+    const n = Math.round(2 + q.r * 0.12);
+    for (let k = 0; k < n; k++) {
+      const o = (r() * 2 - 1) * q.r;
+      const x = q.x - tg[i]!.y * o;
+      const y = q.y + tg[i]!.x * o;
+      // le brin part dans le sens du geste, un peu dévié, et se courbe
+      const ang = Math.atan2(tg[i]!.y, tg[i]!.x) + (r() - 0.5) * 0.5;
+      const len = q.r * (0.8 + r() * 1.4);
+      const bend = (r() - 0.5) * len * 0.5;
+      const ex = x + Math.cos(ang) * len;
+      const ey = y + Math.sin(ang) * len;
+      const cx = (x + ex) / 2 - Math.sin(ang) * bend;
+      const cy = (y + ey) / 2 + Math.cos(ang) * bend;
+      const base = guideColor(g, q.t);
+      dst.strokeStyle = shade(base, (r() - 0.5) * 0.6, 0.35 + 0.5 * s.opacity);
+      // effilé : un trait large puis un plus fin vers la pointe
+      dst.lineWidth = Math.max(0.5, q.r * 0.035);
+      dst.beginPath();
+      dst.moveTo(x, y);
+      dst.quadraticCurveTo(cx, cy, ex, ey);
+      dst.stroke();
+    }
+  }
+  dst.restore();
 }

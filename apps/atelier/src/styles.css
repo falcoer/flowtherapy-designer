@@ -223,3 +223,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
   .sep { margin: 0 1px; }
   .vslider { height: 110px; }
 }
+
+/* couleur glissée depuis la palette */
+.drag-dot { position: fixed; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; pointer-events: none; z-index: 20; box-shadow: 0 0 0 3px var(--chrome-solid), 0 6px 18px rgba(0,0,0,.3); }
+.palette-bubble .guide { touch-action: none; }

@@ -18,8 +18,11 @@ export interface Pt {
 
 export type Guide = { name: string; type: 'color'; color: string } | { name: string; type: 'gradient'; stops: string[] };
 
+/** Modes de projection du pinceau. */
+export type BrushKind = 'aquarelle' | 'acrylic' | 'roller' | 'spray' | 'glitter' | 'hair';
+
 export interface Stroke {
-  brush: 'aquarelle';
+  brush: BrushKind;
   guide: number;
   /** Rayon du pinceau en fraction du petit côté du format. */
   size: number;
