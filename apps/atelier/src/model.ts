@@ -57,6 +57,8 @@ export interface Layer {
   bevel?: number;
   /** Rotation autour du centre de la boîte, en radians. */
   rot?: number;
+  /** Centre de rotation en coordonnées de la couche ; absent = centre du cadre des poignées. */
+  pivot?: { u: number; v: number };
   /** Bord : style, guide de la palette, largeur (fraction du petit côté). */
   border?: { style: BorderStyle; guide: number; width: number };
   /** Bords de la découpe aimantés sur les bords de la page : tenus au changement de format. */

@@ -197,6 +197,24 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       ctx.shadowBlur = s.blur * o.scale;
       ctx.fillStyle = '#000';
       ctx.fill(path, 'evenodd');
+      // le bord déborde de l'objet : il porte ombre lui aussi
+      if (l.border && l.border.width > 0) {
+        ctx.strokeStyle = '#000';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 2 * l.border.width * minSide;
+        ctx.stroke(path);
+      }
+      ctx.restore();
+    }
+
+    // bord : à l'extérieur de la découpe, en débordement de l'objet
+    if (l.border && l.border.width > 0) {
+      ctx.save();
+      const outside = new Path2D();
+      outside.rect(-f.width, -f.height, 3 * f.width, 3 * f.height);
+      outside.addPath(path);
+      ctx.clip(outside, 'evenodd');
+      drawBorder(ctx, l, doc, f, path);
       ctx.restore();
     }
 
@@ -236,8 +254,6 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     if (o.wet?.id === l.id) ctx.drawImage(o.wet.canvas, x0, y0, b.w, b.h);
     ctx.restore();
 
-    drawBorder(ctx, l, doc, f, path);
-
     // biseau : bord éclairé côté lumière, bord sombre à l'opposé
     const bevel = l.bevel ?? 0;
     if (bevel > 0.001 && l.kind !== 'surface') {
@@ -259,7 +275,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
   ctx.restore();
 }
 
-/** Bord intérieur de la découpe : arrondi, droit (facettes) ou déchiré. */
+/** Bord extérieur de la découpe (débordement) : arrondi, droit (facettes) ou déchiré. */
 function drawBorder(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, path: Path2D) {
   const bd = l.border;
   if (!bd || bd.width <= 0) return;
@@ -272,7 +288,7 @@ function drawBorder(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format
     g.stops.forEach((c, i) => grad.addColorStop(i / Math.max(1, g.stops.length - 1), c));
     ctx.strokeStyle = grad;
   } else ctx.strokeStyle = guideColor(g);
-  // le trait est centré sur la découpe : sa moitié intérieure fait la largeur voulue
+  // le trait est centré sur la découpe : sa moitié extérieure fait la largeur voulue
   ctx.lineWidth = 2 * wd;
   ctx.lineCap = 'round';
   if (bd.style === 'round') {
@@ -290,7 +306,7 @@ function drawBorder(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format
       p2.closePath();
     }
   } else {
-    // déchiré : un liseré dont le bord intérieur suit un bruit irrégulier, vers l'intérieur
+    // déchiré : un liseré dont le bord extérieur suit un bruit irrégulier
     ctx.lineJoin = 'round';
     ctx.lineWidth = 1.2 * wd;
     let seed = 0;
@@ -305,7 +321,8 @@ function drawBorder(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format
       const c0 = pts[1]!;
       const t = Math.hypot(c0.x - a0.x, c0.y - a0.y) || 1;
       const probe = { x: (a0.x + c0.x) / 2 - ((c0.y - a0.y) / t) * step * 0.2, y: (a0.y + c0.y) / 2 + ((c0.x - a0.x) / t) * step * 0.2 };
-      const sign = insideRing(r, probe.x, probe.y) ? 1 : -1;
+      // vers l'extérieur
+      const sign = insideRing(r, probe.x, probe.y) ? -1 : 1;
       let slow = rnd();
       pts.forEach((q, i) => {
         const a = pts[(i - 1 + pts.length) % pts.length]!;

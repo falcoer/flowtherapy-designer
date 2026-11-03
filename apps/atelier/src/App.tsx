@@ -160,7 +160,7 @@ export function App() {
 
   // --- état des gestes en cours ---
   const live = useRef<{
-    kind: 'paint' | 'cut' | 'move' | 'resize' | 'rotate' | 'view' | null;
+    kind: 'paint' | 'cut' | 'move' | 'resize' | 'rotate' | 'pivot' | 'view' | null;
     /** Coin opposé (coordonnées de la couche) tenu fixe pendant un agrandissement. */
     opp?: { u: number; v: number };
     pins?: Layer['pins'];
@@ -233,6 +233,22 @@ export function App() {
           ctx.fill();
           ctx.stroke();
         }
+        // centre de rotation : mire
+        ctx.save();
+        ctx.lineWidth = 1.6 * px;
+        ctx.strokeStyle = '#7a5cff';
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.beginPath();
+        ctx.arc(h.pivot.x, h.pivot.y, 7 * px, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(h.pivot.x - 11 * px, h.pivot.y);
+        ctx.lineTo(h.pivot.x + 11 * px, h.pivot.y);
+        ctx.moveTo(h.pivot.x, h.pivot.y - 11 * px);
+        ctx.lineTo(h.pivot.x, h.pivot.y + 11 * px);
+        ctx.stroke();
+        ctx.restore();
         // poignée de rotation : pastille pleine avec une flèche courbe
         ctx.fillStyle = '#7a5cff';
         ctx.beginPath();
@@ -340,7 +356,8 @@ export function App() {
     const top = localToPage(l, f, (k.u0 + k.u1) / 2, k.v0);
     const r = l.rot ?? 0;
     const off = 34 / scale;
-    return { k, tl, br, top, rot: { x: top.x + Math.sin(r) * off, y: top.y - Math.cos(r) * off } };
+    const pv = l.pivot ?? { u: (k.u0 + k.u1) / 2, v: (k.v0 + k.v1) / 2 };
+    return { k, tl, br, top, pv, pivot: localToPage(l, f, pv.u, pv.v), rot: { x: top.x + Math.sin(r) * off, y: top.y - Math.cos(r) * off } };
   };
 
   // --- pointeurs ---
@@ -382,6 +399,11 @@ export function App() {
       if (sel && sel.kind !== 'surface') {
         const h = handlesOf(sel);
         const near = (q: Pt) => Math.hypot(p.x - q.x, p.y - q.y) * scale < 22;
+        if (Math.hypot(p.x - h.pivot.x, p.y - h.pivot.y) * scale < 14) {
+          update((d) => d);
+          live.current = { kind: 'pivot', layer: sel.id, start: p, orig: structuredClone(sel) };
+          return;
+        }
         if (near(h.rot)) {
           update((d) => d);
           live.current = { kind: 'rotate', layer: sel.id, start: p, orig: structuredClone(sel) };
@@ -551,17 +573,32 @@ export function App() {
       const cy = O.y + (b.cy - O.y) * k;
       const a = anchorFor(doc.frame, f, cx, cy);
       setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, w: o.w * k, h: o.h * k, anchor: a.anchor, dx: a.dx, dy: a.dy } : x)) }));
+    } else if (L.kind === 'pivot' && L.orig) {
+      // le centre de rotation reste dans le cadre des poignées
+      const o = L.orig;
+      const k = localBounds(o);
+      const q = pageToLocal(o, f, p.x, p.y);
+      const pivot = { u: Math.max(k.u0, Math.min(k.u1, q.x)), v: Math.max(k.v0, Math.min(k.v1, q.y)) };
+      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, pivot } : x)) }));
     } else if (L.kind === 'rotate' && L.orig && L.start) {
       const o = L.orig;
       const b = layerBox(o, f);
-      let r = (o.rot ?? 0) + Math.atan2(p.y - b.cy, p.x - b.cx) - Math.atan2(L.start.y - b.cy, L.start.x - b.cx);
+      const P = handlesOf(o).pivot;
+      let r = (o.rot ?? 0) + Math.atan2(p.y - P.y, p.x - P.x) - Math.atan2(L.start.y - P.y, L.start.x - P.x);
       // aimant tous les 15°
       const step = Math.PI / 12;
       const q = Math.round(r / step) * step;
       if (Math.abs(r - q) < (3 * Math.PI) / 180) r = q;
       r = Math.atan2(Math.sin(r), Math.cos(r));
       setToast(`${Math.round((r * 180) / Math.PI)}°`);
-      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, rot: r } : x)) }));
+      // le centre de la boîte tourne autour du centre de rotation, qui reste fixe
+      const dr = r - (o.rot ?? 0);
+      const vx = b.cx - P.x;
+      const vy = b.cy - P.y;
+      const cx = P.x + vx * Math.cos(dr) - vy * Math.sin(dr);
+      const cy = P.y + vx * Math.sin(dr) + vy * Math.cos(dr);
+      const a = anchorFor(doc.frame, f, cx, cy);
+      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, rot: r, anchor: a.anchor, dx: a.dx, dy: a.dy } : x)) }));
     }
   };
 
