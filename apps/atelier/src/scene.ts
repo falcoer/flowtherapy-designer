@@ -1,5 +1,6 @@
 import { paintStroke, type Target } from './brush';
-import { pathToRings, ringsToPath, type Ring } from './cut';
+import { rng } from './brush';
+import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
 import { guideColor, layerBox, shapePath, type Doc, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 
@@ -41,10 +42,59 @@ export function localRings(l: Layer): Ring[] {
 
 /** Contours de la découpe en unités du format. */
 export function maskRings(l: Layer, f: Format): Ring[] {
+  return localRings(l).map((r) => r.map((p) => localToPage(l, f, p.x, p.y)));
+}
+
+/** Matrice coordonnées de la couche (0..1) → unités du format, rotation comprise. */
+export function layerMatrix(l: Layer, f: Format): DOMMatrix {
   const b = layerBox(l, f);
-  const x0 = b.cx - b.w / 2;
-  const y0 = b.cy - b.h / 2;
-  return localRings(l).map((r) => r.map((p) => ({ x: x0 + p.x * b.w, y: y0 + p.y * b.h })));
+  return new DOMMatrix()
+    .translate(b.cx, b.cy)
+    .rotate(((l.rot ?? 0) * 180) / Math.PI)
+    .translate(-b.w / 2, -b.h / 2)
+    .scale(b.w, b.h);
+}
+
+export function localToPage(l: Layer, f: Format, u: number, v: number): Pt {
+  const b = layerBox(l, f);
+  const r = l.rot ?? 0;
+  const x = (u - 0.5) * b.w;
+  const y = (v - 0.5) * b.h;
+  return { x: b.cx + x * Math.cos(r) - y * Math.sin(r), y: b.cy + x * Math.sin(r) + y * Math.cos(r) };
+}
+
+export function pageToLocal(l: Layer, f: Format, x: number, y: number): Pt {
+  const b = layerBox(l, f);
+  const r = -(l.rot ?? 0);
+  const dx = x - b.cx;
+  const dy = y - b.cy;
+  return { x: (dx * Math.cos(r) - dy * Math.sin(r)) / b.w + 0.5, y: (dx * Math.sin(r) + dy * Math.cos(r)) / b.h + 0.5 };
+}
+
+/** Rectangle serré de la découpe, en coordonnées de la couche. */
+export function localBounds(l: Layer) {
+  let [u0, v0, u1, v1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const r of localRings(l))
+    for (const p of r) {
+      u0 = Math.min(u0, p.x);
+      v0 = Math.min(v0, p.y);
+      u1 = Math.max(u1, p.x);
+      v1 = Math.max(v1, p.y);
+    }
+  return u0 === Infinity ? { u0: 0, v0: 0, u1: 1, v1: 1 } : { u0, v0, u1, v1 };
+}
+
+/** Encombrement de la découpe dans la page (rectangle aligné sur la page). */
+export function pageBounds(l: Layer, f: Format) {
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const r of maskRings(l, f))
+    for (const p of r) {
+      x0 = Math.min(x0, p.x);
+      y0 = Math.min(y0, p.y);
+      x1 = Math.max(x1, p.x);
+      y1 = Math.max(y1, p.y);
+    }
+  return { x0, y0, x1, y1 };
 }
 
 const paths = new Map<string, Path2D>();
@@ -56,9 +106,8 @@ export function maskPath2D(l: Layer, f: Format): Path2D {
     if (paths.size > 400) paths.clear();
     paths.set(d, (local = new Path2D(d)));
   }
-  const b = layerBox(l, f);
   const p = new Path2D();
-  p.addPath(local, new DOMMatrix([b.w, 0, 0, b.h, b.cx - b.w / 2, b.cy - b.h / 2]));
+  p.addPath(local, layerMatrix(l, f));
   return p;
 }
 
@@ -153,6 +202,13 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
 
     ctx.save();
     ctx.clip(path, 'evenodd');
+    // matière et peinture tournent avec la couche
+    ctx.save();
+    if (l.rot) {
+      ctx.translate(b.cx, b.cy);
+      ctx.rotate(l.rot);
+      ctx.translate(-b.cx, -b.cy);
+    }
     // matière
     if (l.kind === 'photo' && l.src) {
       const im = imageFor(l.src, o.onImage);
@@ -178,25 +234,123 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     const paint = paintFor(l, doc, f, o.scale);
     if (paint) ctx.drawImage(paint, x0, y0, b.w, b.h);
     if (o.wet?.id === l.id) ctx.drawImage(o.wet.canvas, x0, y0, b.w, b.h);
+    ctx.restore();
 
-    // épaisseur : bord éclairé côté lumière, bord sombre à l'opposé
-    if (l.height > 0.001 && l.kind !== 'surface') {
+    drawBorder(ctx, l, doc, f, path);
+
+    // biseau : bord éclairé côté lumière, bord sombre à l'opposé
+    const bevel = l.bevel ?? 0;
+    if (bevel > 0.001 && l.kind !== 'surface') {
       const a = (doc.light * Math.PI) / 180;
       const lx = Math.sin(a);
       const ly = -Math.cos(a);
       const r = Math.max(b.w, b.h) / 2;
       const grad = ctx.createLinearGradient(b.cx + lx * r, b.cy + ly * r, b.cx - lx * r, b.cy - ly * r);
-      grad.addColorStop(0, `rgba(255,255,255,${0.25 + 0.35 * l.height})`);
+      grad.addColorStop(0, `rgba(255,255,255,${0.3 + 0.4 * bevel})`);
       grad.addColorStop(0.5, 'rgba(255,255,255,0)');
       grad.addColorStop(0.5, 'rgba(0,0,0,0)');
-      grad.addColorStop(1, `rgba(0,0,0,${0.15 + 0.25 * l.height})`);
+      grad.addColorStop(1, `rgba(0,0,0,${0.2 + 0.3 * bevel})`);
       ctx.strokeStyle = grad;
-      ctx.lineWidth = (0.004 + 0.01 * l.height) * minSide;
+      ctx.lineWidth = 0.03 * bevel * minSide;
       ctx.stroke(path);
     }
     ctx.restore();
   }
   ctx.restore();
+}
+
+/** Bord intérieur de la découpe : arrondi, droit (facettes) ou déchiré. */
+function drawBorder(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, path: Path2D) {
+  const bd = l.border;
+  if (!bd || bd.width <= 0) return;
+  const minSide = Math.min(f.width, f.height);
+  const wd = bd.width * minSide;
+  const g = doc.guides[bd.guide];
+  const box = pageBounds(l, f);
+  if (g?.type === 'gradient') {
+    const grad = ctx.createLinearGradient(box.x0, box.y0, box.x1, box.y1);
+    g.stops.forEach((c, i) => grad.addColorStop(i / Math.max(1, g.stops.length - 1), c));
+    ctx.strokeStyle = grad;
+  } else ctx.strokeStyle = guideColor(g);
+  // le trait est centré sur la découpe : sa moitié intérieure fait la largeur voulue
+  ctx.lineWidth = 2 * wd;
+  ctx.lineCap = 'round';
+  if (bd.style === 'round') {
+    ctx.lineJoin = 'round';
+    ctx.stroke(path);
+    return;
+  }
+  const rings = maskRings(l, f);
+  const p2 = new Path2D();
+  if (bd.style === 'straight') {
+    ctx.lineJoin = 'miter';
+    for (const r of rings) {
+      const s = simplifyRing(r, Math.max(wd * 0.9, minSide * 0.004));
+      s.forEach((q, i) => (i ? p2.lineTo(q.x, q.y) : p2.moveTo(q.x, q.y)));
+      p2.closePath();
+    }
+  } else {
+    // déchiré : un liseré dont le bord intérieur suit un bruit irrégulier, vers l'intérieur
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 1.2 * wd;
+    let seed = 0;
+    for (const ch of l.id) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+    const rnd = rng(seed);
+    for (const r of rings) {
+      const step = Math.max(wd * 0.45, minSide * 0.002);
+      const pts = resample(r, step);
+      if (pts.length < 3) continue;
+      // sens de la normale intérieure
+      const a0 = pts[0]!;
+      const c0 = pts[1]!;
+      const t = Math.hypot(c0.x - a0.x, c0.y - a0.y) || 1;
+      const probe = { x: (a0.x + c0.x) / 2 - ((c0.y - a0.y) / t) * step * 0.2, y: (a0.y + c0.y) / 2 + ((c0.x - a0.x) / t) * step * 0.2 };
+      const sign = insideRing(r, probe.x, probe.y) ? 1 : -1;
+      let slow = rnd();
+      pts.forEach((q, i) => {
+        const a = pts[(i - 1 + pts.length) % pts.length]!;
+        const c = pts[(i + 1) % pts.length]!;
+        const nl = Math.hypot(c.x - a.x, c.y - a.y) || 1;
+        const nx = (-(c.y - a.y) / nl) * sign;
+        const ny = ((c.x - a.x) / nl) * sign;
+        slow += (rnd() - slow) * 0.25;
+        const k = (0.15 + 0.55 * slow + 0.2 * rnd()) * wd;
+        const x = q.x + nx * k;
+        const y = q.y + ny * k;
+        if (i) p2.lineTo(x, y);
+        else p2.moveTo(x, y);
+      });
+      p2.closePath();
+    }
+    // le papier entre la découpe et la déchirure
+    ctx.save();
+    ctx.lineWidth = 0.6 * wd;
+    ctx.stroke(path);
+    ctx.restore();
+  }
+  ctx.stroke(p2);
+}
+
+function insideRing(pts: Pt[], x: number, y: number): boolean {
+  let c = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i]!;
+    const b = pts[j]!;
+    if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) c = !c;
+  }
+  return c;
+}
+
+function resample(r: Pt[], step: number): Pt[] {
+  const out: Pt[] = [];
+  for (let i = 0; i < r.length; i++) {
+    const a = r[i]!;
+    const b = r[(i + 1) % r.length]!;
+    const d = Math.hypot(b.x - a.x, b.y - a.y);
+    const n = Math.max(1, Math.round(d / step));
+    for (let k = 0; k < n; k++) out.push({ x: a.x + ((b.x - a.x) * k) / n, y: a.y + ((b.y - a.y) * k) / n });
+  }
+  return out;
 }
 
 /** Damier de transparence sous la page. */
@@ -209,4 +363,36 @@ export function drawChecker(ctx: CanvasRenderingContext2D, f: Format) {
   for (let y = 0; y < f.height; y += s)
     for (let x = ((y / s) % 2) * s; x < f.width; x += 2 * s) ctx.fillRect(x, y, Math.min(s, f.width - x), Math.min(s, f.height - y));
   ctx.restore();
+}
+
+/**
+ * Au changement de format, les couches dont la découpe touche des bords de
+ * la page y restent : deux bords opposés aimantés gardent le remplissage
+ * (mise à l'échelle sans déformation), un seul bord garde son appui.
+ */
+export function holdPins(doc: Doc, f: Format): Doc {
+  return {
+    ...doc,
+    layers: doc.layers.map((l) => {
+      const p = l.pins;
+      if (!p || l.kind === 'surface' || !(p.left || p.right || p.top || p.bottom)) return l;
+      let bb = pageBounds(l, f);
+      const kx = p.left && p.right ? f.width / (bb.x1 - bb.x0) : 0;
+      const ky = p.top && p.bottom ? f.height / (bb.y1 - bb.y0) : 0;
+      const k = Math.max(kx, ky) || 1;
+      let n: Layer = k !== 1 ? { ...l, w: l.w * k, h: l.h * k } : l;
+      bb = pageBounds(n, f);
+      const sx = p.left && p.right ? (f.width - bb.x1 - bb.x0) / 2 : p.left ? -bb.x0 : p.right ? f.width - bb.x1 : 0;
+      const sy = p.top && p.bottom ? (f.height - bb.y1 - bb.y0) / 2 : p.top ? -bb.y0 : p.bottom ? f.height - bb.y1 : 0;
+      n = { ...n, dx: n.dx + sx / f.width, dy: n.dy + sy / f.height };
+      return n;
+    }),
+  };
+}
+
+/** Bords de la page touchés par la découpe (à `tol` près, unités du format). */
+export function pinsOf(l: Layer, f: Format, tol: number): Layer['pins'] {
+  const bb = pageBounds(l, f);
+  const pins = { left: Math.abs(bb.x0) < tol, right: Math.abs(bb.x1 - f.width) < tol, top: Math.abs(bb.y0) < tol, bottom: Math.abs(bb.y1 - f.height) < tol };
+  return pins.left || pins.right || pins.top || pins.bottom ? pins : undefined;
 }

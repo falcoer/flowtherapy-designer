@@ -26,6 +26,7 @@ export interface Stroke {
   pts: Pt[];
 }
 
+export type BorderStyle = 'round' | 'straight' | 'torn';
 export type LayerKind = 'surface' | 'support' | 'photo' | 'shape';
 export type ShapeKind = 'star' | 'circle' | 'arch' | 'blob';
 
@@ -50,8 +51,16 @@ export interface Layer {
   guide: number;
   /** Photo (URL ou data URI). */
   src?: string;
-  /** Hauteur au-dessus de la page (0..1) : ombre et épaisseur en découlent. */
+  /** Hauteur au-dessus de la page (0..1) : l'ombre portée en découle. */
   height: number;
+  /** Biseau (0..1) : liseré éclairé côté lumière, sombre à l'opposé. */
+  bevel?: number;
+  /** Rotation autour du centre de la boîte, en radians. */
+  rot?: number;
+  /** Bord : style, guide de la palette, largeur (fraction du petit côté). */
+  border?: { style: BorderStyle; guide: number; width: number };
+  /** Bords de la découpe aimantés sur les bords de la page : tenus au changement de format. */
+  pins?: { left?: boolean; right?: boolean; top?: boolean; bottom?: boolean };
   visible: boolean;
   strokes: Stroke[];
 }

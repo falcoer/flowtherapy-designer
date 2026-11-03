@@ -16,12 +16,13 @@ import {
   type Guide,
   type Layer,
   type Pt,
+  type BorderStyle,
   type ShapeKind,
   type Stroke,
 } from './model';
 import { geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRing, subtract } from './cut';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
-import { cutOf, imageFor, drawChecker, drawLayers, forgetPaint, localRings, maskPath2D, maskRings, paintTarget, tracePath } from './scene';
+import { cutOf, holdPins, imageFor, localBounds, localToPage, pageBounds, pageToLocal, pinsOf, drawChecker, drawLayers, forgetPaint, localRings, maskPath2D, maskRings, paintTarget, tracePath } from './scene';
 
 type Tool = 'cut' | 'paint' | 'move';
 type Bubble = 'layers' | 'palette' | 'light' | 'format' | null;
@@ -45,6 +46,10 @@ function load(): Doc {
     if (s) {
       const d = JSON.parse(s) as Doc;
       // anciens documents : découpe polygonale → tracé
+      for (const l of d.layers) {
+        // biseau séparé de la hauteur : les anciens documents gardent leur relief
+        if (l.bevel === undefined) l.bevel = l.kind === 'surface' ? 0 : Math.round(l.height * 60) / 100;
+      }
       for (const l of d.layers)
         if (l.mask) {
           l.cut = ringsToPath([l.mask], 0.001);
@@ -113,6 +118,7 @@ export function App() {
   const [edgeThreshold, setEdgeThreshold] = useState(0.35);
   const [edgeSmooth, setEdgeSmooth] = useState(0.4);
   const [modePick, setModePick] = useState(false);
+  const [borderPick, setBorderPick] = useState(false);
   const trashRef = useRef<HTMLButtonElement>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const [trashHot, setTrashHot] = useState(false);
@@ -154,7 +160,10 @@ export function App() {
 
   // --- état des gestes en cours ---
   const live = useRef<{
-    kind: 'paint' | 'cut' | 'move' | 'resize' | 'view' | null;
+    kind: 'paint' | 'cut' | 'move' | 'resize' | 'rotate' | 'view' | null;
+    /** Coin opposé (coordonnées de la couche) tenu fixe pendant un agrandissement. */
+    opp?: { u: number; v: number };
+    pins?: Layer['pins'];
     layer?: string;
     stroke?: Stroke;
     wet?: HTMLCanvasElement;
@@ -209,14 +218,30 @@ export function App() {
       ctx.strokeStyle = '#7a5cff';
       ctx.stroke(maskPath2D(sel, f));
       ctx.restore();
-      if (tool === 'move') {
-        const b = layerBox(sel, f);
-        ctx.fillStyle = '#fff';
+      if (tool === 'move' && L.kind !== 'move') {
+        const h = handlesOf(sel);
         ctx.strokeStyle = '#7a5cff';
         ctx.lineWidth = 2 * px;
         ctx.beginPath();
-        ctx.arc(b.cx + b.w / 2, b.cy + b.h / 2, 9 * px, 0, Math.PI * 2);
+        ctx.moveTo(h.top.x, h.top.y);
+        ctx.lineTo(h.rot.x, h.rot.y);
+        ctx.stroke();
+        ctx.fillStyle = '#fff';
+        for (const q of [h.tl, h.br]) {
+          ctx.beginPath();
+          ctx.arc(q.x, q.y, 9 * px, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+        // poignée de rotation : pastille pleine avec une flèche courbe
+        ctx.fillStyle = '#7a5cff';
+        ctx.beginPath();
+        ctx.arc(h.rot.x, h.rot.y, 10 * px, 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.6 * px;
+        ctx.beginPath();
+        ctx.arc(h.rot.x, h.rot.y, 5 * px, -Math.PI * 0.9, Math.PI * 0.4);
         ctx.stroke();
       }
     }
@@ -236,12 +261,13 @@ export function App() {
         ox.strokeStyle = '#ffffff';
         ox.lineWidth = 1.6 * px;
         ox.setLineDash([4 * px, 4 * px]);
-        const x0 = b.cx - b.w / 2;
-        const y0 = b.cy - b.h / 2;
         const lines = new Path2D();
         for (const ch of m.chains) {
-          lines.moveTo(x0 + ch[0]! * b.w, y0 + ch[1]! * b.h);
-          for (let i = 2; i < ch.length; i += 2) lines.lineTo(x0 + ch[i]! * b.w, y0 + ch[i + 1]! * b.h);
+          for (let i = 0; i < ch.length; i += 2) {
+            const q = localToPage(sel, f, ch[i]!, ch[i + 1]!);
+            if (i) lines.lineTo(q.x, q.y);
+            else lines.moveTo(q.x, q.y);
+          }
         }
         ox.stroke(lines);
         ox.globalCompositeOperation = 'destination-in';
@@ -305,9 +331,16 @@ export function App() {
     }
     return null;
   };
-  const toLocal = (l: Layer, x: number, y: number) => {
-    const b = layerBox(l, f);
-    return { x: (x - (b.cx - b.w / 2)) / b.w, y: (y - (b.cy - b.h / 2)) / b.h };
+  const toLocal = (l: Layer, x: number, y: number) => pageToLocal(l, f, x, y);
+  /** Poignées : coins du rectangle serré de la découpe, rotation au-dessus du bord haut. */
+  const handlesOf = (l: Layer) => {
+    const k = localBounds(l);
+    const tl = localToPage(l, f, k.u0, k.v0);
+    const br = localToPage(l, f, k.u1, k.v1);
+    const top = localToPage(l, f, (k.u0 + k.u1) / 2, k.v0);
+    const r = l.rot ?? 0;
+    const off = 34 / scale;
+    return { k, tl, br, top, rot: { x: top.x + Math.sin(r) * off, y: top.y - Math.cos(r) * off } };
   };
 
   // --- pointeurs ---
@@ -316,6 +349,7 @@ export function App() {
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     setBubble(null);
     setModePick(false);
+    setBorderPick(false);
     const touches = [...pointers.current.values()].filter((p) => p.type === 'touch');
     if (e.pointerType === 'touch' && touches.length >= 2) {
       // plusieurs doigts : on annule le geste à un doigt et on manipule la vue
@@ -346,12 +380,22 @@ export function App() {
     if (t === 'move') {
       // poignée de taille de la couche sélectionnée
       if (sel && sel.kind !== 'surface') {
-        const b = layerBox(sel, f);
-        if (Math.hypot(p.x - (b.cx + b.w / 2), p.y - (b.cy + b.h / 2)) * scale < 22) {
+        const h = handlesOf(sel);
+        const near = (q: Pt) => Math.hypot(p.x - q.x, p.y - q.y) * scale < 22;
+        if (near(h.rot)) {
           update((d) => d);
-          live.current = { kind: 'resize', layer: sel.id, start: p, orig: structuredClone(sel) };
+          live.current = { kind: 'rotate', layer: sel.id, start: p, orig: structuredClone(sel) };
           return;
         }
+        for (const [q, opp] of [
+          [h.br, { u: h.k.u0, v: h.k.v0 }],
+          [h.tl, { u: h.k.u1, v: h.k.v1 }],
+        ] as const)
+          if (near(q)) {
+            update((d) => d);
+            live.current = { kind: 'resize', layer: sel.id, start: p, orig: structuredClone(sel), opp };
+            return;
+          }
       }
       const l = layerAt(p.x, p.y);
       if (!l || l.kind === 'surface') {
@@ -466,14 +510,58 @@ export function App() {
       const ay = near.at.y * f.height;
       L.snap = Math.hypot(ax - cx, ay - cy) * scale < MAGNET ? { x: ax, y: ay } : null;
       if (L.snap) [cx, cy] = [ax, ay];
+      // bords de la découpe aimantés sur les bords de la page
+      const bb = pageBounds(o, f);
+      const tol = MAGNET / scale;
+      const ex = { l: bb.x0 - b.cx, r: bb.x1 - b.cx, t: bb.y0 - b.cy, b: bb.y1 - b.cy };
+      const pins: NonNullable<Layer['pins']> = {};
+      if (Math.abs(cx + ex.l) < tol) [cx, pins.left] = [-ex.l, true];
+      else if (Math.abs(cx + ex.r - f.width) < tol) [cx, pins.right] = [f.width - ex.r, true];
+      if (Math.abs(cx + ex.r - f.width) < tol) pins.right = true;
+      if (Math.abs(cy + ex.t) < tol) [cy, pins.top] = [-ex.t, true];
+      else if (Math.abs(cy + ex.b - f.height) < tol) [cy, pins.bottom] = [f.height - ex.b, true];
+      if (Math.abs(cy + ex.b - f.height) < tol) pins.bottom = true;
+      const edge = pins.left || pins.right || pins.top || pins.bottom;
+      if (edge) L.snap = null;
+      L.pins = edge ? pins : undefined;
       const a = anchorFor(doc.frame, f, cx, cy);
-      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, anchor: a.anchor, dx: L.snap ? 0 : a.dx, dy: L.snap ? 0 : a.dy } : x)) }));
-    } else if (L.kind === 'resize' && L.orig && L.start) {
+      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, anchor: a.anchor, dx: L.snap ? 0 : a.dx, dy: L.snap ? 0 : a.dy, pins: L.pins } : x)) }));
+    } else if (L.kind === 'resize' && L.orig && L.start && L.opp) {
+      // agrandir depuis un coin : le coin opposé reste en place
       const o = L.orig;
       const b = layerBox(o, f);
-      const k0 = Math.hypot(L.start.x - b.cx, L.start.y - b.cy);
-      const k = Math.max(0.1, Math.hypot(p.x - b.cx, p.y - b.cy) / k0);
-      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, w: o.w * k, h: o.h * k } : x)) }));
+      const O = localToPage(o, f, L.opp.u, L.opp.v);
+      let k = Math.max(0.05, Math.hypot(p.x - O.x, p.y - O.y) / Math.max(1e-9, Math.hypot(L.start.x - O.x, L.start.y - O.y)));
+      // aimant : un bord de la découpe qui approche un bord de page s'y pose
+      const bb = pageBounds(o, f);
+      let best: number | null = null;
+      for (const [edge, o0, page] of [
+        [bb.x0, O.x, 0],
+        [bb.x1, O.x, f.width],
+        [bb.y0, O.y, 0],
+        [bb.y1, O.y, f.height],
+      ] as const) {
+        if (Math.abs(edge - o0) < 1e-9) continue;
+        const kk = (page - o0) / (edge - o0);
+        const now = o0 + (edge - o0) * k;
+        if (kk > 0.05 && Math.abs(now - page) * scale < MAGNET && (best === null || Math.abs(kk - k) < Math.abs(best - k))) best = kk;
+      }
+      if (best !== null) k = best;
+      const cx = O.x + (b.cx - O.x) * k;
+      const cy = O.y + (b.cy - O.y) * k;
+      const a = anchorFor(doc.frame, f, cx, cy);
+      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, w: o.w * k, h: o.h * k, anchor: a.anchor, dx: a.dx, dy: a.dy } : x)) }));
+    } else if (L.kind === 'rotate' && L.orig && L.start) {
+      const o = L.orig;
+      const b = layerBox(o, f);
+      let r = (o.rot ?? 0) + Math.atan2(p.y - b.cy, p.x - b.cx) - Math.atan2(L.start.y - b.cy, L.start.x - b.cx);
+      // aimant tous les 15°
+      const step = Math.PI / 12;
+      const q = Math.round(r / step) * step;
+      if (Math.abs(r - q) < (3 * Math.PI) / 180) r = q;
+      r = Math.atan2(Math.sin(r), Math.cos(r));
+      setToast(`${Math.round((r * 180) / Math.PI)}°`);
+      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, rot: r } : x)) }));
     }
   };
 
@@ -519,7 +607,15 @@ export function App() {
         setSelected(null);
         setTrashHot(false);
         setToast(`« ${o.name} » à la corbeille`);
-      } else if (l) setToast(L.snap ? `Ancré sur ${l.anchor.point}` : `Près de ${l.anchor.point}`);
+      } else if (l) {
+        const pins = l.pins ? Object.entries(l.pins).filter(([, v]) => v).map(([k]) => ({ left: 'gauche', right: 'droite', top: 'haut', bottom: 'bas' })[k]) : [];
+        setToast(pins.length ? `Tenu au bord ${pins.join(', ')}` : L.snap ? `Ancré sur ${l.anchor.point}` : `Près de ${l.anchor.point}`);
+      }
+    }
+    if ((L.kind === 'resize' || L.kind === 'rotate') && L.layer) {
+      // après agrandissement ou rotation : bords de page touchés
+      const id = L.layer;
+      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === id ? { ...x, pins: pinsOf(x, f, 1.5 / scale) } : x)) }));
     }
     live.current = { kind: null };
     redraw();
@@ -541,7 +637,7 @@ export function App() {
       const ctx = c.getContext('2d', { willReadFrequently: true })!;
       ctx.setTransform(w / b.w, 0, 0, h / b.h, (-(b.cx - b.w / 2) * w) / b.w, (-(b.cy - b.h / 2) * h) / b.h);
       // la couche seule, à plat : sans ombre ni liseré
-      drawLayers(ctx, { ...doc, layers: [{ ...l, height: 0, visible: true }] }, f, { scale: scale * dpr, onImage: redraw });
+      drawLayers(ctx, { ...doc, layers: [{ ...l, height: 0, bevel: 0, border: undefined, rot: 0, visible: true }] }, f, { scale: scale * dpr, onImage: redraw });
       analysisCache.current = { key, a: analyse(c) };
       mapCache.current = null;
     }
@@ -564,8 +660,7 @@ export function App() {
     const covers = coveringLayers(l).map((x) => maskRings(x, f));
     let k = 0;
     for (let i = 0; i < n; i++) {
-      const x = b.cx - b.w / 2 + m.pts[i * 2]! * b.w;
-      const y = b.cy - b.h / 2 + m.pts[i * 2 + 1]! * b.h;
+      const { x, y } = localToPage(l, f, m.pts[i * 2]!, m.pts[i * 2 + 1]!);
       if (x < 0 || y < 0 || x > f.width || y > f.height || covers.some((r) => insideRings(r, x, y))) continue;
       xs[k] = x;
       ys[k++] = y;
@@ -848,7 +943,61 @@ export function App() {
               </>
             )}
             {tool === 'move' && sel && sel.kind !== 'surface' && (
-              <VSlider label="Hauteur" value={sel.height} onChange={(v) => patchLayer(sel.id, { height: Math.round(v * 100) / 100 }, false)} />
+              <>
+                <VSlider label="Hauteur" value={sel.height} onChange={(v) => patchLayer(sel.id, { height: Math.round(v * 100) / 100 }, false)} />
+                <VSlider label="Biseau" value={sel.bevel ?? 0} onChange={(v) => patchLayer(sel.id, { bevel: Math.round(v * 100) / 100 }, false)} />
+                <button className={`btn small ${borderPick ? 'on' : ''}`} onClick={() => setBorderPick(!borderPick)} title="Bord">
+                  <Icon name="border" />
+                </button>
+                {borderPick && (
+                  <div className="mode-pop border-pop">
+                    <div className="b-title">Bord</div>
+                    <div className="seg">
+                      {(
+                        [
+                          [null, 'Aucun'],
+                          ['round', 'Arrondi'],
+                          ['straight', 'Droit'],
+                          ['torn', 'Déchiré'],
+                        ] as Array<[BorderStyle | null, string]>
+                      ).map(([st, t]) => (
+                        <button
+                          key={t}
+                          className={(sel.border?.style ?? null) === st ? 'on' : ''}
+                          onClick={() => patchLayer(sel.id, { border: st ? { style: st, guide: sel.border?.guide ?? 0, width: sel.border?.width ?? 0.012 } : undefined })}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                    {sel.border && (
+                      <>
+                        <div className="b-title">Guide</div>
+                        <div className="border-guides">
+                          {doc.guides.map((x, i) => (
+                            <button
+                              key={i}
+                              className={`sw ${sel.border!.guide === i ? 'on' : ''}`}
+                              title={x.name}
+                              style={{ background: x.type === 'gradient' ? `linear-gradient(135deg, ${x.stops.join(',')})` : x.color }}
+                              onClick={() => patchLayer(sel.id, { border: { ...sel.border!, guide: i } })}
+                            />
+                          ))}
+                        </div>
+                        <div className="b-title">Largeur</div>
+                        <input
+                          type="range"
+                          min={0.002}
+                          max={0.06}
+                          step={0.001}
+                          value={sel.border.width}
+                          onChange={(e) => patchLayer(sel.id, { border: { ...sel.border!, width: Number(e.target.value) } }, false)}
+                        />
+                      </>
+                    )}
+                  </div>
+                )}
+              </>
             )}
             <span className="side-sep" />
             <button className="btn small" onClick={undo} disabled={!past.current.length} title="Annuler (deux doigts)">
@@ -871,7 +1020,7 @@ export function App() {
             <div className="bubble format-bubble">
               <div className="b-title">Format</div>
               {FORMATS.map((x) => (
-                <button key={x.id} className={`row ${x.id === f.id ? 'on' : ''}`} onClick={() => setDoc((d) => ({ ...d, formatId: x.id }))}>
+                <button key={x.id} className={`row ${x.id === f.id ? 'on' : ''}`} onClick={() => setDoc((d) => holdPins({ ...d, formatId: x.id }, x))}>
                   <FormatGlyph w={x.width} h={x.height} big />
                   <span>{x.title}</span>
                   <small>
