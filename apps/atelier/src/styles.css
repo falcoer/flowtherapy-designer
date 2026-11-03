@@ -84,9 +84,6 @@ button:disabled { opacity: 0.35; cursor: default; }
   padding: 10px 5px; border-radius: 16px; background: var(--chrome);
   backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: var(--shadow); z-index: 4;
 }
-.mode-btn { flex-direction: column; height: auto; padding: 5px 0 4px; gap: 1px; }
-.mode-label { font-size: 9px; letter-spacing: 0.02em; color: var(--muted); }
-.mode-btn.on .mode-label { color: var(--accent); }
 .mode-pop { position: absolute; left: calc(100% + 8px); bottom: 120px; width: 260px; white-space: nowrap; padding: 8px; border-radius: 16px; background: var(--chrome-solid); border: 1px solid var(--line); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 2px; animation: pop 0.14s ease-out; }
 .side-sep { width: 22px; height: 1px; background: var(--line); }
 .side-sep:first-child { display: none; }

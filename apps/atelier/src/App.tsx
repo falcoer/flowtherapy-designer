@@ -114,6 +114,7 @@ export function App() {
   const [edgeSmooth, setEdgeSmooth] = useState(0.4);
   const [modePick, setModePick] = useState(false);
   const trashRef = useRef<HTMLButtonElement>(null);
+  const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const [trashHot, setTrashHot] = useState(false);
   const [snapshot, setSnapshot] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -180,8 +181,8 @@ export function App() {
     const ctx = c.getContext('2d')!;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, c.width, c.height);
-    const m = new DOMMatrix().scale(dpr).multiply(matrix);
-    ctx.setTransform(m);
+    const m0 = new DOMMatrix().scale(dpr).multiply(matrix);
+    ctx.setTransform(m0);
     // ombre de la page
     ctx.save();
     ctx.shadowColor = 'rgba(0,0,0,0.25)';
@@ -225,23 +226,34 @@ export function App() {
       const m = edgesFor(sel);
       if (m) {
         const b = layerBox(sel, f);
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(0, 0, f.width, f.height);
-        ctx.clip();
-        ctx.globalCompositeOperation = 'difference';
-        ctx.globalAlpha = 0.85;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1.6 * px;
-        ctx.setLineDash([4 * px, 4 * px]);
+        // tracés à part, puis gardés seulement là où la couche est visible :
+        // dans sa découpe, dans la page, et pas sous les couches posées dessus
+        const o = overlayRef.current ?? (overlayRef.current = document.createElement('canvas'));
+        o.width = c.width;
+        o.height = c.height;
+        const ox = o.getContext('2d')!;
+        ox.setTransform(m0);
+        ox.strokeStyle = '#ffffff';
+        ox.lineWidth = 1.6 * px;
+        ox.setLineDash([4 * px, 4 * px]);
         const x0 = b.cx - b.w / 2;
         const y0 = b.cy - b.h / 2;
         const lines = new Path2D();
-        for (const c of m.chains) {
-          lines.moveTo(x0 + c[0]! * b.w, y0 + c[1]! * b.h);
-          for (let i = 2; i < c.length; i += 2) lines.lineTo(x0 + c[i]! * b.w, y0 + c[i + 1]! * b.h);
+        for (const ch of m.chains) {
+          lines.moveTo(x0 + ch[0]! * b.w, y0 + ch[1]! * b.h);
+          for (let i = 2; i < ch.length; i += 2) lines.lineTo(x0 + ch[i]! * b.w, y0 + ch[i + 1]! * b.h);
         }
-        ctx.stroke(lines);
+        ox.stroke(lines);
+        ox.globalCompositeOperation = 'destination-in';
+        ox.fill(maskPath2D(sel, f), 'evenodd');
+        ox.fillRect(0, 0, f.width, f.height);
+        ox.globalCompositeOperation = 'destination-out';
+        for (const l of coveringLayers(sel)) ox.fill(maskPath2D(l, f), 'evenodd');
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalCompositeOperation = 'difference';
+        ctx.globalAlpha = 0.85;
+        ctx.drawImage(o, 0, 0);
         ctx.restore();
       }
     }
@@ -519,7 +531,7 @@ export function App() {
   /** Contours détectés dans l'image d'une couche (photo, matière et peinture), mis en cache. */
   const edgesFor = (l: Layer): EdgeMap | null => {
     const b = layerBox(l, f);
-    const key = JSON.stringify([l.id, l.cut, l.shape, l.src?.length, l.strokes.length, l.guide, doc.guides, l.w, l.h, f.id]);
+    const key = JSON.stringify([l.id, l.cut, l.shape, l.src?.length, l.strokes.length, l.guide, doc.guides, l.w, l.h, f.id, l.anchor, l.dx, l.dy]);
     if (analysisCache.current?.key !== key) {
       if (l.kind === 'photo' && l.src && !imageFor(l.src, redraw)) return null;
       const { w, h } = analysisSize(b.w, b.h);
@@ -537,6 +549,9 @@ export function App() {
     if (mapCache.current?.key !== mk) mapCache.current = { key: mk, m: edgeMap(analysisCache.current.a, edgeMode, edgeThreshold, edgeSmooth) };
     return mapCache.current.m;
   };
+  /** Couches visibles posées au-dessus d'une couche (elles la cachent). */
+  const coveringLayers = (l: Layer) => doc.layers.slice(doc.layers.findIndex((x) => x.id === l.id) + 1).filter((x) => x.visible);
+
   /** Grille de recherche des contours, en unités du format. */
   const edgeGrid = (l: Layer): EdgeGrid | null => {
     const m = edgesFor(l);
@@ -545,11 +560,17 @@ export function App() {
     const n = m.pts.length / 2;
     const xs = new Float32Array(n);
     const ys = new Float32Array(n);
+    // les contours cachés par les couches du dessus n'aimantent pas
+    const covers = coveringLayers(l).map((x) => maskRings(x, f));
+    let k = 0;
     for (let i = 0; i < n; i++) {
-      xs[i] = b.cx - b.w / 2 + m.pts[i * 2]! * b.w;
-      ys[i] = b.cy - b.h / 2 + m.pts[i * 2 + 1]! * b.h;
+      const x = b.cx - b.w / 2 + m.pts[i * 2]! * b.w;
+      const y = b.cy - b.h / 2 + m.pts[i * 2 + 1]! * b.h;
+      if (x < 0 || y < 0 || x > f.width || y > f.height || covers.some((r) => insideRings(r, x, y))) continue;
+      xs[k] = x;
+      ys[k++] = y;
     }
-    return new EdgeGrid(xs, ys, EDGE_RADIUS / scale);
+    return new EdgeGrid(xs.subarray(0, k), ys.subarray(0, k), EDGE_RADIUS / scale);
   };
 
   /** Aimante un point sur le contour détecté le plus proche, s'il est assez près. */
@@ -798,9 +819,8 @@ export function App() {
                 </button>
                 {magnet && (
                   <>
-                    <button className={`btn small mode-btn ${modePick ? 'on' : ''}`} onClick={() => setModePick(!modePick)} title="Mode de détection">
+                    <button className={`btn small mode-btn ${modePick ? 'on' : ''}`} onClick={() => setModePick(!modePick)} title={`Mode de détection : ${EDGE_MODES.find((x) => x[0] === edgeMode)![1]}`}>
                       <Icon name={`edge-${edgeMode}`} />
-                      <span className="mode-label">{EDGE_MODES.find((x) => x[0] === edgeMode)![1]}</span>
                     </button>
                     {modePick && (
                       <div className="mode-pop">

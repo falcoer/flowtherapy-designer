@@ -59,6 +59,9 @@ export function analyse(src: HTMLCanvasElement): Analysis {
     A[i] = r - g;
     B[i] = (r + g) / 2 - b;
   }
+  // le flou puis Sobel lisent jusqu'à 2 px autour : on écarte 3 px le long de
+  // la découpe et du bord de page, sinon le vide y dessine un faux contour
+  const core = erode(inside, w, h, 3);
   const Ls = blur(L, w, h);
   const As = blur(A, w, h);
   const Bs = blur(B, w, h);
@@ -70,7 +73,7 @@ export function analyse(src: HTMLCanvasElement): Analysis {
     for (let x = 1; x < w - 1; x++) {
       const i = y * w + x;
       // près du bord de la découpe, le gradient serait celui du vide
-      if (!inside[i] || !inside[i - 1] || !inside[i + 1] || !inside[i - w] || !inside[i + w] || !inside[i - w - 1] || !inside[i + w + 1]) continue;
+      if (!core[i]) continue;
       const [lx, ly] = sobel(Ls, i, w);
       magL[i] = Math.hypot(lx, ly);
       dirL[i] = quant(lx, ly);
@@ -84,6 +87,30 @@ export function analyse(src: HTMLCanvasElement): Analysis {
   normalize(magL);
   normalize(magC);
   return { w, h, magL, magC, dirL, dirC };
+}
+
+function erode(m: Uint8Array, w: number, h: number, r: number): Uint8Array {
+  const a = new Uint8Array(m.length);
+  const b = new Uint8Array(m.length);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      let ok = 1;
+      for (let d = -r; d <= r && ok; d++) {
+        const xx = x + d;
+        if (xx < 0 || xx >= w || !m[y * w + xx]) ok = 0;
+      }
+      a[y * w + x] = ok;
+    }
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      let ok = 1;
+      for (let d = -r; d <= r && ok; d++) {
+        const yy = y + d;
+        if (yy < 0 || yy >= h || !a[yy * w + x]) ok = 0;
+      }
+      b[y * w + x] = ok;
+    }
+  return b;
 }
 
 function blur(v: Float32Array, w: number, h: number): Float32Array {
