@@ -21,10 +21,11 @@ import {
   type Stroke,
 } from './model';
 import { geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRing, subtract } from './cut';
+import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
 import { cutOf, holdPins, imageFor, localBounds, localToPage, pageBounds, pageToLocal, pinsOf, drawChecker, drawLayers, forgetPaint, localRings, maskPath2D, maskRings, paintTarget, tracePath } from './scene';
 
-type Tool = 'cut' | 'paint' | 'move';
+type Tool = 'cut' | 'paint' | 'transform' | 'move';
 type Bubble = 'layers' | 'palette' | 'light' | 'format' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
@@ -126,6 +127,8 @@ export function App() {
   const [edgeSmooth, setEdgeSmooth] = useState(0.4);
   const [modePick, setModePick] = useState(false);
   const [borderPick, setBorderPick] = useState(false);
+  const [lookPick, setLookPick] = useState(false);
+  const [lookGuidePick, setLookGuidePick] = useState<number | null>(null);
   const [borderColorPick, setBorderColorPick] = useState(false);
   const trashRef = useRef<HTMLButtonElement>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
@@ -436,6 +439,12 @@ export function App() {
       setSelected(l.id);
       update((d) => d);
       live.current = { kind: 'move', layer: l.id, start: p, orig: structuredClone(l), snap: null };
+      return;
+    }
+    if (t === 'transform') {
+      // Transformer : toucher une photo la sélectionne
+      const l = layerAt(p.x, p.y);
+      setSelected(l?.id ?? null);
       return;
     }
     if (t === 'cut') {
@@ -862,6 +871,7 @@ export function App() {
         else undo();
       } else if (e.key === 'b') setTool('paint');
       else if (e.key === 'c') setTool('cut');
+      else if (e.key === 't') setTool('transform');
       else if (e.key === 'v') setTool('move');
       else if (e.key === 'Escape') {
         setBubble(null);
@@ -925,6 +935,9 @@ export function App() {
               </button>
               <button className={`btn ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre à l'aquarelle (B)">
                 <Icon name="brush" />
+              </button>
+              <button className={`btn ${tool === 'transform' ? 'on' : ''}`} onClick={() => setTool('transform')} title="Transformer (T) : style photographique">
+                <Icon name="transform" />
               </button>
               <button className={`btn ${tool === 'move' ? 'on' : ''}`} onClick={() => setTool('move')} title="Disposer (V) : déplacer, agrandir, ancrer">
                 <Icon name="move" />
@@ -1043,6 +1056,23 @@ export function App() {
                   </>
                 )}
               </>
+            )}
+            {tool === 'transform' && sel?.kind === 'photo' && (
+              <LookControls
+                layer={sel}
+                guides={doc.guides}
+                pick={lookPick}
+                setPick={(v) => {
+                  setLookPick(v);
+                  setLookGuidePick(null);
+                }}
+                guidePick={lookGuidePick}
+                setGuidePick={(v) => {
+                  setLookGuidePick(v);
+                  setLookPick(false);
+                }}
+                onChange={(look, history) => patchLayer(sel.id, { look }, history)}
+              />
             )}
             <span className="side-sep" />
             <button className="btn small" onClick={undo} disabled={!past.current.length} title="Annuler (deux doigts)">
@@ -1218,11 +1248,13 @@ export function App() {
             </div>
           )}
 
+          {tool === 'transform' && sel?.kind !== 'photo' && <div className="status">Sélectionne une photo pour lui donner un style</div>}
           {!sel && tool === 'cut' && magnet && <div className="status">Sélectionne une image : ses contours guideront les ciseaux</div>}
           {sel && (
             <div className="status">
               {tool === 'paint' && `Peinture dans « ${sel.name} »`}
               {tool === 'cut' && `Trace un contour : le morceau se détache de la couche touchée${magnet ? `, aimanté sur les contours de « ${sel.name} »` : ''}`}
+              {tool === 'transform' && sel.kind === 'photo' && `« ${sel.name} » · ${lookOf(sel.look?.style)?.name ?? 'photo originale'}`}
               {tool === 'move' && `« ${sel.name} » · ${sel.kind === 'surface' ? 'suit le format' : sel.anchor.point}`}
             </div>
           )}
@@ -1471,5 +1503,105 @@ function PaletteBubble({
         </div>
       ))}
     </div>
+  );
+}
+
+/** Options de l'outil Transformer : style, guides de la palette, mélange. */
+function LookControls({
+  layer,
+  guides,
+  pick,
+  setPick,
+  guidePick,
+  setGuidePick,
+  onChange,
+}: {
+  layer: Layer;
+  guides: Guide[];
+  pick: boolean;
+  setPick: (v: boolean) => void;
+  guidePick: number | null;
+  setGuidePick: (v: number | null) => void;
+  onChange: (look: LookSettings | undefined, history?: boolean) => void;
+}) {
+  const look = layer.look;
+  const def = lookOf(look?.style);
+  const [, bump] = useState(0);
+  const im = layer.src ? imageFor(layer.src, () => bump((n) => n + 1)) : null;
+  // aperçus : chaque style appliqué à une vignette de la photo
+  const thumbs = useMemo(() => {
+    if (!pick || !im) return null;
+    const key = (layer.src?.length ?? 0) + (layer.src?.slice(-40) ?? '');
+    const base = document.createElement('canvas');
+    const k = 84 / Math.max(im.naturalWidth, im.naturalHeight);
+    base.width = Math.max(1, Math.round(im.naturalWidth * k));
+    base.height = Math.max(1, Math.round(im.naturalHeight * k));
+    base.getContext('2d')!.drawImage(im, 0, 0, base.width, base.height);
+    const out: Record<string, string> = { none: base.toDataURL('image/jpeg', 0.8) };
+    for (const d of LOOKS) {
+      const gs = lookGuides(d, look?.style === d.id ? look : undefined).map((i) => guides[i]);
+      out[d.id] = applyLook(base, `thumb${key}`, d, gs, 84).toDataURL('image/jpeg', 0.8);
+    }
+    return out;
+  }, [pick, im, layer.src, guides, look]);
+  const choose = (id: LookId | null) => {
+    if (!id) onChange(undefined);
+    else {
+      const d = lookOf(id)!;
+      // les guides déjà choisis sont gardés quand le nouveau style en demande autant
+      const keep = look && lookOf(look.style)?.slots.length === d.slots.length ? look.guides : d.slots.map((x) => x.def);
+      onChange({ style: id, guides: keep, mix: look?.mix ?? 1 });
+    }
+    setPick(false);
+  };
+  const slots = def ? lookGuides(def, look) : [];
+  return (
+    <>
+      <button className={`btn small look-btn ${pick ? 'on' : ''}`} onClick={() => setPick(!pick)} title={`Style : ${def?.name ?? 'aucun'}`}>
+        <Icon name="transform" />
+      </button>
+      {pick && (
+        <div className="mode-pop look-pop">
+          <div className="b-title">Style photographique</div>
+          <div className="look-grid">
+            {[{ id: null as LookId | null, name: 'Original' }, ...LOOKS.map((d) => ({ id: d.id as LookId | null, name: d.name }))].map((x) => (
+              <button key={x.id ?? 'none'} className={`look-item ${(look?.style ?? null) === x.id ? 'on' : ''}`} onClick={() => choose(x.id)}>
+                <span className="look-thumb">{thumbs && <img src={thumbs[x.id ?? 'none']} alt="" />}</span>
+                <span className="look-name">{x.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {def &&
+        look &&
+        def.slots.map((sl, i) => (
+          <button key={i} className={`btn small guide-btn ${guidePick === i ? 'on' : ''}`} onClick={() => setGuidePick(guidePick === i ? null : i)} title={`${sl.label} : ${guides[slots[i]!]?.name ?? ''}`}>
+            <span className="dot" style={{ background: swatch(guides[slots[i]!]) }} />
+          </button>
+        ))}
+      {def && look && guidePick !== null && def.slots[guidePick] && (
+        <div className="mode-pop">
+          <div className="b-title">{def.slots[guidePick]!.label}</div>
+          <div className="border-guides">
+            {guides.map((x, i) => (
+              <button
+                key={i}
+                className={`sw ${slots[guidePick] === i ? 'on' : ''}`}
+                title={x.name}
+                style={{ background: swatch(x) }}
+                onClick={() => {
+                  const g = slots.slice();
+                  g[guidePick] = i;
+                  onChange({ ...look, guides: g });
+                  setGuidePick(null);
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+      {look && <VSlider label="Mélange" value={look.mix} onChange={(v) => onChange({ ...look, mix: Math.round(v * 100) / 100 }, false)} />}
+    </>
   );
 }

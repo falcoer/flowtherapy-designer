@@ -1,3 +1,4 @@
+import type { LookSettings } from './looks';
 import { anchorsFor, nearestAnchor, resolveAnchor, type AnchorFrame, type Format } from '@ftd/core';
 
 /**
@@ -65,6 +66,8 @@ export interface Layer {
   border?: { style: BorderStyle; guide: number; width: number };
   /** Bords de la découpe aimantés sur les bords de la page : tenus au changement de format. */
   pins?: { left?: boolean; right?: boolean; top?: boolean; bottom?: boolean };
+  /** Style photographique (outil Transformer). */
+  look?: LookSettings;
   visible: boolean;
   strokes: Stroke[];
 }

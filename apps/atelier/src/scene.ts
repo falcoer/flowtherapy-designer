@@ -3,6 +3,7 @@ import { rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
 import { guideColor, layerBox, shapePath, type Doc, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
+import { applyLook, lookGuides, lookOf } from './looks';
 
 /**
  * Rendu de la scène sur un canevas 2D. Chaque couche est dessinée dans sa
@@ -255,7 +256,16 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
         const k = Math.max(b.w / im.naturalWidth, b.h / im.naturalHeight);
         const w = im.naturalWidth * k;
         const h = im.naturalHeight * k;
-        ctx.drawImage(im, b.cx - w / 2, b.cy - h / 2, w, h);
+        const look = l.look && lookOf(l.look.style);
+        const m = look ? Math.max(0, Math.min(1, l.look!.mix)) : 0;
+        if (m < 1) ctx.drawImage(im, b.cx - w / 2, b.cy - h / 2, w, h);
+        if (look && m > 0) {
+          const t = applyLook(im, l.src.length + l.src.slice(-40), look, lookGuides(look, l.look).map((i) => doc.guides[i]));
+          ctx.save();
+          ctx.globalAlpha *= m;
+          ctx.drawImage(t, b.cx - w / 2, b.cy - h / 2, w, h);
+          ctx.restore();
+        }
       } else {
         ctx.fillStyle = '#ccc';
         ctx.fillRect(x0, y0, b.w, b.h);
