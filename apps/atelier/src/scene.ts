@@ -171,6 +171,9 @@ export interface DrawOptions {
   wet?: { id: string; canvas: HTMLCanvasElement };
 }
 
+const layerBuffers: HTMLCanvasElement[] = [];
+let depth = 0;
+
 /** Dessine les couches ; le contexte est déjà transformé en unités du format. */
 export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o: DrawOptions) {
   const minSide = Math.min(f.width, f.height);
@@ -179,7 +182,25 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
   ctx.rect(0, 0, f.width, f.height);
   ctx.clip();
   for (const l of doc.layers) {
-    if (!l.visible) continue;
+    if (!l.visible || (l.opacity ?? 1) <= 0) continue;
+    // couche translucide : rendue à part, puis posée d'un bloc (son ombre ne transparaît pas)
+    if ((l.opacity ?? 1) < 1) {
+      const c = (layerBuffers[depth] ??= document.createElement('canvas'));
+      c.width = ctx.canvas.width;
+      c.height = ctx.canvas.height;
+      const bx = c.getContext('2d')!;
+      bx.setTransform(ctx.getTransform());
+      depth++;
+      drawLayers(bx, { ...doc, layers: [{ ...l, opacity: 1 }] }, f, o);
+      depth--;
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = l.opacity ?? 1;
+      ctx.drawImage(c, 0, 0);
+      ctx.restore();
+      continue;
+    }
+    ctx.save();
     const path = maskPath2D(l, f);
     const b = layerBox(l, f);
     const x0 = b.cx - b.w / 2;
@@ -271,6 +292,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       ctx.lineWidth = 0.09 * bevel * minSide;
       ctx.stroke(path);
     }
+    ctx.restore();
     ctx.restore();
   }
   ctx.restore();

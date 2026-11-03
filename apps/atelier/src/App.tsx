@@ -946,7 +946,7 @@ export function App() {
             </div>
           </header>
 
-          <aside className={`side ${tool === 'move' && sel?.border ? 'dense' : ''}`}>
+          <aside className={`side ${tool === 'move' && sel && sel.kind !== 'surface' ? (sel.border ? 'denser' : 'dense') : ''}`}>
             {tool === 'paint' && (
               <>
                 <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
@@ -991,6 +991,7 @@ export function App() {
             {tool === 'move' && sel && sel.kind !== 'surface' && (
               <>
                 <VSlider label="Hauteur" value={sel.height} onChange={(v) => patchLayer(sel.id, { height: Math.round(v * 100) / 100 }, false)} />
+                <VSlider label="Opacité" value={sel.opacity ?? 1} onChange={(v) => patchLayer(sel.id, { opacity: Math.round(v * 100) / 100 }, false)} />
                 <VSlider label="Biseau" value={sel.bevel ?? 0} onChange={(v) => patchLayer(sel.id, { bevel: Math.round(v * 100) / 100 }, false)} />
                 <button className={`btn small ${borderPick ? 'on' : ''}`} onClick={() => setBorderPick(!borderPick)} title={`Bord : ${BORDER_TYPES.find((x) => x[0] === (sel.border?.style ?? null))![1]}`}>
                   <Icon name={`border-${sel.border?.style ?? 'none'}`} />

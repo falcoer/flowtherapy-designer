@@ -53,6 +53,8 @@ export interface Layer {
   src?: string;
   /** Hauteur au-dessus de la page (0..1) : l'ombre portée en découle. */
   height: number;
+  /** Opacité de la couche entière (0..1, 1 par défaut). */
+  opacity?: number;
   /** Biseau (0..1) : liseré éclairé côté lumière, sombre à l'opposé. */
   bevel?: number;
   /** Rotation autour du centre de la boîte, en radians. */
