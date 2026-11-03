@@ -213,3 +213,13 @@ export function nearestOnSegments(segs: Array<[Pt, Pt]>, p: Pt): { p: Pt; d: num
   }
   return best;
 }
+
+/** Forme moins un trait épaissi (union de quadrilatères) : chaque partie séparée, avec ses trous. */
+export function splitByCut(shape: Ring[], quads: Ring[]): Ring[][] {
+  const polys: Polygon[] = quads.map((q) => [q.map((p) => [p.x, p.y] as [number, number])]);
+  if (!polys.length) return [shape];
+  const [first, ...rest] = polys;
+  const blade = polygonClipping.union(first!, ...rest);
+  const out = polygonClipping.difference(geom(shape), blade);
+  return out.map((poly) => poly.map((ring) => ring.map(([x, y]) => ({ x, y }))));
+}

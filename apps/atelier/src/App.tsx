@@ -21,7 +21,7 @@ import {
   type ShapeKind,
   type Stroke,
 } from './model';
-import { geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRing, subtract } from './cut';
+import { geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRing, splitByCut, subtract } from './cut';
 import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, newFx, type Fx, type FxId } from './fx';
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
@@ -198,6 +198,8 @@ export function App() {
   };
   const scale = fit * view.zoom;
 
+  const lastTap = useRef<{ t: number; id?: string; x: number; y: number } | null>(null);
+  const dotAt = useRef(0);
   // --- état des gestes en cours ---
   const live = useRef<{
     kind: 'paint' | 'cut' | 'move' | 'resize' | 'rotate' | 'pivot' | 'view' | null;
@@ -209,6 +211,8 @@ export function App() {
     wet?: HTMLCanvasElement;
     drawn?: number;
     lasso?: Pt[];
+    /** Ciseaux partis de l'extérieur de la forme choisie : un chemin qui la sépare en morceaux. */
+    path?: boolean;
     start?: { x: number; y: number };
     orig?: Layer;
     last?: { x: number; y: number; t: number; p: number };
@@ -362,9 +366,15 @@ export function App() {
       ctx.setLineDash([7 * px, 5 * px]);
       ctx.strokeStyle = '#1d1b22';
       ctx.fillStyle = 'rgba(122,92,255,0.12)';
-      tracePath(ctx, L.lasso);
-      ctx.fill();
-      ctx.stroke();
+      if (L.path) {
+        ctx.beginPath();
+        L.lasso.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+        ctx.stroke();
+      } else {
+        tracePath(ctx, L.lasso);
+        ctx.fill();
+        ctx.stroke();
+      }
       ctx.restore();
       if (L.snapped?.length) {
         ctx.fillStyle = '#7a5cff';
@@ -434,6 +444,25 @@ export function App() {
     const t: Tool = e.pointerType === 'touch' ? 'move' : tool;
     const sel = doc.layers.find((l) => l.id === selected);
 
+    // double toucher (ou double clic) sur une forme ou une image : on passe en Disposer
+    {
+      const now = performance.now();
+      const hit = layerAt(p.x, p.y);
+      const lt = lastTap.current;
+      if (hit && hit.kind !== 'surface' && lt && lt.id === hit.id && now - lt.t < 350 && Math.hypot(p.x - lt.x, p.y - lt.y) * scale < 24) {
+        lastTap.current = null;
+        live.current = { kind: null };
+        // le premier toucher a pu poser un point de peinture : on le retire
+        if (now - dotAt.current < 400) undo();
+        setTool('move');
+        setSelected(hit.id);
+        setToast(`« ${hit.name} » : Disposer`);
+        redraw();
+        return;
+      }
+      lastTap.current = { t: now, id: hit?.id, x: p.x, y: p.y };
+    }
+
     if (t === 'move') {
       // poignée de taille de la couche sélectionnée
       if (sel && sel.kind !== 'surface') {
@@ -479,7 +508,9 @@ export function App() {
       // lignes magnétiques : contours des couches visibles et bords du format
       const grid = magnet && sel ? edgeGrid(sel) : null;
       const s0 = snapEdge(grid, p);
-      live.current = { kind: 'cut', lasso: [s0.p], grid, snapped: s0.hit ? [0] : [] };
+      // parti de l'extérieur de la forme choisie : on trace un chemin, pas une surface
+      const path = !!sel && sel.kind !== 'surface' && !insideRings(maskRings(sel, f), p.x, p.y);
+      live.current = { kind: 'cut', lasso: [s0.p], grid, snapped: s0.hit ? [0] : [], path };
       redraw();
       return;
     }
@@ -673,12 +704,14 @@ export function App() {
       const id = L.layer;
       live.current = { kind: null };
       if (s.pts.length === 1) s.pts.push({ ...s.pts[0]!, x: s.pts[0]!.x + 0.001 });
+      dotAt.current = s.pts.length <= 3 ? performance.now() : 0;
       update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, strokes: [...l.strokes, s] } : l)) }));
       return;
     }
     if (L.kind === 'cut' && L.lasso) {
       live.current = { kind: null };
-      finishCut(simplify(L.lasso, 1.2 / scale));
+      if (L.path) finishPath(simplify(L.lasso, 1.2 / scale));
+      else finishCut(simplify(L.lasso, 1.2 / scale));
       return;
     }
     if (L.kind === 'move' && L.layer) {
@@ -764,6 +797,62 @@ export function App() {
    * ne peut jamais déborder de la forme initiale. Tracé dans le vide : un
    * nouveau papier découpé.
    */
+  /**
+   * Découpe en chemin : le trait traverse la forme choisie et la sépare en
+   * autant de morceaux qu'il en délimite. Le trait est épaissi d'une fraction
+   * de pixel, retiré de la forme, et chaque partie restante devient un élément.
+   */
+  const finishPath = (line: Pt[]) => {
+    const sel = doc.layers.find((l) => l.id === selected);
+    if (!sel || sel.kind === 'surface' || line.length < 2) return redraw();
+    // on prolonge un peu les extrémités pour bien sortir de la forme
+    const ext = (a: Pt, b: Pt) => {
+      const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      const k = 3 / scale / d;
+      return { x: a.x + (a.x - b.x) * k, y: a.y + (a.y - b.y) * k };
+    };
+    const pts = [ext(line[0]!, line[1]!), ...line, ext(line[line.length - 1]!, line[line.length - 2]!)];
+    const hw = 0.35 / scale;
+    const quads = [];
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i]!;
+      const b = pts[i + 1]!;
+      const d = Math.hypot(b.x - a.x, b.y - a.y);
+      if (d < 1e-9) continue;
+      const nx = (-(b.y - a.y) / d) * hw;
+      const ny = ((b.x - a.x) / d) * hw;
+      // chaque segment déborde un peu sur le suivant : pas de trou aux jointures
+      const ux = ((b.x - a.x) / d) * hw;
+      const uy = ((b.y - a.y) / d) * hw;
+      quads.push(
+        [
+          { x: a.x - ux + nx, y: a.y - uy + ny },
+          { x: b.x + ux + nx, y: b.y + uy + ny },
+          { x: b.x + ux - nx, y: b.y + uy - ny },
+          { x: a.x - ux - nx, y: a.y - uy - ny },
+        ].map((q) => toLocal(sel, q.x, q.y)),
+      );
+    }
+    const b = layerBox(sel, f);
+    const parts = splitByCut(localRings(sel), quads)
+      .map((rings) => ({ rings, area: geomArea([rings.map((r) => r.map((q) => [q.x, q.y] as [number, number]))]) }))
+      .filter((x) => x.area * b.w * b.h * scale * scale > 30)
+      .sort((x, y) => y.area - x.area);
+    if (parts.length < 2) {
+      setToast(`Le chemin doit traverser « ${sel.name} » de part en part`);
+      return redraw();
+    }
+    const eps = 0.6 / (scale * Math.max(b.w, b.h));
+    const cuts = parts.map((x) => ringsToPath(x.rings, eps));
+    const extra: Layer[] = cuts.slice(1).map((c, i) => ({ ...structuredClone(sel), id: uid(), name: `${sel.name} · morceau ${i + 2}`, cut: c }));
+    update((d) => {
+      const layers = d.layers.map((x) => (x.id === sel.id ? { ...x, cut: cuts[0] } : x));
+      layers.splice(layers.findIndex((x) => x.id === sel.id) + 1, 0, ...extra);
+      return { ...d, layers };
+    });
+    setToast(`« ${sel.name} » séparée en ${parts.length} morceaux : déplace-les avec Disposer`);
+  };
+
   const finishCut = (raw: Pt[]) => {
     const lasso = simplifyRing(raw, 0.8 / scale);
     if (lasso.length < 4) return redraw();
