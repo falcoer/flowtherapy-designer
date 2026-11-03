@@ -1,4 +1,5 @@
 import type { LookSettings } from './looks';
+import type { Fx } from './fx';
 import { anchorsFor, nearestAnchor, resolveAnchor, type AnchorFrame, type Format } from '@ftd/core';
 
 /**
@@ -68,6 +69,8 @@ export interface Layer {
   pins?: { left?: boolean; right?: boolean; top?: boolean; bottom?: boolean };
   /** Style photographique (outil Transformer). */
   look?: LookSettings;
+  /** Effets cumulés (outil Transformer). */
+  fx?: Fx[];
   visible: boolean;
   strokes: Stroke[];
 }

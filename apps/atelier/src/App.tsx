@@ -1,4 +1,4 @@
-import { anchorsFor, FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame } from '@ftd/core';
+import { anchorsFor, FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format } from '@ftd/core';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { previewStamps } from './brush';
 import { DEMO_PHOTO, demoDoc } from './demo';
@@ -21,6 +21,7 @@ import {
   type Stroke,
 } from './model';
 import { geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRing, subtract } from './cut';
+import { FX, FX_GROUPS, fxGuides, fxOf, newFx, type Fx, type FxId } from './fx';
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
 import { cutOf, holdPins, imageFor, localBounds, localToPage, pageBounds, pageToLocal, pinsOf, drawChecker, drawLayers, forgetPaint, localRings, maskPath2D, maskRings, paintTarget, tracePath } from './scene';
@@ -127,8 +128,13 @@ export function App() {
   const [edgeSmooth, setEdgeSmooth] = useState(0.4);
   const [modePick, setModePick] = useState(false);
   const [borderPick, setBorderPick] = useState(false);
-  const [lookPick, setLookPick] = useState(false);
-  const [lookGuidePick, setLookGuidePick] = useState<number | null>(null);
+  /** Bulle ouverte de l'outil Transformer : style, guide du style, effets, guide d'effet. */
+  const [tpop, setTpop] = useState<string | null>(null);
+  const [fxFocus, setFxFocus] = useState<number | null>(null);
+  useEffect(() => {
+    setFxFocus(null);
+    setTpop(null);
+  }, [selected]);
   const [borderColorPick, setBorderColorPick] = useState(false);
   const trashRef = useRef<HTMLButtonElement>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
@@ -936,7 +942,7 @@ export function App() {
               <button className={`btn ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre à l'aquarelle (B)">
                 <Icon name="brush" />
               </button>
-              <button className={`btn ${tool === 'transform' ? 'on' : ''}`} onClick={() => setTool('transform')} title="Transformer (T) : style photographique">
+              <button className={`btn ${tool === 'transform' ? 'on' : ''}`} onClick={() => setTool('transform')} title="Transformer (T) : style photo et effets">
                 <Icon name="transform" />
               </button>
               <button className={`btn ${tool === 'move' ? 'on' : ''}`} onClick={() => setTool('move')} title="Disposer (V) : déplacer, agrandir, ancrer">
@@ -959,7 +965,7 @@ export function App() {
             </div>
           </header>
 
-          <aside className={`side ${tool === 'move' && sel && sel.kind !== 'surface' ? (sel.border ? 'denser' : 'dense') : ''}`}>
+          <aside className={`side ${tool === 'move' && sel && sel.kind !== 'surface' ? (sel.border ? 'denser' : 'dense') : tool === 'transform' && sel?.look && sel.fx?.length ? 'denser' : tool === 'transform' && (sel?.look || sel?.fx?.length) ? 'dense' : ''}`}>
             {tool === 'paint' && (
               <>
                 <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
@@ -1061,17 +1067,26 @@ export function App() {
               <LookControls
                 layer={sel}
                 guides={doc.guides}
-                pick={lookPick}
-                setPick={(v) => {
-                  setLookPick(v);
-                  setLookGuidePick(null);
-                }}
-                guidePick={lookGuidePick}
-                setGuidePick={(v) => {
-                  setLookGuidePick(v);
-                  setLookPick(false);
-                }}
+                pick={tpop === 'look'}
+                setPick={(v) => setTpop(v ? 'look' : null)}
+                guidePick={tpop?.startsWith('lg') ? Number(tpop.slice(2)) : null}
+                setGuidePick={(v) => setTpop(v === null ? null : `lg${v}`)}
                 onChange={(look, history) => patchLayer(sel.id, { look }, history)}
+              />
+            )}
+            {tool === 'transform' && sel && (
+              <FxControls
+                layer={sel}
+                doc={doc}
+                f={f}
+                pick={tpop === 'fx'}
+                setPick={(v) => setTpop(v ? 'fx' : null)}
+                guidePick={tpop?.startsWith('fg') ? Number(tpop.slice(2)) : null}
+                setGuidePick={(v) => setTpop(v === null ? null : `fg${v}`)}
+                focus={fxFocus}
+                setFocus={setFxFocus}
+                onChange={(fx, history) => patchLayer(sel.id, { fx: fx.length ? fx : undefined }, history)}
+                redraw={redraw}
               />
             )}
             <span className="side-sep" />
@@ -1248,13 +1263,14 @@ export function App() {
             </div>
           )}
 
-          {tool === 'transform' && sel?.kind !== 'photo' && <div className="status">Sélectionne une photo pour lui donner un style</div>}
+          {tool === 'transform' && !sel && <div className="status">Sélectionne une photo ou une forme pour la transformer</div>}
           {!sel && tool === 'cut' && magnet && <div className="status">Sélectionne une image : ses contours guideront les ciseaux</div>}
           {sel && (
             <div className="status">
               {tool === 'paint' && `Peinture dans « ${sel.name} »`}
               {tool === 'cut' && `Trace un contour : le morceau se détache de la couche touchée${magnet ? `, aimanté sur les contours de « ${sel.name} »` : ''}`}
-              {tool === 'transform' && sel.kind === 'photo' && `« ${sel.name} » · ${lookOf(sel.look?.style)?.name ?? 'photo originale'}`}
+              {tool === 'transform' &&
+                `« ${sel.name} » · ${[sel.kind === 'photo' ? (lookOf(sel.look?.style)?.name ?? 'photo originale') : '', ...(sel.fx ?? []).map((x) => fxOf(x.id)?.name)].filter(Boolean).join(' + ') || 'aucun effet'}`}
               {tool === 'move' && `« ${sel.name} » · ${sel.kind === 'surface' ? 'suit le format' : sel.anchor.point}`}
             </div>
           )}
@@ -1602,6 +1618,145 @@ function LookControls({
         </div>
       )}
       {look && <VSlider label="Mélange" value={look.mix} onChange={(v) => onChange({ ...look, mix: Math.round(v * 100) / 100 }, false)} />}
+    </>
+  );
+}
+
+/** Aperçu d'une couche seule, avec une liste d'effets, cadrée sur sa découpe. */
+function fxPreview(l: Layer, doc: Doc, f: Format, fx: Fx[] | undefined, key: string, onImage: () => void): string {
+  const W = 168;
+  const H = 128;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext('2d')!;
+  const bb = pageBounds(l, f);
+  const bw = Math.max(1e-6, bb.x1 - bb.x0);
+  const bh = Math.max(1e-6, bb.y1 - bb.y0);
+  const s = Math.min(W / (bw * 1.25), H / (bh * 1.25));
+  ctx.setTransform(s, 0, 0, s, W / 2 - ((bb.x0 + bb.x1) / 2) * s, H / 2 - ((bb.y0 + bb.y1) / 2) * s);
+  drawLayers(ctx, { ...doc, layers: [{ ...l, id: `pv-${l.id}-${key}`, fx, height: 0, opacity: 1, visible: true }] }, f, { scale: s, onImage });
+  return c.toDataURL('image/png');
+}
+
+/** Effets cumulables de l'outil Transformer, pour toutes les couches. */
+function FxControls({
+  layer,
+  doc,
+  f,
+  pick,
+  setPick,
+  guidePick,
+  setGuidePick,
+  focus,
+  setFocus,
+  onChange,
+  redraw,
+}: {
+  layer: Layer;
+  doc: Doc;
+  f: Format;
+  pick: boolean;
+  setPick: (v: boolean) => void;
+  guidePick: number | null;
+  setGuidePick: (v: number | null) => void;
+  focus: number | null;
+  setFocus: (v: number | null) => void;
+  onChange: (fx: Fx[], history?: boolean) => void;
+  redraw: () => void;
+}) {
+  const list = layer.fx ?? [];
+  const cur = focus !== null ? list[focus] : list[list.length - 1];
+  const curIdx = focus !== null && list[focus] ? focus : list.length - 1;
+  const def = fxOf(cur?.id);
+  const [tick, bump] = useState(0);
+  // aperçus : l'effet ajouté à ceux déjà posés (ou seul s'il y est déjà)
+  const thumbs = useMemo(() => {
+    if (!pick) return null;
+    const out: Partial<Record<FxId, string>> = {};
+    const reload = () => bump((n) => n + 1);
+    for (const d of FX) {
+      const on = list.some((x) => x.id === d.id);
+      out[d.id] = fxPreview(layer, doc, f, on ? list : [...list, newFx(d.id)], d.id, reload);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pick, layer, doc.guides, doc.light, f, tick]);
+  const tap = (id: FxId) => {
+    const i = list.findIndex((x) => x.id === id);
+    if (i < 0) {
+      onChange([...list, newFx(id)]);
+      setFocus(list.length);
+    } else if (i === curIdx) {
+      onChange(list.filter((_, j) => j !== i));
+      setFocus(null);
+    } else setFocus(i);
+    redraw();
+  };
+  const slots = def && cur ? fxGuides(def, cur) : [];
+  const patchCur = (p: Partial<Fx>, history = true) => onChange(list.map((x, j) => (j === curIdx ? { ...x, ...p } : x)), history);
+  return (
+    <>
+      <button className={`btn small fx-btn ${pick ? 'on' : ''}`} onClick={() => setPick(!pick)} title={`Effets${list.length ? ` : ${list.map((x) => fxOf(x.id)?.name).join(', ')}` : ''}`}>
+        <Icon name="fx" />
+        {list.length > 0 && <span className="fx-count">{list.length}</span>}
+      </button>
+      {pick && (
+        <div className="mode-pop look-pop">
+          <div className="b-title">Effets</div>
+          <p className="fx-hint">Touche pour ajouter, retouche pour régler, une troisième fois pour retirer. Les effets se cumulent.</p>
+          {FX_GROUPS.map(([g, title]) => (
+            <div key={g}>
+              <div className="fx-group">{title}</div>
+              <div className="look-grid">
+                {FX.filter((d) => d.group === g).map((d) => {
+                  const i = list.findIndex((x) => x.id === d.id);
+                  return (
+                    <button key={d.id} className={`look-item ${i >= 0 ? 'active' : ''} ${i >= 0 && i === curIdx ? 'on' : ''}`} onClick={() => tap(d.id)}>
+                      <span className="look-thumb">
+                        {thumbs?.[d.id] && <img src={thumbs[d.id]} alt="" />}
+                        {i >= 0 && <span className="fx-check">✓</span>}
+                      </span>
+                      <span className="look-name">{d.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {def &&
+        cur &&
+        def.slots.map((sl, i) => (
+          <button key={`${cur.id}${i}`} className={`btn small guide-btn ${guidePick === i ? 'on' : ''}`} onClick={() => setGuidePick(guidePick === i ? null : i)} title={`${def.name} · ${sl.label} : ${doc.guides[slots[i]!]?.name ?? ''}`}>
+            <span className="dot" style={{ background: swatch(doc.guides[slots[i]!]) }} />
+          </button>
+        ))}
+      {def && cur && guidePick !== null && def.slots[guidePick] && (
+        <div className="mode-pop">
+          <div className="b-title">
+            {def.name} · {def.slots[guidePick]!.label}
+          </div>
+          <div className="border-guides">
+            {doc.guides.map((x, i) => (
+              <button
+                key={i}
+                className={`sw ${slots[guidePick] === i ? 'on' : ''}`}
+                title={x.name}
+                style={{ background: swatch(x) }}
+                onClick={() => {
+                  const g = slots.slice();
+                  g[guidePick] = i;
+                  patchCur({ guides: g });
+                  setGuidePick(null);
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+      {def && cur && <VSlider label="Intensité" value={cur.amount} onChange={(v) => patchCur({ amount: Math.round(v * 100) / 100 }, false)} />}
     </>
   );
 }

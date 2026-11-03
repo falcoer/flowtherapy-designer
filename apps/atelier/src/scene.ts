@@ -1,9 +1,10 @@
 import { paintStroke, type Target } from './brush';
 import { rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
-import { guideColor, layerBox, shapePath, type Doc, type Layer, type Pt, type ShapeKind } from './model';
+import { guideColor, layerBox, shapePath, type Doc, type Guide, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { applyLook, lookGuides, lookOf } from './looks';
+import { applyPixelFx, fxGuides, fxOf, hasPixelFx, type FxId } from './fx';
 
 /**
  * Rendu de la scène sur un canevas 2D. Chaque couche est dessinée dans sa
@@ -229,6 +230,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       ctx.restore();
     }
 
+    drawFxBehind(ctx, l, doc, f, o, path);
     // bord : à l'extérieur de la découpe, en débordement de l'objet
     if (l.border && l.border.width > 0) {
       ctx.save();
@@ -249,41 +251,13 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       ctx.rotate(l.rot);
       ctx.translate(-b.cx, -b.cy);
     }
-    // matière
-    if (l.kind === 'photo' && l.src) {
-      const im = imageFor(l.src, o.onImage);
-      if (im) {
-        const k = Math.max(b.w / im.naturalWidth, b.h / im.naturalHeight);
-        const w = im.naturalWidth * k;
-        const h = im.naturalHeight * k;
-        const look = l.look && lookOf(l.look.style);
-        const m = look ? Math.max(0, Math.min(1, l.look!.mix)) : 0;
-        if (m < 1) ctx.drawImage(im, b.cx - w / 2, b.cy - h / 2, w, h);
-        if (look && m > 0) {
-          const t = applyLook(im, l.src.length + l.src.slice(-40), look, lookGuides(look, l.look).map((i) => doc.guides[i]));
-          ctx.save();
-          ctx.globalAlpha *= m;
-          ctx.drawImage(t, b.cx - w / 2, b.cy - h / 2, w, h);
-          ctx.restore();
-        }
-      } else {
-        ctx.fillStyle = '#ccc';
-        ctx.fillRect(x0, y0, b.w, b.h);
-      }
-    } else {
-      const g = doc.guides[l.guide];
-      if (g?.type === 'gradient') {
-        const grad = ctx.createLinearGradient(x0, y0, x0, y0 + b.h);
-        g.stops.forEach((c, i) => grad.addColorStop(i / Math.max(1, g.stops.length - 1), c));
-        ctx.fillStyle = grad;
-      } else ctx.fillStyle = guideColor(g);
-      ctx.fillRect(x0, y0, b.w, b.h);
-    }
-    // peinture
-    const paint = paintFor(l, doc, f, o.scale);
-    if (paint) ctx.drawImage(paint, x0, y0, b.w, b.h);
+    // matière et peinture, passées par les effets de matière s'il y en a
+    const buf = hasPixelFx(l.fx) ? fxBuffer(l, doc, f, o) : null;
+    if (buf) ctx.drawImage(buf, x0, y0, b.w, b.h);
+    else drawMaterial(ctx, l, doc, f, o);
     if (o.wet?.id === l.id) ctx.drawImage(o.wet.canvas, x0, y0, b.w, b.h);
     ctx.restore();
+    drawFxInside(ctx, l, doc, f, o, path);
 
     // biseau : bord éclairé côté lumière, bord sombre à l'opposé
     const bevel = l.bevel ?? 0;
@@ -304,6 +278,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       ctx.stroke(path);
     }
     ctx.restore();
+    drawFxOutside(ctx, l, doc, f, o, path);
     ctx.restore();
   }
   ctx.restore();
@@ -446,4 +421,189 @@ export function pinsOf(l: Layer, f: Format, tol: number): Layer['pins'] {
   const bb = pageBounds(l, f);
   const pins = { left: Math.abs(bb.x0) < tol, right: Math.abs(bb.x1 - f.width) < tol, top: Math.abs(bb.y0) < tol, bottom: Math.abs(bb.y1 - f.height) < tol };
   return pins.left || pins.right || pins.top || pins.bottom ? pins : undefined;
+}
+
+/** Matière de la couche (photo avec son style, ou aplat du guide) et sa peinture, dans sa boîte. */
+function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions) {
+  const b = layerBox(l, f);
+  const x0 = b.cx - b.w / 2;
+  const y0 = b.cy - b.h / 2;
+  // matière
+  if (l.kind === 'photo' && l.src) {
+    const im = imageFor(l.src, o.onImage);
+    if (im) {
+      const k = Math.max(b.w / im.naturalWidth, b.h / im.naturalHeight);
+      const w = im.naturalWidth * k;
+      const h = im.naturalHeight * k;
+      const look = l.look && lookOf(l.look.style);
+      const m = look ? Math.max(0, Math.min(1, l.look!.mix)) : 0;
+      if (m < 1) ctx.drawImage(im, b.cx - w / 2, b.cy - h / 2, w, h);
+      if (look && m > 0) {
+        const t = applyLook(im, l.src.length + l.src.slice(-40), look, lookGuides(look, l.look).map((i) => doc.guides[i]));
+        ctx.save();
+        ctx.globalAlpha *= m;
+        ctx.drawImage(t, b.cx - w / 2, b.cy - h / 2, w, h);
+        ctx.restore();
+      }
+    } else {
+      ctx.fillStyle = '#ccc';
+      ctx.fillRect(x0, y0, b.w, b.h);
+    }
+  } else {
+    const g = doc.guides[l.guide];
+    if (g?.type === 'gradient') {
+      const grad = ctx.createLinearGradient(x0, y0, x0, y0 + b.h);
+      g.stops.forEach((c, i) => grad.addColorStop(i / Math.max(1, g.stops.length - 1), c));
+      ctx.fillStyle = grad;
+    } else ctx.fillStyle = guideColor(g);
+    ctx.fillRect(x0, y0, b.w, b.h);
+  }
+  // peinture
+  const paint = paintFor(l, doc, f, o.scale);
+  if (paint) ctx.drawImage(paint, x0, y0, b.w, b.h);
+}
+
+const fxBuffers = new Map<string, { key: string; canvas: HTMLCanvasElement }>();
+
+/** Matière passée par les effets de matière, mise en cache (au plus 1000 px de côté). */
+function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElement | null {
+  const b = layerBox(l, f);
+  const k = Math.min(o.scale, 1000 / Math.max(b.w, b.h));
+  const pw = Math.max(1, Math.round(b.w * k));
+  const ph = Math.max(1, Math.round(b.h * k));
+  const im = l.kind === 'photo' && l.src ? imageFor(l.src, o.onImage) : null;
+  if (l.kind === 'photo' && !im) return null;
+  const key = JSON.stringify([pw, ph, l.kind, l.guide, l.src?.length, l.src?.slice(-40), l.look, l.fx, l.strokes.length, l.rot ?? 0, doc.light, doc.guides]);
+  const hit = fxBuffers.get(l.id);
+  if (hit?.key === key) return hit.canvas;
+  const c = hit?.canvas ?? document.createElement('canvas');
+  c.width = pw;
+  c.height = ph;
+  const bx = c.getContext('2d', { willReadFrequently: true })!;
+  bx.setTransform(k, 0, 0, k, -(b.cx - b.w / 2) * k, -(b.cy - b.h / 2) * k);
+  drawMaterial(bx, l, doc, f, o);
+  bx.setTransform(1, 0, 0, 1, 0, 0);
+  const img = bx.getImageData(0, 0, pw, ph);
+  // la lumière, ramenée dans le repère de la couche (qui peut tourner)
+  const a = (doc.light * Math.PI) / 180 - (l.rot ?? 0);
+  applyPixelFx(img, l.fx!, doc.guides, Math.min(f.width, f.height) * k, Math.sin(a), -Math.cos(a));
+  bx.putImageData(img, 0, 0);
+  if (fxBuffers.size > 60) fxBuffers.clear();
+  fxBuffers.set(l.id, { key, canvas: c });
+  return c;
+}
+
+function guideStyle(ctx: CanvasRenderingContext2D, g: Guide | undefined, box: { x0: number; y0: number; x1: number; y1: number }) {
+  if (g?.type === 'gradient') {
+    const grad = ctx.createLinearGradient(box.x0, box.y0, box.x1, box.y1);
+    g.stops.forEach((c, i) => grad.addColorStop(i / Math.max(1, g.stops.length - 1), c));
+    return grad;
+  }
+  return guideColor(g);
+}
+
+/** Décalage du canevas (en pixels) d'un vecteur du format : les ombres ne suivent pas la transformation. */
+function deviceOffset(dx: number, dy: number, o: DrawOptions) {
+  const cr = Math.cos(o.rot ?? 0);
+  const sr = Math.sin(o.rot ?? 0);
+  return { x: (dx * cr - dy * sr) * o.scale, y: (dx * sr + dy * cr) * o.scale };
+}
+
+const fxList = (l: Layer, id: FxId) => l.fx?.filter((x) => x.id === id) ?? [];
+
+/** Double contour : un contour autour de l'objet, et sa copie décalée derrière. */
+function drawFxBehind(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, _o: DrawOptions, path: Path2D) {
+  const minSide = Math.min(f.width, f.height);
+  for (const e of fxList(l, 'sticker')) {
+    const def = fxOf('sticker')!;
+    const [ga, gb] = fxGuides(def, e).map((i) => doc.guides[i]);
+    const box = pageBounds(l, f);
+    const wd = (0.004 + e.amount * 0.03) * minSide;
+    const a = ((doc.light + 180) * Math.PI) / 180;
+    const off = wd * 1.1;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.translate(Math.sin(a) * off, -Math.cos(a) * off);
+    ctx.fillStyle = ctx.strokeStyle = guideStyle(ctx, gb, box);
+    ctx.lineWidth = 2 * wd;
+    ctx.fill(path, 'evenodd');
+    ctx.stroke(path);
+    ctx.restore();
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.fillStyle = ctx.strokeStyle = guideStyle(ctx, ga, box);
+    ctx.lineWidth = 2 * wd;
+    ctx.fill(path, 'evenodd');
+    ctx.stroke(path);
+    ctx.restore();
+  }
+}
+
+/** Dans la découpe : ombre intérieure (côté lumière) et reflet brillant. */
+function drawFxInside(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, path: Path2D) {
+  const minSide = Math.min(f.width, f.height);
+  const a = (doc.light * Math.PI) / 180;
+  const lx = Math.sin(a);
+  const ly = -Math.cos(a);
+  for (const e of fxList(l, 'inner')) {
+    // on remplit tout sauf l'objet : seule l'ombre de ce cadre tombe dans la découpe
+    const outside = new Path2D();
+    outside.rect(-f.width, -f.height, 3 * f.width, 3 * f.height);
+    outside.addPath(path);
+    const d = (0.004 + e.amount * 0.03) * minSide;
+    const off = deviceOffset(-lx * d, -ly * d, o);
+    ctx.save();
+    ctx.shadowColor = `rgba(16, 12, 28, ${0.5 + 0.4 * e.amount})`;
+    ctx.shadowBlur = d * 1.6 * o.scale;
+    ctx.shadowOffsetX = off.x;
+    ctx.shadowOffsetY = off.y;
+    ctx.fillStyle = '#000';
+    ctx.fill(outside, 'evenodd');
+    ctx.restore();
+  }
+  for (const e of fxList(l, 'gloss')) {
+    const box = pageBounds(l, f);
+    const cx = (box.x0 + box.x1) / 2;
+    const cy = (box.y0 + box.y1) / 2;
+    const r = Math.hypot(box.x1 - box.x0, box.y1 - box.y0) / 2;
+    const k = e.amount;
+    // vernis : lumière forte côté lampe, puis un éclat net en diagonale
+    const g = ctx.createLinearGradient(cx + lx * r, cy + ly * r, cx - lx * r, cy - ly * r);
+    g.addColorStop(0, `rgba(255,255,255,${0.55 * k})`);
+    g.addColorStop(0.3, `rgba(255,255,255,${0.12 * k})`);
+    g.addColorStop(0.42, `rgba(255,255,255,${0.5 * k})`);
+    g.addColorStop(0.47, `rgba(255,255,255,${0.04 * k})`);
+    g.addColorStop(0.75, 'rgba(255,255,255,0)');
+    g.addColorStop(1, `rgba(0,0,0,${0.18 * k})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+  }
+}
+
+/** Lueur néon : un tube de lumière sur la découpe, avec son halo. */
+function drawFxOutside(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, path: Path2D) {
+  const minSide = Math.min(f.width, f.height);
+  for (const e of fxList(l, 'neon')) {
+    const g = doc.guides[fxGuides(fxOf('neon')!, e)[0]!];
+    const col = guideColor(g, 0.5);
+    const k = e.amount;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = col;
+    ctx.shadowColor = col;
+    for (const [blur, wd] of [
+      [0.08, 0.006],
+      [0.05, 0.006],
+      [0.02, 0.004],
+    ] as const) {
+      ctx.shadowBlur = (0.01 + blur * k * 1.6) * minSide * o.scale;
+      ctx.lineWidth = (0.0015 + wd * k) * minSide;
+      ctx.stroke(path);
+    }
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = (0.0008 + 0.0015 * k) * minSide;
+    ctx.stroke(path);
+    ctx.restore();
+  }
 }
