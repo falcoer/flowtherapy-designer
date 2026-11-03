@@ -7,8 +7,10 @@
  *    opposés rouge-vert / jaune-bleu (couleur). Chacun est normalisé par son
  *    99e centile, pour que le seuil se comporte pareil d'une image à l'autre.
  * 3. Suppression des non-maxima le long du gradient : un bord fait un pixel
- *    d'épaisseur. On garde les pixels au-dessus du seuil, avec au moins un
- *    voisin retenu (les points isolés sont du bruit).
+ *    d'épaisseur. On garde les pixels au-dessus du seuil.
+ * 4. Les pixels voisins sont chaînés en courbes.
+ * 5. Chaque courbe est lissée (moyenne glissante, réglable) et les courbes
+ *    trop courtes sont écartées : moins de bruit, un suivi plus régulier.
  */
 
 export type EdgeMode = 'contrast' | 'color' | 'both';
@@ -29,8 +31,8 @@ export interface EdgeMap {
   h: number;
   /** Points de contour en coordonnées de la couche (0..1), x puis y. */
   pts: Float32Array;
-  /** Points des pointillés (sous-ensemble régulier des contours), coordonnées de la couche. */
-  dots: Float32Array;
+  /** Courbes de contour lissées (x, y alternés), coordonnées de la couche. */
+  chains: Float32Array[];
 }
 
 export function analysisSize(bw: number, bh: number) {
@@ -134,7 +136,7 @@ const NB = [
 ] as const;
 
 /** Contours retenus pour un mode et un seuil (0..1 : plus haut = moins de contours). */
-export function edgeMap(a: Analysis, mode: EdgeMode, threshold: number): EdgeMap {
+export function edgeMap(a: Analysis, mode: EdgeMode, threshold: number, smooth: number): EdgeMap {
   const { w, h } = a;
   const n = w * h;
   const keep = new Uint8Array(n);
@@ -149,18 +151,85 @@ export function edgeMap(a: Analysis, mode: EdgeMode, threshold: number): EdgeMap
       const off = dy * w + dx;
       if (m >= mag[i + off]! && m >= mag[i - off]!) keep[i] = 1;
     }
-  const pts: number[] = [];
-  const dots: number[] = [];
-  for (let y = 1; y < h - 1; y++)
-    for (let x = 1; x < w - 1; x++) {
-      const i = y * w + x;
-      if (!keep[i]) continue;
-      if (!(keep[i - 1] || keep[i + 1] || keep[i - w] || keep[i + w] || keep[i - w - 1] || keep[i - w + 1] || keep[i + w - 1] || keep[i + w + 1])) continue;
-      pts.push((x + 0.5) / w, (y + 0.5) / h);
-      // pointillés : un groupe de quatre pixels sur deux, quelle que soit l'orientation
-      if (Math.floor((x + 2 * y) / 4) % 2 === 0) dots.push((x + 0.5) / w, (y + 0.5) / h);
+
+  // 4. chaînage : les pixels voisins forment des courbes, parcourues d'un bout à l'autre
+  const N8 = [-1, 1, -w, w, -w - 1, -w + 1, w - 1, w + 1];
+  const GAP: number[] = [];
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (Math.max(Math.abs(dx), Math.abs(dy)) === 2) GAP.push(dy * w + dx);
+  const neighbours = (i: number) => N8.reduce((c, o) => c + (keep[i + o] === 1 ? 1 : 0), 0);
+  const chains: number[][] = [];
+  const walk = (start: number) => {
+    const c = [start];
+    keep[start] = 2;
+    let cur = start;
+    for (;;) {
+      let next = -1;
+      // voisins directs d'abord, puis diagonales : la courbe reste continue
+      for (const o of N8)
+        if (keep[cur + o] === 1) {
+          next = cur + o;
+          break;
+        }
+      // saute un trou d'un pixel : la courbe continue au lieu de se fragmenter
+      if (next < 0)
+        for (const o of GAP)
+          if (keep[cur + o] === 1) {
+            next = cur + o;
+            break;
+          }
+      if (next < 0) break;
+      keep[next] = 2;
+      c.push(next);
+      cur = next;
     }
-  return { w, h, pts: Float32Array.from(pts), dots: Float32Array.from(dots) };
+    return c;
+  };
+  // les extrémités d'abord (un seul voisin), puis ce qui reste (boucles)
+  for (const pass of [1, 2])
+    for (let i = w; i < n - w; i++)
+      if (keep[i] === 1 && (pass === 2 || neighbours(i) <= 1)) {
+        const c = walk(i);
+        // prolonge la chaîne de l'autre côté du point de départ
+        const back = walk2(c);
+        chains.push(back);
+      }
+  function walk2(c: number[]) {
+    const start = c[0]!;
+    for (const o of [...N8, ...GAP])
+      if (keep[start + o] === 1) {
+        const other = walk(start + o);
+        return [...other.reverse(), ...c];
+      }
+    return c;
+  }
+
+  // 5. lissage : moyenne glissante le long de chaque courbe ; les courbes trop courtes sont du bruit
+  const radius = Math.round(smooth * 8);
+  const minLen = 4 + smooth * 10;
+  const out: Float32Array[] = [];
+  const pts: number[] = [];
+  for (const c of chains) {
+    if (c.length < minLen) continue;
+    const xs = c.map((i) => (i % w) + 0.5);
+    const ys = c.map((i) => Math.floor(i / w) + 0.5);
+    const sm = new Float32Array(c.length * 2);
+    for (let k = 0; k < c.length; k++) {
+      let sx = 0;
+      let sy = 0;
+      let cnt = 0;
+      for (let d = -radius; d <= radius; d++) {
+        const q = Math.max(0, Math.min(c.length - 1, k + d));
+        sx += xs[q]!;
+        sy += ys[q]!;
+        cnt++;
+      }
+      sm[k * 2] = sx / cnt / w;
+      sm[k * 2 + 1] = sy / cnt / h;
+      pts.push(sm[k * 2]!, sm[k * 2 + 1]!);
+    }
+    out.push(sm);
+  }
+  return { w, h, pts: Float32Array.from(pts), chains: out };
 }
 
 /** Grille de recherche des points de contour, en unités du format. */

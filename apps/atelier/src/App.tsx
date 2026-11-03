@@ -33,6 +33,11 @@ const TOP = 52;
 const MAGNET = 30;
 /** Rayon d'aimantation des ciseaux sur les contours détectés, en pixels écran. */
 const EDGE_RADIUS = 14;
+const EDGE_MODES: Array<[EdgeMode, string, string]> = [
+  ['contrast', 'Contraste', 'bords de lumière'],
+  ['color', 'Couleur', 'bords de teinte'],
+  ['both', 'Les deux', 'lumière et teinte'],
+];
 
 function load(): Doc {
   try {
@@ -106,6 +111,8 @@ export function App() {
   /** Détection des contours de l'image sélectionnée : critère et seuil (0..1). */
   const [edgeMode, setEdgeMode] = useState<EdgeMode>('both');
   const [edgeThreshold, setEdgeThreshold] = useState(0.35);
+  const [edgeSmooth, setEdgeSmooth] = useState(0.4);
+  const [modePick, setModePick] = useState(false);
   const trashRef = useRef<HTMLButtonElement>(null);
   const [trashHot, setTrashHot] = useState(false);
   const [snapshot, setSnapshot] = useState<string | null>(null);
@@ -213,7 +220,8 @@ export function App() {
       }
     }
     // contours détectés dans l'image sélectionnée : pointillés en couleur complémentaire
-    if (tool === 'cut' && magnet && sel) {
+    // masqués pendant un déplacement ou un geste de vue : seulement pour découper
+    if (tool === 'cut' && magnet && sel && (L.kind === null || L.kind === 'cut')) {
       const m = edgesFor(sel);
       if (m) {
         const b = layerBox(sel, f);
@@ -223,14 +231,17 @@ export function App() {
         ctx.clip();
         ctx.globalCompositeOperation = 'difference';
         ctx.globalAlpha = 0.85;
-        ctx.fillStyle = '#ffffff';
-        // chaque point fait au moins 1,6 px à l'écran, quel que soit le zoom
-        const d = Math.max(1.6 * px, b.w / m.w);
-        const x0 = b.cx - b.w / 2 - d / 2;
-        const y0 = b.cy - b.h / 2 - d / 2;
-        const dots = new Path2D();
-        for (let i = 0; i < m.dots.length; i += 2) dots.rect(x0 + m.dots[i]! * b.w, y0 + m.dots[i + 1]! * b.h, d, d);
-        ctx.fill(dots);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.6 * px;
+        ctx.setLineDash([4 * px, 4 * px]);
+        const x0 = b.cx - b.w / 2;
+        const y0 = b.cy - b.h / 2;
+        const lines = new Path2D();
+        for (const c of m.chains) {
+          lines.moveTo(x0 + c[0]! * b.w, y0 + c[1]! * b.h);
+          for (let i = 2; i < c.length; i += 2) lines.lineTo(x0 + c[i]! * b.w, y0 + c[i + 1]! * b.h);
+        }
+        ctx.stroke(lines);
         ctx.restore();
       }
     }
@@ -292,6 +303,7 @@ export function App() {
     (e.target as Element).setPointerCapture(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     setBubble(null);
+    setModePick(false);
     const touches = [...pointers.current.values()].filter((p) => p.type === 'touch');
     if (e.pointerType === 'touch' && touches.length >= 2) {
       // plusieurs doigts : on annule le geste à un doigt et on manipule la vue
@@ -521,8 +533,8 @@ export function App() {
       analysisCache.current = { key, a: analyse(c) };
       mapCache.current = null;
     }
-    const mk = `${key}|${edgeMode}|${edgeThreshold}`;
-    if (mapCache.current?.key !== mk) mapCache.current = { key: mk, m: edgeMap(analysisCache.current.a, edgeMode, edgeThreshold) };
+    const mk = `${key}|${edgeMode}|${edgeThreshold}|${edgeSmooth}`;
+    if (mapCache.current?.key !== mk) mapCache.current = { key: mk, m: edgeMap(analysisCache.current.a, edgeMode, edgeThreshold, edgeSmooth) };
     return mapCache.current.m;
   };
   /** Grille de recherche des contours, en unités du format. */
@@ -786,18 +798,31 @@ export function App() {
                 </button>
                 {magnet && (
                   <>
-                    {(
-                      [
-                        ['contrast', 'Contraste : bords de lumière'],
-                        ['color', 'Couleur : bords de teinte'],
-                        ['both', 'Contraste et couleur'],
-                      ] as Array<[EdgeMode, string]>
-                    ).map(([m, t]) => (
-                      <button key={m} className={`btn small ${edgeMode === m ? 'on' : ''}`} onClick={() => setEdgeMode(m)} title={t}>
-                        <Icon name={`edge-${m}`} />
-                      </button>
-                    ))}
+                    <button className={`btn small mode-btn ${modePick ? 'on' : ''}`} onClick={() => setModePick(!modePick)} title="Mode de détection">
+                      <Icon name={`edge-${edgeMode}`} />
+                      <span className="mode-label">{EDGE_MODES.find((x) => x[0] === edgeMode)![1]}</span>
+                    </button>
+                    {modePick && (
+                      <div className="mode-pop">
+                        <div className="b-title">Détection</div>
+                        {EDGE_MODES.map(([m, t, hint]) => (
+                          <button
+                            key={m}
+                            className={`row ${edgeMode === m ? 'on' : ''}`}
+                            onClick={() => {
+                              setEdgeMode(m);
+                              setModePick(false);
+                            }}
+                          >
+                            <Icon name={`edge-${m}`} />
+                            <span>{t}</span>
+                            <small>{hint}</small>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <VSlider label="Seuil" value={(edgeThreshold - 0.05) / 0.9} onChange={(v) => setEdgeThreshold(Math.round((0.05 + v * 0.9) * 50) / 50)} />
+                    <VSlider label="Lissage" value={edgeSmooth} onChange={(v) => setEdgeSmooth(Math.round(v * 20) / 20)} />
                   </>
                 )}
               </>
