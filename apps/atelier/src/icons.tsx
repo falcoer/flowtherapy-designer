@@ -15,6 +15,7 @@ const PATHS: Record<string, string> = {
   down: 'M6 9l6 6 6-6',
   trash: 'M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3',
   photo: 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z',
+  magnet: 'M6 3v8a6 6 0 0 0 12 0V3h-4v8a2 2 0 0 1-4 0V3zM6 7h4M14 7h4',
   import: 'M12 3v12M7 10l5 5 5-5M4 17v3h16v-3',
 };
 

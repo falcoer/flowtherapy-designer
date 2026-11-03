@@ -41,7 +41,9 @@ export interface Layer {
   /** Taille de la boîte en fraction du petit côté (ignorée pour la surface de fond). */
   w: number;
   h: number;
-  /** Découpe ; absente = la boîte entière. */
+  /** Découpe : tracé SVG (pair-impair) en coordonnées de la couche ; absente = la forme, sinon la boîte entière. */
+  cut?: string;
+  /** Ancienne découpe polygonale (documents antérieurs), convertie au chargement. */
   mask?: Pt[];
   shape?: ShapeKind;
   /** Guide de couleur du support ou de la forme. */

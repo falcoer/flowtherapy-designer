@@ -19,7 +19,8 @@ import {
   type ShapeKind,
   type Stroke,
 } from './model';
-import { drawChecker, drawLayers, forgetPaint, inside, maskPath, paintTarget, tracePath } from './scene';
+import { geomArea, insideRings, intersect, nearestOnSegments, ringsOfGeom, ringsToPath, simplifyRing, subtract } from './cut';
+import { cutOf, drawChecker, drawLayers, forgetPaint, localRings, maskPath2D, maskRings, paintTarget, tracePath } from './scene';
 
 type Tool = 'cut' | 'paint' | 'move';
 type Bubble = 'layers' | 'palette' | 'light' | 'format' | null;
@@ -29,11 +30,22 @@ const STORE = 'ftd-atelier-doc';
 const TOP = 52;
 /** Rayon d'attraction des ancrages, en pixels écran. */
 const MAGNET = 30;
+/** Rayon d'aimantation des ciseaux sur les contours, en pixels écran. */
+const EDGE_MAGNET = 12;
 
 function load(): Doc {
   try {
     const s = localStorage.getItem(STORE);
-    if (s) return JSON.parse(s) as Doc;
+    if (s) {
+      const d = JSON.parse(s) as Doc;
+      // anciens documents : découpe polygonale → tracé
+      for (const l of d.layers)
+        if (l.mask) {
+          l.cut = ringsToPath([l.mask], 0.001);
+          delete l.mask;
+        }
+      return d;
+    }
   } catch {
     /* stockage indisponible */
   }
@@ -89,6 +101,7 @@ export function App() {
   const [opacity, setOpacity] = useState(0.85);
   const [view, setView] = useState<View>({ zoom: 1, rot: 0, px: 0, py: 0 });
   const [rendu, setRendu] = useState(false);
+  const [magnet, setMagnet] = useState(true);
   const [snapshot, setSnapshot] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   useEffect(() => {
@@ -137,6 +150,9 @@ export function App() {
     orig?: Layer;
     last?: { x: number; y: number; t: number; p: number };
     snap?: { x: number; y: number } | null;
+    /** Contours aimantés (unités du format) et indices des points aimantés. */
+    edges?: Array<[Pt, Pt]>;
+    snapped?: number[];
   }>({ kind: null });
   const pointers = useRef(new Map<number, { x: number; y: number; type: string }>());
   const gesture = useRef<{ view: View; c: { x: number; y: number }; d: number; a: number } | null>(null);
@@ -177,8 +193,7 @@ export function App() {
       ctx.lineWidth = 1.5 * px;
       ctx.setLineDash([6 * px, 5 * px]);
       ctx.strokeStyle = '#7a5cff';
-      tracePath(ctx, maskPath(sel, f));
-      ctx.stroke();
+      ctx.stroke(maskPath2D(sel, f));
       ctx.restore();
       if (tool === 'move') {
         const b = layerBox(sel, f);
@@ -218,6 +233,16 @@ export function App() {
       ctx.fill();
       ctx.stroke();
       ctx.restore();
+      if (L.snapped?.length) {
+        ctx.fillStyle = '#7a5cff';
+        for (const i of L.snapped) {
+          const q = L.lasso[i];
+          if (!q) continue;
+          ctx.beginPath();
+          ctx.arc(q.x, q.y, 2.2 * px, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
     }
   });
 
@@ -225,7 +250,7 @@ export function App() {
   const layerAt = (x: number, y: number) => {
     for (let i = doc.layers.length - 1; i >= 0; i--) {
       const l = doc.layers[i]!;
-      if (l.visible && inside(maskPath(l, f), x, y)) return l;
+      if (l.visible && insideRings(maskRings(l, f), x, y)) return l;
     }
     return null;
   };
@@ -287,12 +312,25 @@ export function App() {
       return;
     }
     if (t === 'cut') {
-      live.current = { kind: 'cut', lasso: [p] };
+      // lignes magnétiques : contours des couches visibles et bords du format
+      const edges: Array<[Pt, Pt]> = [];
+      if (magnet) {
+        const ring = (r: Pt[]) => r.forEach((a, i) => edges.push([a, r[(i + 1) % r.length]!]));
+        for (const l of doc.layers) if (l.visible && l.kind !== 'surface') maskRings(l, f).forEach(ring);
+        ring([
+          { x: 0, y: 0 },
+          { x: f.width, y: 0 },
+          { x: f.width, y: f.height },
+          { x: 0, y: f.height },
+        ]);
+      }
+      const s0 = snapEdge(edges, p);
+      live.current = { kind: 'cut', lasso: [s0.p], edges, snapped: s0.hit ? [0] : [] };
       redraw();
       return;
     }
     // peinture : dans la couche sélectionnée, sinon celle sous le stylet
-    const target = sel && inside(maskPath(sel, f), p.x, p.y) ? sel : layerAt(p.x, p.y);
+    const target = sel && insideRings(maskRings(sel, f), p.x, p.y) ? sel : layerAt(p.x, p.y);
     if (!target) return;
     if (target.id !== selected) setSelected(target.id);
     const tg = paintTarget(target, f, scale * dpr);
@@ -365,7 +403,12 @@ export function App() {
       L.drawn = previewStamps(L.wet!.getContext('2d')!, L.stroke, doc.guides, tg, L.drawn ?? 0);
       redraw();
     } else if (L.kind === 'cut' && L.lasso) {
-      L.lasso.push(p);
+      const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
+      for (const ev of events) {
+        const s1 = snapEdge(L.edges ?? [], toPage(ev.clientX, ev.clientY));
+        if (s1.hit) L.snapped!.push(L.lasso.length);
+        L.lasso.push(s1.p);
+      }
       redraw();
     } else if (L.kind === 'move' && L.orig && L.start) {
       const o = L.orig;
@@ -430,28 +473,74 @@ export function App() {
     redraw();
   };
 
-  /** Fin d'un tracé de ciseaux : découpe la couche sélectionnée, ou crée un papier découpé. */
-  const finishCut = (lasso: Pt[]) => {
-    if (lasso.length < 6) return redraw();
+  /** Aimante un point sur le contour le plus proche, s'il est assez près. */
+  const snapEdge = (edges: Array<[Pt, Pt]>, p: Pt) => {
+    const n = edges.length ? nearestOnSegments(edges, p) : null;
+    return n && n.d * scale < EDGE_MAGNET ? { p: n.p, hit: true } : { p, hit: false };
+  };
+
+  /**
+   * Fin d'un tracé de ciseaux. Comme avec de vrais ciseaux, la couche touchée
+   * donne deux couches : le morceau (découpe ∩ tracé), posé au-dessus et un peu
+   * soulevé, et le complément (découpe − tracé) qui reste en place. Le morceau
+   * ne peut jamais déborder de la forme initiale. Tracé dans le vide : un
+   * nouveau papier découpé.
+   */
+  const finishCut = (raw: Pt[]) => {
+    const lasso = simplifyRing(raw, 0.8 / scale);
+    if (lasso.length < 4) return redraw();
     const xs = lasso.map((p) => p.x);
     const ys = lasso.map((p) => p.y);
     const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
     if ((x1 - x0) * scale < 12 || (y1 - y0) * scale < 12) return redraw();
+    const lassoArea = (x1 - x0) * (y1 - y0);
     const sel = doc.layers.find((l) => l.id === selected);
-    const cx = (x0 + x1) / 2;
-    const cy = (y0 + y1) / 2;
-    if (sel && sel.kind !== 'surface' && inside(maskPath(sel, f), cx, cy)) {
-      // découpe de la couche sélectionnée (photo, forme, papier)
-      const mask = lasso.map((p) => toLocal(sel, p.x, p.y));
-      update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === sel.id ? { ...l, mask, shape: undefined } : l)) }));
-      setToast(`« ${sel.name} » découpée`);
+    // la couche choisie d'abord, puis de haut en bas
+    const order = [sel, ...[...doc.layers].reverse()].filter((l, i, a): l is Layer => !!l && l.visible && l.kind !== 'surface' && a.indexOf(l) === i);
+    for (const l of order) {
+      const b = layerBox(l, f);
+      const local = lasso.map((p) => toLocal(l, p.x, p.y));
+      const shape = localRings(l);
+      const piece = intersect(shape, [local]);
+      const pa = geomArea(piece) * b.w * b.h;
+      // une couche à peine effleurée n'est découpée que si elle est choisie
+      if (pa < lassoArea * 1e-4 || (l !== sel && pa < lassoArea * 0.03)) continue;
+      const rest = subtract(shape, [local]);
+      if (geomArea(rest) * b.w * b.h < lassoArea * 1e-4) {
+        setToast(`Le tracé englobe toute « ${l.name} »`);
+        return redraw();
+      }
+      const eps = 0.6 / (scale * Math.max(b.w, b.h));
+      const pieceCut = ringsToPath(ringsOfGeom(piece), eps);
+      const restCut = ringsToPath(ringsOfGeom(rest), eps);
+      const m = Math.min(f.width, f.height);
+      const morceau: Layer = {
+        ...structuredClone(l),
+        id: uid(),
+        name: `${l.name} · morceau`,
+        cut: pieceCut,
+        height: Math.min(1, l.height + 0.1),
+        // légèrement décalé, comme un morceau qu'on vient de détacher
+        dx: l.dx + (0.012 * m) / f.width,
+        dy: l.dy + (0.012 * m) / f.height,
+      };
+      update((d) => {
+        const layers = d.layers.map((x) => (x.id === l.id ? { ...x, cut: restCut } : x));
+        layers.splice(layers.findIndex((x) => x.id === l.id) + 1, 0, morceau);
+        return { ...d, layers };
+      });
+      setSelected(morceau.id);
+      setToast(`« ${l.name} » découpée : le morceau est posé dessus`);
       return;
     }
     const m = Math.min(f.width, f.height);
     const w = x1 - x0;
     const h = y1 - y0;
+    const cx = (x0 + x1) / 2;
+    const cy = (y0 + y1) / 2;
     const a = anchorFor(doc.frame, f, cx, cy);
     const n = doc.layers.filter((l) => l.name.startsWith('Papier découpé')).length + 1;
+    const local = lasso.map((p) => ({ x: (p.x - x0) / w, y: (p.y - y0) / h }));
     const layer: Layer = {
       id: uid(),
       name: `Papier découpé ${n}`,
@@ -461,7 +550,7 @@ export function App() {
       dy: a.dy,
       w: w / m,
       h: h / m,
-      mask: lasso.map((p) => ({ x: (p.x - x0) / w, y: (p.y - y0) / h })),
+      cut: ringsToPath(ringsOfGeom(intersect([local], [local])), 0.6 / (scale * Math.max(w, h))),
       guide: 0,
       height: 0.2,
       visible: true,
@@ -489,7 +578,6 @@ export function App() {
       dy: 0,
       w,
       h,
-      mask: kind === 'photo' ? undefined : undefined,
       guide: kind === 'shape' ? guide : 0,
       src: opts.src,
       height: 0.3,
@@ -594,6 +682,11 @@ export function App() {
               <button className={`btn ${tool === 'cut' ? 'on' : ''}`} onClick={() => setTool('cut')} title="Découper (C) : trace un contour au stylet">
                 <Icon name="scissors" />
               </button>
+              {tool === 'cut' && (
+                <button className={`btn ${magnet ? 'on' : ''}`} onClick={() => setMagnet(!magnet)} title="Lignes magnétiques : les ciseaux suivent les contours proches">
+                  <Icon name="magnet" />
+                </button>
+              )}
               <button className={`btn ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre à l'aquarelle (B)">
                 <Icon name="brush" />
               </button>
@@ -788,7 +881,7 @@ export function App() {
           {sel && (
             <div className="status">
               {tool === 'paint' && `Peinture dans « ${sel.name} »`}
-              {tool === 'cut' && (sel.kind === 'surface' ? 'Trace un contour : nouveau papier découpé' : `Trace un contour sur « ${sel.name} » pour la découper, ou ailleurs pour un nouveau papier`)}
+              {tool === 'cut' && `Trace un contour : le morceau se détache de la couche touchée${magnet ? ', aimanté sur les contours' : ''}`}
               {tool === 'move' && `« ${sel.name} » · ${sel.kind === 'surface' ? 'suit le format' : sel.anchor.point}`}
             </div>
           )}
@@ -872,26 +965,21 @@ function LayerThumb({ layer, doc }: { layer: Layer; doc: Doc }) {
     c.width = c.height = S * 2;
     ctx.setTransform(2, 0, 0, 2, 0, 0);
     ctx.clearRect(0, 0, S, S);
-    const m = layer.mask ?? (layer.shape ? shapePath(layer.shape) : null);
     const k = 36 / Math.max(layer.w, layer.h);
     const w = layer.kind === 'surface' ? 36 : layer.w * k;
     const h = layer.kind === 'surface' ? 36 : layer.h * k;
     const x0 = (S - w) / 2;
     const y0 = (S - h) / 2;
-    ctx.beginPath();
-    const pts = m ?? [
-      { x: 0, y: 0 },
-      { x: 1, y: 0 },
-      { x: 1, y: 1 },
-      { x: 0, y: 1 },
-    ];
-    pts.forEach((p, i) => (i ? ctx.lineTo(x0 + p.x * w, y0 + p.y * h) : ctx.moveTo(x0 + p.x * w, y0 + p.y * h)));
-    ctx.closePath();
+    const path = new Path2D();
+    path.addPath(new Path2D(cutOf(layer)), new DOMMatrix([w, 0, 0, h, x0, y0]));
     ctx.fillStyle = layer.kind === 'photo' ? '#8a7fa8' : guideColor(doc.guides[layer.guide], 0.5);
-    ctx.fill();
+    ctx.fill(path, 'evenodd');
+    ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+    ctx.lineWidth = 0.75;
+    ctx.stroke(path);
     if (layer.strokes.length) {
       ctx.save();
-      ctx.clip();
+      ctx.clip(path, 'evenodd');
       for (const s of layer.strokes) {
         ctx.strokeStyle = guideColor(doc.guides[s.guide], 0.5);
         ctx.globalAlpha = 0.7;

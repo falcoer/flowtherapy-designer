@@ -1,5 +1,5 @@
 import photo from '../../../library/images/trio-concert/source.jpeg?inline';
-import { DEFAULT_GUIDES, shapePath, type Doc, type Stroke } from './model';
+import { DEFAULT_GUIDES, type Doc, type Stroke } from './model';
 
 /** Un trait de démonstration : une vague en travers de la couche. */
 function wave(guide: number, y: number, amp: number, size: number, seed: number): Stroke {
@@ -41,7 +41,7 @@ export function demoDoc(): Doc {
         dy: 0.02,
         w: 0.86,
         h: 0.6,
-        mask: shapePath('blob'),
+        shape: 'blob',
         guide: 0,
         src: photo,
         height: 0.35,
@@ -57,7 +57,7 @@ export function demoDoc(): Doc {
         dy: 0.04,
         w: 0.78,
         h: 0.42,
-        mask: shapePath('arch'),
+        shape: 'arch',
         guide: 6,
         height: 0.25,
         visible: true,
