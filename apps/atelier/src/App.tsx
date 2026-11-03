@@ -58,12 +58,13 @@ const BRUSHES: Array<[BrushKind, string, string]> = [
 const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
   [null, 'Aucune', 'pas de lueur'],
   ['neon', 'Néon', 'tube lumineux'],
-  ['laser', 'Laser', 'trait vif et net'],
+  ['laser', 'Laser', 'faisceaux droits, impact'],
   ['electric', 'Électricité', 'éclairs et branches'],
   ['particles', 'Particules', 'poussière lumineuse'],
   ['smoke', 'Fumée', 'volutes douces'],
   ['halo', 'Halo lumineux', 'lueur large et diffuse'],
   ['aura', 'Énergie', 'aura de flammes'],
+  ['fire', 'Flammes', 'langues de feu qui montent'],
 ];
 const swatch = (g: Guide | undefined) => (g?.type === 'gradient' ? `linear-gradient(135deg, ${g.stops.join(',')})` : guideColor(g));
 const EDGE_MODES: Array<[EdgeMode, string, string]> = [

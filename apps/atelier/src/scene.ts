@@ -694,7 +694,7 @@ function outwardNormals(ring: Pt[], pts: Pt[]): Pt[] {
 }
 
 /** Lueurs posées derrière l'objet ; les autres passent devant. */
-const GLOW_BEHIND = new Set(['smoke', 'halo', 'aura']);
+const GLOW_BEHIND = new Set(['smoke', 'halo', 'aura', 'fire']);
 
 /**
  * Lueur autour de la découpe, à une distance du bord et sur une largeur
@@ -748,21 +748,181 @@ function drawGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, 
       break;
     }
     case 'laser': {
+      // laser : un trait fin et dur, des faisceaux droits qui filent dans le prolongement
+      // des angles, et un point d'impact qui crépite
       const p = offset(mid);
+      const [r0, g0, b0] = hexRGB(col).map((v) => Math.round(v * 255));
+      ctx.lineJoin = 'miter';
       ctx.shadowColor = col;
       ctx.strokeStyle = col;
-      ctx.globalAlpha = 0.35;
-      ctx.shadowBlur = w * 5 * S;
-      ctx.lineWidth = w * 1.4;
+      ctx.globalAlpha = 0.45;
+      ctx.shadowBlur = w * 2 * S;
+      ctx.lineWidth = w * 0.5;
       ctx.stroke(p);
       ctx.globalAlpha = 1;
-      ctx.shadowBlur = w * 1.2 * S;
-      ctx.lineWidth = w * 0.55;
+      ctx.shadowBlur = w * 0.7 * S;
+      ctx.lineWidth = w * 0.3;
       ctx.stroke(p);
       ctx.shadowBlur = 0;
       ctx.strokeStyle = '#fff';
-      ctx.lineWidth = Math.max(w * 0.16, 0.8 / S);
+      ctx.lineWidth = Math.max(w * 0.11, 0.6 / S);
       ctx.stroke(p);
+      const beam = (x: number, y: number, dx: number, dy: number, len: number) => {
+        const g = ctx.createLinearGradient(x, y, x + dx * len, y + dy * len);
+        g.addColorStop(0, `rgba(${r0},${g0},${b0},0.95)`);
+        g.addColorStop(1, `rgba(${r0},${g0},${b0},0)`);
+        ctx.strokeStyle = g;
+        ctx.lineCap = 'butt';
+        ctx.shadowBlur = w * 1 * S;
+        ctx.lineWidth = w * 0.28;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + dx * len, y + dy * len);
+        ctx.stroke();
+      };
+      let hot: Pt | null = null;
+      for (const { pts, nr } of lines) {
+        const n = pts.length;
+        const at = (i: number) => {
+          const q = pts[((i % n) + n) % n]!;
+          const m = nr[((i % n) + n) % n]!;
+          return { x: q.x + m.x * mid, y: q.y + m.y * mid };
+        };
+        const K = 3;
+        const turn = pts.map((_, i) => {
+          const a0 = at(i - K), c = at(i), a1 = at(i + K);
+          const t0 = Math.atan2(c.y - a0.y, c.x - a0.x);
+          const t1 = Math.atan2(a1.y - c.y, a1.x - c.x);
+          let d = Math.abs(t1 - t0);
+          if (d > Math.PI) d = 2 * Math.PI - d;
+          return d;
+        });
+        let corners = turn
+          .map((_, i) => i)
+          .filter((i) => {
+            if (turn[i]! < 0.55) return false;
+            for (let d = -K; d <= K; d++) {
+              const u = turn[(((i + d) % n) + n) % n]!;
+              if (d && (u > turn[i]! || (u === turn[i]! && d < 0))) return false;
+            }
+            return true;
+          });
+        if (!corners.length) {
+          // forme douce : les quatre points extrêmes
+          const ext = (f: (q: Pt) => number) => pts.reduce((bi, q, i) => (f(q) > f(pts[bi]!) ? i : bi), 0);
+          corners = [ext((q) => -q.y), ext((q) => q.y), ext((q) => -q.x), ext((q) => q.x)];
+        }
+        for (const i of corners) {
+          const c = at(i);
+          for (const [j, sgn] of [[i - K, 1], [i + K, -1]] as const) {
+            const o2 = at(j);
+            const dx = (c.x - o2.x) * sgn;
+            const dy = (c.y - o2.y) * sgn;
+            const dl = Math.hypot(dx, dy) || 1;
+            beam(c.x, c.y, dx / dl, dy / dl, w * (8 + rnd() * 8));
+          }
+        }
+        for (const q of pts.map((_, i) => at(i))) if (!hot || q.x - q.y > hot.x - hot.y) hot = q;
+      }
+      if (hot) {
+        // point d'impact : éclat blanc, croix fine et étincelles
+        const R = w * 1.6;
+        const g = ctx.createRadialGradient(hot.x, hot.y, 0, hot.x, hot.y, R);
+        g.addColorStop(0, 'rgba(255,255,255,1)');
+        g.addColorStop(0.25, `rgba(${r0},${g0},${b0},0.8)`);
+        g.addColorStop(1, `rgba(${r0},${g0},${b0},0)`);
+        ctx.fillStyle = g;
+        ctx.shadowBlur = 0;
+        ctx.fillRect(hot.x - R, hot.y - R, R * 2, R * 2);
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = Math.max(w * 0.06, 0.5 / S);
+        ctx.beginPath();
+        ctx.moveTo(hot.x - R * 1.8, hot.y);
+        ctx.lineTo(hot.x + R * 1.8, hot.y);
+        ctx.moveTo(hot.x, hot.y - R * 1.2);
+        ctx.lineTo(hot.x, hot.y + R * 1.2);
+        ctx.stroke();
+        ctx.lineCap = 'round';
+        for (let k = 0; k < 14; k++) {
+          const an = rnd() * Math.PI * 2;
+          const r1 = R * (0.3 + rnd() * 0.3);
+          const r2 = r1 + R * (0.4 + rnd() * 1.2);
+          ctx.strokeStyle = rnd() < 0.5 ? '#fff' : col;
+          ctx.lineWidth = Math.max(w * (0.04 + rnd() * 0.06), 0.5 / S);
+          ctx.beginPath();
+          ctx.moveTo(hot.x + Math.cos(an) * r1, hot.y + Math.sin(an) * r1);
+          ctx.lineTo(hot.x + Math.cos(an) * r2, hot.y + Math.sin(an) * r2);
+          ctx.stroke();
+        }
+      }
+      break;
+    }
+    case 'fire': {
+      // flammes : des langues qui ondulent et montent, plus hautes sur le dessus,
+      // bord de la couleur choisie, cœur jaune puis blanc
+      const [r0, g0, b0] = hexRGB(col).map((v) => Math.round(v * 255));
+      const tongues: Array<{ x: number; y: number; dx: number; dy: number; len: number; wid: number; sway: number; ph: number }> = [];
+      for (const { pts, nr } of lines)
+        for (let i = 0; i < pts.length; i++) {
+          if (rnd() < 0.55) continue;
+          const n = nr[i]!;
+          const up = Math.max(0, -n.y);
+          let dx = n.x * 0.35;
+          let dy = n.y * 0.35 - 1;
+          const dl = Math.hypot(dx, dy) || 1;
+          dx /= dl;
+          dy /= dl;
+          const big = rnd() < 0.18 ? 1.7 : 1;
+          tongues.push({
+            x: pts[i]!.x + n.x * dist,
+            y: pts[i]!.y + n.y * dist,
+            dx,
+            dy,
+            len: w * (2.6 + 7 * up + rnd() * 3.5) * big,
+            wid: w * (0.7 + rnd() * 0.6) * (0.8 + 0.4 * big),
+            sway: (rnd() - 0.5) * 1.2,
+            ph: rnd() * Math.PI * 2,
+          });
+        }
+      const tongue = (t: (typeof tongues)[number], kLen: number, kWid: number, c0: string, c1: string) => {
+        const L = t.len * kLen;
+        const W2 = t.wid * kWid;
+        const tx = -t.dy;
+        const ty = t.dx;
+        const sx = (u: number) => Math.sin(u * 2.6 + t.ph) * t.sway * W2 * 1.4 * u;
+        const P = (u: number, side: number) => {
+          const half = W2 * Math.pow(1 - u, 0.8) * Math.sin(Math.min(1, u * 4 + 0.35) * Math.PI * 0.5);
+          const off = sx(u) + side * half;
+          return [t.x + t.dx * L * u + tx * off, t.y + t.dy * L * u + ty * off] as const;
+        };
+        const g = ctx.createLinearGradient(t.x, t.y, t.x + t.dx * L, t.y + t.dy * L);
+        g.addColorStop(0, c0);
+        g.addColorStop(0.55, c0);
+        g.addColorStop(1, c1);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        for (let k = 0; k <= 10; k++) ctx.lineTo(...P(k / 10, 1));
+        for (let k = 10; k >= 0; k--) ctx.lineTo(...P(k / 10, -1));
+        ctx.closePath();
+        ctx.fill();
+      };
+      ctx.shadowColor = col;
+      ctx.shadowBlur = w * 1.2 * S;
+      for (const t of tongues) tongue(t, 1, 1, `rgba(${r0},${g0},${b0},0.9)`, `rgba(${r0},${g0},${b0},0)`);
+      ctx.shadowBlur = 0;
+      for (const t of tongues) tongue(t, 0.7, 0.62, 'rgba(255,196,64,0.9)', 'rgba(255,170,40,0)');
+      for (const t of tongues) tongue(t, 0.4, 0.32, 'rgba(255,250,220,0.95)', 'rgba(255,240,180,0)');
+      // braises qui s'échappent
+      for (const t of tongues)
+        if (rnd() < 0.12) {
+          const u = 1.05 + rnd() * 0.6;
+          const x = t.x + t.dx * t.len * u + (rnd() - 0.5) * w;
+          const y = t.y + t.dy * t.len * u;
+          ctx.fillStyle = rnd() < 0.5 ? 'rgba(255,210,90,0.9)' : `rgba(${r0},${g0},${b0},0.8)`;
+          ctx.beginPath();
+          ctx.arc(x, y, w * (0.05 + rnd() * 0.08), 0, Math.PI * 2);
+          ctx.fill();
+        }
       break;
     }
     case 'electric': {
