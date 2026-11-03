@@ -112,8 +112,12 @@ button:disabled { opacity: 0.35; cursor: default; }
 .side.dense .vslider { height: 118px; }
 .side.denser .vslider { height: 92px; }
 .side.densest .vslider { height: 70px; }
-.side-sep { width: 22px; height: 1px; background: var(--line); }
-.side-sep:first-child { display: none; }
+.side-sep { width: 22px; height: 1px; background: var(--line); margin: 4px 0; flex: none; }
+.side-sep + .side-sep { display: none; }
+.side > .btn { flex: none; }
+/* la barre tient dans la hauteur de l'écran : au-delà, elle passe sur une seconde colonne */
+.side { max-height: calc(100dvh - 52px - 24px - env(safe-area-inset-bottom, 0px)); flex-wrap: wrap; align-content: flex-start; column-gap: 6px; }
+.side > * { flex: none; }
 .trash { transition: transform 0.12s, background 0.12s, color 0.12s; }
 .trash.armed { color: var(--danger); }
 .trash.hot { background: var(--danger); color: #fff; transform: scale(1.25); }

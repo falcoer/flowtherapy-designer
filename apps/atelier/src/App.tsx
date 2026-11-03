@@ -954,27 +954,8 @@ export function App() {
               <button className={`chip ${bubble === 'format' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'format' ? null : 'format')}>
                 <FormatGlyph w={f.width} h={f.height} /> <span className="chip-label">{f.title}</span>
               </button>
-              <button className="btn fit" onClick={() => setView({ zoom: 1, rot: 0, px: 0, py: 0 })} title="Recadrer la vue" disabled={view.zoom === 1 && !view.rot && !view.px && !view.py}>
-                <Icon name="fit" />
-              </button>
             </div>
             <div className="bar-right">
-              <button className={`btn ${tool === 'cut' ? 'on' : ''}`} onClick={() => setTool('cut')} title="Découper (C) : trace un contour au stylet">
-                <Icon name="scissors" />
-              </button>
-              <button className={`btn ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre à l'aquarelle (B)">
-                <Icon name="brush" />
-              </button>
-              <button className={`btn ${tool === 'edge' ? 'on' : ''}`} onClick={() => setTool('edge')} title="Bords (E) : bord, biseau, ombre intérieure, lueur">
-                <Icon name="frame" />
-              </button>
-              <button className={`btn ${tool === 'transform' ? 'on' : ''}`} onClick={() => setTool('transform')} title="Transformer (T) : style photo et effets">
-                <Icon name="transform" />
-              </button>
-              <button className={`btn ${tool === 'move' ? 'on' : ''}`} onClick={() => setTool('move')} title="Disposer (V) : déplacer, agrandir, ancrer">
-                <Icon name="move" />
-              </button>
-              <span className="sep" />
               <button className={`btn ${bubble === 'layers' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'layers' ? null : 'layers')} title="Couches">
                 <Icon name="layers" />
               </button>
@@ -985,6 +966,9 @@ export function App() {
                 <span className="dot" style={{ background: g?.type === 'gradient' ? `linear-gradient(135deg, ${g.stops.join(',')})` : guideColor(g) }} />
               </button>
               <span className="sep" />
+              <button className="btn fit" onClick={() => setView({ zoom: 1, rot: 0, px: 0, py: 0 })} title="Recadrer la vue" disabled={view.zoom === 1 && !view.rot && !view.px && !view.py}>
+                <Icon name="fit" />
+              </button>
               <button className="btn" onClick={() => setRendu(true)} title="Rendu final">
                 <Icon name="eye" />
               </button>
@@ -992,6 +976,22 @@ export function App() {
           </header>
 
           <aside className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][2 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'transform' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0) + (sel.fx?.length ? 1 : 0)] : ''}`}>
+            <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => setTool('cut')} title="Découper (C) : trace un contour au stylet">
+              <Icon name="scissors" />
+            </button>
+            <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre à l'aquarelle (B)">
+              <Icon name="brush" />
+            </button>
+            <button className={`btn small ${tool === 'edge' ? 'on' : ''}`} onClick={() => setTool('edge')} title="Bords (E) : bord, biseau, ombre intérieure, lueur">
+              <Icon name="frame" />
+            </button>
+            <button className={`btn small ${tool === 'transform' ? 'on' : ''}`} onClick={() => setTool('transform')} title="Transformer (T) : style photo et effets">
+              <Icon name="transform" />
+            </button>
+            <button className={`btn small ${tool === 'move' ? 'on' : ''}`} onClick={() => setTool('move')} title="Disposer (V) : déplacer, agrandir, ancrer">
+              <Icon name="move" />
+            </button>
+            <span className="side-sep" />
             {tool === 'paint' && (
               <>
                 <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
