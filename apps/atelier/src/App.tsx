@@ -17,16 +17,17 @@ import {
   type Layer,
   type Pt,
   type BorderStyle,
+  type GlowStyle,
   type ShapeKind,
   type Stroke,
 } from './model';
 import { geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRing, subtract } from './cut';
-import { FX, FX_GROUPS, fxGuides, fxOf, newFx, type Fx, type FxId } from './fx';
+import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, newFx, type Fx, type FxId } from './fx';
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
 import { cutOf, holdPins, imageFor, localBounds, localToPage, pageBounds, pageToLocal, pinsOf, drawChecker, drawLayers, forgetPaint, localRings, maskPath2D, maskRings, paintTarget, tracePath } from './scene';
 
-type Tool = 'cut' | 'paint' | 'transform' | 'move';
+type Tool = 'cut' | 'paint' | 'edge' | 'transform' | 'move';
 type Bubble = 'layers' | 'palette' | 'light' | 'format' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
@@ -41,6 +42,18 @@ const BORDER_TYPES: Array<[BorderStyle | null, string, string]> = [
   ['round', 'Arrondi', 'suit la découpe'],
   ['straight', 'Droit', 'à facettes'],
   ['torn', 'Déchiré', 'papier arraché'],
+  ['zigzag', 'Zigzag', 'dents agressives'],
+  ['double', 'Double', 'deux couleurs'],
+];
+const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
+  [null, 'Aucune', 'pas de lueur'],
+  ['neon', 'Néon', 'tube lumineux'],
+  ['laser', 'Laser', 'trait vif et net'],
+  ['electric', 'Électricité', 'éclairs et branches'],
+  ['particles', 'Particules', 'poussière lumineuse'],
+  ['smoke', 'Fumée', 'volutes douces'],
+  ['halo', 'Halo lumineux', 'lueur large et diffuse'],
+  ['aura', 'Énergie', 'aura de flammes'],
 ];
 const swatch = (g: Guide | undefined) => (g?.type === 'gradient' ? `linear-gradient(135deg, ${g.stops.join(',')})` : guideColor(g));
 const EDGE_MODES: Array<[EdgeMode, string, string]> = [
@@ -58,6 +71,14 @@ function load(): Doc {
       for (const l of d.layers) {
         // biseau séparé de la hauteur : les anciens documents gardent leur relief
         if (l.bevel === undefined) l.bevel = l.kind === 'surface' ? 0 : Math.round(l.height * 60) / 100;
+        // effets de cadre passés dans l'outil Bords
+        const old = (l.fx ?? []) as Array<{ id: string; guides: number[]; amount: number }>;
+        for (const e of old) {
+          if (e.id === 'inner') l.inner = e.amount;
+          if (e.id === 'neon') l.glow = { style: 'neon', guide: e.guides[0] ?? 3, distance: 0, width: e.amount };
+          if (e.id === 'sticker' && !l.border) l.border = { style: 'double', guide: e.guides[0] ?? 6, guide2: e.guides[1] ?? 1, width: 0.004 + e.amount * 0.03 };
+        }
+        if (l.fx) l.fx = l.fx.filter((e) => fxOf(e.id));
       }
       for (const l of d.layers)
         if (l.mask) {
@@ -127,7 +148,8 @@ export function App() {
   const [edgeThreshold, setEdgeThreshold] = useState(0.35);
   const [edgeSmooth, setEdgeSmooth] = useState(0.4);
   const [modePick, setModePick] = useState(false);
-  const [borderPick, setBorderPick] = useState(false);
+  /** Bulle ouverte de l'outil Bords. */
+  const [epop, setEpop] = useState<string | null>(null);
   /** Bulle ouverte de l'outil Transformer : style, guide du style, effets, guide d'effet. */
   const [tpop, setTpop] = useState<string | null>(null);
   const [fxFocus, setFxFocus] = useState<number | null>(null);
@@ -135,7 +157,6 @@ export function App() {
     setFxFocus(null);
     setTpop(null);
   }, [selected]);
-  const [borderColorPick, setBorderColorPick] = useState(false);
   const trashRef = useRef<HTMLButtonElement>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const [trashHot, setTrashHot] = useState(false);
@@ -383,8 +404,7 @@ export function App() {
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     setBubble(null);
     setModePick(false);
-    setBorderPick(false);
-    setBorderColorPick(false);
+    setEpop(null);
     const touches = [...pointers.current.values()].filter((p) => p.type === 'touch');
     if (e.pointerType === 'touch' && touches.length >= 2) {
       // plusieurs doigts : on annule le geste à un doigt et on manipule la vue
@@ -447,7 +467,7 @@ export function App() {
       live.current = { kind: 'move', layer: l.id, start: p, orig: structuredClone(l), snap: null };
       return;
     }
-    if (t === 'transform') {
+    if (t === 'transform' || t === 'edge') {
       // Transformer : toucher une photo la sélectionne
       const l = layerAt(p.x, p.y);
       setSelected(l?.id ?? null);
@@ -878,6 +898,7 @@ export function App() {
       } else if (e.key === 'b') setTool('paint');
       else if (e.key === 'c') setTool('cut');
       else if (e.key === 't') setTool('transform');
+      else if (e.key === 'e') setTool('edge');
       else if (e.key === 'v') setTool('move');
       else if (e.key === 'Escape') {
         setBubble(null);
@@ -942,6 +963,9 @@ export function App() {
               <button className={`btn ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre à l'aquarelle (B)">
                 <Icon name="brush" />
               </button>
+              <button className={`btn ${tool === 'edge' ? 'on' : ''}`} onClick={() => setTool('edge')} title="Bords (E) : bord, biseau, ombre intérieure, lueur">
+                <Icon name="frame" />
+              </button>
               <button className={`btn ${tool === 'transform' ? 'on' : ''}`} onClick={() => setTool('transform')} title="Transformer (T) : style photo et effets">
                 <Icon name="transform" />
               </button>
@@ -965,7 +989,7 @@ export function App() {
             </div>
           </header>
 
-          <aside className={`side ${tool === 'move' && sel && sel.kind !== 'surface' ? (sel.border ? 'denser' : 'dense') : tool === 'transform' && sel?.look && sel.fx?.length ? 'denser' : tool === 'transform' && (sel?.look || sel?.fx?.length) ? 'dense' : ''}`}>
+          <aside className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][2 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'transform' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0) + (sel.fx?.length ? 1 : 0)] : ''}`}>
             {tool === 'paint' && (
               <>
                 <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
@@ -1011,57 +1035,10 @@ export function App() {
               <>
                 <VSlider label="Hauteur" value={sel.height} onChange={(v) => patchLayer(sel.id, { height: Math.round(v * 100) / 100 }, false)} />
                 <VSlider label="Opacité" value={sel.opacity ?? 1} onChange={(v) => patchLayer(sel.id, { opacity: Math.round(v * 100) / 100 }, false)} />
-                <VSlider label="Biseau" value={sel.bevel ?? 0} onChange={(v) => patchLayer(sel.id, { bevel: Math.round(v * 100) / 100 }, false)} />
-                <button className={`btn small ${borderPick ? 'on' : ''}`} onClick={() => setBorderPick(!borderPick)} title={`Bord : ${BORDER_TYPES.find((x) => x[0] === (sel.border?.style ?? null))![1]}`}>
-                  <Icon name={`border-${sel.border?.style ?? 'none'}`} />
-                </button>
-                {borderPick && (
-                  <div className="mode-pop">
-                    <div className="b-title">Bord</div>
-                    {BORDER_TYPES.map(([st, t, hint]) => (
-                      <button
-                        key={t}
-                        className={`row ${(sel.border?.style ?? null) === st ? 'on' : ''}`}
-                        onClick={() => {
-                          patchLayer(sel.id, { border: st ? { style: st, guide: sel.border?.guide ?? 0, width: sel.border?.width ?? 0.012 } : undefined });
-                          setBorderPick(false);
-                        }}
-                      >
-                        <Icon name={`border-${st ?? 'none'}`} />
-                        <span>{t}</span>
-                        <small>{hint}</small>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {sel.border && (
-                  <>
-                    <button className={`btn small guide-btn ${borderColorPick ? 'on' : ''}`} onClick={() => setBorderColorPick(!borderColorPick)} title="Couleur du bord">
-                      <span className="dot" style={{ background: swatch(doc.guides[sel.border.guide]) }} />
-                    </button>
-                    {borderColorPick && (
-                      <div className="mode-pop">
-                        <div className="b-title">Couleur du bord</div>
-                        <div className="border-guides">
-                          {doc.guides.map((x, i) => (
-                            <button
-                              key={i}
-                              className={`sw ${sel.border!.guide === i ? 'on' : ''}`}
-                              title={x.name}
-                              style={{ background: swatch(x) }}
-                              onClick={() => {
-                                patchLayer(sel.id, { border: { ...sel.border!, guide: i } });
-                                setBorderColorPick(false);
-                              }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    <VSlider label="Bord" value={Math.sqrt((sel.border.width - 0.002) / 0.198)} onChange={(v) => patchLayer(sel.id, { border: { ...sel.border!, width: 0.002 + Math.round(v * v * 198) / 1000 } }, false)} />
-                  </>
-                )}
               </>
+            )}
+            {tool === 'edge' && sel && sel.kind !== 'surface' && (
+              <EdgeControls layer={sel} guides={doc.guides} pop={epop} setPop={setEpop} patch={(p, h) => patchLayer(sel.id, p, h)} />
             )}
             {tool === 'transform' && sel?.kind === 'photo' && (
               <LookControls
@@ -1263,6 +1240,7 @@ export function App() {
             </div>
           )}
 
+          {tool === 'edge' && (!sel || sel.kind === 'surface') && <div className="status">Sélectionne une photo ou une forme pour régler ses bords</div>}
           {tool === 'transform' && !sel && <div className="status">Sélectionne une photo ou une forme pour la transformer</div>}
           {!sel && tool === 'cut' && magnet && <div className="status">Sélectionne une image : ses contours guideront les ciseaux</div>}
           {sel && (
@@ -1270,7 +1248,8 @@ export function App() {
               {tool === 'paint' && `Peinture dans « ${sel.name} »`}
               {tool === 'cut' && `Trace un contour : le morceau se détache de la couche touchée${magnet ? `, aimanté sur les contours de « ${sel.name} »` : ''}`}
               {tool === 'transform' &&
-                `« ${sel.name} » · ${[sel.kind === 'photo' ? (lookOf(sel.look?.style)?.name ?? 'photo originale') : '', ...(sel.fx ?? []).map((x) => fxOf(x.id)?.name)].filter(Boolean).join(' + ') || 'aucun effet'}`}
+                `« ${sel.name} » · ${[sel.kind === 'photo' ? [lookOf(sel.look?.style)?.name ?? 'photo originale', fxOf(sel.look?.draw?.id)?.name].filter(Boolean).join(' + ') : '', ...(sel.fx ?? []).map((x) => fxOf(x.id)?.name)].filter(Boolean).join(' + ') || 'aucun effet'}`}
+              {tool === 'edge' && sel.kind !== 'surface' && `« ${sel.name} » · ${[sel.border && BORDER_TYPES.find((x) => x[0] === sel.border!.style)?.[1], sel.glow && GLOW_TYPES.find((x) => x[0] === sel.glow!.style)?.[1]].filter(Boolean).join(' + ') || 'sans bord'}`}
               {tool === 'move' && `« ${sel.name} » · ${sel.kind === 'surface' ? 'suit le format' : sel.anchor.point}`}
             </div>
           )}
@@ -1558,22 +1537,44 @@ function LookControls({
       const gs = lookGuides(d, look?.style === d.id ? look : undefined).map((i) => guides[i]);
       out[d.id] = applyLook(base, `thumb${key}`, d, gs, 84).toDataURL('image/jpeg', 0.8);
     }
+    // filtres dessin : posés sur la photo avec son style actuel
+    const styled = def ? applyLook(base, `thumb${key}`, def, lookGuides(def, look).map((i) => guides[i]), 84) : base;
+    out['draw-none'] = styled.toDataURL('image/jpeg', 0.8);
+    for (const id of DRAW_FX) {
+      const c = document.createElement('canvas');
+      c.width = base.width;
+      c.height = base.height;
+      const cx = c.getContext('2d', { willReadFrequently: true })!;
+      cx.drawImage(styled, 0, 0, c.width, c.height);
+      const img = cx.getImageData(0, 0, c.width, c.height);
+      applyPixelFx(img, [look?.draw?.id === id ? look.draw : newFx(id)], guides, 110, 0, -1);
+      cx.putImageData(img, 0, 0);
+      out[`draw-${id}`] = c.toDataURL('image/jpeg', 0.8);
+    }
     return out;
   }, [pick, im, layer.src, guides, look]);
+  const tidy = (v: LookSettings) => (v.style || v.draw ? v : undefined);
   const choose = (id: LookId | null) => {
-    if (!id) onChange(undefined);
+    if (!id) onChange(tidy({ ...(look ?? { guides: [], mix: 1 }), style: undefined, guides: [] }));
     else {
       const d = lookOf(id)!;
       // les guides déjà choisis sont gardés quand le nouveau style en demande autant
       const keep = look && lookOf(look.style)?.slots.length === d.slots.length ? look.guides : d.slots.map((x) => x.def);
-      onChange({ style: id, guides: keep, mix: look?.mix ?? 1 });
+      onChange({ ...look, style: id, guides: keep, mix: look?.mix ?? 1 });
     }
     setPick(false);
   };
+  const chooseDraw = (id: FxId | null) => {
+    onChange(tidy({ ...(look ?? { guides: [], mix: 1 }), draw: id ? (look?.draw?.id === id ? look.draw : newFx(id)) : undefined }));
+    setPick(false);
+  };
+  const draw = look?.draw;
+  const drawDef = fxOf(draw?.id);
+  const drawSlots = drawDef && draw ? fxGuides(drawDef, draw) : [];
   const slots = def ? lookGuides(def, look) : [];
   return (
     <>
-      <button className={`btn small look-btn ${pick ? 'on' : ''}`} onClick={() => setPick(!pick)} title={`Style : ${def?.name ?? 'aucun'}`}>
+      <button className={`btn small look-btn ${pick ? 'on' : ''}`} onClick={() => setPick(!pick)} title={`Style photo et dessin : ${[def?.name, fxOf(look?.draw?.id)?.name].filter(Boolean).join(' + ') || 'aucun'}`}>
         <Icon name="transform" />
       </button>
       {pick && (
@@ -1583,6 +1584,15 @@ function LookControls({
             {[{ id: null as LookId | null, name: 'Original' }, ...LOOKS.map((d) => ({ id: d.id as LookId | null, name: d.name }))].map((x) => (
               <button key={x.id ?? 'none'} className={`look-item ${(look?.style ?? null) === x.id ? 'on' : ''}`} onClick={() => choose(x.id)}>
                 <span className="look-thumb">{thumbs && <img src={thumbs[x.id ?? 'none']} alt="" />}</span>
+                <span className="look-name">{x.name}</span>
+              </button>
+            ))}
+          </div>
+          <div className="fx-group">Dessin</div>
+          <div className="look-grid">
+            {[{ id: null as FxId | null, name: 'Sans dessin' }, ...DRAW_FX.map((id) => ({ id: id as FxId | null, name: fxOf(id)!.name }))].map((x) => (
+              <button key={x.id ?? 'none'} className={`look-item ${(draw?.id ?? null) === x.id ? 'on' : ''}`} onClick={() => chooseDraw(x.id)}>
+                <span className="look-thumb">{thumbs && <img src={thumbs[`draw-${x.id ?? 'none'}`]} alt="" />}</span>
                 <span className="look-name">{x.name}</span>
               </button>
             ))}
@@ -1617,7 +1627,40 @@ function LookControls({
           </div>
         </div>
       )}
-      {look && <VSlider label="Mélange" value={look.mix} onChange={(v) => onChange({ ...look, mix: Math.round(v * 100) / 100 }, false)} />}
+      {look && def && <VSlider label="Mélange" value={look.mix} onChange={(v) => onChange({ ...look, mix: Math.round(v * 100) / 100 }, false)} />}
+      {look && draw && drawDef && (
+        <>
+          {drawDef.slots.map((sl, i) => (
+            <button key={`d${i}`} className={`btn small guide-btn ${guidePick === 10 + i ? 'on' : ''}`} onClick={() => setGuidePick(guidePick === 10 + i ? null : 10 + i)} title={`${drawDef.name} · ${sl.label} : ${guides[drawSlots[i]!]?.name ?? ''}`}>
+              <span className="dot" style={{ background: swatch(guides[drawSlots[i]!]) }} />
+            </button>
+          ))}
+          {guidePick !== null && guidePick >= 10 && drawDef.slots[guidePick - 10] && (
+            <div className="mode-pop">
+              <div className="b-title">
+                {drawDef.name} · {drawDef.slots[guidePick - 10]!.label}
+              </div>
+              <div className="border-guides">
+                {guides.map((x, i) => (
+                  <button
+                    key={i}
+                    className={`sw ${drawSlots[guidePick - 10] === i ? 'on' : ''}`}
+                    title={x.name}
+                    style={{ background: swatch(x) }}
+                    onClick={() => {
+                      const g = drawSlots.slice();
+                      g[guidePick - 10] = i;
+                      onChange({ ...look, draw: { ...draw, guides: g } });
+                      setGuidePick(null);
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+          <VSlider label="Dessin" value={draw.amount} onChange={(v) => onChange({ ...look, draw: { ...draw, amount: Math.round(v * 100) / 100 } }, false)} />
+        </>
+      )}
     </>
   );
 }
@@ -1757,6 +1800,108 @@ function FxControls({
         </div>
       )}
       {def && cur && <VSlider label="Intensité" value={cur.amount} onChange={(v) => patchCur({ amount: Math.round(v * 100) / 100 }, false)} />}
+    </>
+  );
+}
+
+/** Pastille de couleur avec sa bulle de guides. */
+function GuidePick({ title, value, guides, open, setOpen, onPick }: { title: string; value: number; guides: Guide[]; open: boolean; setOpen: (v: boolean) => void; onPick: (i: number) => void }) {
+  return (
+    <>
+      <button className={`btn small guide-btn ${open ? 'on' : ''}`} onClick={() => setOpen(!open)} title={`${title} : ${guides[value]?.name ?? ''}`}>
+        <span className="dot" style={{ background: swatch(guides[value]) }} />
+      </button>
+      {open && (
+        <div className="mode-pop">
+          <div className="b-title">{title}</div>
+          <div className="border-guides">
+            {guides.map((x, i) => (
+              <button
+                key={i}
+                className={`sw ${value === i ? 'on' : ''}`}
+                title={x.name}
+                style={{ background: swatch(x) }}
+                onClick={() => {
+                  onPick(i);
+                  setOpen(false);
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Outil Bords : type de bord et couleurs, biseau, ombre intérieure, lueur. */
+function EdgeControls({ layer: l, guides, pop, setPop, patch }: { layer: Layer; guides: Guide[]; pop: string | null; setPop: (v: string | null) => void; patch: (p: Partial<Layer>, history?: boolean) => void }) {
+  const toggle = (k: string) => (v: boolean) => setPop(v ? k : null);
+  const bd = l.border;
+  const gl = l.glow;
+  return (
+    <>
+      <button className={`btn small ${pop === 'type' ? 'on' : ''}`} onClick={() => setPop(pop === 'type' ? null : 'type')} title={`Bord : ${BORDER_TYPES.find((x) => x[0] === (bd?.style ?? null))![1]}`}>
+        <Icon name={`border-${bd?.style ?? 'none'}`} />
+      </button>
+      {pop === 'type' && (
+        <div className="mode-pop">
+          <div className="b-title">Bord</div>
+          {BORDER_TYPES.map(([st, t, hint]) => (
+            <button
+              key={t}
+              className={`row ${(bd?.style ?? null) === st ? 'on' : ''}`}
+              onClick={() => {
+                patch({ border: st ? { style: st, guide: bd?.guide ?? 0, guide2: bd?.guide2 ?? 1, width: bd?.width ?? 0.012 } : undefined });
+                setPop(null);
+              }}
+            >
+              <Icon name={`border-${st ?? 'none'}`} />
+              <span>{t}</span>
+              <small>{hint}</small>
+            </button>
+          ))}
+        </div>
+      )}
+      {bd && (
+        <>
+          <GuidePick title={bd.style === 'double' ? 'Bord intérieur' : 'Couleur du bord'} value={bd.guide} guides={guides} open={pop === 'c1'} setOpen={toggle('c1')} onPick={(i) => patch({ border: { ...bd, guide: i } })} />
+          {bd.style === 'double' && <GuidePick title="Bord extérieur" value={bd.guide2 ?? 1} guides={guides} open={pop === 'c2'} setOpen={toggle('c2')} onPick={(i) => patch({ border: { ...bd, guide2: i } })} />}
+          <VSlider label="Bord" value={Math.sqrt((bd.width - 0.002) / 0.198)} onChange={(v) => patch({ border: { ...bd, width: 0.002 + Math.round(v * v * 198) / 1000 } }, false)} />
+        </>
+      )}
+      <VSlider label="Biseau" value={l.bevel ?? 0} onChange={(v) => patch({ bevel: Math.round(v * 100) / 100 }, false)} />
+      <VSlider label="Ombre int." value={l.inner ?? 0} onChange={(v) => patch({ inner: Math.round(v * 100) / 100 }, false)} />
+      <span className="side-sep" />
+      <button className={`btn small ${pop === 'glow' ? 'on' : ''}`} onClick={() => setPop(pop === 'glow' ? null : 'glow')} title={`Lueur : ${GLOW_TYPES.find((x) => x[0] === (gl?.style ?? null))![1]}`}>
+        <Icon name={`glow-${gl?.style ?? 'none'}`} />
+      </button>
+      {pop === 'glow' && (
+        <div className="mode-pop">
+          <div className="b-title">Lueur</div>
+          {GLOW_TYPES.map(([st, t, hint]) => (
+            <button
+              key={t}
+              className={`row ${(gl?.style ?? null) === st ? 'on' : ''}`}
+              onClick={() => {
+                patch({ glow: st ? { style: st, guide: gl?.guide ?? 3, distance: gl?.distance ?? 0.1, width: gl?.width ?? 0.4 } : undefined });
+                setPop(null);
+              }}
+            >
+              <Icon name={`glow-${st ?? 'none'}`} />
+              <span>{t}</span>
+              <small>{hint}</small>
+            </button>
+          ))}
+        </div>
+      )}
+      {gl && (
+        <>
+          <GuidePick title="Couleur de la lueur" value={gl.guide} guides={guides} open={pop === 'gc'} setOpen={toggle('gc')} onPick={(i) => patch({ glow: { ...gl, guide: i } })} />
+          <VSlider label="Distance" value={gl.distance} onChange={(v) => patch({ glow: { ...gl, distance: Math.round(v * 100) / 100 } }, false)} />
+          <VSlider label="Largeur" value={gl.width} onChange={(v) => patch({ glow: { ...gl, width: Math.round(v * 100) / 100 } }, false)} />
+        </>
+      )}
     </>
   );
 }

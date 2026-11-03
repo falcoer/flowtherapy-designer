@@ -6,7 +6,8 @@ import { guideColor, type Guide } from './model';
  *
  * - Matière : calcul par pixel sur la matière de la couche (photo ou aplat,
  *   peinture comprise), avant la découpe.
- * - Contour et lumière : dessinés autour ou dans la découpe par la scène.
+ * - Lumière : dessinée dans la découpe par la scène.
+ * Les effets de cadre (bords, biseau, ombre intérieure, lueurs) sont dans l'outil Bords.
  */
 
 export type FxId =
@@ -19,16 +20,13 @@ export type FxId =
   | 'watercolor'
   | 'corrugated'
   | 'newsprint'
-  | 'neon'
-  | 'inner'
-  | 'sticker'
   | 'gloss'
   | 'cartoon'
   | 'manga'
   | 'sketch'
   | 'pencil';
 
-export type FxGroup = 'dessin' | 'matiere' | 'contour' | 'lumiere';
+export type FxGroup = 'dessin' | 'matiere' | 'lumiere';
 
 export interface Fx {
   id: FxId;
@@ -567,30 +565,6 @@ export const FX: FxDef[] = [
     },
   },
   {
-    id: 'neon',
-    name: 'Lueur néon',
-    group: 'contour',
-    slots: [{ label: 'Lueur', def: 3 }],
-    amount: 0.5,
-  },
-  {
-    id: 'inner',
-    name: 'Ombre intérieure',
-    group: 'contour',
-    slots: [],
-    amount: 0.5,
-  },
-  {
-    id: 'sticker',
-    name: 'Double contour',
-    group: 'contour',
-    slots: [
-      { label: 'Contour', def: 6 },
-      { label: 'Décalé', def: 1 },
-    ],
-    amount: 0.4,
-  },
-  {
     id: 'gloss',
     name: 'Reflet brillant',
     group: 'lumiere',
@@ -613,10 +587,11 @@ FX.find((x) => x.id === 'gradmap')!.pixel = (d, _k, a) => {
   }
 };
 
+/** Filtres dessin : proposés avec les styles photo, pas dans les effets. */
+export const DRAW_FX = ['cartoon', 'manga', 'sketch', 'pencil'] as const;
+
 export const FX_GROUPS: Array<[FxGroup, string]> = [
-  ['dessin', 'Dessin'],
   ['matiere', 'Matière'],
-  ['contour', 'Contour'],
   ['lumiere', 'Lumière'],
 ];
 

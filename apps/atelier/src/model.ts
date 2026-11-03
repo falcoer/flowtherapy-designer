@@ -28,7 +28,8 @@ export interface Stroke {
   pts: Pt[];
 }
 
-export type BorderStyle = 'round' | 'straight' | 'torn';
+export type BorderStyle = 'round' | 'straight' | 'torn' | 'zigzag' | 'double';
+export type GlowStyle = 'neon' | 'laser' | 'electric' | 'particles' | 'smoke' | 'halo' | 'aura';
 export type LayerKind = 'surface' | 'support' | 'photo' | 'shape';
 export type ShapeKind = 'star' | 'circle' | 'arch' | 'blob';
 
@@ -64,7 +65,11 @@ export interface Layer {
   /** Centre de rotation en coordonnées de la couche ; absent = centre du cadre des poignées. */
   pivot?: { u: number; v: number };
   /** Bord : style, guide de la palette, largeur (fraction du petit côté). */
-  border?: { style: BorderStyle; guide: number; width: number };
+  border?: { style: BorderStyle; guide: number; width: number; /** Seconde couleur (double bord). */ guide2?: number };
+  /** Ombre intérieure (0..1). */
+  inner?: number;
+  /** Lueur autour de la découpe : style, guide, distance au bord et largeur (0..1). */
+  glow?: { style: GlowStyle; guide: number; distance: number; width: number };
   /** Bords de la découpe aimantés sur les bords de la page : tenus au changement de format. */
   pins?: { left?: boolean; right?: boolean; top?: boolean; bottom?: boolean };
   /** Style photographique (outil Transformer). */

@@ -108,6 +108,7 @@ button:disabled { opacity: 0.35; cursor: default; }
 .border-pop input[type='range'] { width: 100%; accent-color: var(--accent); }
 .side.dense .vslider { height: 118px; }
 .side.denser .vslider { height: 92px; }
+.side.densest .vslider { height: 70px; }
 .side-sep { width: 22px; height: 1px; background: var(--line); }
 .side-sep:first-child { display: none; }
 .trash { transition: transform 0.12s, background 0.12s, color 0.12s; }

@@ -1,4 +1,5 @@
 import { guideColor, type Guide } from './model';
+import type { Fx } from './fx';
 
 /**
  * Styles photographiques. Chaque style est une fonction par pixel (couleurs
@@ -309,7 +310,10 @@ export const LOOKS: LookDef[] = [
 export const lookOf = (id: LookId | undefined) => LOOKS.find((x) => x.id === id);
 
 export interface LookSettings {
-  style: LookId;
+  /** Style photographique ; absent = photo d'origine (un filtre dessin peut rester seul). */
+  style?: LookId;
+  /** Filtre dessin, posé après le style. */
+  draw?: Fx;
   /** Index des guides utilisés, dans l'ordre des rôles du style. */
   guides: number[];
   /** Mélange avec l'original (0 = original, 1 = transformée). */

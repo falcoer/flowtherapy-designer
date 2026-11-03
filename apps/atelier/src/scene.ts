@@ -4,7 +4,7 @@ import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
 import { guideColor, layerBox, shapePath, type Doc, type Guide, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { applyLook, lookGuides, lookOf } from './looks';
-import { applyPixelFx, fxGuides, fxOf, hasPixelFx, type FxId } from './fx';
+import { applyPixelFx, hasPixelFx, hexRGB, type Fx, type FxId } from './fx';
 
 /**
  * Rendu de la scène sur un canevas 2D. Chaque couche est dessinée dans sa
@@ -224,13 +224,13 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       if (l.border && l.border.width > 0) {
         ctx.strokeStyle = '#000';
         ctx.lineJoin = 'round';
-        ctx.lineWidth = 2 * l.border.width * minSide;
+        ctx.lineWidth = 2 * l.border.width * minSide * (l.border.style === 'double' ? 2 : l.border.style === 'zigzag' ? 0.12 : 1);
         ctx.stroke(path);
       }
       ctx.restore();
     }
 
-    drawFxBehind(ctx, l, doc, f, o, path);
+    drawGlow(ctx, l, doc, f, o, true);
     // bord : à l'extérieur de la découpe, en débordement de l'objet
     if (l.border && l.border.width > 0) {
       ctx.save();
@@ -252,7 +252,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       ctx.translate(-b.cx, -b.cy);
     }
     // matière et peinture, passées par les effets de matière s'il y en a
-    const buf = hasPixelFx(l.fx) ? fxBuffer(l, doc, f, o) : null;
+    const buf = hasPixelFx(pixelFx(l)) ? fxBuffer(l, doc, f, o) : null;
     if (buf) ctx.drawImage(buf, x0, y0, b.w, b.h);
     else drawMaterial(ctx, l, doc, f, o);
     if (o.wet?.id === l.id) ctx.drawImage(o.wet.canvas, x0, y0, b.w, b.h);
@@ -278,7 +278,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       ctx.stroke(path);
     }
     ctx.restore();
-    drawFxOutside(ctx, l, doc, f, o, path);
+    drawGlow(ctx, l, doc, f, o, false);
     ctx.restore();
   }
   ctx.restore();
@@ -305,7 +305,44 @@ function drawBorder(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format
     ctx.stroke(path);
     return;
   }
+  if (bd.style === 'double') {
+    // deux bandes concentriques : la seconde couleur à l'extérieur
+    ctx.lineJoin = 'round';
+    const save = ctx.strokeStyle;
+    ctx.strokeStyle = guideStyle(ctx, doc.guides[bd.guide2 ?? 1], box);
+    ctx.lineWidth = 4 * wd;
+    ctx.stroke(path);
+    ctx.strokeStyle = save;
+    ctx.lineWidth = 2 * wd;
+    ctx.stroke(path);
+    return;
+  }
   const rings = maskRings(l, f);
+  if (bd.style === 'zigzag') {
+    // dents de scie : une pointe sur deux part loin vers l'extérieur
+    const z = new Path2D();
+    for (const r of rings) {
+      const step = Math.max(wd * 1.4, minSide * 0.004);
+      const pts = resample(r, step);
+      if (pts.length < 4) continue;
+      const nr = outwardNormals(r, pts);
+      pts.forEach((q, i) => {
+        const k = i % 2 ? wd * 2.8 : wd * 0.15;
+        const x = q.x + nr[i]!.x * k;
+        const y = q.y + nr[i]!.y * k;
+        if (i) z.lineTo(x, y);
+        else z.moveTo(x, y);
+      });
+      z.closePath();
+    }
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.fill(z, 'evenodd');
+    ctx.lineJoin = 'miter';
+    ctx.miterLimit = 10;
+    ctx.lineWidth = wd * 0.25;
+    ctx.stroke(z);
+    return;
+  }
   const p2 = new Path2D();
   if (bd.style === 'straight') {
     ctx.lineJoin = 'miter';
@@ -463,6 +500,11 @@ function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
   if (paint) ctx.drawImage(paint, x0, y0, b.w, b.h);
 }
 
+/** Effets de matière de la couche : filtre dessin de la photo d'abord, puis les effets. */
+function pixelFx(l: Layer): Fx[] {
+  return [...(l.kind === 'photo' && l.look?.draw ? [l.look.draw] : []), ...(l.fx ?? [])];
+}
+
 const fxBuffers = new Map<string, { key: string; canvas: HTMLCanvasElement }>();
 
 /** Matière passée par les effets de matière, mise en cache (au plus 1000 px de côté). */
@@ -486,7 +528,7 @@ function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElem
   const img = bx.getImageData(0, 0, pw, ph);
   // la lumière, ramenée dans le repère de la couche (qui peut tourner)
   const a = (doc.light * Math.PI) / 180 - (l.rot ?? 0);
-  applyPixelFx(img, l.fx!, doc.guides, Math.min(f.width, f.height) * k, Math.sin(a), -Math.cos(a));
+  applyPixelFx(img, pixelFx(l), doc.guides, Math.min(f.width, f.height) * k, Math.sin(a), -Math.cos(a));
   bx.putImageData(img, 0, 0);
   if (fxBuffers.size > 60) fxBuffers.clear();
   fxBuffers.set(l.id, { key, canvas: c });
@@ -511,41 +553,14 @@ function deviceOffset(dx: number, dy: number, o: DrawOptions) {
 
 const fxList = (l: Layer, id: FxId) => l.fx?.filter((x) => x.id === id) ?? [];
 
-/** Double contour : un contour autour de l'objet, et sa copie décalée derrière. */
-function drawFxBehind(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, _o: DrawOptions, path: Path2D) {
-  const minSide = Math.min(f.width, f.height);
-  for (const e of fxList(l, 'sticker')) {
-    const def = fxOf('sticker')!;
-    const [ga, gb] = fxGuides(def, e).map((i) => doc.guides[i]);
-    const box = pageBounds(l, f);
-    const wd = (0.004 + e.amount * 0.03) * minSide;
-    const a = ((doc.light + 180) * Math.PI) / 180;
-    const off = wd * 1.1;
-    ctx.save();
-    ctx.lineJoin = 'round';
-    ctx.translate(Math.sin(a) * off, -Math.cos(a) * off);
-    ctx.fillStyle = ctx.strokeStyle = guideStyle(ctx, gb, box);
-    ctx.lineWidth = 2 * wd;
-    ctx.fill(path, 'evenodd');
-    ctx.stroke(path);
-    ctx.restore();
-    ctx.save();
-    ctx.lineJoin = 'round';
-    ctx.fillStyle = ctx.strokeStyle = guideStyle(ctx, ga, box);
-    ctx.lineWidth = 2 * wd;
-    ctx.fill(path, 'evenodd');
-    ctx.stroke(path);
-    ctx.restore();
-  }
-}
-
 /** Dans la découpe : ombre intérieure (côté lumière) et reflet brillant. */
 function drawFxInside(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, path: Path2D) {
   const minSide = Math.min(f.width, f.height);
   const a = (doc.light * Math.PI) / 180;
   const lx = Math.sin(a);
   const ly = -Math.cos(a);
-  for (const e of fxList(l, 'inner')) {
+  if ((l.inner ?? 0) > 0.001) {
+    const e = { amount: l.inner! };
     // on remplit tout sauf l'objet : seule l'ombre de ce cadre tombe dans la découpe
     const outside = new Path2D();
     outside.rect(-f.width, -f.height, 3 * f.width, 3 * f.height);
@@ -580,30 +595,240 @@ function drawFxInside(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
   }
 }
 
-/** Lueur néon : un tube de lumière sur la découpe, avec son halo. */
-function drawFxOutside(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, path: Path2D) {
+
+/** Normales vers l'extérieur de la découpe, pour des points pris le long d'un contour. */
+function outwardNormals(ring: Pt[], pts: Pt[]): Pt[] {
+  const n = pts.length;
+  const a0 = pts[0]!;
+  const c0 = pts[1 % n]!;
+  const t = Math.hypot(c0.x - a0.x, c0.y - a0.y) || 1;
+  const e = t * 0.2;
+  const probe = { x: (a0.x + c0.x) / 2 - ((c0.y - a0.y) / t) * e, y: (a0.y + c0.y) / 2 + ((c0.x - a0.x) / t) * e };
+  const sign = insideRing(ring, probe.x, probe.y) ? -1 : 1;
+  return pts.map((_, i) => {
+    const a = pts[(i - 1 + n) % n]!;
+    const c = pts[(i + 1) % n]!;
+    const nl = Math.hypot(c.x - a.x, c.y - a.y) || 1;
+    return { x: (-(c.y - a.y) / nl) * sign, y: ((c.x - a.x) / nl) * sign };
+  });
+}
+
+/** Lueurs posées derrière l'objet ; les autres passent devant. */
+const GLOW_BEHIND = new Set(['smoke', 'halo', 'aura']);
+
+/**
+ * Lueur autour de la découpe, à une distance du bord et sur une largeur
+ * réglables : néon, laser, électricité, particules, fumée, halo, énergie.
+ */
+function drawGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, behind: boolean) {
+  const gl = l.glow;
+  if (!gl || GLOW_BEHIND.has(gl.style) !== behind) return;
   const minSide = Math.min(f.width, f.height);
-  for (const e of fxList(l, 'neon')) {
-    const g = doc.guides[fxGuides(fxOf('neon')!, e)[0]!];
-    const col = guideColor(g, 0.5);
-    const k = e.amount;
-    ctx.save();
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = col;
-    ctx.shadowColor = col;
-    for (const [blur, wd] of [
-      [0.08, 0.006],
-      [0.05, 0.006],
-      [0.02, 0.004],
-    ] as const) {
-      ctx.shadowBlur = (0.01 + blur * k * 1.6) * minSide * o.scale;
-      ctx.lineWidth = (0.0015 + wd * k) * minSide;
-      ctx.stroke(path);
+  const dist = gl.distance * 0.08 * minSide + (l.border ? l.border.width * minSide * (l.border.style === 'double' ? 2 : 1) : 0);
+  const w = (0.002 + gl.width * gl.width * 0.05) * minSide;
+  const col = guideColor(doc.guides[gl.guide], 0.5);
+  const S = o.scale;
+  let seed = 7;
+  for (const ch of l.id) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const rnd = rng(seed);
+  const rings = maskRings(l, f);
+  const step = Math.max(minSide * 0.004, w * 0.5);
+  const lines = rings
+    .map((r) => {
+      const pts = resample(r, step);
+      return pts.length < 3 ? null : { pts, nr: outwardNormals(r, pts) };
+    })
+    .filter((x): x is { pts: Pt[]; nr: Pt[] } => !!x);
+  const offset = (k: number) => {
+    const p = new Path2D();
+    for (const { pts, nr } of lines) {
+      pts.forEach((q, i) => (i ? p.lineTo(q.x + nr[i]!.x * k, q.y + nr[i]!.y * k) : p.moveTo(q.x + nr[i]!.x * k, q.y + nr[i]!.y * k)));
+      p.closePath();
     }
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-    ctx.lineWidth = (0.0008 + 0.0015 * k) * minSide;
-    ctx.stroke(path);
-    ctx.restore();
+    return p;
+  };
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  const mid = dist + w / 2;
+  switch (gl.style) {
+    case 'neon': {
+      const p = offset(mid);
+      ctx.strokeStyle = col;
+      ctx.shadowColor = col;
+      for (const b of [4, 2.2, 1]) {
+        ctx.shadowBlur = w * b * S;
+        ctx.lineWidth = w;
+        ctx.stroke(p);
+      }
+      ctx.shadowBlur = w * 0.8 * S;
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = w * 0.35;
+      ctx.stroke(p);
+      break;
+    }
+    case 'laser': {
+      const p = offset(mid);
+      ctx.shadowColor = col;
+      ctx.strokeStyle = col;
+      ctx.globalAlpha = 0.35;
+      ctx.shadowBlur = w * 5 * S;
+      ctx.lineWidth = w * 1.4;
+      ctx.stroke(p);
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = w * 1.2 * S;
+      ctx.lineWidth = w * 0.55;
+      ctx.stroke(p);
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = Math.max(w * 0.16, 0.8 / S);
+      ctx.stroke(p);
+      break;
+    }
+    case 'electric': {
+      // éclairs : un tracé brisé qui suit le bord, et des branches qui s'en échappent
+      const bolt = new Path2D();
+      const branches = new Path2D();
+      for (const { pts, nr } of lines)
+        for (let pass = 0; pass < 2; pass++) {
+          const every = 2;
+          for (let i = 0; i <= pts.length; i += every) {
+            const j = i % pts.length;
+            const k = mid + (rnd() - 0.5) * w * 2.4;
+            const x = pts[j]!.x + nr[j]!.x * k;
+            const y = pts[j]!.y + nr[j]!.y * k;
+            if (i) bolt.lineTo(x, y);
+            else bolt.moveTo(x, y);
+            if (rnd() < 0.06) {
+              let bx = x;
+              let by = y;
+              branches.moveTo(bx, by);
+              for (let s2 = 0; s2 < 4; s2++) {
+                const len = w * (0.8 + rnd() * 1.6);
+                const tx = -nr[j]!.y;
+                const ty = nr[j]!.x;
+                const side = (rnd() - 0.5) * 1.6;
+                bx += (nr[j]!.x + tx * side) * len;
+                by += (nr[j]!.y + ty * side) * len;
+                branches.lineTo(bx, by);
+              }
+            }
+          }
+        }
+      ctx.shadowColor = col;
+      ctx.strokeStyle = col;
+      ctx.lineJoin = 'miter';
+      ctx.shadowBlur = w * 3 * S;
+      ctx.lineWidth = w * 0.5;
+      ctx.stroke(bolt);
+      ctx.lineWidth = w * 0.3;
+      ctx.stroke(branches);
+      ctx.shadowBlur = w * S;
+      ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+      ctx.lineWidth = w * 0.16;
+      ctx.stroke(bolt);
+      ctx.stroke(branches);
+      break;
+    }
+    case 'particles': {
+      ctx.shadowColor = col;
+      for (const { pts, nr } of lines) {
+        const n = Math.round(pts.length * 1.6);
+        for (let c = 0; c < n; c++) {
+          const j = Math.floor(rnd() * pts.length);
+          const k = dist + rnd() * rnd() * w * 3;
+          const r = w * (0.06 + 0.3 * rnd() * rnd());
+          const x = pts[j]!.x + nr[j]!.x * k + (rnd() - 0.5) * step;
+          const y = pts[j]!.y + nr[j]!.y * k + (rnd() - 0.5) * step;
+          ctx.fillStyle = rnd() < 0.3 ? '#fff' : col;
+          ctx.globalAlpha = 0.5 + 0.5 * rnd();
+          ctx.shadowBlur = r * 4 * S;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      break;
+    }
+    case 'smoke': {
+      // volutes : des bouffées douces qui s'éloignent en pâlissant
+      const [r0, g0, b0] = hexRGB(col).map((v) => Math.round(v * 255));
+      for (const { pts, nr } of lines)
+        for (let i = 0; i < pts.length; i += 1) {
+          for (let layer = 0; layer < 2; layer++) {
+            const k = dist + w * (layer ? 1.2 + rnd() * 1.5 : rnd() * 0.8);
+            const rad = w * (layer ? 1.2 + rnd() * 1.4 : 0.6 + rnd() * 0.8);
+            const x = pts[i]!.x + nr[i]!.x * k + (rnd() - 0.5) * w;
+            const y = pts[i]!.y + nr[i]!.y * k - (layer ? rnd() * w : 0);
+            const a = (layer ? 0.06 : 0.12) * (0.5 + rnd());
+            const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
+            g.addColorStop(0, `rgba(${r0},${g0},${b0},${a})`);
+            g.addColorStop(1, `rgba(${r0},${g0},${b0},0)`);
+            ctx.fillStyle = g;
+            ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+          }
+        }
+      break;
+    }
+    case 'halo': {
+      const p = offset(mid);
+      ctx.strokeStyle = col;
+      ctx.shadowColor = col;
+      ctx.globalAlpha = 0.35;
+      ctx.shadowBlur = w * 6 * S;
+      ctx.lineWidth = w * 1.5;
+      ctx.stroke(p);
+      ctx.globalAlpha = 0.25;
+      ctx.shadowBlur = w * 12 * S;
+      ctx.lineWidth = w * 3;
+      ctx.stroke(p);
+      break;
+    }
+    case 'aura': {
+      // aura d'énergie : des flammes qui montent depuis le bord, cœur blanc
+      const [r0, g0, b0] = hexRGB(col).map((v) => Math.round(v * 255));
+      const flame = (x: number, y: number, dx: number, dy: number, len: number, wid: number, inner: boolean) => {
+        const tx = -dy;
+        const ty = dx;
+        const ex = x + dx * len;
+        const ey = y + dy * len;
+        const g = ctx.createLinearGradient(x, y, ex, ey);
+        if (inner) {
+          g.addColorStop(0, 'rgba(255,255,255,0.9)');
+          g.addColorStop(1, 'rgba(255,255,255,0)');
+        } else {
+          g.addColorStop(0, `rgba(${r0},${g0},${b0},0.85)`);
+          g.addColorStop(0.6, `rgba(${r0},${g0},${b0},0.35)`);
+          g.addColorStop(1, `rgba(${r0},${g0},${b0},0)`);
+        }
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.moveTo(x + tx * wid, y + ty * wid);
+        ctx.quadraticCurveTo(x + dx * len * 0.5 + tx * wid * 0.9, y + dy * len * 0.5 + ty * wid * 0.9, ex, ey);
+        ctx.quadraticCurveTo(x + dx * len * 0.5 - tx * wid * 0.9, y + dy * len * 0.5 - ty * wid * 0.9, x - tx * wid, y - ty * wid);
+        ctx.closePath();
+        ctx.fill();
+      };
+      ctx.shadowColor = col;
+      ctx.shadowBlur = w * 1.5 * S;
+      for (const inner of [false, true])
+        for (const { pts, nr } of lines)
+          for (let i = 0; i < pts.length; i++) {
+            const n = nr[i]!;
+            // les flammes montent : la normale penche vers le haut
+            let dx = n.x * 0.75;
+            let dy = n.y * 0.75 - 0.65;
+            const dl = Math.hypot(dx, dy) || 1;
+            dx /= dl;
+            dy /= dl;
+            const up = Math.max(0.25, 0.6 - n.y * 0.5);
+            const len = w * (inner ? 0.8 + rnd() * 1.2 : 1.5 + rnd() * 3) * up;
+            const x = pts[i]!.x + n.x * dist;
+            const y = pts[i]!.y + n.y * dist;
+            flame(x, y, dx, dy, len, w * (inner ? 0.18 : 0.35), inner);
+          }
+      break;
+    }
   }
+  ctx.restore();
 }
