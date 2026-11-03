@@ -57,7 +57,7 @@ export interface Layer {
   guide: number;
   /** Photo (URL ou data URI). */
   src?: string;
-  /** Hauteur au-dessus de la page (0..1) : l'ombre portée en découle. */
+  /** Hauteur au-dessus de la page (0..1) : l'ombre portée en découle. En dessous de 0, c'est `inner` (creux). */
   height: number;
   /** Opacité de la couche entière (0..1, 1 par défaut). */
   opacity?: number;
@@ -77,6 +77,8 @@ export interface Layer {
   pins?: { left?: boolean; right?: boolean; top?: boolean; bottom?: boolean };
   /** Style photographique (outil Transformer). */
   look?: LookSettings;
+  /** Matière de la forme ou de l'image (outil Matière), une seule. */
+  material?: Fx;
   /** Effets cumulés (outil Transformer). */
   fx?: Fx[];
   visible: boolean;

@@ -23,12 +23,12 @@ import {
   type Stroke,
 } from './model';
 import { geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRing, splitByCut, subtract } from './cut';
-import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, newFx, type Fx, type FxId } from './fx';
+import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, isMaterial, MATERIALS, newFx, type Fx, type FxId } from './fx';
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
 import { cutOf, holdPins, imageFor, localBounds, localToPage, pageBounds, pageToLocal, pinsOf, drawChecker, drawLayers, forgetPaint, localRings, maskPath2D, maskRings, paintTarget, tracePath } from './scene';
 
-type Tool = 'cut' | 'paint' | 'edge' | 'transform' | 'move';
+type Tool = 'cut' | 'paint' | 'transform' | 'material' | 'edge' | 'move';
 type Bubble = 'layers' | 'palette' | 'light' | 'format' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
@@ -89,6 +89,12 @@ function load(): Doc {
           if (e.id === 'sticker' && !l.border) l.border = { style: 'double', guide: e.guides[0] ?? 6, guide2: e.guides[1] ?? 1, width: 0.004 + e.amount * 0.03 };
         }
         if (l.fx) l.fx = l.fx.filter((e) => fxOf(e.id));
+        // grain, papiers, carton : devenus des matières (une seule par couche)
+        if (l.fx?.some((e) => isMaterial(e.id))) {
+          if (!l.material) l.material = l.fx.filter((e) => isMaterial(e.id)).pop();
+          l.fx = l.fx.filter((e) => !isMaterial(e.id));
+          if (!l.fx.length) delete l.fx;
+        }
         if ((l.border?.style as string) === 'zigzag') l.border!.style = 'stamp';
       }
       for (const l of d.layers)
@@ -512,7 +518,7 @@ export function App() {
       live.current = { kind: 'move', layer: l.id, start: p, orig: structuredClone(l), snap: null };
       return;
     }
-    if (t === 'transform' || t === 'edge') {
+    if (t === 'transform' || t === 'edge' || t === 'material') {
       // Transformer : toucher une photo la sélectionne
       const l = layerAt(p.x, p.y);
       setSelected(l?.id ?? null);
@@ -900,7 +906,7 @@ export function App() {
         id: uid(),
         name: `${l.name} · morceau`,
         cut: pieceCut,
-        height: Math.min(1, l.height + 0.1),
+        height: l.height,
         // légèrement décalé, comme un morceau qu'on vient de détacher
         dx: l.dx + (0.012 * m) / f.width,
         dy: l.dy + (0.012 * m) / f.height,
@@ -933,7 +939,7 @@ export function App() {
       h: h / m,
       cut: ringsToPath(ringsOfGeom(intersect([local], [local])), 0.6 / (scale * Math.max(w, h))),
       guide: 0,
-      height: 0.2,
+      height: 0,
       visible: true,
       strokes: [],
     };
@@ -961,7 +967,7 @@ export function App() {
       h,
       guide: kind === 'shape' ? guide : 0,
       src: opts.src,
-      height: 0.3,
+      height: 0,
       visible: true,
       strokes: [],
     };
@@ -1004,6 +1010,7 @@ export function App() {
       else if (e.key === 'c') setTool('cut');
       else if (e.key === 't') setTool('transform');
       else if (e.key === 'e') setTool('edge');
+      else if (e.key === 'm') setTool('material');
       else if (e.key === 'v') setTool('move');
       else if (e.key === 'Escape') {
         setBubble(null);
@@ -1085,18 +1092,21 @@ export function App() {
             <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre (B) : aquarelle, acrylique, pistolet, paillettes, poils">
               <Icon name="brush" />
             </button>
-            <button className={`btn small ${tool === 'edge' ? 'on' : ''}`} onClick={() => setTool('edge')} title="Bords (E) : bord, biseau, ombre intérieure, lueur">
-              <Icon name="frame" />
-            </button>
             <button className={`btn small ${tool === 'transform' ? 'on' : ''}`} onClick={() => setTool('transform')} title="Transformer (T) : style photo et effets">
               <Icon name="transform" />
+            </button>
+            <button className={`btn small ${tool === 'material' ? 'on' : ''}`} onClick={() => setTool('material')} title="Matière (M) : papier, carton, toile, bois, métal, feutrine">
+              <Icon name="material" />
+            </button>
+            <button className={`btn small ${tool === 'edge' ? 'on' : ''}`} onClick={() => setTool('edge')} title="Bords (E) : bord, biseau, ombre intérieure, lueur">
+              <Icon name="frame" />
             </button>
             <button className={`btn small ${tool === 'move' ? 'on' : ''}`} onClick={() => setTool('move')} title="Disposer (V) : déplacer, agrandir, ancrer">
               <Icon name="move" />
             </button>
           </aside>
 
-          <aside className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][2 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'transform' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0) + (sel.fx?.length ? 1 : 0)] : ''}`}>
+          <aside className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][1 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'transform' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0) + (sel.fx?.length ? 1 : 0)] : ''}`}>
             {tool === 'paint' && (
               <>
                 <button className={`btn small ${brushPick ? 'on' : ''}`} onClick={() => setBrushPick(!brushPick)} title={`Pinceau : ${BRUSHES.find((x) => x[0] === brushKind)![1]}`}>
@@ -1162,12 +1172,23 @@ export function App() {
             )}
             {tool === 'move' && sel && sel.kind !== 'surface' && (
               <>
-                <VSlider label="Hauteur" value={sel.height} onChange={(v) => patchLayer(sel.id, { height: Math.round(v * 100) / 100 }, false)} />
+                <VSlider label="Hauteur" center value={0.5 + (sel.height - (sel.inner ?? 0)) / 2} onChange={(v) => patchLayer(sel.id, heightPatch(Math.round((v * 2 - 1) * 100) / 100), false)} />
                 <VSlider label="Opacité" value={sel.opacity ?? 1} onChange={(v) => patchLayer(sel.id, { opacity: Math.round(v * 100) / 100 }, false)} />
               </>
             )}
             {tool === 'edge' && sel && sel.kind !== 'surface' && (
               <EdgeControls layer={sel} guides={doc.guides} pop={epop} setPop={setEpop} patch={(p, h) => patchLayer(sel.id, p, h)} />
+            )}
+            {tool === 'material' && sel && (
+              <MaterialControls
+                layer={sel}
+                doc={doc}
+                f={f}
+                pick={tpop === 'mat'}
+                setPick={(v) => setTpop(v ? 'mat' : null)}
+                onChange={(material, history) => patchLayer(sel.id, { material }, history)}
+                redraw={redraw}
+              />
             )}
             {tool === 'transform' && sel?.kind === 'photo' && (
               <LookControls
@@ -1257,7 +1278,7 @@ export function App() {
                       {l.kind !== 'surface' ? (
                         <label className="height" title="Hauteur : ombre et épaisseur" onClick={(e) => e.stopPropagation()}>
                           <Icon name="height" />
-                          <input type="range" min={0} max={1} step={0.01} value={l.height} onChange={(e) => patchLayer(l.id, { height: Number(e.target.value) }, false)} />
+                          <input type="range" min={-1} max={1} step={0.01} value={l.height - (l.inner ?? 0)} onChange={(e) => patchLayer(l.id, heightPatch(Number(e.target.value)), false)} />
                         </label>
                       ) : (
                         <small>bords perdus, suit le format</small>
@@ -1385,6 +1406,7 @@ export function App() {
           )}
 
           {tool === 'edge' && (!sel || sel.kind === 'surface') && <div className="status">Sélectionne une photo ou une forme pour régler ses bords</div>}
+          {tool === 'material' && !sel && <div className="status">Sélectionne une photo ou une forme pour choisir sa matière</div>}
           {tool === 'transform' && !sel && <div className="status">Sélectionne une photo ou une forme pour la transformer</div>}
           {!sel && tool === 'cut' && magnet && <div className="status">Sélectionne une image : ses contours guideront les ciseaux</div>}
           {sel && (
@@ -1394,6 +1416,7 @@ export function App() {
               {tool === 'transform' &&
                 `« ${sel.name} » · ${[sel.kind === 'photo' ? [lookOf(sel.look?.style)?.name ?? 'photo originale', fxOf(sel.look?.draw?.id)?.name].filter(Boolean).join(' + ') : '', ...(sel.fx ?? []).map((x) => fxOf(x.id)?.name)].filter(Boolean).join(' + ') || 'aucun effet'}`}
               {tool === 'edge' && sel.kind !== 'surface' && `« ${sel.name} » · ${[sel.border && BORDER_TYPES.find((x) => x[0] === sel.border!.style)?.[1], sel.glow && GLOW_TYPES.find((x) => x[0] === sel.glow!.style)?.[1]].filter(Boolean).join(' + ') || 'sans bord'}`}
+              {tool === 'material' && `« ${sel.name} » · ${fxOf(sel.material?.id)?.name ?? 'sans matière'}`}
               {tool === 'move' && `« ${sel.name} » · ${sel.kind === 'surface' ? 'suit le format' : sel.anchor.point}`}
             </div>
           )}
@@ -1422,16 +1445,19 @@ export function App() {
 }
 
 /** Curseur vertical du bord gauche, à la façon de Procreate. */
-function VSlider({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function VSlider({ label, value, onChange, center }: { label: string; value: number; onChange: (v: number) => void; center?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const set = (e: React.PointerEvent) => {
     const r = ref.current!.getBoundingClientRect();
-    onChange(Math.max(0, Math.min(1, 1 - (e.clientY - r.top) / r.height)));
+    let v = Math.max(0, Math.min(1, 1 - (e.clientY - r.top) / r.height));
+    // curseur à deux sens : le neutre aimante le doigt
+    if (center && Math.abs(v - 0.5) < 0.035) v = 0.5;
+    onChange(v);
   };
   return (
     <div
       ref={ref}
-      className="vslider"
+      className={`vslider ${center ? 'center' : ''}`}
       title={label}
       onPointerDown={(e) => {
         (e.target as Element).setPointerCapture(e.pointerId);
@@ -1439,7 +1465,14 @@ function VSlider({ label, value, onChange }: { label: string; value: number; onC
       }}
       onPointerMove={(e) => e.buttons && set(e)}
     >
-      <div className="vs-fill" style={{ height: `${value * 100}%` }} />
+      {center ? (
+        <>
+          <div className="vs-fill" style={{ bottom: `${Math.min(value, 0.5) * 100}%`, height: `${Math.abs(value - 0.5) * 100}%` }} />
+          <div className="vs-zero" />
+        </>
+      ) : (
+        <div className="vs-fill" style={{ height: `${value * 100}%` }} />
+      )}
       <div className="vs-thumb" style={{ bottom: `calc(${value * 100}% - 9px)` }} />
       <span className="vs-label">{label}</span>
     </div>
@@ -1843,7 +1876,7 @@ function LookControls({
 }
 
 /** Aperçu d'une couche seule, avec une liste d'effets, cadrée sur sa découpe. */
-function fxPreview(l: Layer, doc: Doc, f: Format, fx: Fx[] | undefined, key: string, onImage: () => void): string {
+function fxPreview(l: Layer, doc: Doc, f: Format, fx: Fx[] | undefined, key: string, onImage: () => void, patch: Partial<Layer> = {}): string {
   const W = 168;
   const H = 128;
   const c = document.createElement('canvas');
@@ -1855,8 +1888,75 @@ function fxPreview(l: Layer, doc: Doc, f: Format, fx: Fx[] | undefined, key: str
   const bh = Math.max(1e-6, bb.y1 - bb.y0);
   const s = Math.min(W / (bw * 1.25), H / (bh * 1.25));
   ctx.setTransform(s, 0, 0, s, W / 2 - ((bb.x0 + bb.x1) / 2) * s, H / 2 - ((bb.y0 + bb.y1) / 2) * s);
-  drawLayers(ctx, { ...doc, layers: [{ ...l, id: `pv-${l.id}-${key}`, fx, height: 0, opacity: 1, visible: true }] }, f, { scale: s, onImage });
+  drawLayers(ctx, { ...doc, layers: [{ ...l, id: `pv-${l.id}-${key}`, fx, height: 0, inner: 0, opacity: 1, visible: true, ...patch }] }, f, { scale: s, onImage });
   return c.toDataURL('image/png');
+}
+
+/** Hauteur à deux sens : au-dessus de 0 la couche se soulève, en dessous elle se creuse (ombre intérieure). */
+function heightPatch(v: number): Partial<Layer> {
+  return v >= 0 ? { height: v, inner: undefined } : { height: 0, inner: -v };
+}
+
+/** Outil Matière : une matière par couche, choisie sur des aperçus. */
+function MaterialControls({
+  layer,
+  doc,
+  f,
+  pick,
+  setPick,
+  onChange,
+  redraw,
+}: {
+  layer: Layer;
+  doc: Doc;
+  f: Format;
+  pick: boolean;
+  setPick: (v: boolean) => void;
+  onChange: (m: Fx | undefined, history?: boolean) => void;
+  redraw: () => void;
+}) {
+  const cur = layer.material;
+  const def = fxOf(cur?.id);
+  const [tick, bump] = useState(0);
+  const thumbs = useMemo(() => {
+    if (!pick) return null;
+    const out: Record<string, string> = {};
+    const reload = () => bump((n) => n + 1);
+    out.none = fxPreview(layer, doc, f, layer.fx, 'mat-none', reload, { material: undefined });
+    for (const d of MATERIALS()) out[d.id] = fxPreview(layer, doc, f, layer.fx, `mat-${d.id}`, reload, { material: cur?.id === d.id ? cur : newFx(d.id) });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pick, layer, doc.guides, doc.light, f, tick]);
+  const tiles = [{ id: null as FxId | null, name: 'Aucune' }, ...MATERIALS().map((d) => ({ id: d.id as FxId | null, name: d.name }))];
+  return (
+    <>
+      <button className={`btn small fx-btn ${pick ? 'on' : ''}`} onClick={() => setPick(!pick)} title={`Matière : ${def?.name ?? 'aucune'}`}>
+        <Icon name="material" />
+      </button>
+      {pick && (
+        <div className="mode-pop look-pop">
+          <div className="b-title">Matière</div>
+          <p className="fx-hint">La matière de la forme ou de l'image : une seule à la fois, la peinture se pose dessus.</p>
+          <div className="look-grid">
+            {tiles.map((x) => (
+              <button
+                key={x.id ?? 'none'}
+                className={`look-item ${(cur?.id ?? null) === x.id ? 'on' : ''}`}
+                onClick={() => {
+                  onChange(x.id ? (cur?.id === x.id ? cur : newFx(x.id)) : undefined);
+                  redraw();
+                }}
+              >
+                <span className="look-thumb">{thumbs?.[x.id ?? 'none'] && <img src={thumbs[x.id ?? 'none']} alt="" />}</span>
+                <span className="look-name">{x.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {cur && <VSlider label="Intensité" value={cur.amount} onChange={(v) => onChange({ ...cur, amount: Math.round(v * 100) / 100 }, false)} />}
+    </>
+  );
 }
 
 /** Effets cumulables de l'outil Transformer, pour toutes les couches. */
@@ -1895,7 +1995,7 @@ function FxControls({
     if (!pick) return null;
     const out: Partial<Record<FxId, string>> = {};
     const reload = () => bump((n) => n + 1);
-    for (const d of FX) {
+    for (const d of FX.filter((x) => FX_GROUPS.some(([g]) => g === x.group))) {
       const on = list.some((x) => x.id === d.id);
       out[d.id] = fxPreview(layer, doc, f, on ? list : [...list, newFx(d.id)], d.id, reload);
     }
@@ -2071,7 +2171,6 @@ function EdgeControls({ layer: l, guides, pop, setPop, patch }: { layer: Layer; 
         </>
       )}
       <VSlider label="Biseau" value={l.bevel ?? 0} onChange={(v) => patch({ bevel: Math.round(v * 100) / 100 }, false)} />
-      <VSlider label="Ombre int." value={l.inner ?? 0} onChange={(v) => patch({ inner: Math.round(v * 100) / 100 }, false)} />
       <span className="side-sep" />
       <button className={`btn small ${pop === 'glow' ? 'on' : ''}`} onClick={() => setPop(pop === 'glow' ? null : 'glow')} title={`Lueur : ${GLOW_TYPES.find((x) => x[0] === (gl?.style ?? null))![1]}`}>
         <Icon name={`glow-${gl?.style ?? 'none'}`} />

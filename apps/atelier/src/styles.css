@@ -125,6 +125,8 @@ button:disabled { opacity: 0.35; cursor: default; }
 .trash.hot { background: var(--danger); color: #fff; transform: scale(1.25); }
 .vslider { position: relative; width: 30px; height: 150px; border-radius: 15px; background: var(--line); touch-action: none; cursor: ns-resize; overflow: hidden; }
 .vs-fill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent-soft); }
+.vs-zero { position: absolute; left: -2px; right: -2px; bottom: calc(50% - 1px); height: 2px; background: var(--ink, currentColor); opacity: 0.55; pointer-events: none; }
+.vslider.center::after { content: '0'; position: absolute; right: 3px; bottom: calc(50% + 2px); font-size: 9px; line-height: 1; opacity: 0.6; pointer-events: none; }
 .vs-thumb { position: absolute; left: 3px; right: 3px; height: 18px; border-radius: 9px; background: var(--thumb); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); }
 .vs-label { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); writing-mode: vertical-rl; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); pointer-events: none; }
 

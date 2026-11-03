@@ -21,12 +21,16 @@ export type FxId =
   | 'corrugated'
   | 'newsprint'
   | 'gloss'
+  | 'canvas'
+  | 'wood'
+  | 'metal'
+  | 'felt'
   | 'cartoon'
   | 'manga'
   | 'sketch'
   | 'pencil';
 
-export type FxGroup = 'dessin' | 'matiere' | 'lumiere';
+export type FxGroup = 'dessin' | 'effet' | 'materiau' | 'lumiere';
 
 export interface Fx {
   id: FxId;
@@ -355,7 +359,7 @@ export const FX: FxDef[] = [
   {
     id: 'halftone',
     name: 'Trame',
-    group: 'matiere',
+    group: 'effet',
     slots: [
       { label: 'Encre', def: 1 },
       { label: 'Fond', def: 6 },
@@ -394,7 +398,7 @@ export const FX: FxDef[] = [
   {
     id: 'riso',
     name: 'Risographie',
-    group: 'matiere',
+    group: 'effet',
     slots: [
       { label: 'Encre 1', def: 2 },
       { label: 'Encre 2', def: 3 },
@@ -435,7 +439,7 @@ export const FX: FxDef[] = [
   {
     id: 'posterize',
     name: 'Postérisation',
-    group: 'matiere',
+    group: 'effet',
     slots: [],
     amount: 0.34,
     pixel: (d, k, a) => {
@@ -456,7 +460,7 @@ export const FX: FxDef[] = [
   {
     id: 'gradmap',
     name: 'Dégradé de palette',
-    group: 'matiere',
+    group: 'effet',
     slots: [{ label: 'Dégradé', def: 5 }],
     amount: 1,
     pixel: () => {},
@@ -464,7 +468,7 @@ export const FX: FxDef[] = [
   {
     id: 'grain',
     name: 'Grain',
-    group: 'matiere',
+    group: 'materiau',
     slots: [],
     amount: 0.4,
     pixel: (d, k, a) => {
@@ -485,7 +489,7 @@ export const FX: FxDef[] = [
   {
     id: 'kraft',
     name: 'Papier kraft',
-    group: 'matiere',
+    group: 'materiau',
     slots: [],
     amount: 0.6,
     pixel: (d, k, a) => {
@@ -503,7 +507,7 @@ export const FX: FxDef[] = [
   {
     id: 'watercolor',
     name: 'Papier aquarelle',
-    group: 'matiere',
+    group: 'materiau',
     slots: [],
     amount: 0.6,
     pixel: (d, k, a) => {
@@ -524,7 +528,7 @@ export const FX: FxDef[] = [
   {
     id: 'corrugated',
     name: 'Carton ondulé',
-    group: 'matiere',
+    group: 'materiau',
     slots: [],
     amount: 0.6,
     pixel: (d, k, a) => {
@@ -541,7 +545,7 @@ export const FX: FxDef[] = [
   {
     id: 'newsprint',
     name: 'Papier journal',
-    group: 'matiere',
+    group: 'materiau',
     slots: [],
     amount: 0.6,
     pixel: (d, k, a) => {
@@ -562,6 +566,98 @@ export const FX: FxDef[] = [
           d[i + 1] = cl(c[1] * tint[1] * fiber) * 255;
           d[i + 2] = cl(c[2] * tint[2] * fiber) * 255;
         }
+    },
+  },
+  {
+    id: 'canvas',
+    name: 'Toile de lin',
+    group: 'materiau',
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const p = Math.max(3, 0.006 * k.pxPerMin);
+      // armure toile : fils de trame et de chaîne qui passent dessus, dessous
+      relief(
+        d,
+        k,
+        (x, y) => {
+          const u = x / p;
+          const v = y / p;
+          const over = (Math.floor(u) + Math.floor(v)) % 2 === 0;
+          const wx = Math.sin(Math.PI * (u - Math.floor(u)));
+          const wy = Math.sin(Math.PI * (v - Math.floor(v)));
+          return (over ? wy : wx) * 0.8 + 0.2 * vnoise(x / (p * 0.4), y / (p * 0.4), 61);
+        },
+        a * 0.45 * p,
+        (c, x, y) => {
+          const m = 1 - 0.08 * a * vnoise(x / (p * 6), y / (p * 0.7), 62);
+          return mixRGB(c, [c[0] * 0.95 * m, c[1] * 0.92 * m, c[2] * 0.84 * m], 0.6 * a);
+        },
+      );
+    },
+  },
+  {
+    id: 'wood',
+    name: 'Bois',
+    group: 'materiau',
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const P = k.pxPerMin;
+      const ring = (x: number, y: number) => {
+        // veines : des cernes déformés par un bruit lent, étirés dans le sens du fil
+        const warp = fbm(x / (P * 0.25), y / (P * 0.06), 71) * P * 0.05;
+        const v = Math.sin(((y + warp) / (P * 0.008)) * Math.PI * 2);
+        return 0.5 + 0.5 * v * (0.6 + 0.4 * vnoise(x / (P * 0.1), y / (P * 0.02), 72));
+      };
+      relief(d, k, (x, y) => ring(x, y) * 0.6 + 0.4 * vnoise(x / (P * 0.03), y / 1.5, 73), a * 0.18 * P * 0.008, (c, x, y) => {
+        const r = ring(x, y);
+        const wood: RGB = [0.62 - 0.12 * r, 0.42 - 0.1 * r, 0.24 - 0.07 * r];
+        return mixRGB(c, [c[0] * wood[0] * 1.5, c[1] * wood[1] * 1.6, c[2] * wood[2] * 1.7], 0.65 * a);
+      });
+    },
+  },
+  {
+    id: 'metal',
+    name: 'Métal brossé',
+    group: 'materiau',
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      const P = k.pxPerMin;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          let c: RGB = [d[i]! / 255, d[i + 1]! / 255, d[i + 2]! / 255];
+          const l = lum(...c);
+          // métal : teinte gardée mais éteinte, rayures fines dans un seul sens, reflet large
+          c = mixRGB(c, [l, l, l], 0.45 * a);
+          const brush = vnoise(x / (P * 0.2), y / 0.9, 81) * 0.6 + vnoise(x / (P * 0.05), y / 0.6, 82) * 0.4;
+          const sheen = 0.5 + 0.5 * Math.cos(((x * k.lx + y * k.ly) / (P * 0.35)) * Math.PI);
+          const m = 0.82 + 0.22 * brush + 0.25 * sheen * a;
+          d[i] = cl(c[0] * (1 - a + a * m)) * 255;
+          d[i + 1] = cl(c[1] * (1 - a + a * m)) * 255;
+          d[i + 2] = cl(c[2] * (1 - a + a * m) * 1.02) * 255;
+        }
+    },
+  },
+  {
+    id: 'felt',
+    name: 'Feutrine',
+    group: 'materiau',
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const P = k.pxPerMin;
+      const fs = Math.max(1, P * 0.0025);
+      // fibres emmêlées : un bruit fin dans toutes les directions, couleur douce et mate
+      relief(d, k, (x, y) => fbm(x / fs, y / fs, 91, 4), a * 0.35 * fs, (c, x, y) => {
+        const l = lum(...c);
+        const fuzz = 1 - 0.12 * a * fbm(x / (fs * 0.6), y / (fs * 0.6), 92);
+        const soft = mixRGB(c, [l, l, l], 0.12 * a);
+        return [soft[0] * fuzz + 0.03 * a, soft[1] * fuzz + 0.03 * a, soft[2] * fuzz + 0.03 * a];
+      });
     },
   },
   {
@@ -591,9 +687,13 @@ FX.find((x) => x.id === 'gradmap')!.pixel = (d, _k, a) => {
 export const DRAW_FX = ['cartoon', 'manga', 'sketch', 'pencil'] as const;
 
 export const FX_GROUPS: Array<[FxGroup, string]> = [
-  ['matiere', 'Matière'],
+  ['effet', 'Effets'],
   ['lumiere', 'Lumière'],
 ];
+
+/** Matières : une seule par couche, choisie dans l'outil Matière. */
+export const MATERIALS = () => FX.filter((x) => x.group === 'materiau');
+export const isMaterial = (id: string) => fxOf(id as FxId)?.group === 'materiau';
 
 export const fxOf = (id: FxId | undefined) => FX.find((x) => x.id === id);
 

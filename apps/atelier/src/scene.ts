@@ -560,9 +560,9 @@ function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
   if (paint) ctx.drawImage(paint, x0, y0, b.w, b.h);
 }
 
-/** Effets de matière de la couche : filtre dessin de la photo d'abord, puis les effets. */
+/** Traitements de la couche : filtre dessin de la photo, puis la matière, puis les effets. */
 function pixelFx(l: Layer): Fx[] {
-  return [...(l.kind === 'photo' && l.look?.draw ? [l.look.draw] : []), ...(l.fx ?? [])];
+  return [...(l.kind === 'photo' && l.look?.draw ? [l.look.draw] : []), ...(l.material ? [l.material] : []), ...(l.fx ?? [])];
 }
 
 const fxBuffers = new Map<string, { key: string; canvas: HTMLCanvasElement }>();
