@@ -221,12 +221,8 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       ctx.fillStyle = '#000';
       ctx.fill(path, 'evenodd');
       // le bord déborde de l'objet : il porte ombre lui aussi
-      if (l.border && l.border.width > 0) {
-        ctx.strokeStyle = '#000';
-        ctx.lineJoin = 'round';
-        ctx.lineWidth = 2 * l.border.width * minSide * (l.border.style === 'double' ? 2 : l.border.style === 'burst' ? 0.2 : l.border.style === 'stamp' ? 0.55 : 1);
-        ctx.stroke(path);
-      }
+      // (même géométrie que le bord, qui le recouvre ensuite exactement)
+      if (l.border && l.border.width > 0) drawBorder(ctx, l, doc, f, path);
       ctx.restore();
     }
 
@@ -326,32 +322,36 @@ function drawBorder(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format
     for (const r of rings) {
       if (bd.style === 'stamp') continue;
       // explosion : des pointes de longueur et d'écart irréguliers, comme une onomatopée de BD
-      const pts = resampleArc(r, Math.max(wd * 0.3, minSide * 0.002));
+      const pts = resampleArc(r, Math.max(wd * 0.5, minSide * 0.002));
       if (pts.length < 8) continue;
-      const nr = outwardNormals(r, pts);
+      const raw = outwardNormals(r, pts);
       const n = pts.length;
-      // chaque pointe est un triangle posé sur le contour, tous orientés pareil : leur union reste pleine
+      // normales lissées sur un large voisinage : les pointes voisines restent presque parallèles
+      // et ne se croisent pas dans les creux de la forme
+      const K = 5;
+      const nr = raw.map((_, i) => {
+        let x = 0;
+        let y = 0;
+        for (let d = -K; d <= K; d++) {
+          const q = raw[(i + d + n) % n]!;
+          const w = 1 - Math.abs(d) / (K + 1);
+          x += q.x * w;
+          y += q.y * w;
+        }
+        const l = Math.hypot(x, y) || 1;
+        return { x: x / l, y: y / l };
+      });
+      // creux tenus à distance de l'objet, pointes larges posées entre deux creux
+      const valley = wd * 0.9;
+      const at = (i: number, k: number) => ({ x: pts[i % n]!.x + nr[i % n]!.x * k, y: pts[i % n]!.y + nr[i % n]!.y * k });
       let i = 0;
       while (i < n) {
-        const gap = 2 + Math.floor(rnd() * rnd() * 6);
-        const j = (i + gap) % n;
-        const pa = pts[i]!;
-        const pb = pts[j]!;
-        const na = nr[i]!;
-        const nb = nr[j]!;
-        let tx = na.x + nb.x;
-        let ty = na.y + nb.y;
-        const tl = Math.hypot(tx, ty) || 1;
-        tx /= tl;
-        ty /= tl;
-        const len = wd * (1.4 + rnd() * 2.2 + rnd() ** 4 * 4);
-        const side = (rnd() - 0.5) * 0.6;
-        const m = 0.3 + rnd() * 0.4;
-        const mx = pa.x + (pb.x - pa.x) * m;
-        const my = pa.y + (pb.y - pa.y) * m;
-        const tip = { x: mx + (tx - ty * side) * len, y: my + (ty + tx * side) * len };
-        const A = { x: pa.x - na.x * wd * 0.2, y: pa.y - na.y * wd * 0.2 };
-        const B = { x: pb.x - nb.x * wd * 0.2, y: pb.y - nb.y * wd * 0.2 };
+        const gap = Math.min(n - i, 3 + Math.floor(rnd() * 4));
+        if (gap < 2) break;
+        const A = at(i, valley);
+        const B = at(i + gap, valley);
+        const t = i + Math.round(gap * (0.4 + rnd() * 0.2));
+        const tip = at(t, wd * (2 + rnd() * 1.8 + rnd() ** 3 * 2.5));
         const cross = (B.x - A.x) * (tip.y - A.y) - (B.y - A.y) * (tip.x - A.x);
         const [p1, p2] = cross > 0 ? [A, B] : [B, A];
         z.moveTo(p1.x, p1.y);
@@ -397,8 +397,8 @@ function drawBorder(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format
     ctx.fillStyle = ctx.strokeStyle;
     ctx.fill(z, 'nonzero');
 
-    // la bande touche la découpe : pas de jour entre l'objet et son bord
-    ctx.lineWidth = wd * 0.4;
+    // la bande pleine jusqu'aux creux : pas de jour entre l'objet et ses pointes
+    ctx.lineWidth = wd * 1.9;
     ctx.lineJoin = 'round';
     ctx.stroke(path);
     return;

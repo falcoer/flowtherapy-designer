@@ -97,7 +97,10 @@ button:disabled { opacity: 0.35; cursor: default; }
 .look-name { font-size: 11px; line-height: 1.2; text-align: center; }
 .look-thumb { position: relative; }
 .look-item.active .look-thumb { box-shadow: 0 0 0 2px var(--accent); }
-.fx-check { position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
+.fx-check { position: absolute; top: 2px; right: 2px; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 17px; line-height: 23px; text-align: center; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.fx-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fx-clear { border: 1px solid var(--line); background: none; color: inherit; font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 999px; cursor: pointer; }
+.fx-clear:hover { background: var(--line); }
 .fx-group { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.6; padding: 8px 4px 4px; }
 .fx-hint { margin: 0 4px 2px; font-size: 11px; opacity: 0.65; line-height: 1.35; }
 .fx-btn { position: relative; }

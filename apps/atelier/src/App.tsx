@@ -1732,9 +1732,6 @@ function FxControls({
     if (i < 0) {
       onChange([...list, newFx(id)]);
       setFocus(list.length);
-    } else if (i === curIdx) {
-      onChange(list.filter((_, j) => j !== i));
-      setFocus(null);
     } else setFocus(i);
     redraw();
   };
@@ -1748,8 +1745,21 @@ function FxControls({
       </button>
       {pick && (
         <div className="mode-pop look-pop">
-          <div className="b-title">Effets</div>
-          <p className="fx-hint">Touche pour ajouter, retouche pour régler, une troisième fois pour retirer. Les effets se cumulent.</p>
+          <div className="fx-head">
+            <div className="b-title">Effets</div>
+            {list.length > 0 && (
+              <button
+                className="fx-clear"
+                onClick={() => {
+                  onChange([]);
+                  setFocus(null);
+                }}
+              >
+                Tout enlever
+              </button>
+            )}
+          </div>
+          <p className="fx-hint">Touche pour ajouter, puis pour choisir celui à régler. La croix retire un effet. Les effets se cumulent.</p>
           {FX_GROUPS.map(([g, title]) => (
             <div key={g}>
               <div className="fx-group">{title}</div>
@@ -1760,7 +1770,20 @@ function FxControls({
                     <button key={d.id} className={`look-item ${i >= 0 ? 'active' : ''} ${i >= 0 && i === curIdx ? 'on' : ''}`} onClick={() => tap(d.id)}>
                       <span className="look-thumb">
                         {thumbs?.[d.id] && <img src={thumbs[d.id]} alt="" />}
-                        {i >= 0 && <span className="fx-check">✓</span>}
+                        {i >= 0 && (
+                          <span
+                            className="fx-check"
+                            role="button"
+                            title="Retirer cet effet"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onChange(list.filter((_, j) => j !== i));
+                              setFocus(null);
+                            }}
+                          >
+                            ×
+                          </span>
+                        )}
                       </span>
                       <span className="look-name">{d.name}</span>
                     </button>
