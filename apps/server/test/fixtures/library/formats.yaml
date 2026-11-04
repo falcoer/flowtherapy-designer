@@ -1,0 +1,10 @@
+# Catalogue des formats de communication. Unités : mm (papier) ou px (écran).
+formats:
+  - { id: a4-portrait, title: A4 portrait, width: 210, height: 297, unit: mm, dpi: 300, target: print }
+  - { id: a3-portrait, title: A3 portrait, width: 297, height: 420, unit: mm, dpi: 300, target: print }
+  - { id: a5-flyer, title: Flyer A5, width: 148, height: 210, unit: mm, dpi: 300, target: print }
+  - { id: insta-carre, title: Post Instagram 1:1, width: 1080, height: 1080, unit: px, target: social }
+  - { id: insta-portrait, title: Post Instagram 4:5, width: 1080, height: 1350, unit: px, target: social }
+  - { id: insta-story, title: Story 9:16, width: 1080, height: 1920, unit: px, target: social }
+  - { id: facebook-banniere, title: Bannière Facebook, width: 1640, height: 624, unit: px, target: social }
+  - { id: mail-entete, title: En-tête de mail, width: 600, height: 300, unit: px, target: mail }

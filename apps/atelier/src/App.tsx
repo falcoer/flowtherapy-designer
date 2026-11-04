@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { previewStamps } from './brush';
 import { CoupePanel } from './coupe';
 import { isClosed, recognize } from './shapes';
-import { DEMO_PHOTO, demoDoc } from './demo';
+import { blankDoc } from './blank';
 import { Icon } from './icons';
 import {
   anchorFor,
@@ -45,7 +45,7 @@ const isEdit = (t: Tool): t is EditTool => EDIT_SECTIONS.some(([k]) => k === t);
 type Bubble = 'add' | 'layers' | 'palette' | 'light' | 'format' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
-const STORE = 'ftd-atelier-doc';
+const STORE = 'ftd-atelier-doc-v2';
 const TOP = 52;
 /** Rayon d'attraction des ancrages, en pixels écran. */
 const MAGNET = 30;
@@ -123,7 +123,7 @@ function load(): Doc {
   } catch {
     /* stockage indisponible */
   }
-  return demoDoc();
+  return blankDoc();
 }
 
 export function App() {
@@ -1592,12 +1592,12 @@ export function App() {
               <button
                 className="row danger"
                 onClick={() => {
-                  update(() => demoDoc());
+                  update(() => ({ ...blankDoc(), formatId: doc.formatId, frame: doc.frame, guides: doc.guides }));
                   forgetPaint();
-                  setSelected('arche');
+                  setSelected(null);
                 }}
               >
-                Repartir de l'exemple
+                Repartir d'une page vierge
               </button>
             </div>
           )}
@@ -1711,10 +1711,6 @@ export function App() {
                     {name}
                   </button>
                 ))}
-                <button onClick={() => addLayer('photo', { src: DEMO_PHOTO, name: 'Photo du concert' })}>
-                  <Icon name="photo" />
-                  Photo exemple
-                </button>
                 <label className="file">
                   <Icon name="import" />
                   Importer une photo

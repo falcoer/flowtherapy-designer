@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 
-const repoLibrary = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../library');
+const repoLibrary = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'fixtures/library');
 
 async function setup(password?: string) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'ftd-'));
