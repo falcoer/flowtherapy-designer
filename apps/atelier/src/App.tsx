@@ -6,7 +6,7 @@ import { LibraryShelf, SHELVES, type LibItem, type Shelf } from './library';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
 import { anchorsOf, DENSITY_STEPS, setAnchorDensity } from './model';
-import { isSilhouette, SILHOUETTE_RATIO, silhouetteRings } from './silhouettes';
+import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
   anchorFor,
@@ -32,7 +32,28 @@ import { geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRin
 import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, isMaterial, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
-import { drawLampTint, lampOf, levelOf, renderOrder, cutOf, holdPins, imageFor, localBounds, localToPage, pageBounds, pageToLocal, pinsOf, drawChecker, drawLayers, forgetPaint, localRings, maskPath2D, maskRings, paintTarget, tracePath } from './scene';
+import {
+  drawLampTint,
+  lampOf,
+  levelOf,
+  renderOrder,
+  cutOf,
+  holdPins,
+  imageFor,
+  localBounds,
+  localToPage,
+  pageBounds,
+  pageToLocal,
+  pinsOf,
+  drawChecker,
+  drawLayers,
+  forgetPaint,
+  localRings,
+  maskPath2D,
+  maskRings,
+  paintTarget,
+  tracePath,
+} from './scene';
 
 type Tool = 'cut' | 'paint' | 'filter' | 'transform' | 'material' | 'coat' | 'edge' | 'move';
 /** Les cinq sections du mode Modifier l'objet, dans l'ordre de la barre. */
@@ -516,10 +537,16 @@ export function App() {
       const ids = new Set(linkFx.current.ids);
       const group = doc.layers.filter((x) => ids.has(x.id) && x.visible);
       if (group.length) {
-        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        let x0 = Infinity,
+          y0 = Infinity,
+          x1 = -Infinity,
+          y1 = -Infinity;
         for (const m of group) {
           const bb = pageBounds(m, f);
-          x0 = Math.min(x0, bb.x0); y0 = Math.min(y0, bb.y0); x1 = Math.max(x1, bb.x1); y1 = Math.max(y1, bb.y1);
+          x0 = Math.min(x0, bb.x0);
+          y0 = Math.min(y0, bb.y0);
+          x1 = Math.max(x1, bb.x1);
+          y1 = Math.max(y1, bb.y1);
         }
         const cx = (x0 + x1) / 2;
         const cy = (y0 + y1) / 2;
@@ -697,7 +724,12 @@ export function App() {
     live.current = { kind: null };
     setTrashHot(false);
     const ord = renderOrder(d.layers);
-    const below = ord.slice(0, ord.findIndex((x) => x.id === id)).reverse();
+    const below = ord
+      .slice(
+        0,
+        ord.findIndex((x) => x.id === id),
+      )
+      .reverse();
     const b = layerBox(me, f);
     const ok = (x: Layer) => x.visible && x.kind !== 'surface' && x.id !== me.id && (!me.link || x.link !== me.link);
     const target = below.find((x) => ok(x) && insideRings(maskRings(x, f), p.x, p.y)) ?? below.find((x) => ok(x) && insideRings(maskRings(x, f), b.cx, b.cy));
@@ -839,7 +871,7 @@ export function App() {
       update((d) => d);
       live.current = { kind: 'move', layer: l.id, start: p, orig: structuredClone(l), snap: null, mates: structuredClone(matesOf(doc, l)) };
       stopHold();
-      hold.current = { x: e.clientX, y: e.clientY, timer: window.setTimeout(() => (hold.current = null, solidarize(l.id, p)), 600) };
+      hold.current = { x: e.clientX, y: e.clientY, timer: window.setTimeout(() => ((hold.current = null), solidarize(l.id, p)), 600) };
       return;
     }
     if (isEdit(t)) {
@@ -1101,7 +1133,11 @@ export function App() {
         setTrashHot(false);
         setToast(gone.size > 1 ? `« ${o.name} » et ses objets solidaires à la corbeille` : `« ${o.name} » à la corbeille`);
       } else if (l) {
-        const pins = l.pins ? Object.entries(l.pins).filter(([, v]) => v).map(([k]) => ({ left: 'gauche', right: 'droite', top: 'haut', bottom: 'bas' })[k]) : [];
+        const pins = l.pins
+          ? Object.entries(l.pins)
+              .filter(([, v]) => v)
+              .map(([k]) => ({ left: 'gauche', right: 'droite', top: 'haut', bottom: 'bas' })[k])
+          : [];
         setToast(pins.length ? `Tenu au bord ${pins.join(', ')}` : L.snap ? `Ancré sur ${l.anchor.point}` : `Près de ${l.anchor.point}`);
       }
     }
@@ -1317,7 +1353,7 @@ export function App() {
     if (opts.shape === 'rounded') [w, h] = [0.5, 0.34];
     if (opts.shape === 'triangle') h = 0.36;
     if (opts.shape && isSilhouette(opts.shape)) {
-      const r = SILHOUETTE_RATIO[opts.shape];
+      const r = silhouetteRatio(opts.shape);
       [w, h] = r >= 1 ? [0.45, 0.45 / r] : [0.45 * r, 0.45];
     }
     const k = opts.size ?? 0.7;
@@ -1359,7 +1395,12 @@ export function App() {
       }
     }
     const size = it.shelf === 'decors' ? 0.32 : it.shelf === 'logos' ? 0.5 : it.tags.includes('paysage') ? 1 : it.shelf === 'illustrations' ? 0.55 : 0.7;
-    const cut = it.rings?.length ? ringsToPath(it.rings.map((r) => r.map(([x, y]) => ({ x, y }))), 0.003) : undefined;
+    const cut = it.rings?.length
+      ? ringsToPath(
+          it.rings.map((r) => r.map(([x, y]) => ({ x, y }))),
+          0.003,
+        )
+      : undefined;
     addLayer('photo', { src, name: it.title, ratio: it.w / it.h, size, at: client ? toPage(client.x, client.y) : undefined, cut, ref: `image/${it.id}` });
     setToast(`« ${it.title} » posé${client ? '' : ' au centre'}`);
   };
@@ -1534,7 +1575,9 @@ export function App() {
             />
           )}
 
-          <aside className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][1 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'filter' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0)] : ''}`}>
+          <aside
+            className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][1 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'filter' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0)] : ''}`}
+          >
             {tool === 'paint' && (
               <>
                 <button className={`btn small ${brushPick ? 'on' : ''}`} onClick={() => setBrushPick(!brushPick)} title={`Pinceau : ${BRUSHES.find((x) => x[0] === brushKind)![1]}`}>
@@ -1650,10 +1693,7 @@ export function App() {
             <div className="bubble layers-bubble">
               <div className="b-title">Couches</div>
               <div className="layer-list">
-                {(frozenOrder
-                  ? frozenOrder.map((id) => doc.layers.find((x) => x.id === id)).filter((x): x is Layer => !!x)
-                  : [...renderOrder(doc.layers)].reverse()
-                ).map((l, k, list) => (
+                {(frozenOrder ? frozenOrder.map((id) => doc.layers.find((x) => x.id === id)).filter((x): x is Layer => !!x) : [...renderOrder(doc.layers)].reverse()).map((l, k, list) => (
                   <div key={l.id} className={`layer ${l.id === selected ? 'on' : ''} ${l.visible ? '' : 'hidden'}`} onClick={() => setSelected(l.id)}>
                     <LayerThumb layer={l} doc={doc} />
                     <div className="layer-main">
@@ -1768,46 +1808,39 @@ export function App() {
                 />
               )}
               {shelf === 'formes' && (
-              <div className="add-grid">
-                {(
-                  [
-                    ['rounded', 'Rectangle arrondi'],
-                    ['circle', 'Rond'],
-                    ['triangle', 'Triangle'],
-                    ['star', 'Étoile'],
-                    ['arch', 'Arche'],
-                    ['blob', 'Tache'],
-                    ['house', 'Maison'],
-                    ['building', 'Immeuble'],
-                    ['fir', 'Sapin'],
-                    ['mountain', 'Montagne'],
-                    ['palm', 'Palmier'],
-                    ['flower', 'Fleur'],
-                    ['car', 'Voiture'],
-                  ] as Array<[ShapeKind, string]>
-                ).map(([s, name]) => (
-                  <button key={s} onClick={() => addLayer('shape', { shape: s, name })}>
-                    <ShapeGlyph shape={s} />
-                    {name}
-                  </button>
-                ))}
-                {!doc.layers.some((l) => l.kind === 'surface') && (
-                  <button
-                    onClick={() =>
-                      update((d) => ({
-                        ...d,
-                        layers: [
-                          { id: uid(), name: 'Surface de fond', kind: 'surface', anchor: { frame: 'repartition', point: 'h1/2 v1/2' }, dx: 0, dy: 0, w: 1, h: 1, guide: 0, height: 0, visible: true, strokes: [] },
-                          ...d.layers,
-                        ],
-                      }))
-                    }
-                  >
-                    <Icon name="layers" />
-                    Surface de fond
-                  </button>
-                )}
-              </div>
+                <div className="forms-scroll">
+                  {SHAPE_FAMILIES.map(([fam, list]) => (
+                    <div key={fam} className="forms-fam">
+                      <div className="b-title">{fam}</div>
+                      <div className="add-grid forms-grid">
+                        {list.map(([sh, name]) => (
+                          <button key={sh} onClick={() => addLayer('shape', { shape: sh as ShapeKind, name })} title={name}>
+                            <ShapeGlyph shape={sh as ShapeKind} />
+                            {name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="add-grid">
+                    {!doc.layers.some((l) => l.kind === 'surface') && (
+                      <button
+                        onClick={() =>
+                          update((d) => ({
+                            ...d,
+                            layers: [
+                              { id: uid(), name: 'Surface de fond', kind: 'surface', anchor: { frame: 'repartition', point: 'h1/2 v1/2' }, dx: 0, dy: 0, w: 1, h: 1, guide: 0, height: 0, visible: true, strokes: [] },
+                              ...d.layers,
+                            ],
+                          }))
+                        }
+                      >
+                        <Icon name="layers" />
+                        Surface de fond
+                      </button>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -1880,10 +1913,18 @@ export function App() {
             <div className="status">
               {tool === 'paint' && `Peinture dans « ${sel.name} »`}
               {tool === 'cut' && `Trace un contour : le morceau se détache de la couche touchée${magnet ? `, aimanté sur les contours de « ${sel.name} »` : ''}`}
-              {tool === 'filter' && `« ${sel.name} » · ${sel.kind === 'photo' ? [lookOf(sel.look?.style)?.name ?? 'photo originale', fxOf(sel.look?.draw?.id)?.name].filter(Boolean).join(' + ') : 'les filtres sont réservés aux photos'}`}
+              {tool === 'filter' &&
+                `« ${sel.name} » · ${sel.kind === 'photo' ? [lookOf(sel.look?.style)?.name ?? 'photo originale', fxOf(sel.look?.draw?.id)?.name].filter(Boolean).join(' + ') : 'les filtres sont réservés aux photos'}`}
               {(tool === 'transform' || tool === 'coat') &&
-                `« ${sel.name} » · ${(sel.fx ?? []).filter((x) => fxOf(x.id)?.group === (tool === 'coat' ? 'lumiere' : 'effet')).map((x) => fxOf(x.id)?.name).join(' + ') || (tool === 'coat' ? 'sans revêtement' : 'aucune transformation')}`}
-              {tool === 'edge' && sel.kind !== 'surface' && `« ${sel.name} » · ${[sel.border && BORDER_TYPES.find((x) => x[0] === sel.border!.style)?.[1], sel.glow && GLOW_TYPES.find((x) => x[0] === sel.glow!.style)?.[1]].filter(Boolean).join(' + ') || 'sans bord'}`}
+                `« ${sel.name} » · ${
+                  (sel.fx ?? [])
+                    .filter((x) => fxOf(x.id)?.group === (tool === 'coat' ? 'lumiere' : 'effet'))
+                    .map((x) => fxOf(x.id)?.name)
+                    .join(' + ') || (tool === 'coat' ? 'sans revêtement' : 'aucune transformation')
+                }`}
+              {tool === 'edge' &&
+                sel.kind !== 'surface' &&
+                `« ${sel.name} » · ${[sel.border && BORDER_TYPES.find((x) => x[0] === sel.border!.style)?.[1], sel.glow && GLOW_TYPES.find((x) => x[0] === sel.glow!.style)?.[1]].filter(Boolean).join(' + ') || 'sans bord'}`}
               {tool === 'material' && `« ${sel.name} » · ${fxOf(sel.material?.id)?.name ?? 'sans matière'}`}
               {tool === 'move' && `« ${sel.name} » · ${sel.kind === 'surface' ? 'suit le format' : sel.anchor.point}`}
             </div>
@@ -1973,7 +2014,7 @@ function FormatGlyph({ w, h, big }: { w: number; h: number; big?: boolean }) {
 
 function ShapeGlyph({ shape }: { shape: ShapeKind }) {
   // dans un carré de 20 : la silhouette garde ses proportions
-  const r = isSilhouette(shape) ? SILHOUETTE_RATIO[shape] : 1;
+  const r = isSilhouette(shape) ? silhouetteRatio(shape) : 1;
   const [w, h] = r >= 1 ? [20, 20 / r] : [20 * r, 20];
   const rings = isSilhouette(shape) ? silhouetteRings(shape) : [shapePath(shape)];
   const d = rings.map((ring) => 'M' + ring.map((p) => `${(2 + (20 - w) / 2 + p.x * w).toFixed(2)} ${(2 + (20 - h) / 2 + p.y * h).toFixed(2)}`).join('L') + 'Z').join('');
@@ -2061,7 +2102,7 @@ function LampPanel({ doc, f, onChange, onClose }: { doc: Doc; f: Format; onChang
   const cx = ox + pw / 2;
   const cy = oy + ph / 2;
   const dl = Math.hypot(sx - cx, sy - cy) || 1;
-  const k = Math.min(3, (dl / pw) / (0.15 + lp.z * 1.6));
+  const k = Math.min(3, dl / pw / (0.15 + lp.z * 1.6));
   const shx = (-(sx - cx) / dl) * 6 * k;
   const shy = (-(sy - cy) / dl) * 6 * k;
   return (
@@ -2144,8 +2185,7 @@ function PaletteBubble({
   const edit = (patch: Partial<Guide>) => onGuides(doc.guides.map((x, i) => (i === active ? ({ ...x, ...patch } as Guide) : x)));
   // une teinte = une couleur ; deux ou plus = un dégradé
   const stopsOf = (x: Guide) => (x.type === 'gradient' ? x.stops : [x.color]);
-  const setStops = (stops: string[]) =>
-    onGuides(doc.guides.map((x, i) => (i !== active ? x : stops.length > 1 ? { name: x.name, type: 'gradient', stops } : { name: x.name, type: 'color', color: stops[0]! })));
+  const setStops = (stops: string[]) => onGuides(doc.guides.map((x, i) => (i !== active ? x : stops.length > 1 ? { name: x.name, type: 'gradient', stops } : { name: x.name, type: 'color', color: stops[0]! })));
   return (
     <div className="bubble palette-bubble">
       <div className="b-title">Palette du document</div>
@@ -2303,7 +2343,15 @@ function LookControls({
       out[d.id] = applyLook(base, `thumb${key}`, d, gs, 84).toDataURL('image/jpeg', 0.8);
     }
     // filtres dessin : posés sur la photo avec son style actuel
-    const styled = def ? applyLook(base, `thumb${key}`, def, lookGuides(def, look).map((i) => guides[i]), 84) : base;
+    const styled = def
+      ? applyLook(
+          base,
+          `thumb${key}`,
+          def,
+          lookGuides(def, look).map((i) => guides[i]),
+          84,
+        )
+      : base;
     out['draw-none'] = styled.toDataURL('image/jpeg', 0.8);
     for (const id of DRAW_FX) {
       const c = document.createElement('canvas');
@@ -2396,7 +2444,12 @@ function LookControls({
       {look && draw && drawDef && (
         <>
           {drawDef.slots.map((sl, i) => (
-            <button key={`d${i}`} className={`btn small guide-btn ${guidePick === 10 + i ? 'on' : ''}`} onClick={() => setGuidePick(guidePick === 10 + i ? null : 10 + i)} title={`${drawDef.name} · ${sl.label} : ${guides[drawSlots[i]!]?.name ?? ''}`}>
+            <button
+              key={`d${i}`}
+              className={`btn small guide-btn ${guidePick === 10 + i ? 'on' : ''}`}
+              onClick={() => setGuidePick(guidePick === 10 + i ? null : 10 + i)}
+              title={`${drawDef.name} · ${sl.label} : ${guides[drawSlots[i]!]?.name ?? ''}`}
+            >
               <span className="dot" style={{ background: swatch(guides[drawSlots[i]!]) }} />
             </button>
           ))}
@@ -2576,7 +2629,11 @@ function FxControls({
     redraw();
   };
   const slots = def && cur ? fxGuides(def, cur) : [];
-  const patchCur = (p: Partial<Fx>, history = true) => onChange(list.map((x, j) => (j === curIdx ? { ...x, ...p } : x)), history);
+  const patchCur = (p: Partial<Fx>, history = true) =>
+    onChange(
+      list.map((x, j) => (j === curIdx ? { ...x, ...p } : x)),
+      history,
+    );
   return (
     <>
       <button className={`btn small fx-btn ${pick ? 'on' : ''}`} onClick={() => setPick(!pick)} title={`${title}${mine.length ? ` : ${mine.map((x) => fxOf(x.id)?.name).join(', ')}` : ''}`}>
@@ -2637,7 +2694,12 @@ function FxControls({
       {def &&
         cur &&
         def.slots.map((sl, i) => (
-          <button key={`${cur.id}${i}`} className={`btn small guide-btn ${guidePick === i ? 'on' : ''}`} onClick={() => setGuidePick(guidePick === i ? null : i)} title={`${def.name} · ${sl.label} : ${doc.guides[slots[i]!]?.name ?? ''}`}>
+          <button
+            key={`${cur.id}${i}`}
+            className={`btn small guide-btn ${guidePick === i ? 'on' : ''}`}
+            onClick={() => setGuidePick(guidePick === i ? null : i)}
+            title={`${def.name} · ${sl.label} : ${doc.guides[slots[i]!]?.name ?? ''}`}
+          >
             <span className="dot" style={{ background: swatch(doc.guides[slots[i]!]) }} />
           </button>
         ))}
@@ -2730,7 +2792,14 @@ function EdgeControls({ layer: l, guides, pop, setPop, patch }: { layer: Layer; 
       )}
       {bd && (
         <>
-          <GuidePick title={bd.style === 'double' ? 'Bord intérieur' : 'Couleur du bord'} value={bd.guide} guides={guides} open={pop === 'c1'} setOpen={toggle('c1')} onPick={(i) => patch({ border: { ...bd, guide: i } })} />
+          <GuidePick
+            title={bd.style === 'double' ? 'Bord intérieur' : 'Couleur du bord'}
+            value={bd.guide}
+            guides={guides}
+            open={pop === 'c1'}
+            setOpen={toggle('c1')}
+            onPick={(i) => patch({ border: { ...bd, guide: i } })}
+          />
           {bd.style === 'double' && <GuidePick title="Bord extérieur" value={bd.guide2 ?? 1} guides={guides} open={pop === 'c2'} setOpen={toggle('c2')} onPick={(i) => patch({ border: { ...bd, guide2: i } })} />}
           <VSlider label="Bord" value={Math.sqrt((bd.width - 0.002) / 0.198)} onChange={(v) => patch({ border: { ...bd, width: 0.002 + Math.round(v * v * 198) / 1000 } }, false)} />
         </>
