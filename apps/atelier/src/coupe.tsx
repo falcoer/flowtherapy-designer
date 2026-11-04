@@ -56,6 +56,11 @@ const HINTS: Record<string, [string, string]> = {
   posterize: ['', 'quelques aplats de couleur'],
   gradmap: ['', 'les clairs et sombres repeints en dégradé'],
   gloss: ['', 'reflet de vernis côté lumière'],
+  satin: ['', 'lueur douce, sans éclat'],
+  'matte-varnish': ['', 'voile poudré, aucun reflet'],
+  liquid: ['', 'couche épaisse et fraîche, surface qui ondule'],
+  glazed: ['', 'lisse comme un glaçage, reflets nets'],
+  glacis: ['', 'couche transparente teintée, densité réglable'],
   grain: ['', 'grain fin de papier'],
   kraft: ['', 'papier brun à fibres'],
   watercolor: ['', 'papier épais, grain marqué'],
@@ -389,7 +394,7 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
         {def.slots.map((sl, i) => (
           <Dots key={i} label={sl.label} value={slots[i]!} doc={doc} onPick={(g) => set({ ...x, guides: slots.map((v, j) => (j === i ? g : v)) })} />
         ))}
-        <Range label={amountLabel} value={x.amount} onChange={(v) => set({ ...x, amount: Math.round(v * 100) / 100 }, false)} />
+        <Range label={def.amountLabel ?? amountLabel} value={x.amount} onChange={(v) => set({ ...x, amount: Math.round(v * 100) / 100 }, false)} />
       </>
     );
   };

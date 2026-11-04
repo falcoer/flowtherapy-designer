@@ -21,6 +21,11 @@ export type FxId =
   | 'corrugated'
   | 'newsprint'
   | 'gloss'
+  | 'satin'
+  | 'matte-varnish'
+  | 'liquid'
+  | 'glazed'
+  | 'glacis'
   | 'canvas'
   | 'wood'
   | 'metal'
@@ -61,6 +66,8 @@ export interface FxDef {
   group: FxGroup;
   slots: Array<{ label: string; def: number }>;
   amount: number;
+  /** Nom du curseur principal (Intensité par défaut). */
+  amountLabel?: string;
   /** Calcul par pixel (matière) ; absent = effet dessiné par la scène. */
   pixel?: (d: Uint8ClampedArray, k: PixelCtx, a: number) => void;
 }
@@ -666,6 +673,125 @@ export const FX: FxDef[] = [
     group: 'lumiere',
     slots: [],
     amount: 0.5,
+  },
+  {
+    id: 'satin',
+    name: 'Satiné',
+    group: 'lumiere',
+    slots: [],
+    amount: 0.5,
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          // lueur large et douce côté lampe, sans éclat net
+          const t = 0.5 + (x / w - 0.5) * k.lx + (y / h - 0.5) * k.ly;
+          const sheen = Math.exp(-((t - 0.76) ** 2) / 0.08) * 0.34 * a;
+          for (let c = 0; c < 3; c++) d[i + c] = cl((d[i + c]! / 255) * (1 - 0.04 * a) + 0.02 * a + sheen) * 255;
+        }
+    },
+  },
+  {
+    id: 'matte-varnish',
+    name: 'Mat',
+    group: 'lumiere',
+    slots: [],
+    amount: 0.5,
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      const P = k.pxPerMin;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          const c: RGB = [d[i]! / 255, d[i + 1]! / 255, d[i + 2]! / 255];
+          const l = lum(...c);
+          // voile mat : noirs levés, blancs éteints, couleurs un peu poudrées, grain très fin
+          const g = (hash(Math.floor(x / Math.max(1, P * 0.0012)), Math.floor(y / Math.max(1, P * 0.0012)), 5) - 0.5) * 0.03 * a;
+          for (let j = 0; j < 3; j++) d[i + j] = cl(0.07 * a + (c[j]! + (l - c[j]!) * 0.12 * a) * (1 - 0.13 * a) + g) * 255;
+        }
+    },
+  },
+  {
+    id: 'liquid',
+    name: 'Vernis liquide',
+    group: 'lumiere',
+    slots: [],
+    amount: 0.6,
+    amountLabel: 'Épaisseur',
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      const P = k.pxPerMin;
+      // couche épaisse encore fraîche : la surface ondule, les couleurs foncent et saturent comme mouillées
+      const s = P * 0.07;
+      const H = new Float32Array(w * h);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) H[y * w + x] = fbm(x / s, y / s, 41, 3) * P * 0.06 * a;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = y * w + x;
+          const hx = H[y * w + Math.min(w - 1, x + 1)]! - H[y * w + Math.max(0, x - 1)]!;
+          const hy = H[Math.min(h - 1, y + 1) * w + x]! - H[Math.max(0, y - 1) * w + x]!;
+          const nl = Math.hypot(hx, hy, 2);
+          const ndl = Math.max(0, (-hx * k.lx - hy * k.ly + 0.6) / nl);
+          const spec = Math.pow(ndl, 14) * 1.1 * a;
+          const c: RGB = [d[i * 4]! / 255, d[i * 4 + 1]! / 255, d[i * 4 + 2]! / 255];
+          const l = lum(...c);
+          for (let j = 0; j < 3; j++) {
+            const wet = Math.pow(cl(l + (c[j]! - l) * (1 + 0.35 * a)), 1 + 0.25 * a);
+            d[i * 4 + j] = cl(c[j]! + (wet - c[j]!) * a + spec) * 255;
+          }
+        }
+    },
+  },
+  {
+    id: 'glazed',
+    name: 'Glacé miroir',
+    group: 'lumiere',
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          // surface lisse comme un glaçage : couleurs profondes, deux reflets nets et parallèles
+          const t = 0.5 + (x / w - 0.5) * k.lx + (y / h - 0.5) * k.ly;
+          const u = (x / w - 0.5) * -k.ly + (y / h - 0.5) * k.lx;
+          const band = (c0: number, wd: number) => Math.max(0, 1 - Math.abs(t + u * 0.35 - c0) / wd);
+          const flare = (Math.pow(band(0.72, 0.05), 2) * 0.85 + Math.pow(band(0.62, 0.015), 2) * 0.6) * a;
+          const c: RGB = [d[i]! / 255, d[i + 1]! / 255, d[i + 2]! / 255];
+          const l = lum(...c);
+          for (let j = 0; j < 3; j++) {
+            const deep = cl(0.5 + (l + (c[j]! - l) * 1.25 - 0.5) * 1.18);
+            d[i + j] = cl(c[j]! + (deep - c[j]!) * a + flare) * 255;
+          }
+        }
+    },
+  },
+  {
+    id: 'glacis',
+    name: 'Glacis teinté',
+    group: 'lumiere',
+    slots: [{ label: 'Teinte', def: 4 }],
+    amount: 0.4,
+    amountLabel: 'Densité',
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      const t = k.cols[0] ?? [0.9, 0.65, 0.25];
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          // couche transparente colorée : plus elle est dense, plus la teinte l'emporte,
+          // sans jamais couvrir les ombres ; un léger lustre côté lampe
+          const s = 0.5 + (x / w - 0.5) * k.lx + (y / h - 0.5) * k.ly;
+          const lustre = Math.exp(-((s - 0.8) ** 2) / 0.03) * 0.1 * Math.min(1, a * 1.5);
+          for (let j = 0; j < 3; j++) {
+            const c = d[i + j]! / 255;
+            const glazed = c * (0.15 + 0.95 * t[j]!) + t[j]! * 0.1;
+            d[i + j] = cl(c + (glazed - c) * Math.min(1, a * 1.7) + lustre) * 255;
+          }
+        }
+    },
   },
 ];
 
