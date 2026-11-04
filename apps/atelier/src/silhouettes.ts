@@ -30,6 +30,21 @@ const NEW = [
   'mic',
   'vinyl',
   'speaker',
+  'van',
+  'truck',
+  'moto',
+  'scooter',
+  'trafficlight',
+  'signround',
+  'signsquare',
+  'signhex',
+  'signtriangle',
+  'signyield',
+  'road',
+  'bin',
+  'bench',
+  'stage',
+  'spotlight',
   'trebleclef',
   'bassclef',
   'telecaster',
@@ -103,6 +118,21 @@ export const SHAPE_FAMILIES: Array<[string, Array<[string, string]>]> = [
       ['house', 'Maison'],
       ['building', 'Immeuble'],
       ['car', 'Voiture'],
+      ['van', 'Fourgon'],
+      ['truck', 'Camion'],
+      ['moto', 'Moto'],
+      ['scooter', 'Scooter'],
+      ['trafficlight', 'Feu tricolore'],
+      ['signround', 'Panneau rond'],
+      ['signsquare', 'Panneau carré'],
+      ['signhex', 'Panneau hexagonal'],
+      ['signtriangle', 'Panneau triangle'],
+      ['signyield', 'Triangle inversé'],
+      ['road', 'Route'],
+      ['bin', 'Poubelle'],
+      ['bench', 'Banc'],
+      ['stage', 'Scène'],
+      ['spotlight', 'Projecteur'],
     ],
   ],
   [
@@ -255,6 +285,17 @@ const mirror = (half: P[]): P[] => [
     .reverse()
     .map(([x, y]) => [-x, y] as P),
 ];
+
+/** Rotation d'une géométrie autour d'un point. */
+const turn = (g: G, a: number, cx = 0, cy = 0): MultiPolygon => {
+  const [c, s] = [Math.cos(a), Math.sin(a)];
+  const mp = (typeof g[0]![0]![0] === 'number' ? [g as Polygon] : (g as MultiPolygon)) as MultiPolygon;
+  return mp.map((poly) => poly.map((r) => r.map(([x, y]) => [cx + (x - cx) * c - (y - cy) * s, cy + (x - cx) * s + (y - cy) * c] as P)));
+};
+/** Panneau routier : plaque bordée d'un liseré évidé, sur son poteau. */
+const sign = (plate: (k: number) => G, cy: number) => union(minus(plate(1), minus(plate(0.86), plate(0.74))), rect(-0.05, cy, 0.05, 1));
+/** Roue vue de côté : pneu plein et moyeu évidé. */
+const wheel = (cx: number, cy: number, r: number) => minus(ellipse(cx, cy, r, r, 0, 40), ellipse(cx, cy, r * 0.38, r * 0.38, 0, 24));
 
 function build(k: SilhouetteKind): MultiPolygon {
   switch (k) {
@@ -491,6 +532,208 @@ function build(k: SilhouetteKind): MultiPolygon {
       return union(ellipse(0, -0.42, 0.62, 0.56), ellipse(-0.38, -0.08, 0.4, 0.36), ellipse(0.38, -0.08, 0.4, 0.36), rect(-0.09, 0.1, 0.09, 0.95));
     case 'cactus':
       return union(roundRect(-0.17, -1, 0.17, 1, 0.17), roundRect(-0.62, -0.45, -0.38, 0.12, 0.12), roundRect(-0.62, -0.06, 0, 0.14, 0.1), roundRect(0.38, -0.7, 0.62, -0.08, 0.12), roundRect(0, -0.28, 0.62, -0.08, 0.1));
+    // --- ville : véhicules de profil, mobilier, panneaux ---
+    case 'van':
+      return union(
+        minus(
+          ring([
+            [-1, 0.36],
+            [-1, -0.4],
+            [-0.95, -0.46],
+            [0.38, -0.46],
+            [0.46, -0.42],
+            [0.74, -0.08],
+            [0.96, -0.02],
+            [1, 0.04],
+            [1, 0.36],
+          ]),
+          ellipse(-0.6, 0.38, 0.25, 0.25),
+          ellipse(0.6, 0.38, 0.25, 0.25),
+          ring([
+            [0.4, -0.38],
+            [0.48, -0.36],
+            [0.68, -0.08],
+            [0.4, -0.08],
+          ]),
+          rect(-0.06, -0.38, 0.32, -0.08),
+        ),
+        wheel(-0.6, 0.38, 0.2),
+        wheel(0.6, 0.38, 0.2),
+      );
+    case 'truck':
+      return union(
+        roundRect(-1, -0.66, 0.36, 0.2, 0.03),
+        minus(
+          ring([
+            [0.42, -0.42],
+            [0.74, -0.42],
+            [0.98, -0.04],
+            [1, 0.3],
+            [0.42, 0.3],
+          ]),
+          ring([
+            [0.5, -0.34],
+            [0.7, -0.34],
+            [0.86, -0.08],
+            [0.5, -0.08],
+          ]),
+          ellipse(0.72, 0.34, 0.2, 0.2),
+        ),
+        minus(rect(-1, 0.18, 0.44, 0.3), ellipse(-0.72, 0.34, 0.2, 0.2), ellipse(-0.3, 0.34, 0.2, 0.2)),
+        wheel(-0.72, 0.34, 0.16),
+        wheel(-0.3, 0.34, 0.16),
+        wheel(0.72, 0.34, 0.16),
+      );
+    case 'moto':
+      return union(
+        minus(ellipse(-0.66, 0.3, 0.32, 0.32, 0, 40), ellipse(-0.66, 0.3, 0.22, 0.22, 0, 40)),
+        minus(ellipse(0.66, 0.3, 0.32, 0.32, 0, 40), ellipse(0.66, 0.3, 0.22, 0.22, 0, 40)),
+        ellipse(-0.66, 0.3, 0.07, 0.07),
+        ellipse(0.66, 0.3, 0.07, 0.07),
+        // réservoir, selle et moteur
+        smooth([
+          [-0.58, -0.14],
+          [-0.2, -0.16],
+          [0.02, -0.3],
+          [0.3, -0.3],
+          [0.4, -0.16],
+          [0.2, 0.0],
+          [0.12, 0.26],
+          [-0.18, 0.28],
+          [-0.3, 0.06],
+          [-0.6, 0.02],
+        ]),
+        band([-0.66, 0.3], [-0.4, 0.2], [-0.12, 0.14], () => 0.07),
+        band([0.66, 0.3], [0.52, -0.05], [0.4, -0.42], () => 0.06),
+        rect(0.28, -0.48, 0.52, -0.42),
+        band([-0.1, 0.24], [-0.4, 0.3], [-0.78, 0.12], () => 0.05),
+      );
+    case 'scooter':
+      return union(
+        wheel(-0.62, 0.42, 0.22),
+        wheel(0.6, 0.42, 0.22),
+        smooth([
+          [-0.9, 0.12],
+          [-0.86, -0.16],
+          [-0.56, -0.24],
+          [-0.24, -0.16],
+          [-0.16, 0.12],
+          [0.3, 0.14],
+          [0.42, 0.24],
+          [0.2, 0.3],
+          [-0.36, 0.32],
+          [-0.84, 0.3],
+        ]),
+        roundRect(-0.72, -0.34, -0.22, -0.2, 0.06),
+        ring([
+          [0.26, 0.2],
+          [0.5, -0.46],
+          [0.6, -0.44],
+          [0.46, 0.24],
+        ]),
+        band([0.6, 0.42], [0.58, 0.1], [0.5, -0.2], () => 0.07),
+        rect(0.36, -0.6, 0.7, -0.53),
+        ellipse(0.74, -0.38, 0.06, 0.05),
+      );
+    case 'trafficlight':
+      return union(
+        minus(roundRect(-0.3, -1, 0.3, 0.32, 0.12), ...[-0.76, -0.34, 0.08].map((y) => ellipse(0, y, 0.16, 0.16))),
+        ...[-0.76, -0.34, 0.08].map((y) => ellipse(0, y, 0.1, 0.1)),
+        rect(-0.06, 0.3, 0.06, 1),
+        rect(-0.22, 0.94, 0.22, 1),
+      );
+    case 'signround':
+      return sign((k) => ellipse(0, -0.5, 0.5 * k, 0.5 * k, 0, 48), 0);
+    case 'signsquare':
+      return sign((k) => roundRect(-0.48 * k, -0.5 - 0.48 * k, 0.48 * k, -0.5 + 0.48 * k, 0.12 * k), 0);
+    case 'signhex':
+      return sign((k) => turn(reg(6, 0.52 * k), Math.PI / 6).map((p) => p.map((r) => r.map(([x, y]) => [x, y - 0.5] as P))), 0);
+    case 'signtriangle':
+      return sign((k) => reg(3, 0.6 * k).map((r) => r.map(([x, y]) => [x, y - 0.42 + 0.15 * (1 - k)] as P)), 0);
+    case 'signyield':
+      return sign((k) => reg(3, 0.6 * k, Math.PI / 2).map((r) => r.map(([x, y]) => [x, y - 0.6 - 0.15 * (1 - k)] as P)), -0.3);
+    case 'road': {
+      const at = (t: number, s: number): P => [s * (0.08 + 0.92 * t), -1 + 2 * t];
+      const dashes: G[] = [];
+      for (const [a, b] of [
+        [0.02, 0.1],
+        [0.18, 0.3],
+        [0.4, 0.56],
+        [0.68, 0.9],
+      ])
+        dashes.push(ring([at(a!, 0.06), at(b!, 0.06), at(b!, -0.06), at(a!, -0.06)]));
+      return minus(ring([at(0, -1), at(0, 1), at(1, 1), at(1, -1)]), ...dashes);
+    }
+    case 'bin':
+      return minus(
+        union(
+          roundRect(-0.6, -0.86, 0.6, -0.68, 0.04),
+          roundRect(-0.16, -1, 0.16, -0.82, 0.05),
+          ring([
+            [-0.52, -0.62],
+            [0.52, -0.62],
+            [0.44, 1],
+            [-0.44, 1],
+          ]),
+        ),
+        rect(-0.08, -0.94, 0.08, -0.86),
+        ...[-0.24, 0, 0.24].map((x) => roundRect(x - 0.045, -0.44, x + 0.045, 0.8, 0.04)),
+      );
+    case 'bench':
+      return union(
+        ...[-0.62, -0.42].map((y) => rect(-1, y, 1, y + 0.14)),
+        rect(-1, 0.02, 1, 0.16),
+        rect(-0.96, 0.2, 1, 0.3).map((r) => r.map(([x, y]) => [x * 0.98, y] as P)),
+        rect(-0.86, -0.7, -0.76, 0.7),
+        rect(0.76, -0.7, 0.86, 0.7),
+        rect(-0.86, 0.6, -0.6, 0.7),
+        rect(0.6, 0.6, 0.86, 0.7),
+      );
+    case 'stage': {
+      const scallops = Array.from({ length: 7 }, (_, i) => ellipse(-0.6 + i * 0.2, -0.62, 0.1, 0.08));
+      return union(
+        minus(rect(-1, -0.9, 1, 0.8), rect(-0.8, -0.66, 0.8, 0.44)),
+        ...scallops,
+        // rideaux noués de chaque côté
+        smooth([
+          [-0.8, -0.66],
+          [-0.52, -0.66],
+          [-0.6, -0.2],
+          [-0.66, 0.0],
+          [-0.58, 0.44],
+          [-0.8, 0.44],
+        ]),
+        smooth([
+          [0.8, -0.66],
+          [0.52, -0.66],
+          [0.6, -0.2],
+          [0.66, 0.0],
+          [0.58, 0.44],
+          [0.8, 0.44],
+        ]),
+        rect(-1.08, 0.44, 1.08, 0.56),
+      );
+    }
+    case 'spotlight':
+      return union(
+        turn(union(roundRect(-0.42, -0.24, 0.36, 0.24, 0.08), rect(0.32, -0.32, 0.48, 0.32), rect(-0.54, -0.14, -0.4, 0.14)), 0.45, 0, 0),
+        // lyre et pied
+        band([-0.42, 0.04], [0.0, 0.86], [0.42, 0.04], () => 0.08),
+        rect(-0.04, 0.44, 0.04, 0.9),
+        roundRect(-0.36, 0.88, 0.36, 0.98, 0.04),
+        // faisceau
+        turn(
+          ring([
+            [0.56, -0.26],
+            [1.3, -0.6],
+            [1.3, 0.6],
+            [0.56, 0.26],
+          ]),
+          0.45,
+          0,
+          0,
+        ),
+      );
     // --- musique ---
     case 'note':
       return union(
