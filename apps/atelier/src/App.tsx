@@ -1,10 +1,11 @@
-import { anchorsFor, FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format } from '@ftd/core';
+import { FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format } from '@ftd/core';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { previewStamps } from './brush';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, SHELVES, type LibItem, type Shelf } from './library';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
+import { anchorsOf, DENSITY_STEPS, setAnchorDensity } from './model';
 import { isSilhouette, SILHOUETTE_RATIO, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
@@ -44,7 +45,7 @@ const EDIT_SECTIONS: Array<[EditTool, string, string]> = [
   ['edge', 'Bords', 'frame'],
 ];
 const isEdit = (t: Tool): t is EditTool => EDIT_SECTIONS.some(([k]) => k === t);
-type Bubble = 'add' | 'layers' | 'palette' | 'light' | 'format' | null;
+type Bubble = 'add' | 'layers' | 'palette' | 'light' | 'format' | 'anchor' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc-v2';
@@ -261,6 +262,8 @@ export function App() {
   }, [toast]);
 
   const f = formatOf(doc.formatId);
+  // les calculs d'ancrage suivent la densité du document ouvert
+  setAnchorDensity(doc.density);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [vp, setVp] = useState({ w: window.innerWidth, h: window.innerHeight });
   useEffect(() => {
@@ -585,10 +588,10 @@ export function App() {
         ctx.restore();
       }
     }
-    // ancrages pendant un déplacement
-    if (L.kind === 'move') {
+    // ancrages pendant un déplacement, et tant que le réglage d'ancrage est ouvert
+    if (L.kind === 'move' || bubble === 'anchor') {
       ctx.fillStyle = 'rgba(122,92,255,0.55)';
-      for (const a of anchorsFor(doc.frame, f)) {
+      for (const a of anchorsOf(doc.frame, f)) {
         ctx.beginPath();
         ctx.arc(a.x * f.width, a.y * f.height, 3.5 * px, 0, Math.PI * 2);
         ctx.fill();
@@ -1482,6 +1485,9 @@ export function App() {
               <button className={`btn guide-btn ${bubble === 'palette' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'palette' ? null : 'palette')} title="Palette de guides">
                 <span className="dot" style={{ background: g?.type === 'gradient' ? `linear-gradient(135deg, ${g.stops.join(',')})` : guideColor(g) }} />
               </button>
+              <button className={`btn ${bubble === 'anchor' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'anchor' ? null : 'anchor')} title="Ancrage : repères et densité des points">
+                <Icon name="anchor" />
+              </button>
               <button className={`btn ${tips ? 'on' : ''}`} onClick={() => setTips(!tips)} title={tips ? 'Masquer les astuces' : 'Afficher les astuces'}>
                 <Icon name="tips" />
               </button>
@@ -1627,14 +1633,6 @@ export function App() {
                   </small>
                 </button>
               ))}
-              <div className="b-title">Repères d'ancrage</div>
-              <div className="seg">
-                {ANCHOR_FRAMES.filter((x) => x !== 'grid').map((x) => (
-                  <button key={x} className={doc.frame === x ? 'on' : ''} onClick={() => setDoc((d) => ({ ...d, frame: x as AnchorFrame }))} title={FRAME_TITLES[x]}>
-                    {x === 'repartition' ? '½ ⅓' : x === 'or' ? 'φ' : '✕'}
-                  </button>
-                ))}
-              </div>
               <button
                 className="row danger"
                 onClick={() => {
@@ -1811,6 +1809,40 @@ export function App() {
                 )}
               </div>
               )}
+            </div>
+          )}
+
+          {bubble === 'anchor' && (
+            <div className="bubble anchor-bubble">
+              <div className="b-title">Repères d'ancrage</div>
+              <div className="seg">
+                {ANCHOR_FRAMES.filter((x) => x !== 'grid').map((x) => (
+                  <button key={x} className={doc.frame === x ? 'on' : ''} onClick={() => setDoc((d) => ({ ...d, frame: x as AnchorFrame }))} title={FRAME_TITLES[x]}>
+                    {x === 'repartition' ? '½ ⅓' : x === 'or' ? 'φ' : '✕'}
+                  </button>
+                ))}
+              </div>
+              <div className="b-title">
+                Densité des points <span className="b-count">{anchorsOf(doc.frame, f).length} points</span>
+              </div>
+              <label className={`density ${doc.frame === 'repartition' ? '' : 'off'}`}>
+                <span>−</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={DENSITY_STEPS.length}
+                  step={1}
+                  disabled={doc.frame !== 'repartition'}
+                  value={doc.density ?? 3}
+                  onChange={(e) => setDoc((d) => ({ ...d, density: Number(e.target.value) }))}
+                />
+                <span>+</span>
+              </label>
+              <small className="fx-hint">
+                {doc.frame === 'repartition'
+                  ? ['Demis', 'Demis et tiers', 'Demis, tiers et quarts', 'Jusqu’aux sixièmes', 'Douzièmes', 'Vingt-quatrièmes'][(doc.density ?? 3) - 1]
+                  : 'Le nombre d’or et l’armature ont des points fixes : la densité règle la répartition.'}
+              </small>
             </div>
           )}
 

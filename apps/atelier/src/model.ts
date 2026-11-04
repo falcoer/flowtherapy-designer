@@ -1,6 +1,6 @@
 import type { LookSettings } from './looks';
 import type { Fx } from './fx';
-import { anchorsFor, nearestAnchor, resolveAnchor, type AnchorFrame, type Format } from '@ftd/core';
+import { anchorsFor, formatFraction, nearestAnchor, resolveAnchor, type AnchorFrame, type Format } from '@ftd/core';
 
 /**
  * Modèle de l'atelier : un document est une pile de couches. Chaque couche a
@@ -99,6 +99,8 @@ export interface Lamp {
 export interface Doc {
   formatId: string;
   frame: AnchorFrame;
+  /** Densité des points d'ancrage de la répartition (1 = demis … 6 = vingt-quatrièmes), 3 par défaut. */
+  density?: number;
   guides: Guide[];
   /** Lumière unique : direction d'où elle vient (degrés, 0 = haut, sens horaire). */
   light: number;
@@ -131,9 +133,22 @@ export function layerBox(l: Layer, f: Format): { cx: number; cy: number; w: numb
   return { cx: (a.x + l.dx) * f.width, cy: (a.y + l.dy) * f.height, w: l.w * m, h: l.h * m };
 }
 
+/** Dénominateurs de la répartition selon la densité choisie. */
+export const DENSITY_STEPS: number[][] = [[2], [2, 3], [2, 3, 4], [2, 3, 4, 6], [12], [24]];
+// densité du document ouvert : réglée par l'atelier, lue par tous les calculs d'ancrage
+let density = 3;
+export const setAnchorDensity = (d: number | undefined) => (density = Math.max(1, Math.min(DENSITY_STEPS.length, d ?? 3)));
+
+/** Points d'ancrage du référentiel ; la répartition suit la densité (les fractions y sont libres). */
+export function anchorsOf(frame: AnchorFrame, f: Format) {
+  if (frame !== 'repartition') return anchorsFor(frame, f);
+  const fr = [...new Set(DENSITY_STEPS[density - 1]!.flatMap((n) => Array.from({ length: n - 1 }, (_, i) => (i + 1) / n)))].sort((a, b) => a - b);
+  return fr.flatMap((x) => fr.map((y) => ({ id: `h${formatFraction(x, 24)} v${formatFraction(y, 24)}`, frame, x, y })));
+}
+
 /** Ancrage le plus proche d'un point du format, avec le décalage qui garde la position exacte. */
 export function anchorFor(frame: AnchorFrame, f: Format, x: number, y: number) {
-  const a = nearestAnchor(anchorsFor(frame, f), x / f.width, y / f.height, f);
+  const a = nearestAnchor(anchorsOf(frame, f), x / f.width, y / f.height, f);
   return { anchor: { frame, point: a.id }, dx: x / f.width - a.x, dy: y / f.height - a.y, at: a };
 }
 
