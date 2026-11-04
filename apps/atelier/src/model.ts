@@ -81,6 +81,8 @@ export interface Layer {
   material?: Fx;
   /** Effets cumulés (outil Transformer). */
   fx?: Fx[];
+  /** Objets solidaires : même identifiant de groupe, déplacés, tournés et agrandis ensemble. */
+  link?: string;
   visible: boolean;
   strokes: Stroke[];
 }

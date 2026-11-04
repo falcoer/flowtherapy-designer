@@ -218,9 +218,14 @@ export function App() {
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const [trashHot, setTrashHot] = useState(false);
   const [snapshot, setSnapshot] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToastRaw] = useState<string | null>(null);
   // un retrait peut se rétablir depuis le message (même effet que Annuler)
   const [toastUndo, setToastUndo] = useState(false);
+  /** Un nouveau message ne garde pas le bouton Rétablir du précédent. */
+  const setToast = (m: string | null) => {
+    setToastRaw(m);
+    setToastUndo(false);
+  };
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(
@@ -278,6 +283,8 @@ export function App() {
     path?: boolean;
     start?: { x: number; y: number };
     orig?: Layer;
+    /** Objets solidaires de la couche tenue, dans leur état de départ. */
+    mates?: Layer[];
     last?: { x: number; y: number; t: number; p: number };
     snap?: { x: number; y: number } | null;
     /** Contours aimantés (unités du format) et indices des points aimantés. */
@@ -288,6 +295,13 @@ export function App() {
   const gesture = useRef<{ view: View; c: { x: number; y: number }; d: number; a: number } | null>(null);
   const tap = useRef<{ n: number; t0: number; moved: boolean } | null>(null);
   const lampDrag = useRef<number | null>(null);
+  // doigt gardé posé sur un objet : il se solidarise avec celui du dessous
+  const hold = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const stopHold = () => {
+    if (hold.current) clearTimeout(hold.current.timer);
+    hold.current = null;
+  };
+  const matesOf = (d: Doc, l: Layer) => (l.link ? d.layers.filter((x) => x.link === l.link && x.id !== l.id) : []);
 
   // --- dessin ---
   useLayoutEffect(() => {
@@ -360,6 +374,10 @@ export function App() {
       ctx.setLineDash([6 * px, 5 * px]);
       ctx.strokeStyle = '#7a5cff';
       ctx.stroke(maskPath2D(sel, f));
+      // objets solidaires : pointillés plus fins
+      ctx.lineWidth = 1 * px;
+      ctx.setLineDash([2 * px, 4 * px]);
+      for (const m of matesOf(doc, sel)) if (m.visible) ctx.stroke(maskPath2D(m, f));
       ctx.restore();
       if (tool === 'move' && L.kind !== 'move') {
         const h = handlesOf(sel);
@@ -510,6 +528,70 @@ export function App() {
     return { k, tl, br, top, pv, pivot: localToPage(l, f, pv.u, pv.v), rot: { x: top.x + Math.sin(r) * off, y: top.y - Math.cos(r) * off } };
   };
 
+  /** Déplace, tourne et agrandit les objets solidaires comme la couche tenue : c' = O + R(dr)·k·(c − O). */
+  const carryMates = (mates: Layer[] | undefined, O: Pt, k: number, dr: number, tx: number, ty: number) => {
+    if (!mates?.length) return new Map<string, Layer>();
+    const out = new Map<string, Layer>();
+    for (const m of mates) {
+      const b = layerBox(m, f);
+      const vx = (b.cx - O.x) * k;
+      const vy = (b.cy - O.y) * k;
+      const cx = O.x + vx * Math.cos(dr) - vy * Math.sin(dr) + tx;
+      const cy = O.y + vx * Math.sin(dr) + vy * Math.cos(dr) + ty;
+      const a = anchorFor(doc.frame, f, cx, cy);
+      out.set(m.id, { ...m, w: m.w * k, h: m.h * k, rot: dr ? Math.atan2(Math.sin((m.rot ?? 0) + dr), Math.cos((m.rot ?? 0) + dr)) : m.rot, anchor: a.anchor, dx: a.dx, dy: a.dy, pins: undefined });
+    }
+    return out;
+  };
+  /** Doigt gardé posé : l'objet descend au niveau de celui du dessous et s'y lie ; déjà lié, il se détache. */
+  const solidarize = (id: string, p: Pt) => {
+    const d = docRef.current;
+    const me = d.layers.find((x) => x.id === id);
+    if (!me) return;
+    live.current = { kind: null };
+    setTrashHot(false);
+    const ord = renderOrder(d.layers);
+    const below = ord.slice(0, ord.findIndex((x) => x.id === id)).reverse();
+    const b = layerBox(me, f);
+    const ok = (x: Layer) => x.visible && x.kind !== 'surface' && x.id !== me.id && (!me.link || x.link !== me.link);
+    const target = below.find((x) => ok(x) && insideRings(maskRings(x, f), p.x, p.y)) ?? below.find((x) => ok(x) && insideRings(maskRings(x, f), b.cx, b.cy));
+    navigator.vibrate?.(12);
+    if (!target) {
+      if (me.link) {
+        const left = d.layers.filter((x) => x.link === me.link && x.id !== me.id);
+        setDoc((dd) => ({ ...dd, layers: dd.layers.map((x) => (x.id === me.id || (left.length < 2 && x.link === me.link) ? { ...x, link: undefined } : x)) }));
+        setToast(`« ${me.name} » détaché`);
+        setToastUndo(true);
+      } else setToast('Posez-le sur un autre objet et gardez le doigt pour les solidariser');
+      redraw();
+      return;
+    }
+    const group = target.link ?? me.link ?? uid();
+    const joining = new Set([me.id, ...(me.link ? d.layers.filter((x) => x.link === me.link).map((x) => x.id) : [])]);
+    // descente animée jusqu'au niveau de l'objet du dessous
+    const from = new Map(d.layers.filter((x) => joining.has(x.id)).map((x) => [x.id, { h: x.height, i: x.inner ?? 0 }]));
+    const to = { h: target.height, i: target.inner ?? 0 };
+    const t0 = performance.now();
+    const step = () => {
+      const t = Math.min(1, (performance.now() - t0) / 320);
+      const e = 1 - (1 - t) ** 3;
+      setDoc((dd) => ({
+        ...dd,
+        layers: dd.layers.map((x) => {
+          if (x.id === target.id && !x.link) return { ...x, link: group };
+          const o = from.get(x.id);
+          if (!o) return x;
+          const inner = o.i + (to.i - o.i) * e;
+          return { ...x, link: group, height: o.h + (to.h - o.h) * e, inner: inner || undefined };
+        }),
+      }));
+      if (t < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+    setToast(`« ${me.name} » solidaire de « ${target.name} »`);
+    setToastUndo(true);
+  };
+
   // --- pointeurs ---
   const onDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     (e.target as Element).setPointerCapture(e.pointerId);
@@ -530,9 +612,11 @@ export function App() {
     const touches = [...pointers.current.values()].filter((p) => p.type === 'touch');
     if (e.pointerType === 'touch' && touches.length >= 2) {
       // plusieurs doigts : on annule le geste à un doigt et on manipule la vue
+      stopHold();
       if (live.current.kind === 'move' || live.current.kind === 'resize') {
         const o = live.current.orig!;
-        setDoc((d) => ({ ...d, layers: d.layers.map((l) => (l.id === o.id ? o : l)) }));
+        const back = new Map([o, ...(live.current.mates ?? [])].map((x) => [x.id, x]));
+        setDoc((d) => ({ ...d, layers: d.layers.map((l) => back.get(l.id) ?? l) }));
         past.current.pop();
       }
       live.current = { kind: 'view' };
@@ -585,7 +669,7 @@ export function App() {
         }
         if (near(h.rot)) {
           update((d) => d);
-          live.current = { kind: 'rotate', layer: sel.id, start: p, orig: structuredClone(sel) };
+          live.current = { kind: 'rotate', layer: sel.id, start: p, orig: structuredClone(sel), mates: structuredClone(matesOf(doc, sel)) };
           return;
         }
         for (const [q, opp] of [
@@ -594,7 +678,7 @@ export function App() {
         ] as const)
           if (near(q)) {
             update((d) => d);
-            live.current = { kind: 'resize', layer: sel.id, start: p, orig: structuredClone(sel), opp };
+            live.current = { kind: 'resize', layer: sel.id, start: p, orig: structuredClone(sel), opp, mates: structuredClone(matesOf(doc, sel)) };
             return;
           }
       }
@@ -605,7 +689,9 @@ export function App() {
       }
       setSelected(l.id);
       update((d) => d);
-      live.current = { kind: 'move', layer: l.id, start: p, orig: structuredClone(l), snap: null };
+      live.current = { kind: 'move', layer: l.id, start: p, orig: structuredClone(l), snap: null, mates: structuredClone(matesOf(doc, l)) };
+      stopHold();
+      hold.current = { x: e.clientX, y: e.clientY, timer: window.setTimeout(() => (hold.current = null, solidarize(l.id, p)), 600) };
       return;
     }
     if (isEdit(t)) {
@@ -688,6 +774,7 @@ export function App() {
       return;
     }
     if (tap.current && moved > 6) tap.current.moved = true;
+    if (hold.current && Math.hypot(e.clientX - hold.current.x, e.clientY - hold.current.y) > 8) stopHold();
     const p = toPage(e.clientX, e.clientY);
     if (L.kind === 'paint' && L.stroke && L.layer) {
       const l = doc.layers.find((x) => x.id === L.layer)!;
@@ -741,7 +828,8 @@ export function App() {
       if (edge) L.snap = null;
       L.pins = edge ? pins : undefined;
       const a = anchorFor(doc.frame, f, cx, cy);
-      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, anchor: a.anchor, dx: L.snap ? 0 : a.dx, dy: L.snap ? 0 : a.dy, pins: L.pins } : x)) }));
+      const carried = carryMates(L.mates, { x: 0, y: 0 }, 1, 0, cx - b.cx, cy - b.cy);
+      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, anchor: a.anchor, dx: L.snap ? 0 : a.dx, dy: L.snap ? 0 : a.dy, pins: L.pins } : (carried.get(x.id) ?? x))) }));
     } else if (L.kind === 'resize' && L.orig && L.start && L.opp) {
       // agrandir depuis un coin : le coin opposé reste en place
       const o = L.orig;
@@ -766,7 +854,8 @@ export function App() {
       const cx = O.x + (b.cx - O.x) * k;
       const cy = O.y + (b.cy - O.y) * k;
       const a = anchorFor(doc.frame, f, cx, cy);
-      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, w: o.w * k, h: o.h * k, anchor: a.anchor, dx: a.dx, dy: a.dy } : x)) }));
+      const carried = carryMates(L.mates, O, k, 0, 0, 0);
+      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, w: o.w * k, h: o.h * k, anchor: a.anchor, dx: a.dx, dy: a.dy } : (carried.get(x.id) ?? x))) }));
     } else if (L.kind === 'pivot' && L.orig) {
       // le centre de rotation reste dans le cadre des poignées
       const o = L.orig;
@@ -792,12 +881,14 @@ export function App() {
       const cx = P.x + vx * Math.cos(dr) - vy * Math.sin(dr);
       const cy = P.y + vx * Math.sin(dr) + vy * Math.cos(dr);
       const a = anchorFor(doc.frame, f, cx, cy);
-      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, rot: r, anchor: a.anchor, dx: a.dx, dy: a.dy } : x)) }));
+      const carried = carryMates(L.mates, P, 1, dr, 0, 0);
+      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, rot: r, anchor: a.anchor, dx: a.dx, dy: a.dy } : (carried.get(x.id) ?? x))) }));
     }
   };
 
   const onUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     pointers.current.delete(e.pointerId);
+    stopHold();
     if (lampDrag.current === e.pointerId) {
       lampDrag.current = null;
       return;
@@ -840,10 +931,11 @@ export function App() {
       if (l && trashHot) {
         // glissé sur la corbeille : suppression (annulable)
         const o = L.orig!;
-        setDoc((d) => ({ ...d, layers: d.layers.filter((x) => x.id !== o.id) }));
+        const gone = new Set([o.id, ...(L.mates ?? []).map((x) => x.id)]);
+        setDoc((d) => ({ ...d, layers: d.layers.filter((x) => !gone.has(x.id)) }));
         setSelected(null);
         setTrashHot(false);
-        setToast(`« ${o.name} » à la corbeille`);
+        setToast(gone.size > 1 ? `« ${o.name} » et ses objets solidaires à la corbeille` : `« ${o.name} » à la corbeille`);
       } else if (l) {
         const pins = l.pins ? Object.entries(l.pins).filter(([, v]) => v).map(([k]) => ({ left: 'gauche', right: 'droite', top: 'haut', bottom: 'bas' })[k]) : [];
         setToast(pins.length ? `Tenu au bord ${pins.join(', ')}` : L.snap ? `Ancré sur ${l.anchor.point}` : `Près de ${l.anchor.point}`);
@@ -851,8 +943,8 @@ export function App() {
     }
     if ((L.kind === 'resize' || L.kind === 'rotate') && L.layer) {
       // après agrandissement ou rotation : bords de page touchés
-      const id = L.layer;
-      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === id ? { ...x, pins: pinsOf(x, f, 1.5 / scale) } : x)) }));
+      const ids = new Set([L.layer, ...(L.mates ?? []).map((x) => x.id)]);
+      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (ids.has(x.id) ? { ...x, pins: pinsOf(x, f, 1.5 / scale) } : x)) }));
     }
     live.current = { kind: null };
     redraw();
@@ -1379,7 +1471,14 @@ export function App() {
                   <div key={l.id} className={`layer ${l.id === selected ? 'on' : ''} ${l.visible ? '' : 'hidden'}`} onClick={() => setSelected(l.id)}>
                     <LayerThumb layer={l} doc={doc} />
                     <div className="layer-main">
-                      <span className="layer-name">{l.name}</span>
+                      <span className="layer-name">
+                        {l.link && (
+                          <span className="link-mark" title="Solidaire d'autres objets : gardez le doigt posé dessus pour le détacher">
+                            <Icon name="link" />
+                          </span>
+                        )}
+                        {l.name}
+                      </span>
                       {l.kind !== 'surface' ? (
                         <label className="height" title="Hauteur : ombre et épaisseur" onClick={(e) => e.stopPropagation()}>
                           <Icon name="height" />
