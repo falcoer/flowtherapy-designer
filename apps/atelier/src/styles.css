@@ -190,8 +190,9 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .stops button { width: 30px; height: 36px; border-radius: 10px; background: var(--line); }
 .saved { display: flex; align-items: center; gap: 8px; padding: 4px 6px; }
 .saved .strip { width: 56px; height: 18px; border-radius: 9px; flex: none; }
-.saved .saved-label { flex: 1; min-width: 0; cursor: text; border-radius: 6px; padding: 2px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.saved .saved-label:hover { background: var(--line); }
+.saved .saved-label { flex: 1; min-width: 0; border-radius: 6px; padding: 2px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved .saved-pen { padding: 4px; color: var(--muted); display: inline-flex; }
+.saved .saved-pen svg { width: 16px; height: 16px; }
 .saved .saved-name { flex: 1; min-width: 0; font: inherit; color: var(--ink); background: var(--chrome-solid); border: 1px solid var(--accent); border-radius: 6px; padding: 2px 4px; }
 .saved button { padding: 4px 8px; border-radius: 8px; color: var(--accent); }
 .saved button:last-child { color: var(--muted); }

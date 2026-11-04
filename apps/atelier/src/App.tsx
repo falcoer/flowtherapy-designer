@@ -1710,9 +1710,7 @@ function PaletteBubble({
               }}
             />
           ) : (
-            <span className="saved-label" role="button" title="Toucher pour renommer" onClick={() => setRenaming(i)}>
-              {p.name}
-            </span>
+            <span className="saved-label">{p.name}</span>
           )}
           <button
             onClick={() => {
@@ -1723,6 +1721,9 @@ function PaletteBubble({
             }}
           >
             Réimporter
+          </button>
+          <button className="saved-pen" onClick={() => setRenaming(i)} title="Renommer" aria-label="Renommer">
+            <Icon name="pen" />
           </button>
           <button onClick={() => store(saved.filter((_, j) => j !== i))} aria-label="Supprimer">
             ✕
