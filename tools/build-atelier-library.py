@@ -5,6 +5,7 @@ Lit library/**/element.yaml (sources immuables) et écrit dans
 apps/atelier/public/library/ (généré, non versionné) :
   - <id>.jpeg | <id>.webp | <id>.svg : image à 1600 px au plus ;
   - <id>-thumb.webp : vignette du tiroir ;
+  - fonts/<id>-<n>.woff2 : polices réduites aux caractères latins (copie brute sans fontTools) ;
   - index.json : titres, étiquettes, rayon du tiroir et, pour les images à fond
     transparent, la découpe qui suit leur silhouette (coordonnées 0..1).
 """
@@ -79,6 +80,41 @@ def transparent(im: Image.Image) -> bool:
     return lo < 250
 
 
+# latin, ponctuation typographique française, symboles courants
+LATIN = 'U+0000-00FF,U+0131,U+0152-0153,U+0178,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2190-2193,U+2212,U+2665,U+266A-266B'
+
+
+def fonts():
+    """Polices de library/fonts : réduites au latin en woff2 quand fontTools est là."""
+    try:
+        from fontTools import subset
+    except ImportError:
+        subset = None
+    (OUT / 'fonts').mkdir()
+    out = []
+    for f in sorted(LIB.glob('fonts/*/element.yaml')):
+        el = yaml.safe_load(f.read_text())
+        files = []
+        for i, x in enumerate(el['files']):
+            src = f.parent / x['path']
+            if subset:
+                name = f"{el['id']}-{i}.woff2"
+                opts = subset.Options()
+                opts.flavor = 'woff2'
+                opts.layout_features = ['*']
+                font = subset.load_font(str(src), opts)
+                sub = subset.Subsetter(opts)
+                sub.populate(unicodes=subset.parse_unicodes(LATIN))
+                sub.subset(font)
+                subset.save_font(font, str(OUT / 'fonts' / name), opts)
+            else:
+                name = f"{el['id']}-{i}{src.suffix}"
+                shutil.copyfile(src, OUT / 'fonts' / name)
+            files.append({k: x[k] for k in ('weight', 'weightMax', 'style') if k in x} | {'src': f'library/fonts/{name}'})
+        out.append({'id': el['id'], 'family': el['family'], 'tags': el.get('tags', []), 'files': files})
+    return out
+
+
 def main():
     if OUT.exists():
         shutil.rmtree(OUT)
@@ -123,8 +159,8 @@ def main():
         items.append(item)
     order = {'photos': 0, 'illustrations': 1, 'decors': 2, 'logos': 3}
     items.sort(key=lambda x: (order[x['shelf']], x.get('date', '') == '', x['title']))
-    (OUT / 'index.json').write_text(json.dumps({'items': items}, ensure_ascii=False, separators=(',', ':')))
-    size = sum(p.stat().st_size for p in OUT.iterdir())
+    (OUT / 'index.json').write_text(json.dumps({'items': items, 'fonts': fonts()}, ensure_ascii=False, separators=(',', ':')))
+    size = sum(p.stat().st_size for p in OUT.rglob('*') if p.is_file())
     print(f'{len(items)} éléments, {size / 1e6:.1f} Mo dans {OUT.relative_to(ROOT)}')
 
 

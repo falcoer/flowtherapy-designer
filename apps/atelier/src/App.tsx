@@ -2,7 +2,9 @@ import { FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format } from '@ftd
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { previewStamps } from './brush';
 import { CoupePanel } from './coupe';
-import { LibraryShelf, RailScroll, SHELVES, type LibItem, type Shelf } from './library';
+import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
+import { ensureFont, fontFamily, loadFonts, onFontReady, TEXT_PRESETS, textCut, textEpoch, type TextPreset, type TextStyle } from './text';
+import { TextBar } from './textbar';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
 import { anchorsOf, DENSITY_STEPS, setAnchorDensity } from './model';
@@ -158,6 +160,20 @@ export function App() {
   const future = useRef<string[]>([]);
   const [, force] = useState(0);
   const redraw = useCallback(() => force((n) => n + 1), []);
+  // polices : la liste d'abord, puis les fichiers des polices utilisées par les textes
+  useEffect(() => onFontReady(redraw), [redraw]);
+  const usedFonts = doc.layers
+    .map((l) => l.text?.font)
+    .filter(Boolean)
+    .join(',');
+  useEffect(() => {
+    void loadFonts().then(() =>
+      usedFonts
+        .split(',')
+        .filter(Boolean)
+        .forEach((id) => void ensureFont(id)),
+    );
+  }, [usedFonts]);
 
   /** Modifie le document en gardant l'historique (annuler / rétablir). */
   const update = useCallback((fn: (d: Doc) => Doc) => {
@@ -218,6 +234,8 @@ export function App() {
   };
   const [selected, setSelected] = useState<string | null>('arche');
   const [guide, setGuide] = useState(2);
+  /** Barre de texte ouverte sur le clavier (ou l'écriture au stylet). */
+  const [textEditing, setTextEditing] = useState(false);
   const [size, setSize] = useState(0.05);
   const [opacity, setOpacity] = useState(0.85);
   const [view, setView] = useState<View>({ zoom: 1, rot: 0, px: 0, py: 0 });
@@ -247,14 +265,14 @@ export function App() {
   const [snapshot, setSnapshot] = useState<string | null>(null);
   const [toast, setToastRaw] = useState<string | null>(null);
   // tiroir d'ajout : rayon ouvert (gardé d'une ouverture à l'autre) et glisser en cours
-  const [shelf, setShelfRaw] = useState<Shelf | 'formes'>(() => {
+  const [shelf, setShelfRaw] = useState<DrawerShelf>(() => {
     try {
-      return (localStorage.getItem('ftd-atelier-shelf') as Shelf | 'formes' | null) ?? 'formes';
+      return (localStorage.getItem('ftd-atelier-shelf') as DrawerShelf | null) ?? 'textes';
     } catch {
       return 'formes';
     }
   });
-  const setShelf = (v: Shelf | 'formes') => {
+  const setShelf = (v: DrawerShelf) => {
     setShelfRaw(v);
     try {
       localStorage.setItem('ftd-atelier-shelf', v);
@@ -830,7 +848,8 @@ export function App() {
         if (now - dotAt.current < 400) undo();
         setTool('move');
         setSelected(hit.id);
-        setToast(`« ${hit.name} » : Disposer`);
+        if (hit.kind === 'text') setTextEditing(true);
+        else setToast(`« ${hit.name} » : Disposer`);
         redraw();
         return;
       }
@@ -1156,7 +1175,7 @@ export function App() {
   /** Contours détectés dans l'image d'une couche (photo, matière et peinture), mis en cache. */
   const edgesFor = (l: Layer): EdgeMap | null => {
     const b = layerBox(l, f);
-    const key = JSON.stringify([l.id, l.cut, l.shape, l.src?.length, l.strokes.length, l.guide, doc.guides, l.w, l.h, f.id, l.anchor, l.dx, l.dy]);
+    const key = JSON.stringify([l.id, l.cut, l.shape, l.text, textEpoch(), l.src?.length, l.strokes.length, l.guide, doc.guides, l.w, l.h, f.id, l.anchor, l.dx, l.dy]);
     if (analysisCache.current?.key !== key) {
       if (l.kind === 'photo' && l.src && !imageFor(l.src, redraw)) return null;
       const { w, h } = analysisSize(b.w, b.h);
@@ -1381,6 +1400,52 @@ export function App() {
     setTool('move');
     setBubble(null);
   };
+  /** Pose un texte dans le style choisi, prêt à être réécrit. */
+  const addText = async (p: TextPreset) => {
+    await loadFonts();
+    await ensureFont(p.style.font);
+    const t: TextStyle = { content: p.sample, ...p.style };
+    const c = textCut(t);
+    // corps de départ : une ligne haute d'un dixième du petit côté
+    const h = 0.1;
+    const n = doc.guides.length || 1;
+    const accent = (guide + 1) % n;
+    const layer: Layer = {
+      id: uid(),
+      name: `Texte ${p.name.toLowerCase()}`,
+      kind: 'text',
+      text: t,
+      anchor: anchorFor(doc.frame, f, f.width / 2, f.height / 2).anchor,
+      dx: 0,
+      dy: 0,
+      w: h * c.ratio,
+      h,
+      guide,
+      height: p.extra === 'shadow' ? 0.25 : p.extra === 'sticker' ? 0.12 : 0,
+      ...(p.extra === 'neon' ? { glow: { style: 'neon' as const, guide: accent, distance: 0, width: 0.2 } } : {}),
+      ...(p.extra === 'sticker' ? { border: { style: 'round' as const, guide: accent, width: 0.025 } } : {}),
+      ...(p.extra === 'stamp' ? { border: { style: 'stamp' as const, guide: accent, width: 0.012 } } : {}),
+      visible: true,
+      strokes: [],
+    };
+    // trop large pour la page : on réduit
+    const m = Math.min(f.width, f.height);
+    const maxW = (f.width / m) * 0.86;
+    if (layer.w > maxW) [layer.w, layer.h] = [maxW, (maxW / layer.w) * layer.h];
+    update((d) => ({ ...d, layers: [...d.layers, layer] }));
+    setSelected(layer.id);
+    setTool('move');
+    setBubble(null);
+    setTextEditing(true);
+  };
+  /** Change la typographie d'un texte en gardant son corps : la boîte suit les lettres. */
+  const patchText = (l: Layer, next: Partial<TextStyle>, history: boolean) => {
+    if (!l.text) return;
+    const t = { ...l.text, ...next };
+    const [a, b] = [textCut(l.text), textCut(t)];
+    const k = l.h / (a.bh || 1);
+    patchLayer(l.id, { text: t, cut: undefined, w: Math.max(0.01, b.bw * k), h: Math.max(0.01, b.bh * k) }, history);
+  };
   /** Pose un élément de la bibliothèque : centré, ou là où il a été lâché sur la page. */
   const insertItem = async (it: LibItem, client?: { x: number; y: number }) => {
     let src = it.src;
@@ -1447,7 +1512,7 @@ export function App() {
   // raccourcis clavier (ordinateur)
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === 'INPUT') return;
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -1468,6 +1533,10 @@ export function App() {
   }, [undo, redo]);
 
   const sel = doc.layers.find((l) => l.id === selected) ?? null;
+  const textShelf = bubble === 'add' && shelf === 'textes';
+  useEffect(() => {
+    if (textShelf) void loadFonts().then(() => TEXT_PRESETS.forEach((p) => void ensureFont(p.style.font)));
+  }, [textShelf]);
   const g = doc.guides[guide];
   // les filtres ne concernent que les photos : sur une forme, on passe aux transformations
   useEffect(() => {
@@ -1560,6 +1629,8 @@ export function App() {
               <Icon name="move" />
             </button>
           </aside>
+
+          {tool === 'move' && sel?.kind === 'text' && sel.text && !bubble && <TextBar layer={sel} editing={textEditing} setEditing={setTextEditing} onChange={(next, h) => patchText(sel, next, h)} />}
 
           {isEdit(tool) && sel && (
             <CoupePanel
@@ -1796,7 +1867,24 @@ export function App() {
                   </label>
                 </div>
               )}
-              {shelf !== 'formes' && (
+              {shelf === 'textes' && (
+                <RailScroll className="forms-scroll">
+                  <div className="text-presets">
+                    {TEXT_PRESETS.map((p) => (
+                      <button key={p.name} className="text-preset" onClick={() => void addText(p)} title={`Poser un texte « ${p.name} »`}>
+                        <span
+                          className={`tp-sample tp-${p.extra ?? 'plain'}`}
+                          style={{ fontFamily: `${fontFamily(p.style.font)}, Inter, sans-serif`, fontWeight: p.style.weight, fontStyle: p.style.italic ? 'italic' : 'normal', letterSpacing: `${p.style.tracking ?? 0}em` }}
+                        >
+                          {p.sample}
+                        </span>
+                        <span className="tp-name">{p.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </RailScroll>
+              )}
+              {shelf !== 'formes' && shelf !== 'textes' && (
                 <LibraryShelf
                   shelf={shelf}
                   onDragState={setLibDrag}

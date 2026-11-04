@@ -1,0 +1,15 @@
+id: caveat
+type: font
+title: Caveat
+family: Caveat
+files:
+- weight: 400
+  weightMax: 700
+  style: normal
+  path: Caveat-wght.ttf
+tags:
+- police
+- manuscrite
+origin:
+  url: https://github.com/google/fonts/tree/main/ofl/caveat
+  license: OFL-1.1

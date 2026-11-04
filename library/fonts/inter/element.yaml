@@ -3,9 +3,14 @@ type: font
 title: Inter
 family: Inter
 files:
-- weight: 400
+- weight: 100
+  weightMax: 900
   style: normal
   path: Inter-Variable.ttf
+- weight: 100
+  weightMax: 900
+  style: italic
+  path: Inter-Italic-opsz-wght.ttf
 tags:
 - police
 - texte

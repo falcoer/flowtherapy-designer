@@ -1,0 +1,21 @@
+id: rubik
+type: font
+title: Rubik
+family: Rubik
+files:
+- weight: 300
+  weightMax: 900
+  style: normal
+  path: Rubik-wght.ttf
+- weight: 300
+  weightMax: 900
+  style: italic
+  path: Rubik-Italic-wght.ttf
+tags:
+- police
+- texte
+- sans-serif
+- arrondie
+origin:
+  url: https://github.com/google/fonts/tree/main/ofl/rubik
+  license: OFL-1.1

@@ -1,0 +1,16 @@
+id: shrikhand
+type: font
+title: Shrikhand
+family: Shrikhand
+files:
+- weight: 400
+  style: normal
+  path: Shrikhand-Regular.ttf
+tags:
+- police
+- titre
+- script
+- affiche
+origin:
+  url: https://github.com/google/fonts/tree/main/ofl/shrikhand
+  license: OFL-1.1

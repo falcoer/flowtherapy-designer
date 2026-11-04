@@ -1,0 +1,15 @@
+id: lobster
+type: font
+title: Lobster
+family: Lobster
+files:
+- weight: 400
+  style: normal
+  path: Lobster-Regular.ttf
+tags:
+- police
+- titre
+- script
+origin:
+  url: https://github.com/google/fonts/tree/main/ofl/lobster
+  license: OFL-1.1

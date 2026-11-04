@@ -33,7 +33,7 @@ export interface Stroke {
 
 export type BorderStyle = 'round' | 'straight' | 'torn' | 'stamp' | 'burst' | 'double';
 export type GlowStyle = 'neon' | 'laser' | 'electric' | 'particles' | 'smoke' | 'halo' | 'aura' | 'fire';
-export type LayerKind = 'surface' | 'support' | 'photo' | 'shape';
+export type LayerKind = 'surface' | 'support' | 'photo' | 'shape' | 'text';
 export type ShapeKind = 'star' | 'circle' | 'arch' | 'blob' | 'rounded' | 'triangle' | import('./silhouettes').SilhouetteKind;
 
 export interface Layer {
@@ -53,6 +53,8 @@ export interface Layer {
   /** Ancienne découpe polygonale (documents antérieurs), convertie au chargement. */
   mask?: Pt[];
   shape?: ShapeKind;
+  /** Texte : contenu et typographie ; la découpe suit les lettres. */
+  text?: import('./text').TextStyle;
   /** Guide de couleur du support ou de la forme. */
   guide: number;
   /** Photo (URL ou data URI). */

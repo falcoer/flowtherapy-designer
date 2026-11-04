@@ -2,6 +2,7 @@ import { paintStroke, type Target } from './brush';
 import { rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
+import { textCut, textEpoch } from './text';
 import { guideColor, layerBox, shapePath, type Doc, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { applyLook, lookGuides, lookOf } from './looks';
@@ -36,7 +37,7 @@ export function shapeCut(k: ShapeKind): string {
 
 /** Découpe d'une couche (tracé SVG, coordonnées de la couche). */
 export function cutOf(l: Layer): string {
-  return l.cut ?? (l.shape ? shapeCut(l.shape) : RECT);
+  return l.cut ?? (l.text ? textCut(l.text).d : l.shape ? shapeCut(l.shape) : RECT);
 }
 
 /** Contours de la découpe en coordonnées de la couche. */
@@ -589,8 +590,7 @@ export function drawChecker(ctx: CanvasRenderingContext2D, f: Format) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, f.width, f.height);
   ctx.fillStyle = '#ececec';
-  for (let y = 0; y < f.height; y += s)
-    for (let x = ((y / s) % 2) * s; x < f.width; x += 2 * s) ctx.fillRect(x, y, Math.min(s, f.width - x), Math.min(s, f.height - y));
+  for (let y = 0; y < f.height; y += s) for (let x = ((y / s) % 2) * s; x < f.width; x += 2 * s) ctx.fillRect(x, y, Math.min(s, f.width - x), Math.min(s, f.height - y));
   ctx.restore();
 }
 
@@ -642,7 +642,12 @@ function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
       const m = look ? Math.max(0, Math.min(1, l.look!.mix)) : 0;
       if (m < 1) ctx.drawImage(im, b.cx - w / 2, b.cy - h / 2, w, h);
       if (look && m > 0) {
-        const t = applyLook(im, l.src.length + l.src.slice(-40), look, lookGuides(look, l.look).map((i) => doc.guides[i]));
+        const t = applyLook(
+          im,
+          l.src.length + l.src.slice(-40),
+          look,
+          lookGuides(look, l.look).map((i) => doc.guides[i]),
+        );
         ctx.save();
         ctx.globalAlpha *= m;
         ctx.drawImage(t, b.cx - w / 2, b.cy - h / 2, w, h);
@@ -681,7 +686,23 @@ function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElem
   const ph = Math.max(1, Math.round(b.h * k));
   const im = l.kind === 'photo' && l.src ? imageFor(l.src, o.onImage) : null;
   if (l.kind === 'photo' && !im) return null;
-  const key = JSON.stringify([pw, ph, l.kind, l.guide, l.src?.length, l.src?.slice(-40), l.look, l.material, l.fx, l.strokes.length, l.rot ?? 0, Math.round(lightAt(doc, f, layerBox(l, f).cx, layerBox(l, f).cy).deg / 8), doc.guides]);
+  const key = JSON.stringify([
+    pw,
+    ph,
+    l.kind,
+    l.text,
+    textEpoch(),
+    l.guide,
+    l.src?.length,
+    l.src?.slice(-40),
+    l.look,
+    l.material,
+    l.fx,
+    l.strokes.length,
+    l.rot ?? 0,
+    Math.round(lightAt(doc, f, layerBox(l, f).cx, layerBox(l, f).cy).deg / 8),
+    doc.guides,
+  ]);
   const hit = fxBuffers.get(l.id);
   if (hit?.key === key) return hit.canvas;
   const c = hit?.canvas ?? document.createElement('canvas');
@@ -759,7 +780,6 @@ function drawFxInside(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
     ctx.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
   }
 }
-
 
 let stampBuffer: HTMLCanvasElement | null = null;
 
@@ -895,7 +915,9 @@ function drawGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, 
         };
         const K = 3;
         const turn = pts.map((_, i) => {
-          const a0 = at(i - K), c = at(i), a1 = at(i + K);
+          const a0 = at(i - K),
+            c = at(i),
+            a1 = at(i + K);
           const t0 = Math.atan2(c.y - a0.y, c.x - a0.x);
           const t1 = Math.atan2(a1.y - c.y, a1.x - c.x);
           let d = Math.abs(t1 - t0);
@@ -919,7 +941,10 @@ function drawGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, 
         }
         for (const i of corners) {
           const c = at(i);
-          for (const [j, sgn] of [[i - K, 1], [i + K, -1]] as const) {
+          for (const [j, sgn] of [
+            [i - K, 1],
+            [i + K, -1],
+          ] as const) {
             const o2 = at(j);
             const dx = (c.x - o2.x) * sgn;
             const dy = (c.y - o2.y) * sgn;

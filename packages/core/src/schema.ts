@@ -73,7 +73,8 @@ export const FontElementSchema = z.object({
   ...Base,
   type: z.literal('font'),
   family: z.string(),
-  files: z.array(z.object({ weight: z.number(), style: z.enum(['normal', 'italic']).default('normal'), path: z.string() })),
+  /** weightMax : police variable, graisse continue de weight à weightMax. */
+  files: z.array(z.object({ weight: z.number(), weightMax: z.number().optional(), style: z.enum(['normal', 'italic']).default('normal'), path: z.string() })),
 });
 
 /** Forme simple, remplie d'une couleur ou d'un dégradé. */
@@ -94,14 +95,7 @@ export const GradientSchema = z.object({
   bands: z.number().int().min(2).max(12).optional(),
 });
 
-export const LibraryElementSchema = z.discriminatedUnion('type', [
-  ShapeElementSchema,
-  ImageElementSchema,
-  TextElementSchema,
-  PaletteElementSchema,
-  ShaderElementSchema,
-  FontElementSchema,
-]);
+export const LibraryElementSchema = z.discriminatedUnion('type', [ShapeElementSchema, ImageElementSchema, TextElementSchema, PaletteElementSchema, ShaderElementSchema, FontElementSchema]);
 export type LibraryElement = z.infer<typeof LibraryElementSchema>;
 export type ImageElement = z.infer<typeof ImageElementSchema>;
 export type TextElement = z.infer<typeof TextElementSchema>;
@@ -156,9 +150,7 @@ export const ProjectSchema = z.object({
   id: z.string(),
   type: z.enum(['project', 'template']).default('project'),
   title: z.string().optional(),
-  axis: z
-    .object({ title: z.string(), description: z.string().optional(), audience: z.string().optional(), tone: z.string().optional() })
-    .optional(),
+  axis: z.object({ title: z.string(), description: z.string().optional(), audience: z.string().optional(), tone: z.string().optional() }).optional(),
   formats: z.array(z.string()).min(1),
   palette: z.string().optional(),
   /** Couleur du fond (valeur ou palette.<rôle>). */

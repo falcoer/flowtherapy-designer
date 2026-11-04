@@ -21,7 +21,9 @@ export interface LibItem {
 }
 export type Shelf = 'photos' | 'illustrations' | 'decors' | 'logos';
 
-export const SHELVES: Array<[Shelf | 'formes', string]> = [
+export type DrawerShelf = Shelf | 'formes' | 'textes';
+export const SHELVES: Array<[DrawerShelf, string]> = [
+  ['textes', 'Textes'],
   ['formes', 'Formes'],
   ['photos', 'Photos'],
   ['illustrations', 'Illustrations'],
@@ -52,15 +54,16 @@ const FILTERS: Partial<Record<Shelf, Array<[string, string]>>> = {
   ],
 };
 
-let cache: Promise<LibItem[]> | null = null;
-/** L'index est chargé une fois, à la première ouverture du tiroir. */
-export function loadLibrary(): Promise<LibItem[]> {
+let cache: Promise<{ items: LibItem[]; fonts?: import('./text').FontInfo[] }> | null = null;
+/** L'index (images et polices) est chargé une fois. */
+export function loadIndex() {
   cache ??= fetch('library/index.json')
     .then((r) => (r.ok ? r.json() : { items: [] }))
-    .then((d: { items: LibItem[] }) => d.items)
-    .catch(() => []);
+    .catch(() => ({ items: [] }));
   return cache;
 }
+/** Images de la bibliothèque, chargées à la première ouverture du tiroir. */
+export const loadLibrary = (): Promise<LibItem[]> => loadIndex().then((d) => d.items ?? []);
 
 /** Rayon d'images de la bibliothèque : toucher pour poser au centre, glisser pour poser à l'endroit voulu. */
 export function LibraryShelf({ shelf, onInsert, onDragState }: { shelf: Shelf; onInsert: (item: LibItem, at?: { x: number; y: number }) => void; onDragState: (dragging: boolean) => void }) {
