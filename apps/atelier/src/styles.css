@@ -109,9 +109,9 @@ button:disabled { opacity: 0.35; cursor: default; }
 .border-guides .sw { width: 28px; height: 28px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }
 .border-guides .sw.on { box-shadow: 0 0 0 2px var(--chrome-solid), 0 0 0 4px var(--accent); }
 .border-pop input[type='range'] { width: 100%; accent-color: var(--accent); }
-.side.dense .vslider { height: 118px; }
-.side.denser .vslider { height: 92px; }
-.side.densest .vslider { height: 70px; }
+.side.dense .vslider { height: 84px; }
+.side.denser .vslider { height: 70px; }
+.side.densest .vslider { height: 58px; }
 .side-sep { width: 22px; height: 1px; background: var(--line); margin: 4px 0; flex: none; }
 .side-sep + .side-sep { display: none; }
 .side > .btn { flex: none; }
@@ -123,7 +123,7 @@ button:disabled { opacity: 0.35; cursor: default; }
 .trash { transition: transform 0.12s, background 0.12s, color 0.12s; }
 .trash.armed { color: var(--danger); }
 .trash.hot { background: var(--danger); color: #fff; transform: scale(1.25); }
-.vslider { position: relative; width: 30px; height: clamp(90px, calc((100dvh - 580px) / 2), 150px); border-radius: 15px; background: var(--line); touch-action: none; cursor: ns-resize; overflow: hidden; }
+.vslider { position: relative; width: 30px; height: clamp(64px, calc((100dvh - 640px) / 2), 100px); border-radius: 15px; background: var(--line); touch-action: none; cursor: ns-resize; overflow: hidden; }
 .vs-fill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent-soft); }
 .vs-zero { position: absolute; left: -2px; right: -2px; bottom: calc(50% - 1px); height: 2px; background: var(--ink, currentColor); opacity: 0.55; pointer-events: none; }
 .vslider.center::after { content: '0'; position: absolute; right: 3px; bottom: calc(50% + 2px); font-size: 9px; line-height: 1; opacity: 0.6; pointer-events: none; }
@@ -234,7 +234,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
   .chip { padding: 0 10px; }
   .btn { width: 36px; height: 36px; }
   .sep { margin: 0 1px; }
-  .vslider { height: 110px; }
+  .vslider { height: 84px; }
 }
 
 /* couleur glissée depuis la palette */

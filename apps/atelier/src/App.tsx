@@ -85,6 +85,8 @@ const EDGE_MODES: Array<[EdgeMode, string, string]> = [
   ['both', 'Les deux', 'lumière et teinte'],
 ];
 
+const LINK_FX_MS = 900;
+
 function load(): Doc {
   try {
     const s = localStorage.getItem(STORE);
@@ -301,6 +303,20 @@ export function App() {
     if (hold.current) clearTimeout(hold.current.timer);
     hold.current = null;
   };
+  // assemblage réussi : bond, liseré et teinte passagère sur les objets liés
+  const linkFx = useRef<{ ids: string[]; t0: number } | null>(null);
+  const flashLink = (ids: string[]) => {
+    linkFx.current = { ids, t0: performance.now() };
+    const tick = () => {
+      redraw();
+      if (linkFx.current && performance.now() - linkFx.current.t0 < LINK_FX_MS) requestAnimationFrame(tick);
+      else {
+        linkFx.current = null;
+        redraw();
+      }
+    };
+    requestAnimationFrame(tick);
+  };
   const matesOf = (d: Doc, l: Layer) => (l.link ? d.layers.filter((x) => x.link === l.link && x.id !== l.id) : []);
 
   // --- dessin ---
@@ -420,6 +436,46 @@ export function App() {
         ctx.beginPath();
         ctx.arc(h.rot.x, h.rot.y, 5 * px, -Math.PI * 0.9, Math.PI * 0.4);
         ctx.stroke();
+      }
+    }
+    // assemblage : l'ensemble bondit, s'entoure d'un liseré et se teinte un instant
+    if (linkFx.current) {
+      const t = Math.min(1, (performance.now() - linkFx.current.t0) / LINK_FX_MS);
+      const ids = new Set(linkFx.current.ids);
+      const group = doc.layers.filter((x) => ids.has(x.id) && x.visible);
+      if (group.length) {
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (const m of group) {
+          const bb = pageBounds(m, f);
+          x0 = Math.min(x0, bb.x0); y0 = Math.min(y0, bb.y0); x1 = Math.max(x1, bb.x1); y1 = Math.max(y1, bb.y1);
+        }
+        const cx = (x0 + x1) / 2;
+        const cy = (y0 + y1) / 2;
+        // bond amorti : gonfle puis revient avec un petit rebond
+        const k = 1 + 0.07 * Math.sin(t * Math.PI * 2.5) * (1 - t);
+        const fade = 1 - t;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(k, k);
+        ctx.translate(-cx, -cy);
+        for (const m of group) {
+          const path = maskPath2D(m, f);
+          ctx.fillStyle = `rgba(122,92,255,${0.28 * fade})`;
+          ctx.fill(path, 'evenodd');
+          ctx.strokeStyle = `rgba(122,92,255,${0.9 * fade})`;
+          ctx.lineWidth = (2 + 4 * fade) * px;
+          ctx.stroke(path);
+        }
+        // cadre commun : les objets ne font plus qu'un
+        const pad = 10 * px;
+        ctx.setLineDash([8 * px, 5 * px]);
+        ctx.lineDashOffset = -t * 60 * px;
+        ctx.lineWidth = 2 * px;
+        ctx.strokeStyle = `rgba(122,92,255,${fade})`;
+        ctx.beginPath();
+        ctx.roundRect(x0 - pad, y0 - pad, x1 - x0 + 2 * pad, y1 - y0 + 2 * pad, 12 * px);
+        ctx.stroke();
+        ctx.restore();
       }
     }
     // contours détectés dans l'image sélectionnée : pointillés en couleur complémentaire
@@ -586,6 +642,7 @@ export function App() {
         }),
       }));
       if (t < 1) requestAnimationFrame(step);
+      else flashLink([target.id, ...joining, ...d.layers.filter((x) => x.link && x.link === target.link).map((x) => x.id)]);
     };
     requestAnimationFrame(step);
     setToast(`« ${me.name} » solidaire de « ${target.name} »`);
