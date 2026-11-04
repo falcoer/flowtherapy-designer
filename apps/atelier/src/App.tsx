@@ -1376,9 +1376,7 @@ export function App() {
             <PaletteBubble
               doc={doc}
               active={guide}
-              selected={sel}
               onPick={setGuide}
-              onTint={() => sel && sel.kind !== 'photo' && patchLayer(sel.id, { guide })}
               onGuides={(guides) => update((d) => ({ ...d, guides }))}
               onDrag={(i, x, y) => setDragGuide(i === null ? null : { i, x, y })}
               onDrop={(i, x, y) => {
@@ -1580,18 +1578,14 @@ const SAVED = 'ftd-atelier-palettes';
 function PaletteBubble({
   doc,
   active,
-  selected,
   onPick,
-  onTint,
   onGuides,
   onDrag,
   onDrop,
 }: {
   doc: Doc;
   active: number;
-  selected: Layer | null;
   onPick: (i: number) => void;
-  onTint: () => void;
   onGuides: (g: Guide[]) => void;
   onDrag: (i: number | null, x: number, y: number) => void;
   onDrop: (i: number, x: number, y: number) => void;
@@ -1615,6 +1609,10 @@ function PaletteBubble({
     }
   };
   const edit = (patch: Partial<Guide>) => onGuides(doc.guides.map((x, i) => (i === active ? ({ ...x, ...patch } as Guide) : x)));
+  // une teinte = une couleur ; deux ou plus = un dégradé
+  const stopsOf = (x: Guide) => (x.type === 'gradient' ? x.stops : [x.color]);
+  const setStops = (stops: string[]) =>
+    onGuides(doc.guides.map((x, i) => (i !== active ? x : stops.length > 1 ? { name: x.name, type: 'gradient', stops } : { name: x.name, type: 'color', color: stops[0]! })));
   return (
     <div className="bubble palette-bubble">
       <div className="b-title">Palette du document</div>
@@ -1652,39 +1650,39 @@ function PaletteBubble({
             <span className="gname">{x.name}</span>
           </button>
         ))}
-        <button className="guide add" onClick={() => onGuides([...doc.guides, { name: `Couleur ${doc.guides.length + 1}`, type: 'color', color: '#6c8cd5' }])} title="Ajouter une couleur">
-          <span className="sw plus">＋</span>
-          <span className="gname">Couleur</span>
-        </button>
         <button
           className="guide add"
-          onClick={() => onGuides([...doc.guides, { name: `Dégradé ${doc.guides.length + 1}`, type: 'gradient', stops: ['#e3a83c', '#ee6b5b'] }])}
-          title="Ajouter un dégradé"
+          onClick={() => {
+            onGuides([...doc.guides, { name: `Couleur ${doc.guides.length + 1}`, type: 'color', color: '#6c8cd5' }]);
+            onPick(doc.guides.length);
+          }}
+          title="Ajouter une couleur : ajoute-lui une seconde teinte pour en faire un dégradé"
         >
-          <span className="sw plus" style={{ background: 'linear-gradient(135deg,#e3a83c,#ee6b5b)' }} />
-          <span className="gname">Dégradé</span>
+          <span className="sw plus">＋</span>
+          <span className="gname">Ajouter</span>
         </button>
       </div>
       {g && (
         <div className="guide-edit">
           <input className="gname-input" value={g.name} onChange={(e) => edit({ name: e.target.value })} aria-label="Nom du guide" />
-          {g.type === 'color' ? (
-            <input type="color" value={g.color} onChange={(e) => edit({ color: e.target.value })} aria-label="Couleur" />
-          ) : (
-            <div className="stops">
-              {g.stops.map((s, i) => (
-                <input key={i} type="color" value={s} onChange={(e) => edit({ stops: g.stops.map((x, j) => (j === i ? e.target.value : x)) } as Partial<Guide>)} />
-              ))}
-              <button onClick={() => edit({ stops: [...g.stops, g.stops[g.stops.length - 1]!] } as Partial<Guide>)} title="Ajouter une teinte au dégradé">
-                ＋
-              </button>
-            </div>
-          )}
+          <div className="stops">
+            {stopsOf(g).map((c, i, all) => (
+              <span key={i} className="stop">
+                <input type="color" value={c} onChange={(e) => setStops(all.map((x, j) => (j === i ? e.target.value : x)))} aria-label={`Teinte ${i + 1}`} />
+                {all.length > 1 && (
+                  <button className="stop-x" onClick={() => setStops(all.filter((_, j) => j !== i))} title="Retirer cette teinte">
+                    ×
+                  </button>
+                )}
+              </span>
+            ))}
+            <button onClick={() => setStops([...stopsOf(g), stopsOf(g).at(-1)!])} title="Ajouter une teinte : deux teintes ou plus font un dégradé">
+              ＋
+            </button>
+          </div>
         </div>
       )}
-      <button className="row" disabled={!selected || selected.kind === 'photo'} onClick={onTint}>
-        {selected && selected.kind !== 'photo' ? `Teinter « ${selected.name} » avec ce guide` : 'Sélectionne un papier ou une forme pour le teinter'}
-      </button>
+      <p className="fx-hint">Glisse une couleur sur une forme ou un papier pour la lui donner.</p>
       <div className="b-title">Palettes enregistrées</div>
       <button className="row" onClick={() => store([...saved, { name: `Palette ${saved.length + 1}`, guides: doc.guides }])}>
         Enregistrer la palette courante

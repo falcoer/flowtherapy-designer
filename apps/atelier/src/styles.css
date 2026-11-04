@@ -183,7 +183,9 @@ button:disabled { opacity: 0.35; cursor: default; }
 .guide-edit { display: flex; align-items: center; gap: 8px; padding: 4px; }
 .gname-input { flex: 1; min-width: 0; height: 36px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--ink); font: inherit; }
 input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10px; border: 1px solid var(--line); background: transparent; }
-.stops { display: flex; gap: 4px; align-items: center; }
+.stops { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.stop { position: relative; display: inline-flex; }
+.stops .stop-x { position: absolute; top: -6px; right: -6px; width: 16px; height: 16px; border-radius: 8px; padding: 0; font-size: 11px; line-height: 16px; background: var(--chrome-solid); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); }
 .stops input[type='color'] { width: 32px; }
 .stops button { width: 30px; height: 36px; border-radius: 10px; background: var(--line); }
 .saved { display: flex; align-items: center; gap: 8px; padding: 4px 6px; }
