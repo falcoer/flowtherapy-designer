@@ -85,12 +85,21 @@ export interface Layer {
   strokes: Stroke[];
 }
 
+export interface Lamp {
+  x: number;
+  y: number;
+  z: number;
+  color: string;
+}
+
 export interface Doc {
   formatId: string;
   frame: AnchorFrame;
   guides: Guide[];
   /** Lumière unique : direction d'où elle vient (degrés, 0 = haut, sens horaire). */
   light: number;
+  /** Lampe au-dessus de la feuille : position (fractions de la page, peut sortir de la page), hauteur 0..1 et couleur. */
+  lamp?: Lamp;
   layers: Layer[];
 }
 

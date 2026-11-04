@@ -1,7 +1,7 @@
 import { paintStroke, type Target } from './brush';
 import { rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
-import { guideColor, layerBox, shapePath, type Doc, type Guide, type Layer, type Pt, type ShapeKind } from './model';
+import { guideColor, layerBox, shapePath, type Doc, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { applyLook, lookGuides, lookOf } from './looks';
 import { applyPixelFx, hasPixelFx, hexRGB, type Fx, type FxId } from './fx';
@@ -156,11 +156,68 @@ export function forgetPaint(id?: string) {
   else paints.clear();
 }
 
-/** Vecteur d'ombre : à l'opposé de la lumière, proportionnel à la hauteur. */
-export function shadowVector(doc: Doc, height: number, minSide: number) {
-  const a = ((doc.light + 180) * Math.PI) / 180;
-  const d = height * 0.06 * minSide;
-  return { dx: Math.sin(a) * d, dy: -Math.cos(a) * d, blur: height * 0.07 * minSide + 0.004 * minSide };
+/** La lampe du document ; les anciens documents n'ont qu'une direction : lampe posée dans cette direction. */
+export function lampOf(doc: Doc): Lamp {
+  if (doc.lamp) return doc.lamp;
+  const a = (doc.light * Math.PI) / 180;
+  return { x: 0.5 + Math.sin(a) * 0.9, y: 0.5 - Math.cos(a) * 0.9, z: 0.5, color: '#ffffff' };
+}
+
+/**
+ * Lumière vue depuis un point de la page : direction vers la lampe (lx, ly),
+ * angle en degrés, et allongement des ombres (lampe basse et lointaine = ombres longues).
+ */
+export function lightAt(doc: Doc, f: Format, x: number, y: number) {
+  const L = lampOf(doc);
+  const m = Math.min(f.width, f.height);
+  const dx = L.x * f.width - x;
+  const dy = L.y * f.height - y;
+  const d = Math.hypot(dx, dy);
+  const Z = (0.15 + L.z * 1.6) * m;
+  const lx = d > 1e-6 ? dx / d : 0;
+  const ly = d > 1e-6 ? dy / d : -1;
+  return { lx, ly, deg: (Math.atan2(lx, -ly) * 180) / Math.PI, k: Math.min(3, d / Z) };
+}
+
+/** Vecteur d'ombre : à l'opposé de la lampe, proportionnel à la hauteur de la couche. */
+export function shadowVector(doc: Doc, f: Format, x: number, y: number, height: number) {
+  const minSide = Math.min(f.width, f.height);
+  const li = lightAt(doc, f, x, y);
+  const d = height * 0.06 * minSide * li.k;
+  return { dx: -li.lx * d, dy: -li.ly * d, blur: height * 0.07 * minSide * (0.6 + 0.4 * li.k) + 0.004 * minSide };
+}
+
+/** Teinte et pénombre de la lampe sur la page : plus elle est basse, plus la lumière tombe vite. */
+export function drawLampTint(ctx: CanvasRenderingContext2D, doc: Doc, f: Format) {
+  if (!doc.lamp) return;
+  const L = doc.lamp;
+  const m = Math.min(f.width, f.height);
+  const X = L.x * f.width;
+  const Y = L.y * f.height;
+  const R = (0.6 + L.z * 2.2) * m;
+  const [r, g, b] = hexRGB(L.color).map((v) => Math.round(v * 255));
+  const dark = 0.24 * (1 - L.z);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, f.width, f.height);
+  ctx.clip();
+  ctx.globalCompositeOperation = 'multiply';
+  const mix = (t: number) => `rgb(${Math.round((255 + (r - 255) * 0.22) * (1 - dark * t))},${Math.round((255 + (g - 255) * 0.22) * (1 - dark * t))},${Math.round((255 + (b - 255) * 0.22) * (1 - dark * t))})`;
+  const grad = ctx.createRadialGradient(X, Y, 0, X, Y, R);
+  grad.addColorStop(0, mix(0));
+  grad.addColorStop(0.5, mix(0.45));
+  grad.addColorStop(1, mix(1));
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, f.width, f.height);
+  // le point le plus proche de la lampe s'éclaire de sa couleur
+  ctx.globalCompositeOperation = 'screen';
+  const R2 = (0.25 + L.z * 0.6) * m;
+  const hot = ctx.createRadialGradient(X, Y, 0, X, Y, R2);
+  hot.addColorStop(0, `rgba(${r},${g},${b},${0.22 * (1 - L.z * 0.5)})`);
+  hot.addColorStop(1, `rgba(${r},${g},${b},0)`);
+  ctx.fillStyle = hot;
+  ctx.fillRect(0, 0, f.width, f.height);
+  ctx.restore();
 }
 
 export interface DrawOptions {
@@ -210,7 +267,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
 
     // ombre portée : la découpe remplie, décalée et floutée
     if (l.height > 0.001 && l.kind !== 'surface') {
-      const s = shadowVector(doc, l.height, minSide);
+      const s = shadowVector(doc, f, b.cx, b.cy, l.height);
       ctx.save();
       ctx.shadowColor = `rgba(20, 16, 30, ${0.3 + 0.3 * l.height})`;
       const cr = Math.cos(o.rot ?? 0);
@@ -258,12 +315,11 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     // biseau : bord éclairé côté lumière, bord sombre à l'opposé
     const bevel = l.bevel ?? 0;
     if (bevel > 0.001 && l.kind !== 'surface') {
-      const a = (doc.light * Math.PI) / 180;
-      const lx = Math.sin(a);
-      const ly = -Math.cos(a);
+      const { lx, ly } = lightAt(doc, f, b.cx, b.cy);
       const r = Math.max(b.w, b.h) / 2;
       const grad = ctx.createLinearGradient(b.cx + lx * r, b.cy + ly * r, b.cx - lx * r, b.cy - ly * r);
-      grad.addColorStop(0, `rgba(255,255,255,${Math.min(0.9, 0.35 + 0.55 * bevel)})`);
+      const [hr, hg, hb] = hexRGB(lampOf(doc).color).map((v) => Math.round(255 - (255 - v * 255) * 0.6));
+      grad.addColorStop(0, `rgba(${hr},${hg},${hb},${Math.min(0.9, 0.35 + 0.55 * bevel)})`);
       grad.addColorStop(0.5, 'rgba(255,255,255,0)');
       grad.addColorStop(0.5, 'rgba(0,0,0,0)');
       grad.addColorStop(1, `rgba(0,0,0,${Math.min(0.75, 0.25 + 0.5 * bevel)})`);
@@ -575,7 +631,7 @@ function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElem
   const ph = Math.max(1, Math.round(b.h * k));
   const im = l.kind === 'photo' && l.src ? imageFor(l.src, o.onImage) : null;
   if (l.kind === 'photo' && !im) return null;
-  const key = JSON.stringify([pw, ph, l.kind, l.guide, l.src?.length, l.src?.slice(-40), l.look, l.material, l.fx, l.strokes.length, l.rot ?? 0, doc.light, doc.guides]);
+  const key = JSON.stringify([pw, ph, l.kind, l.guide, l.src?.length, l.src?.slice(-40), l.look, l.material, l.fx, l.strokes.length, l.rot ?? 0, Math.round(lightAt(doc, f, layerBox(l, f).cx, layerBox(l, f).cy).deg / 8), doc.guides]);
   const hit = fxBuffers.get(l.id);
   if (hit?.key === key) return hit.canvas;
   const c = hit?.canvas ?? document.createElement('canvas');
@@ -587,7 +643,7 @@ function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElem
   bx.setTransform(1, 0, 0, 1, 0, 0);
   const img = bx.getImageData(0, 0, pw, ph);
   // la lumière, ramenée dans le repère de la couche (qui peut tourner)
-  const a = (doc.light * Math.PI) / 180 - (l.rot ?? 0);
+  const a = (Math.round(lightAt(doc, f, b.cx, b.cy).deg / 8) * 8 * Math.PI) / 180 - (l.rot ?? 0);
   applyPixelFx(img, pixelFx(l), doc.guides, Math.min(f.width, f.height) * k, Math.sin(a), -Math.cos(a));
   bx.putImageData(img, 0, 0);
   if (fxBuffers.size > 60) fxBuffers.clear();
@@ -616,9 +672,8 @@ const fxList = (l: Layer, id: FxId) => l.fx?.filter((x) => x.id === id) ?? [];
 /** Dans la découpe : ombre intérieure (côté lumière) et reflet brillant. */
 function drawFxInside(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, path: Path2D) {
   const minSide = Math.min(f.width, f.height);
-  const a = (doc.light * Math.PI) / 180;
-  const lx = Math.sin(a);
-  const ly = -Math.cos(a);
+  const lb = layerBox(l, f);
+  const { lx, ly } = lightAt(doc, f, lb.cx, lb.cy);
   if ((l.inner ?? 0) > 0.001) {
     const e = { amount: l.inner! };
     // on remplit tout sauf l'objet : seule l'ombre de ce cadre tombe dans la découpe

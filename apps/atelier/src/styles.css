@@ -239,3 +239,18 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .mode-pop .row svg { flex: none; }
 .mode-pop .row small { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .mode-pop.wide { width: 330px; }
+
+/* lampe : petit panneau en haut à gauche, à côté de la barre d'outils, la page reste visible */
+.lamp-panel { position: absolute; top: 64px; left: 64px; z-index: 20; width: 224px; max-width: calc(100vw - 80px); padding: 10px 12px 12px; border-radius: 16px; background: var(--chrome); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 8px; }
+.lamp-head { display: flex; align-items: center; justify-content: space-between; }
+.lamp-close { width: 24px; height: 24px; border-radius: 12px; font-size: 16px; line-height: 24px; color: var(--muted); }
+.lamp-map { width: 100%; height: auto; border-radius: 10px; background: var(--line); touch-action: none; cursor: grab; }
+.lamp-page { fill: var(--chrome-solid); stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.lamp-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.lamp-row input { flex: 1; min-width: 0; accent-color: var(--accent); }
+.lamp-colors { display: flex; gap: 6px; flex-wrap: wrap; }
+.lamp-colors .sw { width: 24px; height: 24px; border-radius: 12px; border: 1px solid var(--line); padding: 0; position: relative; overflow: hidden; }
+.lamp-colors .sw.on { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lamp-colors .sw.custom { background: conic-gradient(#ff6b6b, #ffd36b, #6bff9b, #6bc5ff, #b56bff, #ff6b6b); cursor: pointer; }
+.lamp-colors .sw.custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.lamp-panel .hint { margin: 0; font-size: 11px; line-height: 1.35; color: var(--muted); }

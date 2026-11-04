@@ -14,6 +14,7 @@ import {
   uid,
   type Doc,
   type Guide,
+  type Lamp,
   type Layer,
   type Pt,
   type BorderStyle,
@@ -26,10 +27,10 @@ import { geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRin
 import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, isMaterial, MATERIALS, newFx, type Fx, type FxId } from './fx';
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
-import { cutOf, holdPins, imageFor, localBounds, localToPage, pageBounds, pageToLocal, pinsOf, drawChecker, drawLayers, forgetPaint, localRings, maskPath2D, maskRings, paintTarget, tracePath } from './scene';
+import { drawLampTint, lampOf, cutOf, holdPins, imageFor, localBounds, localToPage, pageBounds, pageToLocal, pinsOf, drawChecker, drawLayers, forgetPaint, localRings, maskPath2D, maskRings, paintTarget, tracePath } from './scene';
 
 type Tool = 'cut' | 'paint' | 'transform' | 'material' | 'edge' | 'move';
-type Bubble = 'layers' | 'palette' | 'light' | 'format' | null;
+type Bubble = 'add' | 'layers' | 'palette' | 'light' | 'format' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc';
@@ -244,6 +245,7 @@ export function App() {
   const pointers = useRef(new Map<number, { x: number; y: number; type: string }>());
   const gesture = useRef<{ view: View; c: { x: number; y: number }; d: number; a: number } | null>(null);
   const tap = useRef<{ n: number; t0: number; moved: boolean } | null>(null);
+  const lampDrag = useRef<number | null>(null);
 
   // --- dessin ---
   useLayoutEffect(() => {
@@ -271,8 +273,43 @@ export function App() {
       onImage: redraw,
       wet: L.kind === 'paint' && L.wet && L.layer ? { id: L.layer, canvas: L.wet } : undefined,
     });
+    drawLampTint(ctx, doc, f);
     if (rendu) return;
     const px = 1 / scale;
+    // lampe : visible et déplaçable sur la feuille tant que son panneau est ouvert
+    if (bubble === 'light') {
+      const lp = lampOf(doc);
+      const X = lp.x * f.width;
+      const Y = lp.y * f.height;
+      ctx.save();
+      ctx.setLineDash([4 * px, 5 * px]);
+      ctx.strokeStyle = 'rgba(227,168,60,0.8)';
+      ctx.lineWidth = 1.5 * px;
+      ctx.beginPath();
+      ctx.moveTo(X, Y);
+      ctx.lineTo(f.width / 2, f.height / 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const R = (10 + lp.z * 8) * px;
+      ctx.shadowColor = lp.color;
+      ctx.shadowBlur = 18 * dpr;
+      ctx.fillStyle = lp.color;
+      ctx.strokeStyle = '#e3a83c';
+      ctx.lineWidth = 2.5 * px;
+      ctx.beginPath();
+      ctx.arc(X, Y, R, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.stroke();
+      for (let i = 0; i < 8; i++) {
+        const a = (i * Math.PI) / 4;
+        ctx.beginPath();
+        ctx.moveTo(X + Math.cos(a) * (R + 4 * px), Y + Math.sin(a) * (R + 4 * px));
+        ctx.lineTo(X + Math.cos(a) * (R + 10 * px), Y + Math.sin(a) * (R + 10 * px));
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
     // sélection : découpe en pointillés
     const sel = doc.layers.find((l) => l.id === selected);
     if (sel && sel.kind !== 'surface' && L.kind !== 'cut') {
@@ -434,7 +471,16 @@ export function App() {
   const onDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     (e.target as Element).setPointerCapture(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
-    setBubble(null);
+    // le panneau lumière reste ouvert : on règle la lampe en regardant la page
+    if (bubble === 'light' && pointers.current.size === 1) {
+      const q = toPage(e.clientX, e.clientY);
+      const lp = lampOf(doc);
+      if (Math.hypot(q.x - lp.x * f.width, q.y - lp.y * f.height) * scale < 30) {
+        lampDrag.current = e.pointerId;
+        return;
+      }
+    }
+    setBubble((b) => (b === 'light' ? b : null));
     setModePick(false);
     setEpop(null);
     setBrushPick(false);
@@ -572,6 +618,13 @@ export function App() {
   const onMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const pt = pointers.current.get(e.pointerId);
     if (!pt) return;
+    if (lampDrag.current === e.pointerId) {
+      const q = toPage(e.clientX, e.clientY);
+      const lp = lampOf(doc);
+      const cl = (v: number) => Math.max(-0.75, Math.min(1.75, v));
+      setDoc((d) => ({ ...d, lamp: { ...lp, x: cl(q.x / f.width), y: cl(q.y / f.height) } }));
+      return;
+    }
     const moved = Math.hypot(e.clientX - pt.x, e.clientY - pt.y);
     pt.x = e.clientX;
     pt.y = e.clientY;
@@ -702,6 +755,10 @@ export function App() {
 
   const onUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     pointers.current.delete(e.pointerId);
+    if (lampDrag.current === e.pointerId) {
+      lampDrag.current = null;
+      return;
+    }
     const remaining = pointers.current.size;
     const L = live.current;
     if (L.kind === 'view') {
@@ -1035,6 +1092,7 @@ export function App() {
     ctx.setTransform(k, 0, 0, k, 0, 0);
     forgetPaint();
     drawLayers(ctx, doc, f, { scale: k, onImage: () => {} });
+    drawLampTint(ctx, doc, f);
     forgetPaint();
     setSnapshot(c.toDataURL('image/png'));
   };
@@ -1067,6 +1125,9 @@ export function App() {
               </button>
             </div>
             <div className="bar-right">
+              <button className={`btn ${bubble === 'add' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'add' ? null : 'add')} title="Ajouter une couche">
+                <Icon name="plus" />
+              </button>
               <button className={`btn ${bubble === 'layers' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'layers' ? null : 'layers')} title="Couches">
                 <Icon name="layers" />
               </button>
@@ -1317,7 +1378,12 @@ export function App() {
                   Effacer la peinture de « {sel.name} »
                 </button>
               )}
-              <div className="b-title">Ajouter</div>
+            </div>
+          )}
+
+          {bubble === 'add' && (
+            <div className="bubble layers-bubble add-bubble">
+              <div className="b-title">Ajouter une couche</div>
               <div className="add-grid">
                 <button
                   onClick={() => {
@@ -1396,13 +1462,7 @@ export function App() {
 
           {dragGuide && <span className="drag-dot" style={{ left: dragGuide.x, top: dragGuide.y, background: swatch(doc.guides[dragGuide.i]) }} />}
 
-          {bubble === 'light' && (
-            <div className="bubble light-bubble">
-              <div className="b-title">Lumière unique</div>
-              <LightDial angle={doc.light} onChange={(a) => setDoc((d) => ({ ...d, light: a }))} />
-              <p className="hint">Toutes les ombres et les épaisseurs suivent cette lumière. La hauteur de chaque couche se règle dans Couches.</p>
-            </div>
-          )}
+          {bubble === 'light' && <LampPanel doc={doc} f={f} onChange={(lamp) => setDoc((d) => ({ ...d, lamp }))} onClose={() => setBubble(null)} />}
 
           {tool === 'edge' && (!sel || sel.kind === 'surface') && <div className="status">Sélectionne une photo ou une forme pour régler ses bords</div>}
           {tool === 'material' && !sel && <div className="status">Sélectionne une photo ou une forme pour choisir sa matière</div>}
@@ -1538,39 +1598,86 @@ function LayerThumb({ layer, doc }: { layer: Layer; doc: Doc }) {
   return <canvas ref={ref} className="thumb" />;
 }
 
-/** Cadran de la lumière : on tourne le soleil autour de la page. */
-function LightDial({ angle, onChange }: { angle: number; onChange: (a: number) => void }) {
+const LAMP_COLORS: Array<[string, string]> = [
+  ['#ffffff', 'Blanche'],
+  ['#ffe9c4', 'Soleil'],
+  ['#ffb86b', 'Bougie'],
+  ['#ff8f6b', 'Couchant'],
+  ['#c9d8ff', 'Lune'],
+  ['#ff8ad8', 'Néon rose'],
+];
+
+/**
+ * Lampe au-dessus de la feuille, en petit panneau en haut à gauche : la page reste visible.
+ * On la déplace sur la carte (ou directement sur la feuille), on choisit sa couleur et sa hauteur.
+ */
+function LampPanel({ doc, f, onChange, onClose }: { doc: Doc; f: Format; onChange: (l: Lamp) => void; onClose: () => void }) {
+  const lp = lampOf(doc);
   const ref = useRef<SVGSVGElement>(null);
+  // la carte montre la page et une marge de 0,75 page tout autour
+  const M = 0.75;
+  const ar = f.width / f.height;
+  const W = 200;
+  const H = Math.round(Math.min(220, Math.max(120, W / ar)));
+  const pw = Math.min(W / (1 + 2 * M), (H / (1 + 2 * M)) * ar);
+  const ph = pw / ar;
+  const ox = (W - pw) / 2;
+  const oy = (H - ph) / 2;
   const set = (e: React.PointerEvent) => {
     const r = ref.current!.getBoundingClientRect();
-    const a = (Math.atan2(e.clientX - (r.left + r.width / 2), -(e.clientY - (r.top + r.height / 2))) * 180) / Math.PI;
-    onChange(Math.round(a / 5) * 5);
+    const x = ((e.clientX - r.left) / r.width) * W;
+    const y = ((e.clientY - r.top) / r.height) * H;
+    const cl = (v: number) => Math.max(-M, Math.min(1 + M, v));
+    onChange({ ...lp, x: Math.round(cl((x - ox) / pw) * 100) / 100, y: Math.round(cl((y - oy) / ph) * 100) / 100 });
   };
-  const rad = (angle * Math.PI) / 180;
-  const sx = 80 + Math.sin(rad) * 62;
-  const sy = 80 - Math.cos(rad) * 62;
-  const shx = -Math.sin(rad) * 8;
-  const shy = Math.cos(rad) * 8;
+  const sx = ox + lp.x * pw;
+  const sy = oy + lp.y * ph;
+  // ombre d'une carte posée au centre, pour lire l'effet
+  const cx = ox + pw / 2;
+  const cy = oy + ph / 2;
+  const dl = Math.hypot(sx - cx, sy - cy) || 1;
+  const k = Math.min(3, (dl / pw) / (0.15 + lp.z * 1.6));
+  const shx = (-(sx - cx) / dl) * 6 * k;
+  const shy = (-(sy - cy) / dl) * 6 * k;
   return (
-    <svg
-      ref={ref}
-      viewBox="0 0 160 160"
-      className="dial"
-      onPointerDown={(e) => {
-        (e.target as Element).setPointerCapture(e.pointerId);
-        set(e);
-      }}
-      onPointerMove={(e) => e.buttons && set(e)}
-    >
-      <circle cx="80" cy="80" r="62" className="dial-ring" />
-      <rect x={62 + shx} y={62 + shy} width="36" height="36" rx="6" className="dial-shadow" />
-      <rect x="62" y="62" width="36" height="36" rx="6" className="dial-card" />
-      <line x1="80" y1="80" x2={sx} y2={sy} className="dial-ray" />
-      <circle cx={sx} cy={sy} r="11" className="dial-sun" />
-      <text x="80" y="152" textAnchor="middle" className="dial-text">
-        {angle}°
-      </text>
-    </svg>
+    <div className="lamp-panel">
+      <div className="lamp-head">
+        <span className="b-title">Lumière</span>
+        <button className="lamp-close" onClick={onClose} aria-label="Fermer">
+          ×
+        </button>
+      </div>
+      <svg
+        ref={ref}
+        viewBox={`0 0 ${W} ${H}`}
+        className="lamp-map"
+        style={{ aspectRatio: `${W} / ${H}` }}
+        onPointerDown={(e) => {
+          (e.target as Element).setPointerCapture(e.pointerId);
+          set(e);
+        }}
+        onPointerMove={(e) => e.buttons && set(e)}
+      >
+        <rect x={ox} y={oy} width={pw} height={ph} rx="2" className="lamp-page" />
+        <rect x={cx - pw * 0.18 + shx} y={cy - pw * 0.18 + shy} width={pw * 0.36} height={pw * 0.36} rx="3" className="dial-shadow" />
+        <rect x={cx - pw * 0.18} y={cy - pw * 0.18} width={pw * 0.36} height={pw * 0.36} rx="3" className="dial-card" />
+        <line x1={cx} y1={cy} x2={sx} y2={sy} className="dial-ray" />
+        <circle cx={sx} cy={sy} r={7 + lp.z * 6} className="dial-sun" style={{ fill: lp.color }} />
+      </svg>
+      <label className="lamp-row">
+        <span>Hauteur</span>
+        <input type="range" min={0} max={1} step={0.01} value={lp.z} onChange={(e) => onChange({ ...lp, z: Number(e.target.value) })} />
+      </label>
+      <div className="lamp-colors">
+        {LAMP_COLORS.map(([c, name]) => (
+          <button key={c} className={`sw ${lp.color.toLowerCase() === c ? 'on' : ''}`} style={{ background: c }} title={name} onClick={() => onChange({ ...lp, color: c })} />
+        ))}
+        <label className="sw custom" title="Autre couleur" style={{ background: LAMP_COLORS.some(([c]) => c === lp.color.toLowerCase()) ? undefined : lp.color }}>
+          <input type="color" value={lp.color} onChange={(e) => onChange({ ...lp, color: e.target.value })} />
+        </label>
+      </div>
+      <p className="hint">Glisse le soleil sur la carte, ou directement sur la feuille. Plus la lampe est basse, plus les ombres s'allongent et la lumière tombe vite.</p>
+    </div>
   );
 }
 
@@ -1949,7 +2056,7 @@ function MaterialControls({
     for (const d of MATERIALS()) out[d.id] = fxPreview(layer, doc, f, layer.fx, `mat-${d.id}`, reload, { material: cur?.id === d.id ? cur : newFx(d.id) });
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pick, layer, doc.guides, doc.light, f, tick]);
+  }, [pick, layer, doc.guides, doc.light, doc.lamp, f, tick]);
   const tiles = [{ id: null as FxId | null, name: 'Aucune' }, ...MATERIALS().map((d) => ({ id: d.id as FxId | null, name: d.name }))];
   return (
     <>
@@ -2024,7 +2131,7 @@ function FxControls({
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pick, layer, doc.guides, doc.light, f, tick]);
+  }, [pick, layer, doc.guides, doc.light, doc.lamp, f, tick]);
   const tap = (id: FxId) => {
     const i = list.findIndex((x) => x.id === id);
     if (i < 0) {
