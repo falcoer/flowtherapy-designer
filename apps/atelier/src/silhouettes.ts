@@ -30,6 +30,17 @@ const NEW = [
   'mic',
   'vinyl',
   'speaker',
+  'trebleclef',
+  'bassclef',
+  'telecaster',
+  'stratocaster',
+  'lespaul',
+  'bass',
+  'doublebass',
+  'drums',
+  'cymbal',
+  'piano',
+  'synth',
   'speech',
   'ticket',
   'banner',
@@ -99,10 +110,21 @@ export const SHAPE_FAMILIES: Array<[string, Array<[string, string]>]> = [
     [
       ['note', 'Note'],
       ['notes', 'Double croche'],
-      ['guitar', 'Guitare'],
+      ['trebleclef', 'Clé de sol'],
+      ['bassclef', 'Clé de fa'],
       ['mic', 'Micro'],
       ['vinyl', 'Vinyle'],
       ['speaker', 'Enceinte'],
+      ['guitar', 'Guitare'],
+      ['telecaster', 'Telecaster'],
+      ['stratocaster', 'Stratocaster'],
+      ['lespaul', 'Les Paul'],
+      ['bass', 'Basse'],
+      ['doublebass', 'Contrebasse'],
+      ['drums', 'Batterie'],
+      ['cymbal', 'Cymbale'],
+      ['piano', 'Piano'],
+      ['synth', 'Synthé'],
     ],
   ],
   [
@@ -167,9 +189,72 @@ const starN = (n: number, r1: number, r0: number) =>
       return [Math.cos(a) * r, Math.sin(a) * r] as P;
     }),
   );
-const roundRect = (x0: number, y0: number, x1: number, y1: number, r: number) =>
-  union(rect(x0 + r, y0, x1 - r, y1), rect(x0, y0 + r, x1, y1 - r), ellipse(x0 + r, y0 + r, r, r), ellipse(x1 - r, y0 + r, r, r), ellipse(x1 - r, y1 - r, r, r), ellipse(x0 + r, y1 - r, r, r));
+/** Rectangle aux coins arrondis, tracé d'un seul contour (plus robuste qu'une union de pièces). */
+const roundRect = (x0: number, y0: number, x1: number, y1: number, r: number): MultiPolygon => {
+  const pts: P[] = [];
+  const corner = (cx: number, cy: number, a0: number) => {
+    for (let i = 0; i <= 8; i++) {
+      const a = a0 + (i / 8) * (Math.PI / 2);
+      pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+    }
+  };
+  corner(x1 - r, y0 + r, -Math.PI / 2);
+  corner(x1 - r, y1 - r, 0);
+  corner(x0 + r, y1 - r, Math.PI / 2);
+  corner(x0 + r, y0 + r, Math.PI);
+  return [ring(pts)];
+};
 const annulus = (r1: number, r0: number, cx = 0, cy = 0) => minus(ellipse(cx, cy, r1, r1, 0, 64), ellipse(cx, cy, r0, r0, 0, 64));
+
+/** Catmull-Rom : points de passage → courbe lisse (ouverte ou fermée). */
+function spline(pts: P[], closed: boolean, n = 8): P[] {
+  const out: P[] = [];
+  const m = pts.length;
+  const at = (i: number) => (closed ? pts[(i + m) % m]! : pts[Math.max(0, Math.min(m - 1, i))]!);
+  const last = closed ? m : m - 1;
+  for (let i = 0; i < last; i++) {
+    const [p0, p1, p2, p3] = [at(i - 1), at(i), at(i + 1), at(i + 2)];
+    for (let j = 0; j < n; j++) {
+      const t = j / n;
+      const f = (a: number, b: number, c: number, d: number) => 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (3 * b - a - 3 * c + d) * t * t * t);
+      out.push([f(p0[0], p1[0], p2[0], p3[0]), f(p0[1], p1[1], p2[1], p3[1])]);
+    }
+  }
+  if (!closed) out.push(pts[m - 1]!);
+  return out;
+}
+/** Contour fermé lissé passant par les points donnés. */
+const smooth = (pts: P[]) => ring(spline(pts, true));
+/** Trait épais le long d'une courbe lisse, de largeur w(t) ; découpé en tronçons pour supporter les boucles. */
+function stroke(pts: P[], w: (t: number) => number): MultiPolygon {
+  const c = spline(pts, false, 10);
+  const parts: Polygon[] = [];
+  for (let i = 0; i < c.length - 1; i++) {
+    const [a, b] = [c[i]!, c[i + 1]!];
+    const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+    const d = Math.hypot(dx, dy) || 1;
+    const [ka, kb] = [w(i / (c.length - 1)) / 2, w((i + 1) / (c.length - 1)) / 2];
+    const [nx, ny] = [-dy / d, dx / d];
+    parts.push(
+      ring([
+        [a[0] + nx * ka, a[1] + ny * ka],
+        [b[0] + nx * kb, b[1] + ny * kb],
+        [b[0] - nx * kb, b[1] - ny * kb],
+        [a[0] - nx * ka, a[1] - ny * ka],
+      ]),
+    );
+    parts.push(ellipse(b[0], b[1], kb, kb, 0, 12));
+  }
+  return union(...parts);
+}
+/** Symétrie gauche-droite d'une demi-silhouette décrite de haut en bas côté droit. */
+const mirror = (half: P[]): P[] => [
+  ...half,
+  ...half
+    .slice()
+    .reverse()
+    .map(([x, y]) => [-x, y] as P),
+];
 
 function build(k: SilhouetteKind): MultiPolygon {
   switch (k) {
@@ -446,6 +531,284 @@ function build(k: SilhouetteKind): MultiPolygon {
       return minus(ellipse(0, 0, 1, 1, 0, 72), annulus(0.84, 0.8), annulus(0.68, 0.64), ellipse(0, 0, 0.06, 0.06));
     case 'speaker':
       return union(minus(roundRect(-0.62, -1, 0.62, 1, 0.12), ellipse(0, 0.34, 0.4, 0.4, 0, 48), ellipse(0, -0.56, 0.18, 0.18)), ellipse(0, 0.34, 0.16, 0.16), ellipse(0, -0.56, 0.06, 0.06));
+    case 'trebleclef':
+      return union(
+        stroke(
+          [
+            [0.06, 0.42],
+            [0.16, 0.28],
+            [0.04, 0.14],
+            [-0.2, 0.22],
+            [-0.32, 0.48],
+            [-0.16, 0.76],
+            [0.14, 0.8],
+            [0.36, 0.56],
+            [0.33, 0.22],
+            [0.12, -0.04],
+            [-0.14, -0.3],
+            [-0.26, -0.62],
+            [-0.16, -0.98],
+            [0.04, -1.22],
+            [0.13, -1.02],
+            [0.05, -0.68],
+            [-0.02, -0.28],
+            [0.02, 0.24],
+            [0.06, 0.72],
+            [0.07, 1.02],
+            [-0.02, 1.2],
+            [-0.18, 1.16],
+          ],
+          (t) => 0.06 + 0.11 * Math.exp(-(((t - 0.24) / 0.12) ** 2)) + 0.06 * Math.exp(-(((t - 0.52) / 0.08) ** 2)),
+        ),
+        ellipse(-0.18, 1.06, 0.11, 0.11),
+      );
+    case 'bassclef':
+      return union(
+        ellipse(-0.42, -0.28, 0.17, 0.17),
+        stroke(
+          [
+            [-0.52, -0.34],
+            [-0.34, -0.6],
+            [0.02, -0.66],
+            [0.3, -0.44],
+            [0.32, -0.04],
+            [0.1, 0.4],
+            [-0.24, 0.74],
+            [-0.56, 0.92],
+          ],
+          (t) => 0.05 + 0.13 * Math.sin(Math.PI * Math.min(1, t * 1.15)) * (1 - 0.6 * t),
+        ),
+        ellipse(0.58, -0.42, 0.08, 0.08),
+        ellipse(0.58, 0.04, 0.08, 0.08),
+      );
+    case 'telecaster':
+      return minus(
+        union(
+          smooth([
+            [-0.08, -0.02],
+            [-0.3, -0.08],
+            [-0.44, 0.04],
+            [-0.42, 0.28],
+            [-0.56, 0.56],
+            [-0.46, 0.86],
+            [0, 0.96],
+            [0.46, 0.86],
+            [0.56, 0.56],
+            [0.44, 0.32],
+            [0.4, 0.16],
+            [0.26, 0.12],
+            [0.1, 0.06],
+          ]),
+          rect(-0.075, -1.02, 0.075, 0.2),
+          smooth([
+            [0.06, -1.008],
+            [0.07, -1.318],
+            [0.0, -1.368],
+            [-0.12, -1.343],
+            [-0.17, -1.269],
+            [-0.13, -1.17],
+            [-0.06, -1.033],
+          ]),
+        ),
+        rect(-0.13, 0.62, 0.15, 0.7),
+        rect(-0.1, 0.24, 0.1, 0.3),
+      );
+    case 'stratocaster':
+      return minus(
+        union(
+          smooth([
+            [-0.08, 0.02],
+            [-0.2, -0.06],
+            [-0.3, -0.36],
+            [-0.4, -0.32],
+            [-0.45, 0.0],
+            [-0.42, 0.26],
+            [-0.57, 0.56],
+            [-0.46, 0.86],
+            [0, 0.96],
+            [0.46, 0.86],
+            [0.57, 0.56],
+            [0.44, 0.26],
+            [0.45, 0.04],
+            [0.32, -0.2],
+            [0.22, -0.16],
+            [0.1, 0.04],
+          ]),
+          rect(-0.075, -1.03, 0.075, 0.2),
+          smooth([
+            [0.06, -1.021],
+            [0.1, -1.095],
+            [0.03, -1.182],
+            [0.05, -1.306],
+            [-0.06, -1.38],
+            [-0.19, -1.331],
+            [-0.21, -1.194],
+            [-0.11, -1.095],
+            [-0.06, -1.021],
+          ]),
+        ),
+        rect(-0.1, 0.22, 0.1, 0.27),
+        rect(-0.1, 0.38, 0.1, 0.43),
+        rect(-0.12, 0.54, 0.1, 0.59),
+      );
+    case 'lespaul':
+      return minus(
+        union(
+          smooth([
+            [-0.07, 0.0],
+            [-0.3, -0.04],
+            [-0.44, 0.12],
+            [-0.4, 0.32],
+            [-0.56, 0.58],
+            [-0.46, 0.88],
+            [0, 0.98],
+            [0.46, 0.88],
+            [0.56, 0.58],
+            [0.42, 0.36],
+            [0.36, 0.16],
+            [0.24, -0.02],
+            [0.17, 0.0],
+            [0.1, 0.08],
+          ]),
+          rect(-0.075, -1.0, 0.075, 0.2),
+          ring([
+            [0.075, -0.996],
+            [0.17, -1.269],
+            [0.12, -1.331],
+            [0.0, -1.294],
+            [-0.12, -1.331],
+            [-0.17, -1.269],
+            [-0.075, -0.996],
+          ]),
+        ),
+        rect(-0.13, 0.22, 0.13, 0.32),
+        rect(-0.13, 0.48, 0.13, 0.58),
+      );
+    case 'bass': {
+      const pegs = [0, 1, 2, 3].map((i) => ellipse(-0.24, -1.48 + i * 0.085, 0.04, 0.04));
+      return minus(
+        union(
+          smooth([
+            [-0.08, 0.02],
+            [-0.2, -0.08],
+            [-0.28, -0.46],
+            [-0.4, -0.42],
+            [-0.46, 0.0],
+            [-0.42, 0.26],
+            [-0.58, 0.56],
+            [-0.46, 0.88],
+            [0, 0.98],
+            [0.46, 0.88],
+            [0.58, 0.56],
+            [0.44, 0.28],
+            [0.46, 0.06],
+            [0.34, -0.2],
+            [0.22, -0.16],
+            [0.1, 0.04],
+          ]),
+          rect(-0.07, -1.25, 0.07, 0.2),
+          smooth([
+            [0.065, -1.244],
+            [0.08, -1.343],
+            [0.02, -1.43],
+            [0.04, -1.529],
+            [-0.06, -1.591],
+            [-0.19, -1.542],
+            [-0.2, -1.368],
+            [-0.1, -1.306],
+            [-0.065, -1.244],
+          ]),
+          ...pegs,
+          ...[0, 1, 2, 3].map((i) => rect(-0.24, -1.5 + i * 0.085, -0.15, -1.46 + i * 0.085)),
+        ),
+        rect(-0.12, 0.34, 0.12, 0.42),
+        rect(-0.11, 0.62, 0.11, 0.68),
+      );
+    }
+    case 'doublebass':
+      return minus(
+        union(
+          smooth(
+            mirror([
+              [0.08, -0.52],
+              [0.3, -0.42],
+              [0.4, -0.16],
+              [0.28, 0.1],
+              [0.28, 0.26],
+              [0.5, 0.5],
+              [0.52, 0.84],
+              [0.3, 1.04],
+              [0.02, 1.08],
+            ]),
+          ),
+          rect(-0.05, -1.42, 0.05, -0.44),
+          roundRect(-0.07, -1.62, 0.07, -1.38, 0.05),
+          ellipse(0.03, -1.66, 0.09, 0.1),
+          rect(-0.015, 1.04, 0.015, 1.3),
+          ...[0, 1].flatMap((i) => [rect(-0.15, -1.58 + i * 0.12, 0.15, -1.55 + i * 0.12)]),
+        ),
+        band([0.2, 0.18], [0.12, 0.4], [0.2, 0.64], () => 0.035),
+        band([-0.2, 0.18], [-0.12, 0.4], [-0.2, 0.64], () => 0.035),
+        ellipse(0.03, -1.66, 0.035, 0.035),
+      );
+    case 'drums':
+      return union(
+        // grosse caisse et son cercle
+        minus(ellipse(0, 0.42, 0.44, 0.44, 0, 56), annulus(0.37, 0.33, 0, 0.42), ellipse(0, 0.42, 0.1, 0.1)),
+        // toms sur la grosse caisse
+        roundRect(-0.42, -0.24, -0.06, 0.02, 0.04),
+        roundRect(0.06, -0.24, 0.42, 0.02, 0.04),
+        rect(-0.03, -0.05, 0.03, 0.1),
+        // caisse claire à gauche, tom basse à droite
+        roundRect(-0.9, 0.04, -0.5, 0.22, 0.03),
+        rect(-0.72, 0.2, -0.68, 0.86),
+        roundRect(0.52, 0.14, 0.92, 0.6, 0.04),
+        rect(0.55, 0.58, 0.59, 0.86),
+        rect(0.85, 0.58, 0.89, 0.86),
+        // cymbales sur pied
+        ellipse(-0.84, -0.42, 0.3, 0.045, -0.12),
+        rect(-0.86, -0.42, -0.82, 0.86),
+        ellipse(0.8, -0.6, 0.32, 0.05, 0.14),
+        rect(0.78, -0.6, 0.82, 0.14),
+        // sol
+        roundRect(-1.0, 0.84, 1.0, 0.9, 0.03),
+      );
+    case 'cymbal':
+      return union(
+        ellipse(0, -0.42, 0.95, 0.12, -0.1, 48),
+        ellipse(-0.01, -0.53, 0.18, 0.1),
+        rect(-0.025, -0.6, 0.025, 0.72),
+        rect(-0.045, 0.1, 0.045, 0.18),
+        band([0, 0.66], [-0.2, 0.74], [-0.5, 0.98], () => 0.04),
+        band([0, 0.66], [0.2, 0.74], [0.5, 0.98], () => 0.04),
+        rect(-0.02, 0.66, 0.02, 0.98),
+      );
+    case 'piano':
+      return union(
+        // caisse vue de côté, couvercle ouvert sur sa béquille
+        roundRect(-0.95, -0.06, 0.94, 0.22, 0.07),
+        ring([
+          [-0.78, -0.12],
+          [0.92, -0.12],
+          [0.8, -0.78],
+        ]),
+        rect(0.3, -0.4, 0.33, -0.06),
+        rect(-1.06, -0.02, -0.9, 0.1),
+        rect(-0.88, 0.2, -0.78, 0.82),
+        rect(0.72, 0.18, 0.82, 0.82),
+        rect(-0.12, 0.2, -0.08, 0.66),
+        roundRect(-0.2, 0.62, 0.0, 0.7, 0.02),
+      );
+    case 'synth': {
+      const keys: G[] = [];
+      const n = 14;
+      const [x0, x1, y0, y1] = [-0.92, 0.92, -0.02, 0.36];
+      const kw = (x1 - x0) / n;
+      for (let i = 1; i < n; i++) keys.push(rect(x0 + i * kw - 0.008, y0, x0 + i * kw + 0.008, y1));
+      // touches noires : motif 2 + 3 sur deux octaves
+      [1, 2, 4, 5, 6, 8, 9, 11, 12, 13].forEach((i) => keys.push(rect(x0 + i * kw - kw * 0.3, y0, x0 + i * kw + kw * 0.3, y0 + (y1 - y0) * 0.6)));
+      return union(minus(roundRect(-1, -0.42, 1, 0.44, 0.08), rect(x0, y0, x1, y1), ...[-0.72, -0.52, -0.32].map((x) => ellipse(x, -0.22, 0.07, 0.07)), roundRect(0.18, -0.32, 0.86, -0.12, 0.03)), ...keys);
+    }
     // --- fête ---
     case 'speech':
       return union(

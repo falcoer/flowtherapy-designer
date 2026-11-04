@@ -2,7 +2,7 @@ import { FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format } from '@ftd
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { previewStamps } from './brush';
 import { CoupePanel } from './coupe';
-import { LibraryShelf, SHELVES, type LibItem, type Shelf } from './library';
+import { LibraryShelf, RailScroll, SHELVES, type LibItem, type Shelf } from './library';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
 import { anchorsOf, DENSITY_STEPS, setAnchorDensity } from './model';
@@ -1808,7 +1808,7 @@ export function App() {
                 />
               )}
               {shelf === 'formes' && (
-                <div className="forms-scroll">
+                <RailScroll className="forms-scroll">
                   {SHAPE_FAMILIES.map(([fam, list]) => (
                     <div key={fam} className="forms-fam">
                       <div className="b-title">{fam}</div>
@@ -1840,7 +1840,7 @@ export function App() {
                       </button>
                     )}
                   </div>
-                </div>
+                </RailScroll>
               )}
             </div>
           )}

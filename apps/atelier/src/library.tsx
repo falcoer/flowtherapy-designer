@@ -68,29 +68,6 @@ export function LibraryShelf({ shelf, onInsert, onDragState }: { shelf: Shelf; o
   const [tag, setTag] = useState<string | null>(null);
   const [ghost, setGhost] = useState<{ item: LibItem; x: number; y: number } | null>(null);
   const press = useRef<{ item: LibItem; x: number; y: number; drag: boolean } | null>(null);
-  // position de défilement du rayon, pour la barre visible
-  const gridRef = useRef<HTMLDivElement>(null);
-  const [view, setView] = useState({ top: 0, size: 1 });
-  const measure = () => {
-    const g = gridRef.current;
-    if (!g) return;
-    const max = g.scrollHeight - g.clientHeight;
-    setView({ top: max > 0 ? g.scrollTop / max : 0, size: g.scrollHeight ? Math.min(1, g.clientHeight / g.scrollHeight) : 1 });
-  };
-  useEffect(() => {
-    measure();
-    const g = gridRef.current;
-    if (!g) return;
-    const ro = new ResizeObserver(measure);
-    ro.observe(g);
-    // les vignettes chargées agrandissent la grille
-    const imgs = [...g.querySelectorAll('img')];
-    imgs.forEach((i) => i.addEventListener('load', measure));
-    return () => {
-      ro.disconnect();
-      imgs.forEach((i) => i.removeEventListener('load', measure));
-    };
-  });
   useEffect(() => {
     void loadLibrary().then(setItems);
   }, []);
@@ -111,8 +88,7 @@ export function LibraryShelf({ shelf, onInsert, onDragState }: { shelf: Shelf; o
           ))}
         </div>
       )}
-      <div className="lib-scroll">
-      <div className={`lib-grid shelf-${shelf}`} ref={gridRef} onScroll={measure}>
+      <RailScroll className={`lib-grid shelf-${shelf}`}>
         {list.map((it) => (
           <button
             key={it.id}
@@ -153,11 +129,44 @@ export function LibraryShelf({ shelf, onInsert, onDragState }: { shelf: Shelf; o
             <span className="lib-name">{it.title.replace(/^(Craie|Presse) : /, '')}</span>
           </button>
         ))}
-      </div>
-      <ScrollRail grid={gridRef} view={view} />
-      </div>
+      </RailScroll>
       {ghost && <img className="lib-ghost" src={ghost.item.thumb} alt="" style={{ left: ghost.x, top: ghost.y }} />}
     </>
+  );
+}
+
+/** Zone défilante flanquée d'une barre de défilement toujours visible (le doigt sur une tablette n'en montre aucune). */
+export function RailScroll({ className, children }: { className: string; children: React.ReactNode }) {
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState({ top: 0, size: 1 });
+  const measure = () => {
+    const g = gridRef.current;
+    if (!g) return;
+    const max = g.scrollHeight - g.clientHeight;
+    const next = { top: max > 0 ? g.scrollTop / max : 0, size: g.scrollHeight ? Math.min(1, g.clientHeight / g.scrollHeight) : 1 };
+    setView((v) => (Math.abs(v.top - next.top) < 1e-4 && Math.abs(v.size - next.size) < 1e-4 ? v : next));
+  };
+  useEffect(() => {
+    measure();
+    const g = gridRef.current;
+    if (!g) return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(g);
+    // les vignettes chargées agrandissent la grille
+    const imgs = [...g.querySelectorAll('img')];
+    imgs.forEach((i) => i.addEventListener('load', measure));
+    return () => {
+      ro.disconnect();
+      imgs.forEach((i) => i.removeEventListener('load', measure));
+    };
+  });
+  return (
+    <div className="lib-scroll">
+      <div className={className} ref={gridRef} onScroll={measure}>
+        {children}
+      </div>
+      <ScrollRail grid={gridRef} view={view} />
+    </div>
   );
 }
 

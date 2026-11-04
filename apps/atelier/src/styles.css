@@ -395,6 +395,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .density input { flex: 1; accent-color: var(--accent); }
 .density.off { opacity: 0.45; }
 /* rayon Formes : familles en défilement */
-.forms-scroll { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 4px; padding-right: 2px; }
+.forms-scroll { flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 4px; scrollbar-width: none; }
+.forms-scroll::-webkit-scrollbar { display: none; }
 .forms-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
 .forms-grid > * { padding: 8px 3px; font-size: 11px; }
