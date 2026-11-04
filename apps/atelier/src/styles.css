@@ -162,6 +162,11 @@ button:disabled { opacity: 0.35; cursor: default; }
 .height { display: flex; align-items: center; gap: 4px; color: var(--muted); }
 .height svg { width: 16px; height: 16px; }
 .height input { flex: 1; min-width: 0; accent-color: var(--accent); }
+.height-track { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; }
+.height-track input { width: 100%; position: relative; z-index: 1; }
+/* repère du neutre, au milieu du curseur */
+.height-track::after { content: ''; position: absolute; left: calc(50% - 1px); top: 50%; width: 2px; height: 14px; margin-top: -7px; border-radius: 1px; background: var(--ink); opacity: 0.45; pointer-events: none; z-index: 2; }
+.layer-actions button:disabled { opacity: 0.3; }
 .layer-actions { display: flex; }
 .layer-actions button { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); }
 .layer-actions button:hover { background: var(--accent-soft); color: var(--ink); }

@@ -234,14 +234,61 @@ const layerBuffers: HTMLCanvasElement[] = [];
 let depth = 0;
 
 /** Dessine les couches ; le contexte est déjà transformé en unités du format. */
+/** Hauteur effective : positive au-dessus de la feuille, négative quand la couche est creusée. */
+export const levelOf = (l: Layer) => (l.kind === 'surface' ? -Infinity : l.height - (l.inner ?? 0));
+
+/**
+ * Ordre d'affichage, du dessous au-dessus : la surface de fond, puis les couches
+ * de la plus basse à la plus haute ; à hauteur égale, l'ordre des couches départage.
+ */
+export function renderOrder(layers: Layer[]): Layer[] {
+  return layers
+    .map((l, i) => ({ l, i }))
+    .sort((a, b) => levelOf(a.l) - levelOf(b.l) || a.i - b.i)
+    .map((x) => x.l);
+}
+
+/**
+ * Ombre portée d'une couche, tombant d'une hauteur relative `h`.
+ * La forme est dessinée hors champ et seule son ombre est ramenée : rien de noir ne reste sous l'objet.
+ */
+function castShadow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, path: Path2D, h: number) {
+  const b = layerBox(l, f);
+  const s = shadowVector(doc, f, b.cx, b.cy, h);
+  const far = 4 * Math.max(f.width, f.height);
+  ctx.save();
+  ctx.translate(-far, 0);
+  ctx.shadowColor = `rgba(20, 16, 30, ${Math.min(0.62, 0.3 + 0.3 * h)})`;
+  const off = deviceOffset(s.dx + far, s.dy, o);
+  ctx.shadowOffsetX = off.x;
+  ctx.shadowOffsetY = off.y;
+  ctx.shadowBlur = s.blur * o.scale;
+  ctx.fillStyle = '#000';
+  ctx.fill(path, 'evenodd');
+  // le bord déborde de l'objet : il porte ombre lui aussi
+  if (l.border && l.border.width > 0) drawBorder(ctx, l, doc, f, path);
+  ctx.restore();
+}
+
 export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o: DrawOptions) {
   const minSide = Math.min(f.width, f.height);
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, f.width, f.height);
   ctx.clip();
-  for (const l of doc.layers) {
-    if (!l.visible || (l.opacity ?? 1) <= 0) continue;
+  const order = renderOrder(doc.layers).filter((l) => l.visible && (l.opacity ?? 1) > 0);
+  // couches déjà posées (hors fond) : les suivantes y projettent leur ombre, raccourcie de leur hauteur
+  const below: Array<{ l: Layer; path: Path2D }> = [];
+  let pageShadows = false;
+  const big = new Path2D();
+  big.rect(-f.width, -f.height, 3 * f.width, 3 * f.height);
+  for (const l of order) {
+    // une fois le fond posé : toutes les ombres tombent d'abord sur la feuille (hauteur entière) ;
+    // les couches plus basses les recouvrent là où elles sont
+    if (!pageShadows && l.kind !== 'surface') {
+      pageShadows = true;
+      for (const x of order) if (x.kind !== 'surface' && x.height > 0.001 && (x.opacity ?? 1) >= 1) castShadow(ctx, x, doc, f, o, maskPath2D(x, f), x.height);
+    }
     // couche translucide : rendue à part, puis posée d'un bloc (son ombre ne transparaît pas)
     if ((l.opacity ?? 1) < 1) {
       const c = (layerBuffers[depth] ??= document.createElement('canvas'));
@@ -265,23 +312,24 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     const x0 = b.cx - b.w / 2;
     const y0 = b.cy - b.h / 2;
 
-    // ombre portée : la découpe remplie, décalée et floutée
-    if (l.height > 0.001 && l.kind !== 'surface') {
-      const s = shadowVector(doc, f, b.cx, b.cy, l.height);
-      ctx.save();
-      ctx.shadowColor = `rgba(20, 16, 30, ${0.3 + 0.3 * l.height})`;
-      const cr = Math.cos(o.rot ?? 0);
-      const sr = Math.sin(o.rot ?? 0);
-      ctx.shadowOffsetX = (s.dx * cr - s.dy * sr) * o.scale;
-      ctx.shadowOffsetY = (s.dx * sr + s.dy * cr) * o.scale;
-      ctx.shadowBlur = s.blur * o.scale;
-      ctx.fillStyle = '#000';
-      ctx.fill(path, 'evenodd');
-      // le bord déborde de l'objet : il porte ombre lui aussi
-      // (même géométrie que le bord, qui le recouvre ensuite exactement)
-      if (l.border && l.border.width > 0) drawBorder(ctx, l, doc, f, path);
-      ctx.restore();
+    // ombre sur les couches plus basses : seulement la différence de hauteur,
+    // et seulement sur la partie visible de chacune (les couches posées après la cachent)
+    if (l.kind !== 'surface' && l.height > 0.001) {
+      below.forEach((B, i) => {
+        const dh = l.height - Math.max(0, levelOf(B.l));
+        if (dh <= 0.001) return;
+        ctx.save();
+        ctx.clip(B.path, 'evenodd');
+        for (const C of below.slice(i + 1)) {
+          const ex = new Path2D(big);
+          ex.addPath(C.path);
+          ctx.clip(ex, 'evenodd');
+        }
+        castShadow(ctx, l, doc, f, o, path, dh);
+        ctx.restore();
+      });
     }
+    if (l.kind !== 'surface') below.push({ l, path });
 
     drawGlow(ctx, l, doc, f, o, true);
     // bord : à l'extérieur de la découpe, en débordement de l'objet

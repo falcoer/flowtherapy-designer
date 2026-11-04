@@ -27,7 +27,7 @@ import { geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRin
 import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, isMaterial, MATERIALS, newFx, type Fx, type FxId } from './fx';
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
-import { drawLampTint, lampOf, cutOf, holdPins, imageFor, localBounds, localToPage, pageBounds, pageToLocal, pinsOf, drawChecker, drawLayers, forgetPaint, localRings, maskPath2D, maskRings, paintTarget, tracePath } from './scene';
+import { drawLampTint, lampOf, levelOf, renderOrder, cutOf, holdPins, imageFor, localBounds, localToPage, pageBounds, pageToLocal, pinsOf, drawChecker, drawLayers, forgetPaint, localRings, maskPath2D, maskRings, paintTarget, tracePath } from './scene';
 
 type Tool = 'cut' | 'paint' | 'transform' | 'material' | 'edge' | 'move';
 type Bubble = 'add' | 'layers' | 'palette' | 'light' | 'format' | null;
@@ -464,8 +464,9 @@ export function App() {
 
   // --- helpers de couches ---
   const layerAt = (x: number, y: number) => {
-    for (let i = doc.layers.length - 1; i >= 0; i--) {
-      const l = doc.layers[i]!;
+    const ord = renderOrder(doc.layers);
+    for (let i = ord.length - 1; i >= 0; i--) {
+      const l = ord[i]!;
       if (l.visible && insideRings(maskRings(l, f), x, y)) return l;
     }
     return null;
@@ -856,7 +857,10 @@ export function App() {
     return mapCache.current.m;
   };
   /** Couches visibles posées au-dessus d'une couche (elles la cachent). */
-  const coveringLayers = (l: Layer) => doc.layers.slice(doc.layers.findIndex((x) => x.id === l.id) + 1).filter((x) => x.visible);
+  const coveringLayers = (l: Layer) => {
+    const ord = renderOrder(doc.layers);
+    return ord.slice(ord.findIndex((x) => x.id === l.id) + 1).filter((x) => x.visible);
+  };
 
   /** Grille de recherche des contours, en unités du format. */
   const edgeGrid = (l: Layer): EdgeGrid | null => {
@@ -957,7 +961,7 @@ export function App() {
     const lassoArea = (x1 - x0) * (y1 - y0);
     const sel = doc.layers.find((l) => l.id === selected);
     // la couche choisie d'abord, puis de haut en bas
-    const order = [sel, ...[...doc.layers].reverse()].filter((l, i, a): l is Layer => !!l && l.visible && l.kind !== 'surface' && a.indexOf(l) === i);
+    const order = [sel, ...[...renderOrder(doc.layers)].reverse()].filter((l, i, a): l is Layer => !!l && l.visible && l.kind !== 'surface' && a.indexOf(l) === i);
     for (const l of order) {
       const b = layerBox(l, f);
       const local = lasso.map((p) => toLocal(l, p.x, p.y));
@@ -1077,11 +1081,15 @@ export function App() {
   };
   const moveLayer = (id: string, step: number) =>
     update((d) => {
-      const i = d.layers.findIndex((l) => l.id === id);
-      const j = i + step;
-      // la surface de fond reste tout en bas
-      if (j < 0 || j >= d.layers.length || d.layers[j]!.kind === 'surface') return d;
+      // l'ordre suit la hauteur : on n'échange qu'avec la voisine de même hauteur
+      const ord = renderOrder(d.layers);
+      const k = ord.findIndex((l) => l.id === id);
+      const me = ord[k];
+      const other = ord[k + step];
+      if (!me || !other || other.kind === 'surface' || levelOf(other) !== levelOf(me)) return d;
       const layers = [...d.layers];
+      const i = layers.indexOf(me);
+      const j = layers.indexOf(other);
       [layers[i], layers[j]] = [layers[j]!, layers[i]!];
       return { ...d, layers };
     });
@@ -1365,7 +1373,7 @@ export function App() {
             <div className="bubble layers-bubble">
               <div className="b-title">Couches</div>
               <div className="layer-list">
-                {[...doc.layers].reverse().map((l) => (
+                {[...renderOrder(doc.layers)].reverse().map((l, k, list) => (
                   <div key={l.id} className={`layer ${l.id === selected ? 'on' : ''} ${l.visible ? '' : 'hidden'}`} onClick={() => setSelected(l.id)}>
                     <LayerThumb layer={l} doc={doc} />
                     <div className="layer-main">
@@ -1373,7 +1381,20 @@ export function App() {
                       {l.kind !== 'surface' ? (
                         <label className="height" title="Hauteur : ombre et épaisseur" onClick={(e) => e.stopPropagation()}>
                           <Icon name="height" />
-                          <input type="range" min={-1} max={1} step={0.01} value={l.height - (l.inner ?? 0)} onChange={(e) => patchLayer(l.id, heightPatch(Number(e.target.value)), false)} />
+                          <span className="height-track">
+                            <input
+                              type="range"
+                              min={-1}
+                              max={1}
+                              step={0.01}
+                              value={l.height - (l.inner ?? 0)}
+                              onChange={(e) => {
+                                // le neutre aimante le doigt
+                                const v = Number(e.target.value);
+                                patchLayer(l.id, heightPatch(Math.abs(v) < 0.06 ? 0 : v), false);
+                              }}
+                            />
+                          </span>
                         </label>
                       ) : (
                         <small>bords perdus, suit le format</small>
@@ -1385,10 +1406,10 @@ export function App() {
                       </button>
                       {l.kind !== 'surface' && (
                         <>
-                          <button onClick={() => moveLayer(l.id, 1)} title="Monter">
+                          <button onClick={() => moveLayer(l.id, 1)} disabled={!list[k - 1] || levelOf(list[k - 1]!) !== levelOf(l)} title="Monter (entre couches de même hauteur ; sinon, règle la hauteur)">
                             <Icon name="up" />
                           </button>
-                          <button onClick={() => moveLayer(l.id, -1)} title="Descendre">
+                          <button onClick={() => moveLayer(l.id, -1)} disabled={!list[k + 1] || levelOf(list[k + 1]!) !== levelOf(l)} title="Descendre (entre couches de même hauteur ; sinon, règle la hauteur)">
                             <Icon name="down" />
                           </button>
                         </>
