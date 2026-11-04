@@ -1,6 +1,7 @@
 import { anchorsFor, FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format } from '@ftd/core';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { previewStamps } from './brush';
+import { CoupePanel } from './coupe';
 import { DEMO_PHOTO, demoDoc } from './demo';
 import { Icon } from './icons';
 import {
@@ -49,7 +50,7 @@ const TOP = 52;
 const MAGNET = 30;
 /** Rayon d'aimantation des ciseaux sur les contours détectés, en pixels écran. */
 const EDGE_RADIUS = 14;
-const BORDER_TYPES: Array<[BorderStyle | null, string, string]> = [
+export const BORDER_TYPES: Array<[BorderStyle | null, string, string]> = [
   [null, 'Aucun', 'pas de bord'],
   ['round', 'Arrondi', 'suit la découpe'],
   ['straight', 'Droit', 'à facettes'],
@@ -66,7 +67,7 @@ const BRUSHES: Array<[BrushKind, string, string]> = [
   ['glitter', 'Paillettes', 'éclats qui scintillent'],
   ['hair', 'Poils', 'brins fins effilés'],
 ];
-const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
+export const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
   [null, 'Aucune', 'pas de lueur'],
   ['neon', 'Néon', 'tube lumineux'],
   ['laser', 'Laser', 'faisceaux droits, impact'],
@@ -77,7 +78,7 @@ const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
   ['aura', 'Énergie', 'aura de flammes'],
   ['fire', 'Flammes', 'langues de feu qui montent'],
 ];
-const swatch = (g: Guide | undefined) => (g?.type === 'gradient' ? `linear-gradient(135deg, ${g.stops.join(',')})` : guideColor(g));
+export const swatch = (g: Guide | undefined) => (g?.type === 'gradient' ? `linear-gradient(135deg, ${g.stops.join(',')})` : guideColor(g));
 const EDGE_MODES: Array<[EdgeMode, string, string]> = [
   ['contrast', 'Contraste', 'bords de lumière'],
   ['color', 'Couleur', 'bords de teinte'],
@@ -218,9 +219,17 @@ export function App() {
   const [trashHot, setTrashHot] = useState(false);
   const [snapshot, setSnapshot] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // un retrait peut se rétablir depuis le message (même effet que Annuler)
+  const [toastUndo, setToastUndo] = useState(false);
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 1800);
+    const t = setTimeout(
+      () => {
+        setToast(null);
+        setToastUndo(false);
+      },
+      toastUndo ? 4000 : 1800,
+    );
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -1224,15 +1233,18 @@ export function App() {
             </button>
           </aside>
 
-          {isEdit(tool) && (
-            <nav className="edit-sections" aria-label="Modifier l'objet">
-              {EDIT_SECTIONS.filter(([k]) => k !== 'filter' || !sel || sel.kind === 'photo').map(([k, name, icon]) => (
-                <button key={k} className={`btn small ${tool === k ? 'on' : ''}`} onClick={() => setTool(k)} title={name}>
-                  <Icon name={icon} />
-                  <span>{name}</span>
-                </button>
-              ))}
-            </nav>
+          {isEdit(tool) && sel && (
+            <CoupePanel
+              layer={sel}
+              doc={doc}
+              f={f}
+              patch={(p, h) => patchLayer(sel.id, p, h)}
+              onClose={() => setTool('move')}
+              onToast={(m, u) => {
+                setToast(m);
+                setToastUndo(!!u);
+              }}
+            />
           )}
 
           <aside className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][1 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'filter' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0)] : ''}`}>
@@ -1304,67 +1316,6 @@ export function App() {
                 <VSlider label="Hauteur" center value={0.5 + (sel.height - (sel.inner ?? 0)) / 2} onChange={(v) => patchLayer(sel.id, heightPatch(Math.round((v * 2 - 1) * 100) / 100), false)} />
                 <VSlider label="Opacité" value={sel.opacity ?? 1} onChange={(v) => patchLayer(sel.id, { opacity: Math.round(v * 100) / 100 }, false)} />
               </>
-            )}
-            {tool === 'edge' && sel && sel.kind !== 'surface' && (
-              <EdgeControls layer={sel} guides={doc.guides} pop={epop} setPop={setEpop} patch={(p, h) => patchLayer(sel.id, p, h)} />
-            )}
-            {tool === 'material' && sel && (
-              <MaterialControls
-                layer={sel}
-                doc={doc}
-                f={f}
-                pick={tpop === 'mat'}
-                setPick={(v) => setTpop(v ? 'mat' : null)}
-                onChange={(material, history) => patchLayer(sel.id, { material }, history)}
-                redraw={redraw}
-              />
-            )}
-            {tool === 'filter' && sel?.kind === 'photo' && (
-              <LookControls
-                layer={sel}
-                guides={doc.guides}
-                pick={tpop === 'look'}
-                setPick={(v) => setTpop(v ? 'look' : null)}
-                guidePick={tpop?.startsWith('lg') ? Number(tpop.slice(2)) : null}
-                setGuidePick={(v) => setTpop(v === null ? null : `lg${v}`)}
-                onChange={(look, history) => patchLayer(sel.id, { look }, history)}
-              />
-            )}
-            {tool === 'transform' && sel && (
-              <FxControls
-                layer={sel}
-                doc={doc}
-                f={f}
-                pick={tpop === 'fx'}
-                setPick={(v) => setTpop(v ? 'fx' : null)}
-                guidePick={tpop?.startsWith('fg') ? Number(tpop.slice(2)) : null}
-                setGuidePick={(v) => setTpop(v === null ? null : `fg${v}`)}
-                focus={fxFocus}
-                setFocus={setFxFocus}
-                onChange={(fx, history) => patchLayer(sel.id, { fx: fx.length ? fx : undefined }, history)}
-                redraw={redraw}
-                groups={['effet']}
-                title="Transformations"
-                icon="fx"
-              />
-            )}
-            {tool === 'coat' && sel && (
-              <FxControls
-                layer={sel}
-                doc={doc}
-                f={f}
-                pick={tpop === 'fx'}
-                setPick={(v) => setTpop(v ? 'fx' : null)}
-                guidePick={tpop?.startsWith('fg') ? Number(tpop.slice(2)) : null}
-                setGuidePick={(v) => setTpop(v === null ? null : `fg${v}`)}
-                focus={fxFocus}
-                setFocus={setFxFocus}
-                onChange={(fx, history) => patchLayer(sel.id, { fx: fx.length ? fx : undefined }, history)}
-                redraw={redraw}
-                groups={['lumiere']}
-                title="Revêtement"
-                icon="coat"
-              />
             )}
             <span className="side-sep" />
             <button className="btn small" onClick={undo} disabled={!past.current.length} title="Annuler (deux doigts)">
@@ -1619,7 +1570,21 @@ export function App() {
           <p>Appui long sur l'image pour l'enregistrer · toucher pour fermer</p>
         </div>
       )}
-      {toast && <div className="toast">{toast}</div>}
+      {toast && (
+        <div className={`toast ${toastUndo ? 'with-undo' : ''}`}>
+          {toast}
+          {toastUndo && (
+            <button
+              onClick={() => {
+                setToastUndo(false);
+                undo();
+              }}
+            >
+              Rétablir
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2127,7 +2092,7 @@ function LookControls({
 }
 
 /** Aperçu d'une couche seule, avec une liste d'effets, cadrée sur sa découpe. */
-function fxPreview(l: Layer, doc: Doc, f: Format, fx: Fx[] | undefined, key: string, onImage: () => void, patch: Partial<Layer> = {}): string {
+export function fxPreview(l: Layer, doc: Doc, f: Format, fx: Fx[] | undefined, key: string, onImage: () => void, patch: Partial<Layer> = {}): string {
   const W = 168;
   const H = 128;
   const c = document.createElement('canvas');
