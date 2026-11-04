@@ -1310,6 +1310,8 @@ export function App() {
     let w = 0.4;
     let h = 0.4;
     if (opts.shape === 'arch') h = 0.5;
+    if (opts.shape === 'rounded') [w, h] = [0.5, 0.34];
+    if (opts.shape === 'triangle') h = 0.36;
     const k = opts.size ?? 0.7;
     if (kind === 'photo') [w, h] = opts.ratio ? (opts.ratio >= 1 ? [k, k / opts.ratio] : [k * 0.86 * opts.ratio, k * 0.86]) : [k, k * 0.72];
     const layer: Layer = {
@@ -1731,6 +1733,26 @@ export function App() {
                   </button>
                 ))}
               </div>
+              {shelf === 'photos' && (
+                <div className="add-grid lib-import">
+                  <label className="file">
+                    <Icon name="import" />
+                    Importer une photo
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = '';
+                        if (file) {
+                          setBubble(null);
+                          void importPhoto(file);
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              )}
               {shelf !== 'formes' && (
                 <LibraryShelf
                   shelf={shelf}
@@ -1757,8 +1779,10 @@ export function App() {
                 </button>
                 {(
                   [
+                    ['rounded', 'Rectangle arrondi'],
+                    ['circle', 'Rond'],
+                    ['triangle', 'Triangle'],
                     ['star', 'Étoile'],
-                    ['circle', 'Cercle'],
                     ['arch', 'Arche'],
                     ['blob', 'Tache'],
                   ] as Array<[ShapeKind, string]>
@@ -1768,22 +1792,6 @@ export function App() {
                     {name}
                   </button>
                 ))}
-                <label className="file">
-                  <Icon name="import" />
-                  Importer une photo
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      e.target.value = '';
-                      if (file) {
-                        setBubble(null);
-                        void importPhoto(file);
-                      }
-                    }}
-                  />
-                </label>
                 {!doc.layers.some((l) => l.kind === 'surface') && (
                   <button
                     onClick={() =>

@@ -379,3 +379,5 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .lib-name { font-size: 11px; line-height: 1.25; color: var(--ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .lib-empty { padding: 18px 6px; color: var(--muted); font-size: 13px; }
 .lib-ghost { position: fixed; z-index: 50; width: 96px; height: 96px; object-fit: contain; transform: translate(-50%, -60%) rotate(-3deg); pointer-events: none; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.3)); }
+.lib-import { grid-template-columns: 1fr; flex: none; }
+.lib-import > .file { flex-direction: row; justify-content: center; gap: 8px; padding: 9px; font-weight: 600; color: var(--accent); background: var(--accent-soft); }

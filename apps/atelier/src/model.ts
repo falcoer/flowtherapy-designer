@@ -34,7 +34,7 @@ export interface Stroke {
 export type BorderStyle = 'round' | 'straight' | 'torn' | 'stamp' | 'burst' | 'double';
 export type GlowStyle = 'neon' | 'laser' | 'electric' | 'particles' | 'smoke' | 'halo' | 'aura' | 'fire';
 export type LayerKind = 'surface' | 'support' | 'photo' | 'shape';
-export type ShapeKind = 'star' | 'circle' | 'arch' | 'blob';
+export type ShapeKind = 'star' | 'circle' | 'arch' | 'blob' | 'rounded' | 'triangle';
 
 export interface Layer {
   id: string;
@@ -151,6 +151,22 @@ export function shapePath(s: ShapeKind): Pt[] {
       const a = (i / 64) * Math.PI * 2;
       pts.push({ x: 0.5 + Math.cos(a) * 0.5, y: 0.5 + Math.sin(a) * 0.5 });
     }
+  } else if (s === 'rounded') {
+    // rectangle aux coins arrondis (rayon 18 % du petit côté de la boîte)
+    const r = 0.18;
+    const corners: Array<[number, number, number]> = [
+      [1 - r, r, -Math.PI / 2],
+      [1 - r, 1 - r, 0],
+      [r, 1 - r, Math.PI / 2],
+      [r, r, Math.PI],
+    ];
+    for (const [cx, cy, a0] of corners)
+      for (let i = 0; i <= 8; i++) {
+        const a = a0 + (i / 8) * (Math.PI / 2);
+        pts.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+      }
+  } else if (s === 'triangle') {
+    pts.push({ x: 0.5, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 });
   } else if (s === 'arch') {
     pts.push({ x: 0, y: 1 });
     for (let i = 0; i <= 32; i++) {
