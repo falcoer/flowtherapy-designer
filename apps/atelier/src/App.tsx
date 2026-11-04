@@ -2,6 +2,7 @@ import { anchorsFor, FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { previewStamps } from './brush';
 import { CoupePanel } from './coupe';
+import { isClosed, recognize } from './shapes';
 import { DEMO_PHOTO, demoDoc } from './demo';
 import { Icon } from './icons';
 import {
@@ -294,6 +295,8 @@ export function App() {
     snapped?: number[];
     /** Mode ligne : le tracé est figé jusqu'à cet indice, une ligne droite part de là jusqu'à la pointe. */
     lineAt?: number;
+    /** Forme reconnue (rond, carré…) : le contour est figé jusqu'au lâcher. */
+    shaped?: boolean;
   }>({ kind: null });
   // pointe immobile 2 s pendant une découpe : passage en ligne droite (puis un nouveau coin à chaque arrêt)
   const cutStill = useRef<{ timer: number; x: number; y: number } | null>(null);
@@ -304,7 +307,23 @@ export function App() {
       y,
       timer: window.setTimeout(() => {
         const L = live.current;
-        if (L.kind !== 'cut' || !L.lasso?.length) return;
+        if (L.kind !== 'cut' || !L.lasso?.length || L.shaped) return;
+        // découpe intérieure refermée : on reconnaît la forme dessinée
+        if (!L.path && L.lineAt === undefined && isClosed(L.lasso)) {
+          const r = recognize(L.lasso);
+          navigator.vibrate?.(10);
+          if (r) {
+            L.lasso = r.pts;
+            L.snapped = [];
+            L.shaped = true;
+            setToast(`${r.name} : levez la pointe pour découper`);
+          } else {
+            setToast('Forme non reconnue : continuez à main levée');
+            armCutStill(x, y);
+          }
+          redraw();
+          return;
+        }
         const first = L.lineAt === undefined;
         if (first) {
           // tout le tracé devient une droite, du point de départ à la pointe
@@ -899,6 +918,8 @@ export function App() {
       const tg = paintTarget(l, f, scale * dpr);
       L.drawn = previewStamps(L.wet!.getContext('2d')!, L.stroke, doc.guides, tg, L.drawn ?? 0);
       redraw();
+    } else if (L.kind === 'cut' && L.shaped) {
+      // forme reconnue : elle reste telle quelle jusqu'au lâcher
     } else if (L.kind === 'cut' && L.lasso && L.lineAt !== undefined) {
       // mode ligne : la pointe déplace l'extrémité, le départ reste fixe
       const s1 = snapEdge(L.grid ?? null, p);
@@ -1042,7 +1063,7 @@ export function App() {
       live.current = { kind: null };
       stopCutStill();
       // en mode ligne, les segments droits gardent leurs extrémités exactes
-      const pts = L.lineAt !== undefined ? [...simplify(L.lasso.slice(0, Math.max(1, L.lineAt)), 1.2 / scale), L.lasso[L.lasso.length - 1]!] : simplify(L.lasso, 1.2 / scale);
+      const pts = L.shaped ? L.lasso : L.lineAt !== undefined ? [...simplify(L.lasso.slice(0, Math.max(1, L.lineAt)), 1.2 / scale), L.lasso[L.lasso.length - 1]!] : simplify(L.lasso, 1.2 / scale);
       if (L.path) finishPath(pts);
       else finishCut(pts);
       return;
