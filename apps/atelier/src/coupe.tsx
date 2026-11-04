@@ -23,6 +23,49 @@ interface Item {
 }
 
 const groupOf = (x: Fx) => fxOf(x.id)?.group;
+
+/** Ce que fait chaque choix, en quelques mots, et sa famille dans la liste. */
+const HINTS: Record<string, [string, string]> = {
+  mono: ['Couleur', 'une seule teinte de la palette'],
+  bw: ['Couleur', 'noir et blanc franc, grain'],
+  duotone: ['Couleur', 'ombres et lumières en deux teintes'],
+  tritone: ['Couleur', 'trois teintes, des ombres aux lumières'],
+  vintage: ['Pellicule', 'tons jaunis, contraste doux'],
+  polaroid: ['Pellicule', 'instantané délavé, blancs crème'],
+  kodachrome: ['Pellicule', 'couleurs denses, rouges profonds'],
+  chrome: ['Pellicule', 'couleurs retenues, ciels froids'],
+  cross: ['Pellicule', 'couleurs décalées, vert et magenta'],
+  bleach: ['Pellicule', 'désaturé, très contrasté, métallique'],
+  matte: ['Pellicule', 'noirs levés, image voilée'],
+  pastel: ['Lumière', 'tons clairs et tendres'],
+  highkey: ['Lumière', 'très lumineux, ombres effacées'],
+  lowkey: ['Lumière', 'très sombre, lumières isolées'],
+  hdr: ['Lumière', 'détails poussés partout'],
+  golden: ['Lumière', 'soleil bas, chaud et doré'],
+  moody: ['Lumière', 'sombre, désaturé, dramatique'],
+  cold: ['Ambiance', 'bleuté, froid'],
+  warm: ['Ambiance', 'orangé, chaleureux'],
+  cyber: ['Ambiance', 'néons cyan et magenta, nuit'],
+  synth: ['Ambiance', 'violet et rose années 80'],
+  cartoon: ['Dessin', 'aplats et contours noirs'],
+  manga: ['Dessin', 'encre noire, trames, hachures'],
+  sketch: ['Dessin', 'traits au crayon sur papier'],
+  pencil: ['Dessin', 'crayon, ombres en dégradé de palette'],
+  halftone: ['', 'points d’imprimerie, comme une affiche'],
+  riso: ['', 'deux encres décalées, grain d’impression'],
+  posterize: ['', 'quelques aplats de couleur'],
+  gradmap: ['', 'les clairs et sombres repeints en dégradé'],
+  gloss: ['', 'reflet de vernis côté lumière'],
+  grain: ['', 'grain fin de papier'],
+  kraft: ['', 'papier brun à fibres'],
+  watercolor: ['', 'papier épais, grain marqué'],
+  corrugated: ['', 'ondulations de carton'],
+  newsprint: ['', 'papier gris, fibres et taches'],
+  canvas: ['', 'tissage de toile'],
+  wood: ['', 'veines de bois'],
+  metal: ['', 'métal brossé, reflets en lignes'],
+  felt: ['', 'feutre doux et duveteux'],
+};
 const fxIn = (l: Layer, g: FxGroup) => (l.fx ?? []).map((x, i) => ({ x, i })).filter(({ x }) => groupOf(x) === g);
 
 function itemsOf(l: Layer, doc: Doc): Item[] {
@@ -170,6 +213,8 @@ export function CoupePanel({
 
   // vignettes des choix de la section ouverte : l'objet avec ce choix appliqué
   const choices = adding ? choicesOf(l, adding) : [];
+  const hintOf = (id: string) => HINTS[id] ?? HINTS[id.replace(/^[bg]-/, '')] ?? ['', ''];
+  const edgeGroup = (id: string) => (id.startsWith('b-') ? 'Bord' : id.startsWith('g-') ? 'Lueur' : 'Relief');
   const thumbs = useMemo(() => {
     const out: Record<string, string> = {};
     for (const c of choices) out[c.id] = fxPreview(l, doc, f, l.fx, `add-${c.id}`, reload, c.patch);
@@ -224,20 +269,36 @@ export function CoupePanel({
           )}
         </div>
         {adding === s.sec && (
-          <div className="cp-pick">
-            {choicesOf(l, s.sec).map((c) => (
-              <button
-                key={c.id}
-                onClick={() => {
-                  patch(c.patch);
-                  setFocus(c.focus);
-                  setAdding(null);
-                }}
-              >
-                <span className="thumb">{thumbs[c.id] && <img src={thumbs[c.id]} alt="" />}</span>
-                <span>{c.name}</span>
-              </button>
-            ))}
+          <div className="cp-pick-wrap">
+            {(() => {
+              const list = choicesOf(l, s.sec);
+              const groups: string[] = [];
+              const fam = (id: string) => (s.sec === 'edge' ? edgeGroup(id) : hintOf(id)[0]);
+              for (const c of list) if (!groups.includes(fam(c.id))) groups.push(fam(c.id));
+              return groups.map((gname) => (
+                <div key={gname || 'all'}>
+                  {gname && <div className="cp-fam">{gname}</div>}
+                  <div className="cp-pick">
+                    {list
+                      .filter((c) => fam(c.id) === gname)
+                      .map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => {
+                            patch(c.patch);
+                            setFocus(c.focus);
+                            setAdding(null);
+                          }}
+                        >
+                          <span className="thumb">{thumbs[c.id] && <img src={thumbs[c.id]} alt="" />}</span>
+                          <b>{c.name}</b>
+                          {hintOf(c.id)[1] && <small>{hintOf(c.id)[1]}</small>}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              ));
+            })()}
           </div>
         )}
       </div>

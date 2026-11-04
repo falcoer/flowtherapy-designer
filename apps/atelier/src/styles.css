@@ -301,8 +301,12 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .cp-item .x { width: 20px; height: 20px; border-radius: 10px; color: var(--muted); font-size: 14px; line-height: 20px; padding: 0; }
 .cp-item.on { background: var(--accent); color: #fff; }
 .cp-item.on .x { color: rgba(255, 255, 255, 0.85); }
-.cp-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; max-height: 230px; overflow-y: auto; }
-.cp-pick button { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px; border-radius: 10px; font-size: 11px; color: var(--ink); }
+.cp-pick-wrap { max-height: 340px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.cp-fam { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 4px 2px 0; }
+.cp-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; }
+.cp-pick button { display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 4px; border-radius: 10px; font-size: 11px; color: var(--ink); text-align: left; }
+.cp-pick button b { font-weight: 600; font-size: 11.5px; }
+.cp-pick button small { color: var(--muted); font-size: 10.5px; line-height: 1.25; }
 .cp-pick button:hover { background: var(--accent-soft); }
 .cp-pick .thumb { width: 100%; aspect-ratio: 168 / 128; border-radius: 8px; background: var(--line); overflow: hidden; }
 .cp-pick .thumb img { width: 100%; height: 100%; display: block; }
