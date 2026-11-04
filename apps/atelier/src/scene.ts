@@ -1,6 +1,7 @@
 import { paintStroke, type Target } from './brush';
 import { rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
+import { isSilhouette, silhouetteRings } from './silhouettes';
 import { guideColor, layerBox, shapePath, type Doc, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { applyLook, lookGuides, lookOf } from './looks';
@@ -28,7 +29,8 @@ const RECT = 'M0 0L1 0L1 1L0 1Z';
 const shapeCuts = new Map<ShapeKind, string>();
 export function shapeCut(k: ShapeKind): string {
   let d = shapeCuts.get(k);
-  if (!d) shapeCuts.set(k, (d = ringsToPath([shapePath(k)], 0.0005)));
+  // silhouettes : plusieurs contours (ouvertures comprises), angles vifs gardés
+  if (!d) shapeCuts.set(k, (d = isSilhouette(k) ? ringsToPath(silhouetteRings(k), 0.0008, 30) : ringsToPath([shapePath(k)], 0.0005)));
   return d;
 }
 

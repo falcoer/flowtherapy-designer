@@ -5,6 +5,7 @@ import { CoupePanel } from './coupe';
 import { LibraryShelf, SHELVES, type LibItem, type Shelf } from './library';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
+import { isSilhouette, SILHOUETTE_RATIO, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
   anchorFor,
@@ -1312,6 +1313,10 @@ export function App() {
     if (opts.shape === 'arch') h = 0.5;
     if (opts.shape === 'rounded') [w, h] = [0.5, 0.34];
     if (opts.shape === 'triangle') h = 0.36;
+    if (opts.shape && isSilhouette(opts.shape)) {
+      const r = SILHOUETTE_RATIO[opts.shape];
+      [w, h] = r >= 1 ? [0.45, 0.45 / r] : [0.45 * r, 0.45];
+    }
     const k = opts.size ?? 0.7;
     if (kind === 'photo') [w, h] = opts.ratio ? (opts.ratio >= 1 ? [k, k / opts.ratio] : [k * 0.86 * opts.ratio, k * 0.86]) : [k, k * 0.72];
     const layer: Layer = {
@@ -1766,17 +1771,6 @@ export function App() {
               )}
               {shelf === 'formes' && (
               <div className="add-grid">
-                <button
-                  onClick={() => {
-                    setTool('cut');
-                    setSelected(null);
-                    setBubble(null);
-                    setToast('Trace le contour du papier au stylet');
-                  }}
-                >
-                  <Icon name="scissors" />
-                  Papier découpé
-                </button>
                 {(
                   [
                     ['rounded', 'Rectangle arrondi'],
@@ -1785,6 +1779,13 @@ export function App() {
                     ['star', 'Étoile'],
                     ['arch', 'Arche'],
                     ['blob', 'Tache'],
+                    ['house', 'Maison'],
+                    ['building', 'Immeuble'],
+                    ['fir', 'Sapin'],
+                    ['mountain', 'Montagne'],
+                    ['palm', 'Palmier'],
+                    ['flower', 'Fleur'],
+                    ['car', 'Voiture'],
                   ] as Array<[ShapeKind, string]>
                 ).map(([s, name]) => (
                   <button key={s} onClick={() => addLayer('shape', { shape: s, name })}>
@@ -1939,12 +1940,14 @@ function FormatGlyph({ w, h, big }: { w: number; h: number; big?: boolean }) {
 }
 
 function ShapeGlyph({ shape }: { shape: ShapeKind }) {
-  const pts = shapePath(shape)
-    .map((p) => `${2 + p.x * 20},${2 + p.y * 20}`)
-    .join(' ');
+  // dans un carré de 20 : la silhouette garde ses proportions
+  const r = isSilhouette(shape) ? SILHOUETTE_RATIO[shape] : 1;
+  const [w, h] = r >= 1 ? [20, 20 / r] : [20 * r, 20];
+  const rings = isSilhouette(shape) ? silhouetteRings(shape) : [shapePath(shape)];
+  const d = rings.map((ring) => 'M' + ring.map((p) => `${(2 + (20 - w) / 2 + p.x * w).toFixed(2)} ${(2 + (20 - h) / 2 + p.y * h).toFixed(2)}`).join('L') + 'Z').join('');
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden>
-      <polygon points={pts} fill="currentColor" fillOpacity="0.25" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d={d} fillRule="evenodd" fill="currentColor" fillOpacity="0.25" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
     </svg>
   );
 }

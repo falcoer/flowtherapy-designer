@@ -34,7 +34,7 @@ export interface Stroke {
 export type BorderStyle = 'round' | 'straight' | 'torn' | 'stamp' | 'burst' | 'double';
 export type GlowStyle = 'neon' | 'laser' | 'electric' | 'particles' | 'smoke' | 'halo' | 'aura' | 'fire';
 export type LayerKind = 'surface' | 'support' | 'photo' | 'shape';
-export type ShapeKind = 'star' | 'circle' | 'arch' | 'blob' | 'rounded' | 'triangle';
+export type ShapeKind = 'star' | 'circle' | 'arch' | 'blob' | 'rounded' | 'triangle' | import('./silhouettes').SilhouetteKind;
 
 export interface Layer {
   id: string;
