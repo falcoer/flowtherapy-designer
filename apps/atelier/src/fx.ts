@@ -687,8 +687,8 @@ FX.find((x) => x.id === 'gradmap')!.pixel = (d, _k, a) => {
 export const DRAW_FX = ['cartoon', 'manga', 'sketch', 'pencil'] as const;
 
 export const FX_GROUPS: Array<[FxGroup, string]> = [
-  ['effet', 'Effets'],
-  ['lumiere', 'Lumière'],
+  ['effet', 'Transformations'],
+  ['lumiere', 'Revêtement'],
 ];
 
 /** Matières : une seule par couche, choisie dans l'outil Matière. */

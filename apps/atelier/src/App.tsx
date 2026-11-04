@@ -24,12 +24,22 @@ import {
   type Stroke,
 } from './model';
 import { geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRing, splitByCut, subtract } from './cut';
-import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, isMaterial, MATERIALS, newFx, type Fx, type FxId } from './fx';
+import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, isMaterial, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
 import { drawLampTint, lampOf, levelOf, renderOrder, cutOf, holdPins, imageFor, localBounds, localToPage, pageBounds, pageToLocal, pinsOf, drawChecker, drawLayers, forgetPaint, localRings, maskPath2D, maskRings, paintTarget, tracePath } from './scene';
 
-type Tool = 'cut' | 'paint' | 'transform' | 'material' | 'edge' | 'move';
+type Tool = 'cut' | 'paint' | 'filter' | 'transform' | 'material' | 'coat' | 'edge' | 'move';
+/** Les cinq sections du mode Modifier l'objet, dans l'ordre de la barre. */
+type EditTool = 'filter' | 'transform' | 'material' | 'coat' | 'edge';
+const EDIT_SECTIONS: Array<[EditTool, string, string]> = [
+  ['filter', 'Filtres', 'filter'],
+  ['transform', 'Transfo.', 'fx'],
+  ['material', 'Matière', 'material'],
+  ['coat', 'Revêtement', 'coat'],
+  ['edge', 'Bords', 'frame'],
+];
+const isEdit = (t: Tool): t is EditTool => EDIT_SECTIONS.some(([k]) => k === t);
 type Bubble = 'add' | 'layers' | 'palette' | 'light' | 'format' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
@@ -153,7 +163,13 @@ export function App() {
     }
   }, [doc]);
 
-  const [tool, setTool] = useState<Tool>('paint');
+  const [tool, setToolState] = useState<Tool>('paint');
+  // Modifier rouvre la dernière section utilisée
+  const lastEdit = useRef<EditTool>('transform');
+  const setTool = (t: Tool) => {
+    if (isEdit(t)) lastEdit.current = t;
+    setToolState(t);
+  };
   const [bubble, setBubble] = useState<Bubble>(null);
   const [frozenOrder, setFrozenOrder] = useState<string[] | null>(null);
   // astuces (textes d'aide, sous-titres des menus, bandeau d'état) : masquables pour gagner de la place
@@ -583,7 +599,7 @@ export function App() {
       live.current = { kind: 'move', layer: l.id, start: p, orig: structuredClone(l), snap: null };
       return;
     }
-    if (t === 'transform' || t === 'edge' || t === 'material') {
+    if (isEdit(t)) {
       // Transformer : toucher une photo la sélectionne
       const l = layerAt(p.x, p.y);
       setSelected(l?.id ?? null);
@@ -1105,7 +1121,7 @@ export function App() {
         else undo();
       } else if (e.key === 'b') setTool('paint');
       else if (e.key === 'c') setTool('cut');
-      else if (e.key === 't') setTool('transform');
+      else if (e.key === 't') setTool(lastEdit.current);
       else if (e.key === 'e') setTool('edge');
       else if (e.key === 'm') setTool('material');
       else if (e.key === 'v') setTool('move');
@@ -1120,6 +1136,10 @@ export function App() {
 
   const sel = doc.layers.find((l) => l.id === selected) ?? null;
   const g = doc.guides[guide];
+  // les filtres ne concernent que les photos : sur une forme, on passe aux transformations
+  useEffect(() => {
+    if (tool === 'filter' && sel && sel.kind !== 'photo') setToolState('transform');
+  }, [tool, sel?.kind]);
 
   /** Image finale du format, à 1600 px sur le petit côté. */
   const makeSnapshot = () => {
@@ -1196,21 +1216,26 @@ export function App() {
             <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre (B) : aquarelle, acrylique, pistolet, paillettes, poils">
               <Icon name="brush" />
             </button>
-            <button className={`btn small ${tool === 'transform' ? 'on' : ''}`} onClick={() => setTool('transform')} title="Transformer (T) : style photo et effets">
+            <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => setTool(lastEdit.current)} title="Modifier l'objet (T) : filtres, transformations, matière, revêtement, bords">
               <Icon name="transform" />
-            </button>
-            <button className={`btn small ${tool === 'material' ? 'on' : ''}`} onClick={() => setTool('material')} title="Matière (M) : papier, carton, toile, bois, métal, feutrine">
-              <Icon name="material" />
-            </button>
-            <button className={`btn small ${tool === 'edge' ? 'on' : ''}`} onClick={() => setTool('edge')} title="Bords (E) : bord, biseau, ombre intérieure, lueur">
-              <Icon name="frame" />
             </button>
             <button className={`btn small ${tool === 'move' ? 'on' : ''}`} onClick={() => setTool('move')} title="Disposer (V) : déplacer, agrandir, ancrer">
               <Icon name="move" />
             </button>
           </aside>
 
-          <aside className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][1 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'transform' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0) + (sel.fx?.length ? 1 : 0)] : ''}`}>
+          {isEdit(tool) && (
+            <nav className="edit-sections" aria-label="Modifier l'objet">
+              {EDIT_SECTIONS.filter(([k]) => k !== 'filter' || !sel || sel.kind === 'photo').map(([k, name, icon]) => (
+                <button key={k} className={`btn small ${tool === k ? 'on' : ''}`} onClick={() => setTool(k)} title={name}>
+                  <Icon name={icon} />
+                  <span>{name}</span>
+                </button>
+              ))}
+            </nav>
+          )}
+
+          <aside className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][1 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'filter' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0)] : ''}`}>
             {tool === 'paint' && (
               <>
                 <button className={`btn small ${brushPick ? 'on' : ''}`} onClick={() => setBrushPick(!brushPick)} title={`Pinceau : ${BRUSHES.find((x) => x[0] === brushKind)![1]}`}>
@@ -1294,7 +1319,7 @@ export function App() {
                 redraw={redraw}
               />
             )}
-            {tool === 'transform' && sel?.kind === 'photo' && (
+            {tool === 'filter' && sel?.kind === 'photo' && (
               <LookControls
                 layer={sel}
                 guides={doc.guides}
@@ -1318,6 +1343,27 @@ export function App() {
                 setFocus={setFxFocus}
                 onChange={(fx, history) => patchLayer(sel.id, { fx: fx.length ? fx : undefined }, history)}
                 redraw={redraw}
+                groups={['effet']}
+                title="Transformations"
+                icon="fx"
+              />
+            )}
+            {tool === 'coat' && sel && (
+              <FxControls
+                layer={sel}
+                doc={doc}
+                f={f}
+                pick={tpop === 'fx'}
+                setPick={(v) => setTpop(v ? 'fx' : null)}
+                guidePick={tpop?.startsWith('fg') ? Number(tpop.slice(2)) : null}
+                setGuidePick={(v) => setTpop(v === null ? null : `fg${v}`)}
+                focus={fxFocus}
+                setFocus={setFxFocus}
+                onChange={(fx, history) => patchLayer(sel.id, { fx: fx.length ? fx : undefined }, history)}
+                redraw={redraw}
+                groups={['lumiere']}
+                title="Revêtement"
+                icon="coat"
               />
             )}
             <span className="side-sep" />
@@ -1540,14 +1586,15 @@ export function App() {
 
           {tool === 'edge' && (!sel || sel.kind === 'surface') && <div className="status">Sélectionne une photo ou une forme pour régler ses bords</div>}
           {tool === 'material' && !sel && <div className="status">Sélectionne une photo ou une forme pour choisir sa matière</div>}
-          {tool === 'transform' && !sel && <div className="status">Sélectionne une photo ou une forme pour la transformer</div>}
+          {(tool === 'transform' || tool === 'coat' || tool === 'filter') && !sel && <div className="status">Sélectionne une photo ou une forme pour la modifier</div>}
           {!sel && tool === 'cut' && magnet && <div className="status">Sélectionne une image : ses contours guideront les ciseaux</div>}
           {sel && (
             <div className="status">
               {tool === 'paint' && `Peinture dans « ${sel.name} »`}
               {tool === 'cut' && `Trace un contour : le morceau se détache de la couche touchée${magnet ? `, aimanté sur les contours de « ${sel.name} »` : ''}`}
-              {tool === 'transform' &&
-                `« ${sel.name} » · ${[sel.kind === 'photo' ? [lookOf(sel.look?.style)?.name ?? 'photo originale', fxOf(sel.look?.draw?.id)?.name].filter(Boolean).join(' + ') : '', ...(sel.fx ?? []).map((x) => fxOf(x.id)?.name)].filter(Boolean).join(' + ') || 'aucun effet'}`}
+              {tool === 'filter' && `« ${sel.name} » · ${sel.kind === 'photo' ? [lookOf(sel.look?.style)?.name ?? 'photo originale', fxOf(sel.look?.draw?.id)?.name].filter(Boolean).join(' + ') : 'les filtres sont réservés aux photos'}`}
+              {(tool === 'transform' || tool === 'coat') &&
+                `« ${sel.name} » · ${(sel.fx ?? []).filter((x) => fxOf(x.id)?.group === (tool === 'coat' ? 'lumiere' : 'effet')).map((x) => fxOf(x.id)?.name).join(' + ') || (tool === 'coat' ? 'sans revêtement' : 'aucune transformation')}`}
               {tool === 'edge' && sel.kind !== 'surface' && `« ${sel.name} » · ${[sel.border && BORDER_TYPES.find((x) => x[0] === sel.border!.style)?.[1], sel.glow && GLOW_TYPES.find((x) => x[0] === sel.glow!.style)?.[1]].filter(Boolean).join(' + ') || 'sans bord'}`}
               {tool === 'material' && `« ${sel.name} » · ${fxOf(sel.material?.id)?.name ?? 'sans matière'}`}
               {tool === 'move' && `« ${sel.name} » · ${sel.kind === 'surface' ? 'suit le format' : sel.anchor.point}`}
@@ -1989,7 +2036,7 @@ function LookControls({
   return (
     <>
       <button className={`btn small look-btn ${pick ? 'on' : ''}`} onClick={() => setPick(!pick)} title={`Style photo et dessin : ${[def?.name, fxOf(look?.draw?.id)?.name].filter(Boolean).join(' + ') || 'aucun'}`}>
-        <Icon name="transform" />
+        <Icon name="filter" />
       </button>
       {pick && (
         <div className="mode-pop look-pop">
@@ -2176,6 +2223,9 @@ function FxControls({
   setFocus,
   onChange,
   redraw,
+  groups,
+  title,
+  icon,
 }: {
   layer: Layer;
   doc: Doc;
@@ -2188,10 +2238,17 @@ function FxControls({
   setFocus: (v: number | null) => void;
   onChange: (fx: Fx[], history?: boolean) => void;
   redraw: () => void;
+  /** Familles d'effets montrées par cette section (Transformations, Revêtement). */
+  groups: FxGroup[];
+  title: string;
+  icon: string;
 }) {
   const list = layer.fx ?? [];
-  const cur = focus !== null ? list[focus] : list[list.length - 1];
-  const curIdx = focus !== null && list[focus] ? focus : list.length - 1;
+  const inGroup = (x: Fx) => groups.includes(fxOf(x.id)?.group as FxGroup);
+  const mine = list.filter(inGroup);
+  const lastMine = list.reduce((k, x, i) => (inGroup(x) ? i : k), -1);
+  const curIdx = focus !== null && list[focus] && inGroup(list[focus]!) ? focus : lastMine;
+  const cur = curIdx >= 0 ? list[curIdx] : undefined;
   const def = fxOf(cur?.id);
   const [tick, bump] = useState(0);
   // aperçus : l'effet ajouté à ceux déjà posés (ou seul s'il y est déjà)
@@ -2199,7 +2256,7 @@ function FxControls({
     if (!pick) return null;
     const out: Partial<Record<FxId, string>> = {};
     const reload = () => bump((n) => n + 1);
-    for (const d of FX.filter((x) => FX_GROUPS.some(([g]) => g === x.group))) {
+    for (const d of FX.filter((x) => groups.includes(x.group))) {
       const on = list.some((x) => x.id === d.id);
       out[d.id] = fxPreview(layer, doc, f, on ? list : [...list, newFx(d.id)], d.id, reload);
     }
@@ -2218,19 +2275,19 @@ function FxControls({
   const patchCur = (p: Partial<Fx>, history = true) => onChange(list.map((x, j) => (j === curIdx ? { ...x, ...p } : x)), history);
   return (
     <>
-      <button className={`btn small fx-btn ${pick ? 'on' : ''}`} onClick={() => setPick(!pick)} title={`Effets${list.length ? ` : ${list.map((x) => fxOf(x.id)?.name).join(', ')}` : ''}`}>
-        <Icon name="fx" />
-        {list.length > 0 && <span className="fx-count">{list.length}</span>}
+      <button className={`btn small fx-btn ${pick ? 'on' : ''}`} onClick={() => setPick(!pick)} title={`${title}${mine.length ? ` : ${mine.map((x) => fxOf(x.id)?.name).join(', ')}` : ''}`}>
+        <Icon name={icon} />
+        {mine.length > 0 && <span className="fx-count">{mine.length}</span>}
       </button>
       {pick && (
         <div className="mode-pop look-pop">
           <div className="fx-head">
-            <div className="b-title">Effets</div>
-            {list.length > 0 && (
+            <div className="b-title">{title}</div>
+            {mine.length > 0 && (
               <button
                 className="fx-clear"
                 onClick={() => {
-                  onChange([]);
+                  onChange(list.filter((x) => !inGroup(x)));
                   setFocus(null);
                 }}
               >
@@ -2239,9 +2296,9 @@ function FxControls({
             )}
           </div>
           <p className="fx-hint">Touche pour ajouter, puis pour choisir celui à régler. La croix retire un effet. Les effets se cumulent.</p>
-          {FX_GROUPS.map(([g, title]) => (
+          {FX_GROUPS.filter(([g]) => groups.includes(g)).map(([g, gt]) => (
             <div key={g}>
-              <div className="fx-group">{title}</div>
+              {groups.length > 1 && <div className="fx-group">{gt}</div>}
               <div className="look-grid">
                 {FX.filter((d) => d.group === g).map((d) => {
                   const i = list.findIndex((x) => x.id === d.id);
