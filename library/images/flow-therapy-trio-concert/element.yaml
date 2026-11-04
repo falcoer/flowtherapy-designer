@@ -1,0 +1,19 @@
+id: flow-therapy-trio-concert
+type: image
+title: Le trio sur scène, vue d'ensemble
+description: 'Basse, chant, clavier et guitare : le trio en concert, vu depuis la salle.'
+credit: C.B.
+date: '2026-09-26'
+source: source.jpeg
+meta:
+  width: 1600
+  height: 1068
+focus:
+  x: 0.5
+  y: 0.45
+tags:
+- photo
+- concert
+- groupe
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/medias/flow-therapy-trio-concert.jpeg

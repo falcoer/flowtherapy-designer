@@ -1,8 +1,0 @@
-id: trio-concert
-type: image
-title: Concert, scène violette
-source: source.jpeg
-meta: { width: 1600, height: 1068 }
-focus: { x: 0.5, y: 0.45 }
-tags: [concert, scène, violet, photo]
-origin: { url: "https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/medias/concert-scene-violet.jpeg" }

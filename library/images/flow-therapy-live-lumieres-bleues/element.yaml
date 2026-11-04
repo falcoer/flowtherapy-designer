@@ -1,0 +1,18 @@
+id: flow-therapy-live-lumieres-bleues
+type: image
+title: Concert sous les lumières bleues
+description: Flow Therapy sur scène dans une ambiance de faisceaux bleus.
+credit: C.B.
+date: '2025-10-14'
+source: source.jpeg
+meta:
+  width: 1600
+  height: 1068
+focus:
+  x: 0.5
+  y: 0.45
+tags:
+- photo
+- concert
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/medias/52e253fa-e8ee-477a-a27b-cfa4db0f661d.JPG

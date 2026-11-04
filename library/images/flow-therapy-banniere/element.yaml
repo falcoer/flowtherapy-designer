@@ -1,0 +1,18 @@
+id: flow-therapy-banniere
+type: image
+title: Le trio derrière sa bannière
+description: Flow Therapy réuni derrière la bannière du groupe.
+date: '2026-09-15'
+source: source.jpeg
+meta:
+  width: 1500
+  height: 2000
+focus:
+  x: 0.5
+  y: 0.45
+tags:
+- photo
+- portrait
+- groupe
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/medias/flow-therapy-banniere.jpeg

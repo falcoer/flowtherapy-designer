@@ -1,0 +1,12 @@
+id: presse-laprovence
+type: image
+title: 'Presse : La Provence'
+source: source.png
+meta:
+  width: 640
+  height: 360
+tags:
+- presse
+- logo
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/references/laprovence.png

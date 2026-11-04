@@ -18,7 +18,8 @@
     "test": "vitest run",
     "typecheck": "tsc -b",
     "build:demo": "npx -w @ftd/server tsx scripts/build-demo-data.ts && VITE_DEMO=1 npm run build -w @ftd/web",
-    "build:atelier": "npm run build -w @ftd/atelier"
+    "library:atelier": "python3 tools/build-atelier-library.py",
+    "build:atelier": "npm run library:atelier && npm run build -w @ftd/atelier"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

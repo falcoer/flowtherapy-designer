@@ -2,6 +2,7 @@ import { anchorsFor, FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { previewStamps } from './brush';
 import { CoupePanel } from './coupe';
+import { LibraryShelf, SHELVES, type LibItem, type Shelf } from './library';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
 import { Icon } from './icons';
@@ -222,6 +223,23 @@ export function App() {
   const [trashHot, setTrashHot] = useState(false);
   const [snapshot, setSnapshot] = useState<string | null>(null);
   const [toast, setToastRaw] = useState<string | null>(null);
+  // tiroir d'ajout : rayon ouvert (gardé d'une ouverture à l'autre) et glisser en cours
+  const [shelf, setShelfRaw] = useState<Shelf | 'formes'>(() => {
+    try {
+      return (localStorage.getItem('ftd-atelier-shelf') as Shelf | 'formes' | null) ?? 'formes';
+    } catch {
+      return 'formes';
+    }
+  });
+  const setShelf = (v: Shelf | 'formes') => {
+    setShelfRaw(v);
+    try {
+      localStorage.setItem('ftd-atelier-shelf', v);
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  const [libDrag, setLibDrag] = useState(false);
   // un retrait peut se rétablir depuis le message (même effet que Annuler)
   const [toastUndo, setToastUndo] = useState(false);
   /** Un nouveau message ne garde pas le bouton Rétablir du précédent. */
@@ -1287,12 +1305,13 @@ export function App() {
   };
 
   // --- ajout de couches ---
-  const addLayer = (kind: 'shape' | 'photo', opts: { shape?: ShapeKind; src?: string; name: string; ratio?: number }) => {
-    const a = anchorFor(doc.frame, f, f.width / 2, f.height / 2);
+  const addLayer = (kind: 'shape' | 'photo', opts: { shape?: ShapeKind; src?: string; name: string; ratio?: number; size?: number; at?: Pt; cut?: string; ref?: string }) => {
+    const a = anchorFor(doc.frame, f, opts.at?.x ?? f.width / 2, opts.at?.y ?? f.height / 2);
     let w = 0.4;
     let h = 0.4;
     if (opts.shape === 'arch') h = 0.5;
-    if (kind === 'photo') [w, h] = opts.ratio ? (opts.ratio >= 1 ? [0.7, 0.7 / opts.ratio] : [0.6 * opts.ratio, 0.6]) : [0.7, 0.5];
+    const k = opts.size ?? 0.7;
+    if (kind === 'photo') [w, h] = opts.ratio ? (opts.ratio >= 1 ? [k, k / opts.ratio] : [k * 0.86 * opts.ratio, k * 0.86]) : [k, k * 0.72];
     const layer: Layer = {
       id: uid(),
       name: opts.name,
@@ -1305,6 +1324,8 @@ export function App() {
       h,
       guide: kind === 'shape' ? guide : 0,
       src: opts.src,
+      cut: opts.cut,
+      ref: opts.ref,
       height: 0,
       visible: true,
       strokes: [],
@@ -1313,6 +1334,24 @@ export function App() {
     setSelected(layer.id);
     setTool('move');
     setBubble(null);
+  };
+  /** Pose un élément de la bibliothèque : centré, ou là où il a été lâché sur la page. */
+  const insertItem = async (it: LibItem, client?: { x: number; y: number }) => {
+    let src = it.src;
+    if (it.tint) {
+      // décor à la craie : ses traits prennent la couleur choisie dans la palette
+      try {
+        const svg = await (await fetch(it.src)).text();
+        const c = guideColor(doc.guides[guide]);
+        src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.replace(/stroke:\s*(black|#000000|#000)\b/gi, `stroke:${c}`).replace(/stroke="(black|#000000|#000)"/gi, `stroke="${c}"`));
+      } catch {
+        /* on garde le décor tel quel */
+      }
+    }
+    const size = it.shelf === 'decors' ? 0.32 : it.shelf === 'logos' ? 0.5 : it.tags.includes('paysage') ? 1 : it.shelf === 'illustrations' ? 0.55 : 0.7;
+    const cut = it.rings?.length ? ringsToPath(it.rings.map((r) => r.map(([x, y]) => ({ x, y }))), 0.003) : undefined;
+    addLayer('photo', { src, name: it.title, ratio: it.w / it.h, size, at: client ? toPage(client.x, client.y) : undefined, cut, ref: `image/${it.id}` });
+    setToast(`« ${it.title} » posé${client ? '' : ' au centre'}`);
   };
   // photo importée : remise droite (orientation de l'appareil), réduite à 2400 px, cadre au format de la photo
   const importPhoto = async (file: File) => {
@@ -1684,8 +1723,26 @@ export function App() {
           )}
 
           {bubble === 'add' && (
-            <div className="bubble layers-bubble add-bubble">
-              <div className="b-title">Ajouter une couche</div>
+            <div className={`bubble layers-bubble add-bubble ${libDrag ? 'dragging' : ''}`}>
+              <div className="lib-tabs" role="tablist">
+                {SHELVES.map(([k, label]) => (
+                  <button key={k} role="tab" aria-selected={shelf === k} className={shelf === k ? 'on' : ''} onClick={() => setShelf(k)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {shelf !== 'formes' && (
+                <LibraryShelf
+                  shelf={shelf}
+                  onDragState={setLibDrag}
+                  onInsert={(it, at) => {
+                    setLibDrag(false);
+                    setBubble(null);
+                    void insertItem(it, at);
+                  }}
+                />
+              )}
+              {shelf === 'formes' && (
               <div className="add-grid">
                 <button
                   onClick={() => {
@@ -1744,6 +1801,7 @@ export function App() {
                   </button>
                 )}
               </div>
+              )}
             </div>
           )}
 

@@ -1,0 +1,12 @@
+id: presse-musical
+type: image
+title: 'Presse : Musical'
+source: source.png
+meta:
+  width: 225
+  height: 225
+tags:
+- presse
+- logo
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/references/musical.png

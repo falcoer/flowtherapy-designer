@@ -1,0 +1,13 @@
+id: craie-virgule
+type: image
+title: 'Craie : virgule'
+source: source.svg
+meta:
+  width: 360
+  height: 150
+tags:
+- decor
+- craie
+- masque
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/decorations/chalk-swoosh.svg

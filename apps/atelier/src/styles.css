@@ -360,3 +360,22 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .cp-body > .cp-card .cp-item .sw { width: 16px; height: 16px; }
 .cp-body > .cp-card .cp-item .nm { overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
 .cp-body > .cp-card .cp-item .x { width: 16px; }
+/* tiroir de la bibliothèque : rayons, filtres, vignettes ; glisser une vignette sur la page */
+.add-bubble { width: min(560px, calc(100vw - 80px)); max-height: calc(100dvh - 80px); }
+.add-bubble.dragging { opacity: 0.35; pointer-events: none; transition: opacity 0.15s; }
+.lib-tabs { display: flex; gap: 2px; padding: 3px; border-radius: 12px; background: var(--line); overflow-x: auto; flex: none; scrollbar-width: none; }
+.lib-tabs button { flex: 1; min-width: max-content; height: 32px; padding: 0 10px; border-radius: 9px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.lib-tabs button.on { background: var(--chrome-solid); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.lib-filters { display: flex; flex-wrap: wrap; gap: 5px; flex: none; }
+.lib-filters button { padding: 4px 10px; border-radius: 999px; background: var(--line); font-size: 12px; }
+.lib-filters button.on { background: var(--accent); color: #fff; }
+.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; overflow-y: auto; min-height: 0; padding-bottom: 2px; }
+.lib-grid.shelf-decors { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
+.lib-tile { display: flex; flex-direction: column; gap: 4px; padding: 4px; border-radius: 12px; text-align: left; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.lib-tile:hover { background: var(--accent-soft); }
+.lib-thumb { aspect-ratio: 1; border-radius: 9px; overflow: hidden; display: grid; place-items: center; background: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 14px 14px; }
+.shelf-photos .lib-thumb img { width: 100%; height: 100%; max-width: none; max-height: none; object-fit: cover; }
+.lib-thumb img { max-width: 88%; max-height: 88%; display: block; pointer-events: none; }
+.lib-name { font-size: 11px; line-height: 1.25; color: var(--ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.lib-empty { padding: 18px 6px; color: var(--muted); font-size: 13px; }
+.lib-ghost { position: fixed; z-index: 50; width: 96px; height: 96px; object-fit: contain; transform: translate(-50%, -60%) rotate(-3deg); pointer-events: none; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.3)); }

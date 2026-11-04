@@ -1,0 +1,19 @@
+id: jenni-chant-portrait
+type: image
+title: Jenni — portrait au chant
+description: Portrait de Jenni au chant pendant une prestation.
+credit: C.B.
+date: '2026-09-15'
+source: source.jpeg
+meta:
+  width: 1076
+  height: 1637
+focus:
+  x: 0.5
+  y: 0.45
+tags:
+- photo
+- portrait
+- jenni
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/medias/jenni-chant-portrait.jpeg

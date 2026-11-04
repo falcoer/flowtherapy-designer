@@ -1,0 +1,20 @@
+id: lauris-basse-noir-blanc
+type: image
+title: Lauris à la basse
+description: Lauris à la basse, photographié en noir et blanc.
+credit: C.B.
+date: '2026-03-22'
+source: source.jpeg
+meta:
+  width: 1068
+  height: 1600
+focus:
+  x: 0.5
+  y: 0.45
+tags:
+- photo
+- portrait
+- lauris
+- noir-et-blanc
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/medias/734ba641-565f-46d3-9c1f-3515ab49450d.JPG

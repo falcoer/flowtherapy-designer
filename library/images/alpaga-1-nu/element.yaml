@@ -1,0 +1,13 @@
+id: alpaga-1-nu
+type: image
+title: Alpaga n°1, sans costume
+source: source.png
+meta:
+  width: 1536
+  height: 1024
+tags:
+- mascotte
+- alpaga
+- transparent
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/images/alpaga1-nu.png

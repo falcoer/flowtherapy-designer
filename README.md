@@ -9,7 +9,7 @@ Proposition d'architecture complète : voir le document partagé dans le projet 
 - `packages/core` : schémas YAML (zod), référentiels d'ancrage (répartition, nombre d'or, armature harmonique, grille), deltas, couleurs OKLCH et harmonies, balises `{{…}}`, calcul de mise en page. Partagé entre navigateur et serveur.
 - `apps/server` : API Fastify qui lit et écrit la bibliothèque (`library/`) et les projets YAML, index de recherche SQLite (FTS5) reconstruit depuis les YAML, import d'images, de logos et de polices (palette extraite automatiquement), cache de rendus optimisés (`sharp`), export PNG / PDF / SVG par format et par ligne de mailing (Chromium sans tête), connexion avec Google ou Apple réservée aux membres listés (voir [`deploy/AUTH.md`](deploy/AUTH.md)).
 - `apps/web` : surface de travail tactile (React + SVG) : changement de format, repères, glisser-déposer depuis la bibliothèque vers un ancrage, pastilles d'attributs et curseur de delta centré, palette et suggestions d'harmonies, aperçu du YAML.
-- `library/` : bibliothèque d'exemple (logo et photo issus du site bio, palette, textes, formats, un projet).
+- `library/` : bibliothèque du groupe : photos, logos, alpagas, paysages à l'aquarelle, décors à la craie, QR code, logos de presse et polices, importés du site bio par `python3 tools/import-bio-assets.py ../flowtherapy-bio-website` ; palette, formes et formats. `npm run library:atelier` en tire les versions web et l'index du tiroir de l'atelier (`apps/atelier/public/library/`, non versionné).
 
 ## Démarrer
 

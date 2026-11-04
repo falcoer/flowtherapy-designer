@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 90" role="img" aria-labelledby="title">
+  <title id="title">Double trait dessiné à la craie</title>
+  <path d="M12 34c77-23 170 5 296-16M19 67c88-25 181 3 283-17" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round"/>
+  <path d="M16 38c82-19 173 5 286-15M24 71c82-21 176 2 272-16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".44"/>
+</svg>

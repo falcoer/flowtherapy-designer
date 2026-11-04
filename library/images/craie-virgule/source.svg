@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 150" role="img" aria-labelledby="title">
+  <title id="title">Trait courbe dessiné à la craie</title>
+  <path d="M15 121C79 56 135 126 195 78c48-38 86-42 150-50" fill="none" stroke="currentColor" stroke-width="11" stroke-linecap="round"/>
+  <path d="M20 126c64-61 116 7 179-42 46-36 84-40 140-49" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".42"/>
+</svg>

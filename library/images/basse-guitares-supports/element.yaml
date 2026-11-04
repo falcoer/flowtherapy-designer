@@ -1,0 +1,19 @@
+id: basse-guitares-supports
+type: image
+title: Basse et guitares sur leurs pieds
+description: La basse et les guitares du groupe sur leur support.
+credit: C.B.
+date: '2026-09-26'
+source: source.jpeg
+meta:
+  width: 898
+  height: 1600
+focus:
+  x: 0.5
+  y: 0.45
+tags:
+- photo
+- concert
+- groupe
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/medias/basse-guitares-supports.jpeg

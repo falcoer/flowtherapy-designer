@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 180" role="img" aria-labelledby="title">
+  <title id="title">Flèche courbe dessinée à la craie</title>
+  <path d="M18 151C75 133 112 145 156 109c28-23 42-48 86-70M242 39l-59 5M242 39l-25 56" fill="none" stroke="currentColor" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M24 157c57-17 98-7 137-42 25-23 41-49 78-70M236 45l-51 4M236 45l-21 48" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".42"/>
+</svg>

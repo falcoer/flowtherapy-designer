@@ -57,6 +57,8 @@ export interface Layer {
   guide: number;
   /** Photo (URL ou data URI). */
   src?: string;
+  /** Élément de bibliothèque d'origine (« image/<id> ») : l'instance n'en garde que les écarts. */
+  ref?: string;
   /** Hauteur au-dessus de la page (0..1) : l'ombre portée en découle. En dessous de 0, c'est `inner` (creux). */
   height: number;
   /** Opacité de la couche entière (0..1, 1 par défaut). */

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 180" role="img" aria-labelledby="title">
+  <title id="title">Cœur dessiné à la craie</title>
+  <path d="M95 161S25 120 18 68C12 27 58 10 94 48c34-39 82-22 78 20-5 50-77 93-77 93Z" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M94 153S32 116 26 69c-5-33 31-47 68-10 31-37 69-24 69 10-3 43-69 84-69 84Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".46"/>
+</svg>

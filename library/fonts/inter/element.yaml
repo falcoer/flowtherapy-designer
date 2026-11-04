@@ -1,0 +1,15 @@
+id: inter
+type: font
+title: Inter
+family: Inter
+files:
+- weight: 400
+  style: normal
+  path: Inter-Variable.ttf
+tags:
+- police
+- texte
+- sans-serif
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/fonts/inter
+  license: OFL-1.1

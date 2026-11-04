@@ -8,6 +8,10 @@ const Base = {
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'identifiant en minuscules et tirets'),
   title: z.string().optional(),
   tags: z.array(z.string()).default([]),
+  description: z.string().optional(),
+  /** Auteur de la photo ou du visuel. */
+  credit: z.string().optional(),
+  date: z.string().optional(),
   /** Provenance (plugin, URL, licence) pour les éléments importés. */
   origin: z.object({ plugin: z.string().optional(), url: z.string().optional(), license: z.string().optional() }).optional(),
 };

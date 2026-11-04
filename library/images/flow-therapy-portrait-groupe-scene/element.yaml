@@ -1,0 +1,22 @@
+id: flow-therapy-portrait-groupe-scene
+type: image
+title: Flow Therapy — portrait de groupe sur scène
+description: Betty, Jenni et Lauris réunis sous les lumières de la scène.
+credit: C.B.
+date: '2026-06-30'
+source: source.jpeg
+meta:
+  width: 1600
+  height: 1068
+focus:
+  x: 0.5
+  y: 0.45
+tags:
+- photo
+- concert
+- groupe
+- betty
+- jenni
+- lauris
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/medias/11fe83c3-d862-48b5-8123-32aa1af0f9a6.JPG

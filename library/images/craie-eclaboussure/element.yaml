@@ -1,0 +1,13 @@
+id: craie-eclaboussure
+type: image
+title: 'Craie : éclaboussure'
+source: source.svg
+meta:
+  width: 260
+  height: 220
+tags:
+- decor
+- craie
+- masque
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/decorations/chalk-paint-splash.svg

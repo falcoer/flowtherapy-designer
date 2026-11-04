@@ -1,0 +1,13 @@
+id: logo-ft-transparent
+type: image
+title: Logo Flow Therapy (fond transparent)
+source: source.png
+meta:
+  width: 1536
+  height: 1024
+tags:
+- logo
+- flow-therapy
+- transparent
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/images/logo_transparent.png
