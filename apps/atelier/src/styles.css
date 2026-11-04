@@ -381,3 +381,11 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .lib-ghost { position: fixed; z-index: 50; width: 96px; height: 96px; object-fit: contain; transform: translate(-50%, -60%) rotate(-3deg); pointer-events: none; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.3)); }
 .lib-import { grid-template-columns: 1fr; flex: none; }
 .lib-import > .file { flex-direction: row; justify-content: center; gap: 8px; padding: 9px; font-weight: 600; color: var(--accent); background: var(--accent-soft); }
+/* rayon : la grille défile, une barre toujours visible à droite (l'iPad masque la sienne) */
+.lib-scroll { position: relative; display: flex; gap: 6px; min-height: 0; flex: 1 1 auto; }
+.lib-scroll .lib-grid { flex: 1; scrollbar-width: none; }
+.lib-scroll .lib-grid::-webkit-scrollbar { display: none; }
+.lib-rail { position: relative; width: 14px; flex: none; border-radius: 7px; background: var(--line); touch-action: none; cursor: pointer; }
+.lib-rail-thumb { position: absolute; left: 2px; right: 2px; border-radius: 5px; background: var(--accent); opacity: 0.75; }
+.lib-rail:active .lib-rail-thumb { opacity: 1; }
+.add-bubble { overflow: hidden; }

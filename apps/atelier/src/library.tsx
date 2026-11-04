@@ -68,6 +68,29 @@ export function LibraryShelf({ shelf, onInsert, onDragState }: { shelf: Shelf; o
   const [tag, setTag] = useState<string | null>(null);
   const [ghost, setGhost] = useState<{ item: LibItem; x: number; y: number } | null>(null);
   const press = useRef<{ item: LibItem; x: number; y: number; drag: boolean } | null>(null);
+  // position de défilement du rayon, pour la barre visible
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState({ top: 0, size: 1 });
+  const measure = () => {
+    const g = gridRef.current;
+    if (!g) return;
+    const max = g.scrollHeight - g.clientHeight;
+    setView({ top: max > 0 ? g.scrollTop / max : 0, size: g.scrollHeight ? Math.min(1, g.clientHeight / g.scrollHeight) : 1 });
+  };
+  useEffect(() => {
+    measure();
+    const g = gridRef.current;
+    if (!g) return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(g);
+    // les vignettes chargées agrandissent la grille
+    const imgs = [...g.querySelectorAll('img')];
+    imgs.forEach((i) => i.addEventListener('load', measure));
+    return () => {
+      ro.disconnect();
+      imgs.forEach((i) => i.removeEventListener('load', measure));
+    };
+  });
   useEffect(() => {
     void loadLibrary().then(setItems);
   }, []);
@@ -88,7 +111,8 @@ export function LibraryShelf({ shelf, onInsert, onDragState }: { shelf: Shelf; o
           ))}
         </div>
       )}
-      <div className={`lib-grid shelf-${shelf}`}>
+      <div className="lib-scroll">
+      <div className={`lib-grid shelf-${shelf}`} ref={gridRef} onScroll={measure}>
         {list.map((it) => (
           <button
             key={it.id}
@@ -130,7 +154,49 @@ export function LibraryShelf({ shelf, onInsert, onDragState }: { shelf: Shelf; o
           </button>
         ))}
       </div>
+      <ScrollRail grid={gridRef} view={view} />
+      </div>
       {ghost && <img className="lib-ghost" src={ghost.item.thumb} alt="" style={{ left: ghost.x, top: ghost.y }} />}
     </>
+  );
+}
+
+/** Barre de défilement toujours visible, à faire glisser au doigt ou à toucher pour sauter. */
+function ScrollRail({ grid, view }: { grid: React.RefObject<HTMLDivElement | null>; view: { top: number; size: number } }) {
+  const rail = useRef<HTMLDivElement>(null);
+  const grab = useRef<{ y: number; top: number } | null>(null);
+  if (view.size >= 0.999) return null;
+  const thumb = Math.max(0.12, view.size);
+  const scrollTo = (t: number) => {
+    const g = grid.current;
+    if (g) g.scrollTop = Math.max(0, Math.min(1, t)) * (g.scrollHeight - g.clientHeight);
+  };
+  return (
+    <div
+      ref={rail}
+      className="lib-rail"
+      onPointerDown={(e) => {
+        const r = rail.current!.getBoundingClientRect();
+        const y = (e.clientY - r.top) / r.height;
+        const t0 = view.top * (1 - thumb);
+        // hors du curseur : on y saute, puis on peut glisser
+        if (y < t0 || y > t0 + thumb) scrollTo((y - thumb / 2) / (1 - thumb));
+        (e.currentTarget as Element).setPointerCapture(e.pointerId);
+        const g = grid.current!;
+        grab.current = { y: e.clientY, top: g.scrollTop };
+      }}
+      onPointerMove={(e) => {
+        const g0 = grab.current;
+        const g = grid.current;
+        if (!g0 || !g) return;
+        const r = rail.current!.getBoundingClientRect();
+        const k = (g.scrollHeight - g.clientHeight) / (r.height * (1 - thumb));
+        g.scrollTop = g0.top + (e.clientY - g0.y) * k;
+      }}
+      onPointerUp={() => (grab.current = null)}
+      onPointerCancel={() => (grab.current = null)}
+    >
+      <span className="lib-rail-thumb" style={{ top: `${view.top * (1 - thumb) * 100}%`, height: `${thumb * 100}%` }} />
+    </div>
   );
 }
