@@ -292,7 +292,32 @@ export function App() {
     /** Contours aimantés (unités du format) et indices des points aimantés. */
     grid?: EdgeGrid | null;
     snapped?: number[];
+    /** Mode ligne : le tracé est figé jusqu'à cet indice, une ligne droite part de là jusqu'à la pointe. */
+    lineAt?: number;
   }>({ kind: null });
+  // pointe immobile 2 s pendant une découpe : passage en ligne droite (puis un nouveau coin à chaque arrêt)
+  const cutStill = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const armCutStill = (x: number, y: number) => {
+    if (cutStill.current) clearTimeout(cutStill.current.timer);
+    cutStill.current = {
+      x,
+      y,
+      timer: window.setTimeout(() => {
+        const L = live.current;
+        if (L.kind !== 'cut' || !L.lasso?.length) return;
+        const first = L.lineAt === undefined;
+        L.lineAt = L.lasso.length;
+        navigator.vibrate?.(10);
+        setToast(first ? 'Ligne droite : levez la pointe pour couper' : 'Coin posé : nouvelle ligne');
+        redraw();
+        armCutStill(x, y);
+      }, 2000),
+    };
+  };
+  const stopCutStill = () => {
+    if (cutStill.current) clearTimeout(cutStill.current.timer);
+    cutStill.current = null;
+  };
   const pointers = useRef(new Map<number, { x: number; y: number; type: string }>());
   const gesture = useRef<{ view: View; c: { x: number; y: number }; d: number; a: number } | null>(null);
   const tap = useRef<{ n: number; t0: number; moved: boolean } | null>(null);
@@ -549,6 +574,24 @@ export function App() {
         ctx.stroke();
       }
       ctx.restore();
+      if (L.lineAt !== undefined && L.lasso[L.lineAt - 1]) {
+        // départ fixe de la ligne droite
+        const q = L.lasso[L.lineAt - 1]!;
+        ctx.save();
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#7a5cff';
+        ctx.lineWidth = 2 * px;
+        ctx.beginPath();
+        ctx.arc(q.x, q.y, 6 * px, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        const z = L.lasso[L.lasso.length - 1]!;
+        ctx.fillStyle = '#7a5cff';
+        ctx.beginPath();
+        ctx.arc(z.x, z.y, 4 * px, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
       if (L.snapped?.length) {
         ctx.fillStyle = '#7a5cff';
         for (const i of L.snapped) {
@@ -670,6 +713,7 @@ export function App() {
     if (e.pointerType === 'touch' && touches.length >= 2) {
       // plusieurs doigts : on annule le geste à un doigt et on manipule la vue
       stopHold();
+      stopCutStill();
       if (live.current.kind === 'move' || live.current.kind === 'resize') {
         const o = live.current.orig!;
         const back = new Map([o, ...(live.current.mates ?? [])].map((x) => [x.id, x]));
@@ -764,6 +808,7 @@ export function App() {
       // parti de l'extérieur de la forme choisie : on trace un chemin, pas une surface
       const path = !!sel && sel.kind !== 'surface' && !insideRings(maskRings(sel, f), p.x, p.y);
       live.current = { kind: 'cut', lasso: [s0.p], grid, snapped: s0.hit ? [0] : [], path };
+      armCutStill(e.clientX, e.clientY);
       redraw();
       return;
     }
@@ -848,7 +893,17 @@ export function App() {
       const tg = paintTarget(l, f, scale * dpr);
       L.drawn = previewStamps(L.wet!.getContext('2d')!, L.stroke, doc.guides, tg, L.drawn ?? 0);
       redraw();
+    } else if (L.kind === 'cut' && L.lasso && L.lineAt !== undefined) {
+      // mode ligne : la pointe déplace l'extrémité, le départ reste fixe
+      const s1 = snapEdge(L.grid ?? null, p);
+      L.lasso.length = L.lineAt;
+      L.snapped = (L.snapped ?? []).filter((i) => i < L.lineAt!);
+      if (s1.hit) L.snapped.push(L.lasso.length);
+      L.lasso.push(s1.p);
+      if (cutStill.current && Math.hypot(e.clientX - cutStill.current.x, e.clientY - cutStill.current.y) > 4) armCutStill(e.clientX, e.clientY);
+      redraw();
     } else if (L.kind === 'cut' && L.lasso) {
+      if (cutStill.current && Math.hypot(e.clientX - cutStill.current.x, e.clientY - cutStill.current.y) > 4) armCutStill(e.clientX, e.clientY);
       const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
       for (const ev of events) {
         const s1 = snapEdge(L.grid ?? null, toPage(ev.clientX, ev.clientY));
@@ -979,8 +1034,11 @@ export function App() {
     }
     if (L.kind === 'cut' && L.lasso) {
       live.current = { kind: null };
-      if (L.path) finishPath(simplify(L.lasso, 1.2 / scale));
-      else finishCut(simplify(L.lasso, 1.2 / scale));
+      stopCutStill();
+      // en mode ligne, les segments droits gardent leurs extrémités exactes
+      const pts = L.lineAt !== undefined ? [...simplify(L.lasso.slice(0, Math.max(1, L.lineAt)), 1.2 / scale), L.lasso[L.lasso.length - 1]!] : simplify(L.lasso, 1.2 / scale);
+      if (L.path) finishPath(pts);
+      else finishCut(pts);
       return;
     }
     if (L.kind === 'move' && L.layer) {
