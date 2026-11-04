@@ -306,9 +306,15 @@ export function App() {
         const L = live.current;
         if (L.kind !== 'cut' || !L.lasso?.length) return;
         const first = L.lineAt === undefined;
-        L.lineAt = L.lasso.length;
+        if (first) {
+          // tout le tracé devient une droite, du point de départ à la pointe
+          const end = L.lasso[L.lasso.length - 1]!;
+          L.lasso = [L.lasso[0]!, end];
+          L.snapped = (L.snapped ?? []).filter((i) => i === 0);
+          L.lineAt = 1;
+        } else L.lineAt = L.lasso.length;
         navigator.vibrate?.(10);
-        setToast(first ? 'Ligne droite : levez la pointe pour couper' : 'Coin posé : nouvelle ligne');
+        setToast(first ? 'Droite depuis le départ : levez la pointe pour couper' : 'Coin posé : nouvelle ligne');
         redraw();
         armCutStill(x, y);
       }, 2000),
