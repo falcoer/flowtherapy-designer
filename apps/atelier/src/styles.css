@@ -116,14 +116,14 @@ button:disabled { opacity: 0.35; cursor: default; }
 .side-sep + .side-sep { display: none; }
 .side > .btn { flex: none; }
 /* la barre tient dans la hauteur de l'écran : au-delà, elle passe sur une seconde colonne */
-.side { max-height: calc(100dvh - 52px - 24px - 238px - env(safe-area-inset-bottom, 0px)); flex-wrap: wrap; align-content: flex-start; column-gap: 6px; }
+.side { max-height: calc(100dvh - 52px - 24px - 292px - env(safe-area-inset-bottom, 0px)); flex-wrap: wrap; align-content: flex-start; column-gap: 6px; }
 /* outils : leur propre barre, fixe, en haut à gauche */
 .side.tools-bar { top: 64px; bottom: auto; max-height: none; flex-wrap: nowrap; }
 .side > * { flex: none; }
 .trash { transition: transform 0.12s, background 0.12s, color 0.12s; }
 .trash.armed { color: var(--danger); }
 .trash.hot { background: var(--danger); color: #fff; transform: scale(1.25); }
-.vslider { position: relative; width: 30px; height: 150px; border-radius: 15px; background: var(--line); touch-action: none; cursor: ns-resize; overflow: hidden; }
+.vslider { position: relative; width: 30px; height: clamp(90px, calc((100dvh - 580px) / 2), 150px); border-radius: 15px; background: var(--line); touch-action: none; cursor: ns-resize; overflow: hidden; }
 .vs-fill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent-soft); }
 .vs-zero { position: absolute; left: -2px; right: -2px; bottom: calc(50% - 1px); height: 2px; background: var(--ink, currentColor); opacity: 0.55; pointer-events: none; }
 .vslider.center::after { content: '0'; position: absolute; right: 3px; bottom: calc(50% + 2px); font-size: 9px; line-height: 1; opacity: 0.6; pointer-events: none; }
@@ -139,6 +139,7 @@ button:disabled { opacity: 0.35; cursor: default; }
   animation: pop 0.14s ease-out;
 }
 .format-bubble { left: max(10px, env(safe-area-inset-left, 0px)); right: auto; width: min(290px, calc(100vw - 20px)); }
+.add-bubble { left: calc(64px + env(safe-area-inset-left, 0px)); right: auto; top: 64px; }
 @keyframes pop { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }
 .b-title { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 6px 4px 2px; }
 .row { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 6px 10px; border-radius: 11px; text-align: left; width: 100%; }

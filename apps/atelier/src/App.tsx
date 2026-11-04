@@ -1193,9 +1193,6 @@ export function App() {
               </button>
             </div>
             <div className="bar-right">
-              <button className={`btn ${bubble === 'add' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'add' ? null : 'add')} title="Ajouter une couche">
-                <Icon name="plus" />
-              </button>
               <button className={`btn ${bubble === 'layers' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'layers' ? null : 'layers')} title="Couches">
                 <Icon name="layers" />
               </button>
@@ -1219,6 +1216,10 @@ export function App() {
           </header>
 
           <aside className="side tools-bar">
+            <button className={`btn small ${bubble === 'add' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'add' ? null : 'add')} title="Ajouter une couche">
+              <Icon name="plus" />
+            </button>
+            <span className="side-sep" />
             <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => setTool('cut')} title="Découper (C) : trace un contour au stylet">
               <Icon name="scissors" />
             </button>
