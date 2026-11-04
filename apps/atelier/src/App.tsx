@@ -1600,6 +1600,7 @@ function PaletteBubble({
       return [];
     }
   });
+  const [renaming, setRenaming] = useState<number | null>(null);
   const store = (list: typeof saved) => {
     setSaved(list);
     try {
@@ -1690,7 +1691,29 @@ function PaletteBubble({
       {saved.map((p, i) => (
         <div key={i} className="saved">
           <span className="strip" style={{ background: `linear-gradient(90deg, ${p.guides.map((x) => guideColor(x, 0.5)).join(',')})` }} />
-          <span>{p.name}</span>
+          {renaming === i ? (
+            <input
+              className="saved-name"
+              autoFocus
+              defaultValue={p.name}
+              aria-label="Nom de la palette"
+              onFocus={(e) => e.currentTarget.select()}
+              onBlur={(e) => {
+                const name = e.currentTarget.value.trim();
+                if (name) store(saved.map((x, j) => (j === i ? { ...x, name } : x)));
+                setRenaming(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+                if (e.key === 'Escape') setRenaming(null);
+                e.stopPropagation();
+              }}
+            />
+          ) : (
+            <span className="saved-label" role="button" title="Toucher pour renommer" onClick={() => setRenaming(i)}>
+              {p.name}
+            </span>
+          )}
           <button
             onClick={() => {
               // les traits gardent leur numéro de guide : on complète si la palette est plus courte
