@@ -155,6 +155,7 @@ export function App() {
 
   const [tool, setTool] = useState<Tool>('paint');
   const [bubble, setBubble] = useState<Bubble>(null);
+  const [frozenOrder, setFrozenOrder] = useState<string[] | null>(null);
   // astuces (textes d'aide, sous-titres des menus, bandeau d'état) : masquables pour gagner de la place
   const [tips, setTipsState] = useState(() => {
     try {
@@ -1373,7 +1374,10 @@ export function App() {
             <div className="bubble layers-bubble">
               <div className="b-title">Couches</div>
               <div className="layer-list">
-                {[...renderOrder(doc.layers)].reverse().map((l, k, list) => (
+                {(frozenOrder
+                  ? frozenOrder.map((id) => doc.layers.find((x) => x.id === id)).filter((x): x is Layer => !!x)
+                  : [...renderOrder(doc.layers)].reverse()
+                ).map((l, k, list) => (
                   <div key={l.id} className={`layer ${l.id === selected ? 'on' : ''} ${l.visible ? '' : 'hidden'}`} onClick={() => setSelected(l.id)}>
                     <LayerThumb layer={l} doc={doc} />
                     <div className="layer-main">
@@ -1388,6 +1392,11 @@ export function App() {
                               max={1}
                               step={0.01}
                               value={l.height - (l.inner ?? 0)}
+                              // l'ordre de la liste reste figé tant que le curseur est tenu
+                              onPointerDown={() => setFrozenOrder([...renderOrder(doc.layers)].reverse().map((x) => x.id))}
+                              onPointerUp={() => setFrozenOrder(null)}
+                              onPointerCancel={() => setFrozenOrder(null)}
+                              onBlur={() => setFrozenOrder(null)}
                               onChange={(e) => {
                                 // le neutre aimante le doigt
                                 const v = Number(e.target.value);
