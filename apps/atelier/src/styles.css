@@ -254,3 +254,6 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .lamp-colors .sw.custom { background: conic-gradient(#ff6b6b, #ffd36b, #6bff9b, #6bc5ff, #b56bff, #ff6b6b); cursor: pointer; }
 .lamp-colors .sw.custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .lamp-panel .hint { margin: 0; font-size: 11px; line-height: 1.35; color: var(--muted); }
+
+/* astuces masquées : on garde les menus, sans leurs textes d'aide */
+.no-tips .hint, .no-tips .fx-hint, .no-tips .status, .no-tips .mode-pop .row small, .no-tips .layer-main small { display: none !important; }

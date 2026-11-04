@@ -155,6 +155,22 @@ export function App() {
 
   const [tool, setTool] = useState<Tool>('paint');
   const [bubble, setBubble] = useState<Bubble>(null);
+  // astuces (textes d'aide, sous-titres des menus, bandeau d'état) : masquables pour gagner de la place
+  const [tips, setTipsState] = useState(() => {
+    try {
+      return localStorage.getItem('ftd-atelier-tips') !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const setTips = (v: boolean) => {
+    setTipsState(v);
+    try {
+      localStorage.setItem('ftd-atelier-tips', v ? 'on' : 'off');
+    } catch {
+      /* stockage indisponible */
+    }
+  };
   const [selected, setSelected] = useState<string | null>('arche');
   const [guide, setGuide] = useState(2);
   const [size, setSize] = useState(0.05);
@@ -1007,12 +1023,12 @@ export function App() {
   };
 
   // --- ajout de couches ---
-  const addLayer = (kind: 'shape' | 'photo', opts: { shape?: ShapeKind; src?: string; name: string }) => {
+  const addLayer = (kind: 'shape' | 'photo', opts: { shape?: ShapeKind; src?: string; name: string; ratio?: number }) => {
     const a = anchorFor(doc.frame, f, f.width / 2, f.height / 2);
     let w = 0.4;
     let h = 0.4;
     if (opts.shape === 'arch') h = 0.5;
-    if (kind === 'photo') [w, h] = [0.7, 0.5];
+    if (kind === 'photo') [w, h] = opts.ratio ? (opts.ratio >= 1 ? [0.7, 0.7 / opts.ratio] : [0.6 * opts.ratio, 0.6]) : [0.7, 0.5];
     const layer: Layer = {
       id: uid(),
       name: opts.name,
@@ -1034,10 +1050,24 @@ export function App() {
     setTool('move');
     setBubble(null);
   };
-  const importPhoto = (file: File) => {
-    const r = new FileReader();
-    r.onload = () => addLayer('photo', { src: String(r.result), name: file.name.replace(/\.[^.]+$/, '') });
-    r.readAsDataURL(file);
+  // photo importée : remise droite (orientation de l'appareil), réduite à 2400 px, cadre au format de la photo
+  const importPhoto = async (file: File) => {
+    const name = file.name.replace(/\.[^.]+$/, '') || 'Photo';
+    setToast(`Import de « ${name} »…`);
+    try {
+      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      const k = Math.min(1, 2400 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(bmp.width * k));
+      c.height = Math.max(1, Math.round(bmp.height * k));
+      c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height);
+      bmp.close();
+      addLayer('photo', { src: c.toDataURL('image/jpeg', 0.9), name, ratio: c.width / c.height });
+      setToast(`« ${name} » importée`);
+    } catch {
+      // format que le navigateur ne sait pas lire en image (HEIC sur ordinateur, par exemple)
+      setToast('Cette photo ne peut pas être lue ici : essaie en JPEG ou PNG');
+    }
   };
 
   const patchLayer = (id: string, patch: Partial<Layer>, history = true) => {
@@ -1098,7 +1128,7 @@ export function App() {
   };
 
   return (
-    <div className={rendu ? 'atelier rendu' : 'atelier'}>
+    <div className={`atelier ${rendu ? 'rendu' : ''} ${tips ? '' : 'no-tips'}`}>
       <canvas
         ref={canvasRef}
         className="stage"
@@ -1136,6 +1166,9 @@ export function App() {
               </button>
               <button className={`btn guide-btn ${bubble === 'palette' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'palette' ? null : 'palette')} title="Palette de guides">
                 <span className="dot" style={{ background: g?.type === 'gradient' ? `linear-gradient(135deg, ${g.stops.join(',')})` : guideColor(g) }} />
+              </button>
+              <button className={`btn ${tips ? 'on' : ''}`} onClick={() => setTips(!tips)} title={tips ? 'Masquer les astuces' : 'Afficher les astuces'}>
+                <Icon name="tips" />
               </button>
               <span className="sep" />
               <button className="btn fit" onClick={() => setView({ zoom: 1, rot: 0, px: 0, py: 0 })} title="Recadrer la vue" disabled={view.zoom === 1 && !view.rot && !view.px && !view.py}>
@@ -1416,7 +1449,18 @@ export function App() {
                 <label className="file">
                   <Icon name="import" />
                   Importer une photo
-                  <input type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && importPhoto(e.target.files[0])} />
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (file) {
+                        setBubble(null);
+                        void importPhoto(file);
+                      }
+                    }}
+                  />
                 </label>
                 {!doc.layers.some((l) => l.kind === 'surface') && (
                   <button
@@ -1618,7 +1662,7 @@ function LampPanel({ doc, f, onChange, onClose }: { doc: Doc; f: Format; onChang
   const M = 0.75;
   const ar = f.width / f.height;
   const W = 200;
-  const H = Math.round(Math.min(220, Math.max(120, W / ar)));
+  const H = Math.round(Math.min(150, Math.max(110, W / ar)));
   const pw = Math.min(W / (1 + 2 * M), (H / (1 + 2 * M)) * ar);
   const ph = pw / ar;
   const ox = (W - pw) / 2;
