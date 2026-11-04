@@ -693,8 +693,8 @@ function outwardNormals(ring: Pt[], pts: Pt[]): Pt[] {
   });
 }
 
-/** Lueurs posées derrière l'objet ; les autres passent devant. */
-const GLOW_BEHIND = new Set(['smoke', 'halo', 'aura', 'fire']);
+/** Lueurs posées derrière l'objet (aucune : toutes passent devant l'image, sur son bord). */
+const GLOW_BEHIND = new Set<string>();
 
 /**
  * Lueur autour de la découpe, à une distance du bord et sur une largeur
@@ -878,7 +878,8 @@ function drawGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, 
             y: pts[i]!.y + n.y * dist,
             dx,
             dy,
-            len: w * (2.6 + 7 * up + rnd() * 3.5) * big,
+            // sous l'objet, les flammes lèchent le bord sans couvrir l'image
+            len: w * (2.6 + 7 * up + rnd() * 3.5) * big * (1 - 0.65 * Math.max(0, n.y)),
             wid: w * (0.7 + rnd() * 0.6) * (0.8 + 0.4 * big),
             sway: (rnd() - 0.5) * 1.2,
             ph: rnd() * Math.PI * 2,
