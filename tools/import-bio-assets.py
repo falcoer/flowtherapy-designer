@@ -45,19 +45,24 @@ def image(id_: str, src: Path, title: str, tags: list, rel: str, **extra):
     d = LIB / 'images' / id_
     d.mkdir(parents=True, exist_ok=True)
     name = 'source' + src.suffix.lower().replace('.jpg', '.jpeg')
-    shutil.copyfile(src, d / name)
+    if extra.get('crop'):
+        # seule exception aux sources copiées telles quelles : la photo extraite d'une capture
+        with Image.open(src) as im:
+            im.crop(extra['crop']).convert('RGB').save(d / name, 'JPEG', quality=95)
+    else:
+        shutil.copyfile(src, d / name)
     el = {'id': id_, 'type': 'image', 'title': title}
     for k in ('description', 'credit', 'date'):
         if extra.get(k):
             el[k] = extra[k]
     el['source'] = name
-    wh = dims(src)
+    wh = dims(d / name)
     if wh:
         el['meta'] = {'width': wh[0], 'height': wh[1]}
     if extra.get('focus'):
         el['focus'] = extra['focus']
     el['tags'] = sorted(set(tags), key=tags.index)
-    el['origin'] = {'url': REPO + rel}
+    el['origin'] = {'url': REPO + rel, **({'crop': list(extra['crop'])} if extra.get('crop') else {})}
     (d / 'element.yaml').write_text(yaml.safe_dump(el, allow_unicode=True, sort_keys=False, width=200))
     return id_
 
@@ -86,8 +91,11 @@ def main():
         tags += ['repetition'] if 'répétition' in text else []
         title = meta.get('title') or name.replace('-', ' ').capitalize()
         if m.get('mode') == 'excluded-source':
-            name, title = 'capture-galerie-mobile', 'Capture de galerie mobile (à remplacer)'
-            tags += ['a-remplacer']
+            # capture d'écran de galerie : on n'en garde que la photo du trio, recadrée
+            done.append(image('trio-fevrier-2026', src, 'Le trio, février 2026', ['photo', 'groupe', 'portrait', 'lauris', 'jenni', 'betty'], rel,
+                              description='Lauris, Jenni et Betty devant la banderole aux alpagas. Recadrée depuis une capture de galerie (774 × 513 px) : à remplacer par l’original si possible.',
+                              date='2026-02-05', focus={'x': 0.5, 'y': 0.4}, crop=(74, 767, 848, 1280)))
+            continue
         done.append(image(name, src, title, tags, rel, description=meta.get('description') or m.get('reason'), credit=meta.get('credit'), date=meta.get('date'), focus={'x': 0.5, 'y': 0.45}))
 
     # logos du groupe
@@ -132,6 +140,10 @@ def main():
     ]
     for id_, family, files, tags in fonts:
         d = LIB / 'fonts' / id_
+        if (d / 'element.yaml').exists():
+            # déjà dans la bibliothèque (et peut-être enrichie : italique, plage de graisse) : on n'y touche pas
+            done.append(id_)
+            continue
         d.mkdir(parents=True, exist_ok=True)
         out = []
         for w, rel in files:
