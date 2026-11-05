@@ -107,7 +107,7 @@ export function PaletteEditor({ stops, blend, onBlend, onChange: emit }: { stops
   };
   const [pl, setPlaneRaw] = useState<Plane>(() => {
     try {
-      return { ...DEFAULT, ...JSON.parse(localStorage.getItem(PLANE) ?? '{}') };
+      return { ...DEFAULT, ...JSON.parse(localStorage.getItem(PLANE) ?? '{}'), cols: DEFAULT.cols };
     } catch {
       return DEFAULT;
     }
@@ -284,13 +284,10 @@ export function PaletteEditor({ stops, blend, onBlend, onChange: emit }: { stops
               ['light', 'Clarté', 0, 1, 0.01, 'sombres → claires'],
               ['contrast', 'Contraste', 0, 1, 0.01, 'proches → du blanc au noir'],
               ['hues', 'Teintes', 30, 360, 5, 'autour de la couleur choisie → toutes'],
-              ...(mode === 'grid' ? ([['cols', 'Cases', 6, 24, 1, 'nombre de teintes de la grille']] as const) : []),
             ] as const
           ).map(([k, name, min, max, step, hint]) => (
             <label key={k} title={hint}>
-              <span className="tb-label">
-                {name} {k === 'cols' && <b>{pl.cols}</b>}
-              </span>
+              <span className="tb-label">{name}</span>
               <input
                 type="range"
                 min={min}
