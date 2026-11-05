@@ -305,6 +305,30 @@ export function App() {
   const [epop, setEpop] = useState<string | null>(null);
   const [brushKind, setBrushKind] = useState<BrushKind>('aquarelle');
   const [brushPick, setBrushPick] = useState(false);
+  /** Barre latérale : réglages sur deux colonnes quand une seule ne tient pas dans la hauteur. */
+  const sideRef = useRef<HTMLElement>(null);
+  const paramsRef = useRef<HTMLDivElement>(null);
+  const [sideTwo, setSideTwo] = useState(false);
+  useLayoutEffect(() => {
+    const fit = () => {
+      const side = sideRef.current;
+      const pr = paramsRef.current;
+      if (!side || !pr) return;
+      const items = [...pr.children].filter((c) => getComputedStyle(c).position !== 'absolute') as HTMLElement[];
+      // hauteur sur une seule colonne, curseurs à leur taille naturelle (indépendante du mode courant)
+      const vs = Math.max(64, Math.min(100, (window.innerHeight - 640) / 2));
+      const one = items.reduce((h, c) => h + (c.classList.contains('vslider') ? vs : c.offsetHeight), 0) + 8 * Math.max(0, items.length - 1);
+      const rest = side.offsetHeight - pr.offsetHeight;
+      // place libre entre la barre d'outils et le bas de l'écran
+      const tools = document.querySelector('.side.tools-bar')?.getBoundingClientRect();
+      const room = window.innerHeight - (tools ? tools.bottom + 10 : 380) - 12;
+      const two = items.length > 2 && one + rest > room;
+      if (two !== sideTwo) setSideTwo(two);
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  });
   /** Forme de la brosse et son angle (radians), auquel s'ajoute la rotation du crayon. */
   const [brushTip, setBrushTip] = useState<'round' | 'flat' | 'triangle'>('round');
   const [brushRot, setBrushRot] = useState(0);
@@ -1919,162 +1943,155 @@ export function App() {
           )}
 
           <aside
+            ref={sideRef}
             className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][1 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'filter' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0)] : ''}`}
           >
-            {tool === 'paint' && (
-              <>
-                <button className={`btn small ${brushPick ? 'on' : ''}`} onClick={() => setBrushPick(!brushPick)} title={`Pinceau : ${BRUSHES.find((x) => x[0] === brushKind)![1]}`}>
-                  <Icon name={`brush-${brushKind}`} />
-                </button>
-                {brushPick && (
-                  <div className="mode-pop wide">
-                    <div className="b-title">Pinceau</div>
-                    {BRUSHES.map(([k, t, hint]) => (
-                      <button
-                        key={k}
-                        className={`row ${brushKind === k ? 'on' : ''}`}
-                        onClick={() => {
-                          setBrushKind(k);
-                          setBrushPick(false);
-                        }}
-                      >
-                        <Icon name={`brush-${k}`} />
-                        <span>{t}</span>
-                        <small>{hint}</small>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
-                <VSlider label="Opacité" value={opacity} onChange={(v) => setOpacity(Math.max(0.05, v))} />
-                {tipOn(brushKind) && (
-                  <button
-                    className="btn small"
-                    onClick={() => setBrushTip(brushTip === 'round' ? 'flat' : brushTip === 'flat' ? 'triangle' : 'round')}
-                    title={`Forme de la brosse : ${brushTip === 'round' ? 'ronde' : brushTip === 'flat' ? 'plate' : 'triangle'} (toucher pour changer)`}
-                  >
-                    <Icon name={`tip-${brushTip}`} />
+            <div ref={paramsRef} className={`side-params ${sideTwo ? 'two' : ''}`}>
+              {tool === 'paint' && (
+                <>
+                  <button className={`btn small ${brushPick ? 'on' : ''}`} onClick={() => setBrushPick(!brushPick)} title={`Pinceau : ${BRUSHES.find((x) => x[0] === brushKind)![1]}`}>
+                    <Icon name={`brush-${brushKind}`} />
                   </button>
-                )}
-                {tipOn(brushKind) && brushTip !== 'round' && (
-                  <VSlider
-                    label={`Rotation de la brosse : ${Math.round((brushRot * 180) / Math.PI)}°`}
-                    center
-                    value={0.5 + brushRot / (2 * Math.PI)}
-                    onChange={(v) => setBrushRot(Math.abs(v - 0.5) < 0.004 ? 0 : (v - 0.5) * 2 * Math.PI)}
-                  />
-                )}
-                {brushKind === 'branch' && (
-                  <>
-                    <VSlider label="Ramifications" value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
-                    <VSlider label="Chaos" value={converge} onChange={(v) => setConverge(Math.round(v * 100) / 100)} />
-                    <VSlider label="Noyau : taille de la tache de couleur au départ" value={branchCore} onChange={(v) => setBranchCore(Math.round(v * 100) / 100)} />
-                  </>
-                )}
-                {brushKind === 'burn' && (
-                  <>
-                    <VSlider label="Roussi : largeur de la marge, qui parcourt le dégradé du guide" value={burnChar} onChange={(v) => setBurnChar(Math.max(0.02, Math.round(v * 100) / 100))} />
-                    <button className={`btn small ${burnHole ? 'on' : ''}`} onClick={() => setBurnHole(!burnHole)} title={burnHole ? 'Trous : la brûlure perce la couche' : 'Sans trou : la brûlure teinte seulement'}>
-                      <Icon name="burn-hole" />
-                    </button>
-                  </>
-                )}
-              </>
-            )}
-            {tool === 'stamp' && (
-              <>
-                <button
-                  className={`btn small stamp-btn ${stampPick ? 'on' : ''}`}
-                  onClick={() => setStampPick(!stampPick)}
-                  title={`Motif : ${stampOf(stampId).name}`}
-                  dangerouslySetInnerHTML={{ __html: stampSvg(stampOf(stampId)) }}
-                />
-                {stampPick && (
-                  <div className="mode-pop wide stamp-pop">
-                    <div className="b-title">Tampons</div>
-                    <div className="stamp-grid">
-                      {STAMPS.map((x) => (
+                  {brushPick && (
+                    <div className="mode-pop wide">
+                      <div className="b-title">Pinceau</div>
+                      {BRUSHES.map(([k, t, hint]) => (
                         <button
-                          key={x.id}
-                          className={stampId === x.id ? 'on' : ''}
+                          key={k}
+                          className={`row ${brushKind === k ? 'on' : ''}`}
                           onClick={() => {
-                            setStampId(x.id);
-                            setStampPick(false);
+                            setBrushKind(k);
+                            setBrushPick(false);
                           }}
-                          title={x.name}
                         >
-                          <span className="stamp-ico" dangerouslySetInnerHTML={{ __html: stampSvg(x, guideColor(doc.guides[guide], 0.5)) }} />
-                          <small>{x.name}</small>
+                          <Icon name={`brush-${k}`} />
+                          <span>{t}</span>
+                          <small>{hint}</small>
                         </button>
                       ))}
                     </div>
-                  </div>
-                )}
-                <VSlider label="Taille" value={(stampSize - 0.02) / 0.28} onChange={(v) => setStampSize(0.02 + v * 0.28)} />
-                <VSlider label="Dilution : de l’encre pleine au lavis" value={dilution} onChange={(v) => setDilution(Math.round(v * 100) / 100)} />
-                <VSlider
-                  label={`Rotation : ${Math.round((stampRot * 180) / Math.PI)}°`}
-                  center
-                  value={0.5 + stampRot / (2 * Math.PI)}
-                  onChange={(v) => setStampRot(Math.abs(v - 0.5) < 0.004 ? 0 : (v - 0.5) * 2 * Math.PI)}
-                />
-              </>
-            )}
-            {tool === 'cut' && (
-              <>
-                <button className={`btn small ${magnet ? 'on' : ''}`} onClick={() => setMagnet(!magnet)} title="Lignes magnétiques : les ciseaux suivent les contours détectés">
-                  <Icon name="magnet" />
-                </button>
-                {magnet && (
-                  <>
-                    <button className={`btn small mode-btn ${modePick ? 'on' : ''}`} onClick={() => setModePick(!modePick)} title={`Mode de détection : ${EDGE_MODES.find((x) => x[0] === edgeMode)![1]}`}>
-                      <Icon name={`edge-${edgeMode}`} />
+                  )}
+                  <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
+                  <VSlider label="Opacité" value={opacity} onChange={(v) => setOpacity(Math.max(0.05, v))} />
+                  {tipOn(brushKind) && (
+                    <button
+                      className="btn small"
+                      onClick={() => setBrushTip(brushTip === 'round' ? 'flat' : brushTip === 'flat' ? 'triangle' : 'round')}
+                      title={`Forme de la brosse : ${brushTip === 'round' ? 'ronde' : brushTip === 'flat' ? 'plate' : 'triangle'} (toucher pour changer)`}
+                    >
+                      <Icon name={`tip-${brushTip}`} />
                     </button>
-                    {modePick && (
-                      <div className="mode-pop">
-                        <div className="b-title">Détection</div>
-                        {EDGE_MODES.map(([m, t, hint]) => (
+                  )}
+                  {tipOn(brushKind) && brushTip !== 'round' && <Dial label="Rotation de la brosse" value={brushRot} onChange={setBrushRot} />}
+                  {brushKind === 'branch' && (
+                    <>
+                      <VSlider label="Ramifications" value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
+                      <VSlider label="Chaos" value={converge} onChange={(v) => setConverge(Math.round(v * 100) / 100)} />
+                      <VSlider label="Noyau : taille de la tache de couleur au départ" value={branchCore} onChange={(v) => setBranchCore(Math.round(v * 100) / 100)} />
+                    </>
+                  )}
+                  {brushKind === 'burn' && (
+                    <>
+                      <VSlider label="Roussi : largeur de la marge, qui parcourt le dégradé du guide" value={burnChar} onChange={(v) => setBurnChar(Math.max(0.02, Math.round(v * 100) / 100))} />
+                      <button className={`btn small ${burnHole ? 'on' : ''}`} onClick={() => setBurnHole(!burnHole)} title={burnHole ? 'Trous : la brûlure perce la couche' : 'Sans trou : la brûlure teinte seulement'}>
+                        <Icon name="burn-hole" />
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
+              {tool === 'stamp' && (
+                <>
+                  <button
+                    className={`btn small stamp-btn ${stampPick ? 'on' : ''}`}
+                    onClick={() => setStampPick(!stampPick)}
+                    title={`Motif : ${stampOf(stampId).name}`}
+                    dangerouslySetInnerHTML={{ __html: stampSvg(stampOf(stampId)) }}
+                  />
+                  {stampPick && (
+                    <div className="mode-pop wide stamp-pop">
+                      <div className="b-title">Tampons</div>
+                      <div className="stamp-grid">
+                        {STAMPS.map((x) => (
                           <button
-                            key={m}
-                            className={`row ${edgeMode === m ? 'on' : ''}`}
+                            key={x.id}
+                            className={stampId === x.id ? 'on' : ''}
                             onClick={() => {
-                              setEdgeMode(m);
-                              setModePick(false);
+                              setStampId(x.id);
+                              setStampPick(false);
                             }}
+                            title={x.name}
                           >
-                            <Icon name={`edge-${m}`} />
-                            <span>{t}</span>
-                            <small>{hint}</small>
+                            <span className="stamp-ico" dangerouslySetInnerHTML={{ __html: stampSvg(x, guideColor(doc.guides[guide], 0.5)) }} />
+                            <small>{x.name}</small>
                           </button>
                         ))}
                       </div>
-                    )}
-                    <VSlider label="Seuil" value={(edgeThreshold - 0.05) / 0.9} onChange={(v) => setEdgeThreshold(Math.round((0.05 + v * 0.9) * 50) / 50)} />
-                    <VSlider label="Lissage" value={edgeSmooth} onChange={(v) => setEdgeSmooth(Math.round(v * 20) / 20)} />
-                  </>
-                )}
-              </>
-            )}
-            {tool === 'move' && sel && sel.kind !== 'surface' && (
-              <>
-                <VSlider label="Hauteur" center value={0.5 + (sel.height - (sel.inner ?? 0)) / 2} onChange={(v) => patchLayer(sel.id, heightPatch(Math.round((v * 2 - 1) * 100) / 100), false)} />
-              </>
-            )}
+                    </div>
+                  )}
+                  <VSlider label="Taille" value={(stampSize - 0.02) / 0.28} onChange={(v) => setStampSize(0.02 + v * 0.28)} />
+                  <VSlider label="Dilution : de l’encre pleine au lavis" value={dilution} onChange={(v) => setDilution(Math.round(v * 100) / 100)} />
+                  <Dial label="Rotation" value={stampRot} onChange={setStampRot} />
+                </>
+              )}
+              {tool === 'cut' && (
+                <>
+                  <button className={`btn small ${magnet ? 'on' : ''}`} onClick={() => setMagnet(!magnet)} title="Lignes magnétiques : les ciseaux suivent les contours détectés">
+                    <Icon name="magnet" />
+                  </button>
+                  {magnet && (
+                    <>
+                      <button className={`btn small mode-btn ${modePick ? 'on' : ''}`} onClick={() => setModePick(!modePick)} title={`Mode de détection : ${EDGE_MODES.find((x) => x[0] === edgeMode)![1]}`}>
+                        <Icon name={`edge-${edgeMode}`} />
+                      </button>
+                      {modePick && (
+                        <div className="mode-pop">
+                          <div className="b-title">Détection</div>
+                          {EDGE_MODES.map(([m, t, hint]) => (
+                            <button
+                              key={m}
+                              className={`row ${edgeMode === m ? 'on' : ''}`}
+                              onClick={() => {
+                                setEdgeMode(m);
+                                setModePick(false);
+                              }}
+                            >
+                              <Icon name={`edge-${m}`} />
+                              <span>{t}</span>
+                              <small>{hint}</small>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <VSlider label="Seuil" value={(edgeThreshold - 0.05) / 0.9} onChange={(v) => setEdgeThreshold(Math.round((0.05 + v * 0.9) * 50) / 50)} />
+                      <VSlider label="Lissage" value={edgeSmooth} onChange={(v) => setEdgeSmooth(Math.round(v * 20) / 20)} />
+                    </>
+                  )}
+                </>
+              )}
+              {tool === 'move' && sel && sel.kind !== 'surface' && (
+                <>
+                  <VSlider label="Hauteur" center value={0.5 + (sel.height - (sel.inner ?? 0)) / 2} onChange={(v) => patchLayer(sel.id, heightPatch(Math.round((v * 2 - 1) * 100) / 100), false)} />
+                </>
+              )}
+            </div>
             <span className="side-sep" />
-            <button className="btn small" onClick={undo} disabled={!past.current.length} title="Annuler (deux doigts)">
-              <Icon name="undo" />
-            </button>
-            <button className="btn small" onClick={redo} disabled={!future.current.length} title="Rétablir (trois doigts)">
-              <Icon name="redo" />
-            </button>
-            <button
-              ref={trashRef}
-              className={`btn small trash ${trashHot ? 'hot' : ''} ${live.current.kind === 'move' ? 'armed' : ''}`}
-              onClick={() => setToast('Glisse un élément sur la corbeille pour le supprimer')}
-              title="Corbeille : glisse un élément dessus pour le supprimer"
-            >
-              <Icon name="trash" />
-            </button>
+            <div className="side-actions">
+              <button className="btn small" onClick={undo} disabled={!past.current.length} title="Annuler (deux doigts)">
+                <Icon name="undo" />
+              </button>
+              <button className="btn small" onClick={redo} disabled={!future.current.length} title="Rétablir (trois doigts)">
+                <Icon name="redo" />
+              </button>
+              <button
+                ref={trashRef}
+                className={`btn small trash ${trashHot ? 'hot' : ''} ${live.current.kind === 'move' ? 'armed' : ''}`}
+                onClick={() => setToast('Glisse un élément sur la corbeille pour le supprimer')}
+                title="Corbeille : glisse un élément dessus pour le supprimer"
+              >
+                <Icon name="trash" />
+              </button>
+            </div>
           </aside>
 
           {bubble === 'format' && (
@@ -2436,6 +2453,46 @@ export function App() {
 }
 
 /** Curseur vertical du bord gauche, à la façon de Procreate. */
+/**
+ * Cadran de rotation : on tourne le doigt autour du centre ; l'angle s'aimante tous les 15°,
+ * un double toucher le remet à 0°.
+ */
+function Dial({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const last = useRef(0);
+  const set = (e: React.PointerEvent) => {
+    const r = ref.current!.getBoundingClientRect();
+    let a = Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) + Math.PI / 2;
+    if (a > Math.PI) a -= 2 * Math.PI;
+    const deg = (a * 180) / Math.PI;
+    const snap = Math.round(deg / 15) * 15;
+    onChange(Math.abs(deg - snap) < 4 ? ((snap === -180 ? 180 : snap) * Math.PI) / 180 : a);
+  };
+  const deg = Math.round((value * 180) / Math.PI);
+  return (
+    <div
+      ref={ref}
+      className="rot-dial"
+      title={`${label} : ${deg}° (double toucher : 0°)`}
+      onPointerDown={(e) => {
+        (e.target as Element).setPointerCapture(e.pointerId);
+        const now = performance.now();
+        if (now - last.current < 320) {
+          onChange(0);
+          last.current = 0;
+          return;
+        }
+        last.current = now;
+        set(e);
+      }}
+      onPointerMove={(e) => e.buttons && set(e)}
+    >
+      <div className="rot-dial-hand" style={{ transform: `rotate(${value}rad)` }} />
+      <span className="rot-dial-val">{deg}°</span>
+    </div>
+  );
+}
+
 function VSlider({ label, value, onChange, center }: { label: string; value: number; onChange: (v: number) => void; center?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const set = (e: React.PointerEvent) => {
