@@ -123,6 +123,7 @@ button:disabled { opacity: 0.35; cursor: default; }
 .side:not(.tools-bar) { max-height: none; flex-wrap: nowrap; }
 .side-params, .side-actions { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .side-params.two { display: grid; grid-template-columns: auto auto; gap: 8px 6px; justify-items: center; align-items: center; align-content: end; }
+.side-params.two.odd::before { content: ''; }
 .side-actions.two { display: grid; grid-template-columns: auto auto; gap: 8px 6px; justify-items: center; }
 .side-params:empty { display: none; }
 .side-params:empty + .side-sep { display: none; }

@@ -310,6 +310,7 @@ export function App() {
   const sideRef = useRef<HTMLElement>(null);
   const paramsRef = useRef<HTMLDivElement>(null);
   const [sideTwo, setSideTwo] = useState(false);
+  const [sideOdd, setSideOdd] = useState(0);
   useLayoutEffect(() => {
     const fit = () => {
       const side = sideRef.current;
@@ -325,6 +326,8 @@ export function App() {
       const room = window.innerHeight - (tools ? tools.bottom + 10 : 380) - 12;
       const two = items.length > 2 && one + rest > room;
       if (two !== sideTwo) setSideTwo(two);
+      // nombre impair : la case vide va en haut, la grille se remplit depuis le bas
+      if (items.length % 2 !== sideOdd) setSideOdd(items.length % 2);
     };
     fit();
     window.addEventListener('resize', fit);
@@ -2070,7 +2073,7 @@ export function App() {
             ref={sideRef}
             className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][1 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'filter' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0)] : ''}`}
           >
-            <div ref={paramsRef} className={`side-params ${sideTwo ? 'two' : ''}`}>
+            <div ref={paramsRef} className={`side-params ${sideTwo ? 'two' : ''} ${sideOdd ? 'odd' : ''}`}>
               {tool === 'paint' && (
                 <>
                   <button className={`btn small ${brushPick ? 'on' : ''}`} onClick={() => setBrushPick(!brushPick)} title={`Pinceau : ${BRUSHES.find((x) => x[0] === brushKind)![1]}`}>
