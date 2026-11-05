@@ -21,6 +21,7 @@ node -v                                        # Node 22.13 ou plus récent requ
    ```bash
    sudo useradd --system --home /opt/ft-designer ftdesigner
    sudo git clone https://github.com/falcoer/flowtherapy-designer /opt/ft-designer
+   sudo apt install -y python3-pil   # vignettes de la bibliothèque de l'atelier, au build
    cd /opt/ft-designer && sudo npm ci && sudo npm run build
    sudo PLAYWRIGHT_BROWSERS_PATH=/opt/ft-designer/.browsers npx playwright-core install --with-deps chromium   # exports PNG/PDF
    sudo mkdir -p /srv/ft-designer/cache /srv/ft-designer/ateliers && sudo cp -r library /srv/ft-designer/
