@@ -1,0 +1,16 @@
+id: affiche-psyche-titre
+type: image
+title: Titre « Flow Therapy » rétro
+description: Lettrage noir groovy à contour crème, détouré de l’affiche psychédélique.
+source: source.png
+meta:
+  width: 644
+  height: 270
+tags:
+- logo
+- flow-therapy
+- affiche-psyche
+- transparent
+origin:
+  source: publication Facebook de Flow Therapy
+  note: extraction automatique (détourage BiRefNet + SAM)

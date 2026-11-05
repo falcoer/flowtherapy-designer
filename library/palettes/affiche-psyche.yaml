@@ -1,0 +1,14 @@
+id: affiche-psyche
+type: palette
+title: Affiche psyché (trois lamas)
+from: image/affiche-psyche
+tags: [flow-therapy, psychedelique, vif]
+colors:
+  - { name: encre, hex: "#0b0809", role: texte }
+  - { name: creme, hex: "#f3e0c8", role: fond }
+  - { name: bleu-lauris, hex: "#145398" }
+  - { name: turquoise, hex: "#21a1b4" }
+  - { name: violet, hex: "#4c2a84" }
+  - { name: rose, hex: "#c52669", role: accent }
+  - { name: orange, hex: "#de7527" }
+  - { name: or, hex: "#eeac44" }

@@ -1,0 +1,15 @@
+id: affiche-psyche-fond-1
+type: image
+title: Fond psyché, tourbillons roses
+description: 'Morceau du fond de l’affiche, sans personnage : à agrandir ou répéter.'
+source: source.png
+meta:
+  width: 184
+  height: 300
+tags:
+- fond
+- texture
+- affiche-psyche
+origin:
+  source: publication Facebook de Flow Therapy
+  note: image publiée telle quelle

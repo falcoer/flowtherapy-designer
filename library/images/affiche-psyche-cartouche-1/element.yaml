@@ -1,0 +1,16 @@
+id: affiche-psyche-cartouche-1
+type: image
+title: Cartouche encre noire
+description: Tache d’encre noire aux bords déchirés pour poser un nom en clair (texte d’origine effacé).
+source: source.png
+meta:
+  width: 195
+  height: 140
+tags:
+- decor
+- cartouche
+- affiche-psyche
+- transparent
+origin:
+  source: publication Facebook de Flow Therapy
+  note: extraction automatique (détourage BiRefNet + SAM)

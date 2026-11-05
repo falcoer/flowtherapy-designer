@@ -196,7 +196,7 @@ function trace(t: TextStyle): TextCut {
   }
   const [bw, bh] = [x1 - x0 || 1, y1 - y0 || 1];
   const norm = rings.map((r) => simplifyRing(r, 0.35).map((p) => ({ x: (p.x - x0) / bw, y: (p.y - y0) / bh })));
-  return { d: ringsToPath(norm, 1e-6, 55), ratio: bw / bh, bw: (bw * BODY) / size, bh: (bh * BODY) / size };
+  return { d: ringsToPath(norm, 1e-6, 55, false), ratio: bw / bh, bw: (bw * BODY) / size, bh: (bh * BODY) / size };
 }
 
 /**
