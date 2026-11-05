@@ -46,8 +46,25 @@ export function localRings(l: Layer): Ring[] {
 }
 
 /** Contours de la découpe en unités du format. */
+const pageRings = new WeakMap<Ring[], { key: string; rings: Ring[] }>();
 export function maskRings(l: Layer, f: Format): Ring[] {
-  return localRings(l).map((r) => r.map((p) => localToPage(l, f, p.x, p.y)));
+  const local = localRings(l);
+  // boîte calculée une fois pour tous les points, résultat gardé tant que l'objet ne bouge pas
+  const b = layerBox(l, f);
+  const r = l.rot ?? 0;
+  const key = `${b.cx},${b.cy},${b.w},${b.h},${r}`;
+  const hit = pageRings.get(local);
+  if (hit?.key === key) return hit.rings;
+  const [c, s] = [Math.cos(r), Math.sin(r)];
+  const rings = local.map((ring) =>
+    ring.map((p) => {
+      const x = (p.x - 0.5) * b.w;
+      const y = (p.y - 0.5) * b.h;
+      return { x: b.cx + x * c - y * s, y: b.cy + x * s + y * c };
+    }),
+  );
+  pageRings.set(local, { key, rings });
+  return rings;
 }
 
 /** Matrice coordonnées de la couche (0..1) → unités du format, rotation comprise. */

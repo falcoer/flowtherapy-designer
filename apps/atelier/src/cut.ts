@@ -140,8 +140,11 @@ export function pathToRings(d: string, steps = 10): Ring[] {
     else if (c === 'C') {
       const a = cur[cur.length - 1]!;
       const [x1, y1, x2, y2, x, y] = [num(), num(), num(), num(), num(), num()];
-      for (let k = 1; k <= steps; k++) {
-        const t = k / steps;
+      // un petit arc (les lettres en ont des milliers) n'a pas besoin de dix points
+      const len = Math.hypot(x1 - a.x, y1 - a.y) + Math.hypot(x2 - x1, y2 - y1) + Math.hypot(x - x2, y - y2);
+      const n = Math.max(1, Math.min(steps, Math.ceil(len * 150)));
+      for (let k = 1; k <= n; k++) {
+        const t = k / n;
         const m = 1 - t;
         cur.push({
           x: m * m * m * a.x + 3 * m * m * t * x1 + 3 * m * t * t * x2 + t * t * t * x,

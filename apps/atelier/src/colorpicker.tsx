@@ -55,7 +55,29 @@ const HARMONIES: Array<[keyof ReturnType<typeof harmonies>, string]> = [
   ['tints', 'Camaïeu'],
 ];
 
-export function PaletteEditor({ stops, onChange }: { stops: string[]; onChange: (stops: string[], commit: boolean) => void }) {
+export function PaletteEditor({ stops, onChange: emit }: { stops: string[]; onChange: (stops: string[], commit: boolean) => void }) {
+  // pendant un glissé, la page n'est repeinte qu'une fois par image affichée
+  const pending = useRef<{ stops: string[]; raf: number } | null>(null);
+  const onChange = (next: string[], commit: boolean) => {
+    if (commit) {
+      if (pending.current) cancelAnimationFrame(pending.current.raf);
+      pending.current = null;
+      emit(next, true);
+      return;
+    }
+    if (pending.current) {
+      pending.current.stops = next;
+      return;
+    }
+    pending.current = {
+      stops: next,
+      raf: requestAnimationFrame(() => {
+        const p = pending.current;
+        pending.current = null;
+        if (p) emit(p.stops, false);
+      }),
+    };
+  };
   const [mode, setModeRaw] = useState<PlaneMode>(() => {
     try {
       return (localStorage.getItem(MODE) as PlaneMode | null) ?? 'grid';
