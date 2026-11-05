@@ -133,6 +133,11 @@ function load(): Doc {
           if (e.id === 'sticker' && !l.border) l.border = { style: 'double', guide: e.guides[0] ?? 6, guide2: e.guides[1] ?? 1, width: 0.004 + e.amount * 0.03 };
         }
         if (l.fx) l.fx = l.fx.filter((e) => fxOf(e.id));
+        // filtres dessin passés dans les transformations
+        if (l.look?.draw) {
+          l.fx = [l.look.draw, ...(l.fx ?? [])];
+          l.look = l.look.style ? { ...l.look, draw: undefined } : undefined;
+        }
         // grain, papiers, carton : devenus des matières (une seule par couche)
         if (l.fx?.some((e) => isMaterial(e.id))) {
           if (!l.material) l.material = l.fx.filter((e) => isMaterial(e.id)).pop();

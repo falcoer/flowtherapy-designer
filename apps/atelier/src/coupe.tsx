@@ -1,7 +1,7 @@
 import type { Format } from '@ftd/core';
 import { useEffect, useMemo, useState } from 'react';
 import { BORDER_TYPES, fxPreview, GLOW_TYPES, swatch } from './App';
-import { DRAW_FX, FX, fxGuides, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
+import { FX, fxGuides, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import type { Doc, Layer } from './model';
@@ -89,7 +89,6 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
   for (const { x, i } of fxIn(l, 'lumiere')) out.push({ sec: 'coat', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: true });
   if (l.kind === 'photo') {
     if (l.look?.style) out.push({ sec: 'image', key: 'look', name: lookOf(l.look.style)!.name, bg: 'linear-gradient(135deg,#2b3a8c,#9b4f9e,#ee6b5b)', removable: true });
-    if (l.look?.draw) out.push({ sec: 'image', key: 'draw', name: fxOf(l.look.draw.id)!.name, bg: 'repeating-linear-gradient(45deg,#1d1b22 0 1px,#fff 1px 4px)', removable: true });
   } else out.push({ sec: 'image', key: 'paint', name: doc.guides[l.guide]?.name ?? 'Couleur', bg: g(l.guide), removable: false });
   for (const { x, i } of fxIn(l, 'effet')) out.push({ sec: 'transform', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'radial-gradient(circle,#1c1b3a 30%,#e3a83c 34%) 0 0/6px 6px', removable: true });
   if (l.material) out.push({ sec: 'support', key: 'material', name: fxOf(l.material.id)!.name, bg: 'repeating-linear-gradient(45deg,#c79a63 0 3px,#b0814d 3px 6px)', removable: true });
@@ -154,12 +153,6 @@ function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; pa
       name: d.name,
       patch: { look: { ...look, style: d.id as LookId, guides: d.slots.map((x) => x.def), mix: look.mix ?? 1 } },
       focus: 'look',
-    })),
-    ...DRAW_FX.filter((id) => id !== look.draw?.id).map((id) => ({
-      id,
-      name: fxOf(id)!.name,
-      patch: { look: { ...look, draw: newFx(id as FxId) } },
-      focus: 'draw',
     })),
   ];
 }
@@ -466,9 +459,6 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
         <Range label="Mélange" value={look.mix} onChange={(v) => live({ look: { ...look, mix: Math.round(v * 100) / 100 } })} />
       </>
     );
-  } else if (item.key === 'draw' && l.look?.draw) {
-    const look = l.look;
-    body = fxRows(look.draw!, (x, h) => patch({ look: { ...look, draw: x } }, h), 'Dessin');
   } else if (item.key.startsWith('fx:')) {
     const i = Number(item.key.slice(3));
     const x = l.fx?.[i];

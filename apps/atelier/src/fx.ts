@@ -242,7 +242,7 @@ export const FX: FxDef[] = [
   {
     id: 'cartoon',
     name: 'Cartoon',
-    group: 'dessin',
+    group: 'effet',
     slots: [{ label: 'Trait', def: 1 }],
     amount: 0.5,
     pixel: (d, k, a) => {
@@ -275,7 +275,7 @@ export const FX: FxDef[] = [
   {
     id: 'manga',
     name: 'Manga noir et blanc',
-    group: 'dessin',
+    group: 'effet',
     slots: [],
     amount: 0.5,
     pixel: (d, k, a) => {
@@ -310,7 +310,7 @@ export const FX: FxDef[] = [
   {
     id: 'sketch',
     name: 'Crayonné',
-    group: 'dessin',
+    group: 'effet',
     slots: [],
     amount: 0.5,
     pixel: (d, k, a) => {
@@ -340,7 +340,7 @@ export const FX: FxDef[] = [
   {
     id: 'pencil',
     name: 'Crayon et dégradés',
-    group: 'dessin',
+    group: 'effet',
     slots: [],
     amount: 0.5,
     pixel: (d, k, a) => {
