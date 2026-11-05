@@ -477,11 +477,10 @@ function branchInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
  * de braise (couleur du guide). Le bord est irrégulier et le feu avance avec `grow`.
  */
 function burnGroup(strokes: Stroke[], guides: Guide[], t: Target) {
-  const hole = document.createElement('canvas');
-  hole.width = t.pw;
-  hole.height = t.ph;
-  const hx = hole.getContext('2d')!;
-  hx.fillStyle = '#000';
+  // contours du feu : un polygone irrégulier par point, centré sur le départ
+  type Shape = { cx: number; cy: number; rr: number; m: Float32Array };
+  const shapes: Shape[] = [];
+  const n = 120;
   let big = 0;
   for (const s of strokes) {
     const r = rng(s.seed);
@@ -492,66 +491,106 @@ function burnGroup(strokes: Stroke[], guides: Guide[], t: Target) {
     const ph = Array.from({ length: 5 }, () => r() * 6.28);
     s.pts.forEach((p, i) => {
       if (i % 2 && i !== s.pts.length - 1) return;
-      const cx = p.x * t.pw;
-      const cy = p.y * t.ph;
-      const rr = R * (0.75 + 0.35 * (p.p ?? 0.7)) * (0.85 + 0.3 * r());
-      hx.beginPath();
-      const n = 120;
+      const m = new Float32Array(n + 1);
       for (let k = 0; k <= n; k++) {
         const a = (k / n) * Math.PI * 2;
-        const m = 1 + 0.12 * Math.sin(a * 3 + ph[0]!) + 0.06 * Math.sin(a * 7 + ph[1]!) + 0.03 * Math.sin(a * 17 + ph[2]! + i) + 0.025 * (r() - 0.5);
-        const x = cx + Math.cos(a) * rr * m;
-        const y = cy + Math.sin(a) * rr * m;
-        if (k) hx.lineTo(x, y);
-        else hx.moveTo(x, y);
+        m[k] = 1 + 0.12 * Math.sin(a * 3 + ph[0]!) + 0.06 * Math.sin(a * 7 + ph[1]!) + 0.03 * Math.sin(a * 17 + ph[2]! + i) + 0.025 * (r() - 0.5);
       }
-      hx.fill();
+      m[n] = m[0]!;
+      shapes.push({ cx: p.x * t.pw, cy: p.y * t.ph, rr: R * (0.75 + 0.35 * (p.p ?? 0.7)) * (0.85 + 0.3 * r()), m });
     });
   }
-  const halo = (blur: number) => {
-    const c = document.createElement('canvas');
-    c.width = t.pw;
-    c.height = t.ph;
-    const cx = c.getContext('2d')!;
-    cx.filter = `blur(${Math.max(1, blur)}px)`;
-    cx.drawImage(hole, 0, 0);
-    cx.drawImage(hole, 0, 0);
-    cx.filter = 'none';
-    return c;
+  const fillAll = (x: CanvasRenderingContext2D, scale: number) => {
+    x.beginPath();
+    for (const sh of shapes) {
+      for (let k = 0; k <= n; k++) {
+        const a = (k / n) * Math.PI * 2;
+        const rad = sh.rr * scale * sh.m[k]!;
+        const px = sh.cx + Math.cos(a) * rad;
+        const py = sh.cy + Math.sin(a) * rad;
+        if (k) x.lineTo(px, py);
+        else x.moveTo(px, py);
+      }
+      x.closePath();
+    }
+    x.fill('nonzero');
   };
-  // roussi : large, brun clair ; carbonisé : plus serré, presque noir
-  const c = Math.max(0.02, Math.min(1, strokes[strokes.length - 1]?.char ?? 0.3));
-  const g = guides[strokes[strokes.length - 1]?.guide ?? 0];
-  const op = strokes[strokes.length - 1]?.opacity ?? 0.85;
+  const hole = document.createElement('canvas');
+  hole.width = t.pw;
+  hole.height = t.ph;
+  const hx = hole.getContext('2d')!;
+  hx.fillStyle = '#000';
+  fillAll(hx, 1);
+
+  const last = strokes[strokes.length - 1];
+  const c = Math.max(0.02, Math.min(1, last?.char ?? 0.3));
+  const holed = last?.hole !== false;
+  const g = guides[last?.guide ?? 0];
+  const op = last?.opacity ?? 0.85;
+  // largeur de la marge, en proportion du rayon du feu
+  const mw = 0.12 + 0.9 * c;
   const out = document.createElement('canvas');
   out.width = t.pw;
   out.height = t.ph;
   const ox = out.getContext('2d')!;
-  const tint = (src: HTMLCanvasElement, color: string, alpha: number) => {
-    const c = document.createElement('canvas');
-    c.width = t.pw;
-    c.height = t.ph;
-    const cx = c.getContext('2d')!;
-    cx.drawImage(src, 0, 0);
-    cx.globalCompositeOperation = 'source-in';
-    cx.fillStyle = color;
-    cx.fillRect(0, 0, t.pw, t.ph);
-    ox.globalAlpha = alpha;
-    ox.drawImage(c, 0, 0);
-    ox.globalAlpha = 1;
-  };
-  // la marge parcourt le dégradé du guide : son début contre le bord brûlé, sa fin au loin.
-  // Chaque bande est un halo plus serré posé sur le précédent, la couleur suit donc la distance au bord.
-  const W = big * (0.15 + 0.7 * c);
-  const N = 7;
-  for (let k = N - 1; k >= 0; k--) {
-    const f = k / (N - 1);
-    tint(halo(big * 0.02 + W * f), guideColor(g, f), op * (0.55 + 0.45 * (1 - f)));
+  // bandes concentriques, de la plus large à la plus serrée : chacune prend sa couleur dans le dégradé.
+  // Sans trou, le dégradé part du point de départ et finit au bord de la marge ;
+  // avec trou, il part du bord brûlé, et la marge s'assombrit en approchant du trou.
+  const N = 24;
+  const inner = holed ? 1 : 0;
+  const T = 1 + mw;
+  const step = (T - inner) / N;
+  // couleurs : bandes opaques, la plus serrée par-dessus ; l'opacité vient ensuite d'un masque doux
+  ox.filter = `blur(${Math.max(1, big * step * 1.4)}px)`;
+  for (let j = N; j >= 1; j--) {
+    const sc = inner + step * j;
+    const f = (sc - inner) / (T - inner);
+    const beyond = Math.max(0, (sc - 1) / mw); // 0 au bord du feu, 1 au bout de la marge
+    let col = guideColor(g, f);
+    if (holed) col = mixHex(col, '#1e130b', 0.85 * Math.pow(1 - beyond, 1.4));
+    ox.fillStyle = col;
+    fillAll(ox, sc);
   }
-  // contre le trou, un liseré carbonisé fin garde l'aspect brûlé
-  if (strokes[0]?.hole !== false) tint(halo(big * 0.03), '#1e130b', 0.75);
+  // masque : plein dans le feu, puis s'efface progressivement jusqu'au bout de la marge
+  const mask = document.createElement('canvas');
+  mask.width = t.pw;
+  mask.height = t.ph;
+  const mx = mask.getContext('2d')!;
+  mx.filter = `blur(${Math.max(1, big * mw * 0.42)}px)`;
+  mx.fillStyle = '#000';
+  fillAll(mx, 1 + mw * 0.45);
+  mx.filter = 'none';
+  fillAll(mx, 1);
+  ox.filter = 'none';
+  ox.globalCompositeOperation = 'destination-in';
+  ox.drawImage(mask, 0, 0);
+  ox.globalCompositeOperation = 'source-over';
+  // l'opacité du pinceau dose toute la marge
+  if (op < 1) {
+    ox.globalCompositeOperation = 'destination-in';
+    ox.fillStyle = `rgba(0,0,0,${op})`;
+    ox.fillRect(0, 0, t.pw, t.ph);
+    ox.globalCompositeOperation = 'source-over';
+  }
+  if (holed) {
+    // braise : un liseré fin à la couleur de départ du guide, contre le trou
+    ox.filter = `blur(${Math.max(1, big * 0.012)}px)`;
+    ox.globalAlpha = Math.min(1, op * 1.1);
+    ox.fillStyle = guideColor(g, 0);
+    fillAll(ox, 1.03);
+    ox.filter = 'none';
+    ox.globalAlpha = 1;
+  }
   return { hole, edge: out };
 }
+
+function mixHex(a: string, b: string, t: number) {
+  const pa = parseInt(a.slice(1, 7), 16);
+  const pb = parseInt(b.slice(1, 7), 16);
+  const ch = (s: number) => Math.round(((pa >> s) & 255) * (1 - t) + ((pb >> s) & 255) * t);
+  return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+}
+
 /** Les brûlures d'une couche : chaque réglage de roussi garde sa propre marge. */
 export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target) {
   const groups = new Map<string, Stroke[]>();
