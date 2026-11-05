@@ -1973,6 +1973,7 @@ export function App() {
                   )}
                   <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
                   <VSlider label="Opacité" value={opacity} onChange={(v) => setOpacity(Math.max(0.05, v))} />
+                  {tipOn(brushKind) && brushTip !== 'round' && <Dial label="Rotation de la brosse" value={brushRot} onChange={setBrushRot} />}
                   {tipOn(brushKind) && (
                     <button
                       className="btn small"
@@ -1982,7 +1983,6 @@ export function App() {
                       <Icon name={`tip-${brushTip}`} />
                     </button>
                   )}
-                  {tipOn(brushKind) && brushTip !== 'round' && <Dial label="Rotation de la brosse" value={brushRot} onChange={setBrushRot} />}
                   {brushKind === 'branch' && (
                     <>
                       <VSlider label="Ramifications" value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
