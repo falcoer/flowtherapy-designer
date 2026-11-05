@@ -358,3 +358,9 @@ export const DEFAULT_GUIDES: Guide[] = [
   { name: 'Crépuscule', type: 'gradient', stops: ['#ee6b5b', '#9b4f9e', '#2b3a8c'] },
   { name: 'Craie', type: 'color', color: '#fffcf6' },
 ];
+
+/**
+ * Pour enregistrer : les nombres gardent 5 décimales (un cent-millième de la couche ou de la page).
+ * Les traits de peinture comptent des milliers de points : le document pèse ainsi plusieurs fois moins.
+ */
+export const compact = (_k: string, v: unknown) => (typeof v === 'number' && !Number.isInteger(v) ? Math.round(v * 1e5) / 1e5 : v);

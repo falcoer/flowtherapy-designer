@@ -11,7 +11,7 @@ import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc } from './export';
 import { listAteliers, newAtelierId, readAtelier, removeAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta } from './server';
-import { anchorsOf, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
+import { anchorsOf, compact, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
@@ -196,7 +196,7 @@ export function App() {
 
   /** Modifie le document en gardant l'historique (annuler / rétablir). */
   const update = useCallback((fn: (d: Doc) => Doc) => {
-    past.current.push(JSON.stringify(docRef.current));
+    past.current.push(JSON.stringify(docRef.current, compact));
     if (past.current.length > 60) past.current.shift();
     future.current = [];
     setDoc((d) => fn(structuredClone(d)));
@@ -204,7 +204,7 @@ export function App() {
   const undo = useCallback(() => {
     const s = past.current.pop();
     if (!s) return;
-    future.current.push(JSON.stringify(docRef.current));
+    future.current.push(JSON.stringify(docRef.current, compact));
     forgetPaint();
     setDoc(JSON.parse(s));
     setToast('Annulé');
@@ -212,7 +212,7 @@ export function App() {
   const redo = useCallback(() => {
     const s = future.current.pop();
     if (!s) return;
-    past.current.push(JSON.stringify(docRef.current));
+    past.current.push(JSON.stringify(docRef.current, compact));
     forgetPaint();
     setDoc(JSON.parse(s));
     setToast('Rétabli');
@@ -220,7 +220,7 @@ export function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORE, JSON.stringify(doc));
+      localStorage.setItem(STORE, JSON.stringify(doc, compact));
     } catch {
       /* photo trop lourde pour le stockage local : on garde en mémoire */
     }

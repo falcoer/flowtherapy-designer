@@ -41,11 +41,13 @@ export interface Mold {
 function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number): Ring[] {
   const R = Math.max(2, m.r * size);
   const pts = m.pts.map(([x, y]) => ({ x: X0 + x * size, y: Y0 + y * size }));
-  let out = rings.map((r) => r.map((p) => ({ ...p })));
+  let out = rings.map((r) => r.map((p) => ({ x: p.x, y: p.y })));
   for (let i = 1; i < pts.length; i++) {
     const [a, b] = [pts[i - 1]!, pts[i]!];
     const [dx, dy] = [b.x - a.x, b.y - a.y];
     if (!dx && !dy) continue;
+    // assez de points sous la pointe pour que le contour se plie en douceur
+    if ((i - 1) % 3 === 0) out = out.map((r) => densify(r, 1.6, a, R * 1.5));
     for (const r of out)
       for (const q of r) {
         const d2 = ((q.x - a.x) ** 2 + (q.y - a.y) ** 2) / (R * R);
@@ -54,16 +56,20 @@ function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number): Rin
         q.x += dx * f;
         q.y += dy * f;
       }
-    // le contour étiré : on rajoute des points là où ils s'écartent
-    if (i % 4 === 0 || i === pts.length - 1) out = out.map((r) => densify(r, 1.6));
   }
-  return out;
+  return out.map((r) => simplifyRing(r, 0.2));
 }
-function densify(r: Ring, gap: number): Ring {
+function densify(r: Ring, gap: number, c: { x: number; y: number }, near: number): Ring {
   const o: Ring = [];
+  const n2 = near * near;
   for (let i = 0; i < r.length; i++) {
     const [a, b] = [r[i]!, r[(i + 1) % r.length]!];
     o.push(a);
+    // distance du centre au segment
+    const [ux, uy] = [b.x - a.x, b.y - a.y];
+    const L2 = ux * ux + uy * uy || 1;
+    const k = Math.max(0, Math.min(1, ((c.x - a.x) * ux + (c.y - a.y) * uy) / L2));
+    if ((a.x + ux * k - c.x) ** 2 + (a.y + uy * k - c.y) ** 2 > n2) continue;
     const n = Math.floor(Math.hypot(b.x - a.x, b.y - a.y) / gap);
     for (let k = 1; k <= n; k++) o.push({ x: a.x + ((b.x - a.x) * k) / (n + 1), y: a.y + ((b.y - a.y) * k) / (n + 1) });
   }
@@ -214,20 +220,97 @@ interface TextCut {
   fh: number;
 }
 const cache = new Map<string, TextCut>();
+/** Même objet de style, même découpe : évite de recalculer la clé (paraphes et modelages compris) à chaque image. */
+const byStyle = new WeakMap<TextStyle, { epoch: number; c: TextCut }>();
 
 /** Découpe des lettres en coordonnées 0..1 de leur boîte. */
 export function textCut(t: TextStyle): TextCut {
-  const key = JSON.stringify([t.content, t.font, t.weight, t.italic, t.align, t.tracking ?? 0, t.leading ?? 1.1, t.swashes ?? 0, t.warp ?? 0, t.molds ?? 0, fontEpoch]);
+  const hit = byStyle.get(t);
+  if (hit && hit.epoch === fontEpoch) return hit.c;
+  const key = JSON.stringify([baseKey(t), t.warp ?? 0, t.molds ?? 0]);
   let c = cache.get(key);
   if (!c) {
     c = trace(t);
     if (cache.size > 200) cache.clear();
     cache.set(key, c);
   }
+  byStyle.set(t, { epoch: fontEpoch, c });
   return c;
 }
 
+/** Lettres et paraphes rendus puis relevés en contours (pixels), avant modelage et enveloppe. */
+interface Base {
+  key: string;
+  raw: Ring[];
+  X0: number;
+  Y0: number;
+  size: number;
+  widest: number;
+  fh: number;
+}
+const baseKey = (t: TextStyle) => JSON.stringify([t.content, t.font, t.weight, t.italic, t.align, t.tracking ?? 0, t.leading ?? 1.1, t.swashes ?? 0, fontEpoch]);
+const bases = new Map<string, Base>();
+function baseOf(t: TextStyle): Base {
+  const key = baseKey(t);
+  let b = bases.get(key);
+  if (!b) {
+    b = render(t, key);
+    if (bases.size > 12) bases.clear();
+    bases.set(key, b);
+  }
+  return b;
+}
+/** Contours après chaque modelage, gardés par modelage : pendant un geste, seul le dernier est refait. */
+const molded = new WeakMap<Mold, { base: string; prev: Mold | null; rings: Ring[] }>();
+function moldedRings(t: TextStyle, b: Base): Ring[] {
+  const ms = t.molds ?? [];
+  let rings = b.raw;
+  for (let i = 0; i < ms.length; i++) {
+    const m = ms[i]!;
+    const prev = ms[i - 1] ?? null;
+    const hit = molded.get(m);
+    if (hit && hit.base === b.key && hit.prev === prev) {
+      rings = hit.rings;
+      continue;
+    }
+    rings = mold(rings, m, b.X0, b.Y0, b.size);
+    molded.set(m, { base: b.key, prev, rings });
+  }
+  return rings;
+}
+
 function trace(t: TextStyle): TextCut {
+  const b = baseOf(t);
+  const { X0, Y0, size, widest, fh } = b;
+  const lead = t.leading ?? 1.1;
+  if (!b.raw.length) {
+    // texte vide : une boîte pleine, pour qu'on puisse encore toucher l'objet
+    return { d: 'M0 0L1 0L1 1L0 1Z', ratio: Math.max(0.2, 0.6 / lead), bw: BODY * 0.6, bh: lead * BODY, ox: 0, oy: 0, fw: BODY * 0.6, fh: lead * BODY };
+  }
+  const rings = moldedRings(t, b).map((r) =>
+    t.warp?.amount
+      ? r.map((p) => {
+          const [x, y] = warpPoint(t.warp, widest, fh, p.x - X0, p.y - Y0);
+          return { x: x + X0, y: y + Y0 };
+        })
+      : r,
+  );
+  const toBody = BODY / size;
+  // boîte de l'encre
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const r of rings)
+    for (const p of r) {
+      x0 = Math.min(x0, p.x);
+      y0 = Math.min(y0, p.y);
+      x1 = Math.max(x1, p.x);
+      y1 = Math.max(y1, p.y);
+    }
+  const [bw, bh] = [x1 - x0 || 1, y1 - y0 || 1];
+  const norm = rings.map((r) => simplifyRing(r, 0.35).map((p) => ({ x: (p.x - x0) / bw, y: (p.y - y0) / bh })));
+  return { d: ringsToPath(norm, 1e-6, 55, false), ratio: bw / bh, bw: bw * toBody, bh: bh * toBody, ox: (x0 - X0) * toBody, oy: (y0 - Y0) * toBody, fw: widest * toBody, fh: fh * toBody };
+}
+
+function render(t: TextStyle, key: string): Base {
   const lines = (t.content || ' ').split('\n');
   const ab = abilities(t.font, t.italic);
   const real = Math.max(ab.lo, Math.min(ab.hi, t.weight));
@@ -297,34 +380,9 @@ function trace(t: TextStyle): TextCut {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   for (const s of sw) drawSwash(ctx, s, X0, Y0, size);
   const alpha = ctx.getImageData(0, 0, W, H).data;
-  const fh = lines.length * lead * size;
-  let raw = contours(alpha, W, H, 128);
-  for (const m of t.molds ?? []) raw = mold(raw, m, X0, Y0, size);
-  const rings = raw.map((r) =>
-    t.warp?.amount
-      ? r.map((p) => {
-          const [x, y] = warpPoint(t.warp, widest, fh, p.x - X0, p.y - Y0);
-          return { x: x + X0, y: y + Y0 };
-        })
-      : r,
-  );
-  const toBody = BODY / size;
-  // boîte de l'encre
-  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
-  for (const r of rings)
-    for (const p of r) {
-      x0 = Math.min(x0, p.x);
-      y0 = Math.min(y0, p.y);
-      x1 = Math.max(x1, p.x);
-      y1 = Math.max(y1, p.y);
-    }
-  if (!rings.length) {
-    // texte vide : une boîte pleine, pour qu'on puisse encore toucher l'objet
-    return { d: 'M0 0L1 0L1 1L0 1Z', ratio: Math.max(0.2, (size * 0.6) / (lead * size)), bw: BODY * 0.6, bh: lead * BODY, ox: 0, oy: 0, fw: BODY * 0.6, fh: lead * BODY };
-  }
-  const [bw, bh] = [x1 - x0 || 1, y1 - y0 || 1];
-  const norm = rings.map((r) => simplifyRing(r, 0.35).map((p) => ({ x: (p.x - x0) / bw, y: (p.y - y0) / bh })));
-  return { d: ringsToPath(norm, 1e-6, 55, false), ratio: bw / bh, bw: bw * toBody, bh: bh * toBody, ox: (x0 - X0) * toBody, oy: (y0 - Y0) * toBody, fw: widest * toBody, fh: fh * toBody };
+  // contours allégés dès le départ : moins de points à modeler et à redessiner
+  const raw = contours(alpha, W, H, 128).map((r) => simplifyRing(r, 0.2));
+  return { key, raw, X0, Y0, size, widest, fh: lines.length * lead * size };
 }
 
 /** Point de la boîte des lettres (0..1) vers les coordonnées d'un paraphe (corps, avant l'enveloppe). */
