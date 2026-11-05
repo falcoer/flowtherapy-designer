@@ -16,7 +16,31 @@ export interface Pt {
   p?: number;
 }
 
-export type Guide = { name: string; type: 'color'; color: string } | { name: string; type: 'gradient'; stops: string[] };
+/** Passage d'une teinte à l'autre dans un dégradé : douce (fondu continu), faible (aplats aux bords fondus), sans (aplats nets). */
+export type Blend = 'smooth' | 'soft' | 'hard';
+export type Guide = { name: string; type: 'color'; color: string } | { name: string; type: 'gradient'; stops: string[]; blend?: Blend };
+
+/** Arrêts d'un dégradé (position 0..1, couleur) selon sa transition. */
+export function blendStops(stops: string[], blend: Blend = 'smooth'): Array<[number, string]> {
+  const n = stops.length;
+  if (n < 2 || blend === 'smooth') return stops.map((c, i) => [i / Math.max(1, n - 1), c]);
+  // aplats de même largeur ; « faible » fond les bords sur un tiers de la largeur d'un aplat
+  const half = blend === 'soft' ? 0.17 / n : 0;
+  const out: Array<[number, string]> = [];
+  stops.forEach((c, i) => {
+    const a = i / n;
+    const b = (i + 1) / n;
+    out.push([i === 0 ? 0 : a + half, c], [i === n - 1 ? 1 : b - half, c]);
+  });
+  return out;
+}
+/** Le même dégradé en CSS, pour les pastilles et aperçus. */
+export const cssGradient = (stops: string[], blend: Blend | undefined, angle = '135deg') =>
+  stops.length > 1
+    ? `linear-gradient(${angle}, ${blendStops(stops, blend)
+        .map(([p, c]) => `${c} ${(p * 100).toFixed(2)}%`)
+        .join(',')})`
+    : (stops[0] ?? '#888888');
 
 /** Modes de projection du pinceau. */
 export type BrushKind = 'aquarelle' | 'acrylic' | 'roller' | 'spray' | 'glitter' | 'hair';
@@ -206,11 +230,15 @@ export function shapePath(s: ShapeKind): Pt[] {
 export function guideColor(g: Guide | undefined, t = 0): string {
   if (!g) return '#888888';
   if (g.type === 'color') return g.color;
-  const s = g.stops;
-  if (s.length === 1) return s[0]!;
-  const x = Math.max(0, Math.min(1, t)) * (s.length - 1);
-  const i = Math.min(s.length - 2, Math.floor(x));
-  return mix(s[i]!, s[i + 1]!, x - i);
+  const s = blendStops(g.stops, g.blend);
+  if (s.length === 1) return s[0]![1];
+  const x = Math.max(0, Math.min(1, t));
+  for (let i = 0; i < s.length - 1; i++) {
+    const [p, a] = s[i]!;
+    const [q, b] = s[i + 1]!;
+    if (x <= q) return q - p < 1e-9 ? b : mix(a, b, (x - p) / (q - p));
+  }
+  return s[s.length - 1]![1];
 }
 
 function mix(a: string, b: string, t: number): string {

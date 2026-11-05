@@ -8,7 +8,7 @@ import { TextBar } from './textbar';
 import { PaletteEditor } from './colorpicker';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
-import { anchorsOf, DENSITY_STEPS, setAnchorDensity } from './model';
+import { anchorsOf, cssGradient, DENSITY_STEPS, setAnchorDensity, type Blend } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
@@ -106,7 +106,7 @@ export const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
   ['aura', 'Énergie', 'aura de flammes'],
   ['fire', 'Flammes', 'langues de feu qui montent'],
 ];
-export const swatch = (g: Guide | undefined) => (g?.type === 'gradient' ? `linear-gradient(135deg, ${g.stops.join(',')})` : guideColor(g));
+export const swatch = (g: Guide | undefined) => (g?.type === 'gradient' ? cssGradient(g.stops, g.blend) : guideColor(g));
 const EDGE_MODES: Array<[EdgeMode, string, string]> = [
   ['contrast', 'Contraste', 'bords de lumière'],
   ['color', 'Couleur', 'bords de teinte'],
@@ -1614,7 +1614,7 @@ export function App() {
                 <Icon name="sun" />
               </button>
               <button className={`btn guide-btn ${bubble === 'palette' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'palette' ? null : 'palette')} title="Palette de guides">
-                <span className="dot" style={{ background: g?.type === 'gradient' ? `linear-gradient(135deg, ${g.stops.join(',')})` : guideColor(g) }} />
+                <span className="dot" style={{ background: swatch(g) }} />
               </button>
               <button className={`btn ${bubble === 'anchor' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'anchor' ? null : 'anchor')} title="Ancrage : repères et densité des points">
                 <Icon name="anchor" />
@@ -2312,7 +2312,9 @@ function PaletteBubble({
   const stopsOf = (x: Guide) => (x.type === 'gradient' ? x.stops : [x.color]);
   const setStops = (stops: string[], commit = true) =>
     onGuides(
-      doc.guides.map((x, i) => (i !== active ? x : stops.length > 1 ? { name: x.name, type: 'gradient', stops } : { name: x.name, type: 'color', color: stops[0]! })),
+      doc.guides.map((x, i) =>
+        i !== active ? x : stops.length > 1 ? { name: x.name, type: 'gradient', stops, ...(x.type === 'gradient' && x.blend ? { blend: x.blend } : {}) } : { name: x.name, type: 'color', color: stops[0]! },
+      ),
       commit,
     );
   return (
@@ -2325,7 +2327,13 @@ function PaletteBubble({
       </div>
       {editing && g && (
         <div className="guide-edit">
-          <PaletteEditor key={active} stops={stopsOf(g)} onChange={(stops, commit) => setStops(stops, commit)} />
+          <PaletteEditor
+            key={active}
+            stops={stopsOf(g)}
+            blend={g.type === 'gradient' ? (g.blend ?? 'smooth') : 'smooth'}
+            onBlend={(blend: Blend) => onGuides(doc.guides.map((x, i) => (i === active && x.type === 'gradient' ? { ...x, blend } : x)))}
+            onChange={(stops, commit) => setStops(stops, commit)}
+          />
           <input className="gname-input" value={g.name} onChange={(e) => edit({ name: e.target.value })} aria-label="Nom du guide" />
         </div>
       )}
@@ -2359,7 +2367,7 @@ function PaletteBubble({
               onDrag(null, 0, 0);
             }}
           >
-            <span className="sw" style={{ background: x.type === 'gradient' ? `linear-gradient(135deg, ${x.stops.join(',')})` : x.color }} />
+            <span className="sw" style={{ background: swatch(x) }} />
             <span className="gname">{x.name}</span>
           </button>
         ))}

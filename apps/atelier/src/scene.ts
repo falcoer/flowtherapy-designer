@@ -3,7 +3,7 @@ import { rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
-import { guideColor, layerBox, shapePath, type Doc, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
+import { blendStops, guideColor, layerBox, shapePath, type Doc, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { applyLook, lookGuides, lookOf } from './looks';
 import { applyPixelFx, hasPixelFx, hexRGB, type Fx, type FxId } from './fx';
@@ -414,7 +414,7 @@ function drawBorder(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format
   const box = pageBounds(l, f);
   if (g?.type === 'gradient') {
     const grad = ctx.createLinearGradient(box.x0, box.y0, box.x1, box.y1);
-    g.stops.forEach((c, i) => grad.addColorStop(i / Math.max(1, g.stops.length - 1), c));
+    blendStops(g.stops, g.blend).forEach(([p, c]) => grad.addColorStop(p, c));
     ctx.strokeStyle = grad;
   } else ctx.strokeStyle = guideColor(g);
   // le trait est centré sur la découpe : sa moitié extérieure fait la largeur voulue
@@ -678,7 +678,7 @@ function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
     const g = doc.guides[l.guide];
     if (g?.type === 'gradient') {
       const grad = ctx.createLinearGradient(x0, y0, x0, y0 + b.h);
-      g.stops.forEach((c, i) => grad.addColorStop(i / Math.max(1, g.stops.length - 1), c));
+      blendStops(g.stops, g.blend).forEach(([p, c]) => grad.addColorStop(p, c));
       ctx.fillStyle = grad;
     } else ctx.fillStyle = guideColor(g);
     ctx.fillRect(x0, y0, b.w, b.h);
@@ -742,7 +742,7 @@ function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElem
 function guideStyle(ctx: CanvasRenderingContext2D, g: Guide | undefined, box: { x0: number; y0: number; x1: number; y1: number }) {
   if (g?.type === 'gradient') {
     const grad = ctx.createLinearGradient(box.x0, box.y0, box.x1, box.y1);
-    g.stops.forEach((c, i) => grad.addColorStop(i / Math.max(1, g.stops.length - 1), c));
+    blendStops(g.stops, g.blend).forEach(([p, c]) => grad.addColorStop(p, c));
     return grad;
   }
   return guideColor(g);

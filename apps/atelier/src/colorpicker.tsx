@@ -1,5 +1,6 @@
 import { gradientStops, harmonies, hexToOklch, maxChroma, oklabToRgb8, oklchToHex, type Oklch } from '@ftd/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { cssGradient, type Blend } from './model';
 
 /**
  * Éditeur de couleur de la palette : un plan carré (teinte en largeur, clarté en hauteur),
@@ -55,7 +56,7 @@ const HARMONIES: Array<[keyof ReturnType<typeof harmonies>, string]> = [
   ['tints', 'Camaïeu'],
 ];
 
-export function PaletteEditor({ stops, onChange: emit }: { stops: string[]; onChange: (stops: string[], commit: boolean) => void }) {
+export function PaletteEditor({ stops, blend, onBlend, onChange: emit }: { stops: string[]; blend: Blend; onBlend: (b: Blend) => void; onChange: (stops: string[], commit: boolean) => void }) {
   // pendant un glissé, la page n'est repeinte qu'une fois par image affichée
   const pending = useRef<{ stops: string[]; raf: number } | null>(null);
   const onChange = (next: string[], commit: boolean) => {
@@ -94,7 +95,8 @@ export function PaletteEditor({ stops, onChange: emit }: { stops: string[]; onCh
     }
   };
   const [sat, setSat] = useState(0.85);
-  const [steps, setSteps] = useState(5);
+  // un tracé prend cinq couleurs, le passage de l'une à l'autre se règle par la transition
+  const steps = 5;
   const [sel, setSel] = useState(0);
   const i = Math.min(sel, stops.length - 1);
   const [line, setLine] = useState<{ a: Pt; b: Pt } | null>(null);
@@ -250,21 +252,31 @@ export function PaletteEditor({ stops, onChange: emit }: { stops: string[]; onCh
             <span className="tb-label">Saturation</span>
             <input type="range" min={0} max={1} step={0.01} value={sat} onChange={(e) => setSat(Number(e.target.value))} />
           </label>
-          <label>
-            <span className="tb-label">
-              Couleurs par tracé <b>{steps}</b>
-            </span>
-            <input type="range" min={2} max={9} step={1} value={steps} onChange={(e) => setSteps(Number(e.target.value))} />
-          </label>
+          <div className="pe-blend">
+            <span className="tb-label">Transition</span>
+            <div className="seg">
+              {(
+                [
+                  ['smooth', 'Douce'],
+                  ['soft', 'Faible'],
+                  ['hard', 'Sans'],
+                ] as const
+              ).map(([k, name]) => (
+                <button key={k} className={blend === k ? 'on' : ''} disabled={stops.length < 2} onClick={() => onBlend(k)}>
+                  {name}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        <Tiles stops={stops} sel={i} setSel={setSel} onChange={onChange} />
+        <Tiles stops={stops} blend={blend} sel={i} setSel={setSel} onChange={onChange} />
       </div>
     </div>
   );
 }
 
 /** Teintes du guide en tuiles : toucher pour choisir, glisser pour réordonner, ＋ pour en ajouter. */
-function Tiles({ stops, sel, setSel, onChange }: { stops: string[]; sel: number; setSel: (i: number) => void; onChange: (stops: string[], commit: boolean) => void }) {
+function Tiles({ stops, blend, sel, setSel, onChange }: { stops: string[]; blend: Blend; sel: number; setSel: (i: number) => void; onChange: (stops: string[], commit: boolean) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const drag = useRef<{ from: number; x: number; y: number; on: boolean } | null>(null);
   const [dragging, setDragging] = useState<number | null>(null);
@@ -353,7 +365,7 @@ function Tiles({ stops, sel, setSel, onChange }: { stops: string[]; sel: number;
           ＋
         </button>
       </div>
-      <span className="pe-preview" style={{ background: stops.length > 1 ? `linear-gradient(90deg, ${stops.join(',')})` : stops[0] }} title="Résultat" />
+      <span className="pe-preview" style={{ background: cssGradient(stops, blend, '90deg') }} title="Résultat" />
     </div>
   );
 }
