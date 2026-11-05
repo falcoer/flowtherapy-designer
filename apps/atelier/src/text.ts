@@ -35,6 +35,8 @@ export interface TextStyle {
 export interface Mold {
   pts: [number, number][];
   r: number;
+  /** Geste en cours : le contour n'est refondu qu'au lâcher. */
+  live?: boolean;
 }
 
 /** Applique un modelage aux contours (en pixels), en gardant des points assez serrés. */
@@ -57,7 +59,49 @@ function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number): Rin
         q.y += dy * f;
       }
   }
-  return out.map((r) => simplifyRing(r, 0.2));
+  return m.live ? out.map((r) => simplifyRing(r, 0.2)) : refuse(out);
+}
+
+/**
+ * Refonte du contour : on remplit le tracé modelé puis on relève à nouveau son bord.
+ * Les replis, les traits qui se chevauchent ou se tassent fusionnent en une forme nette.
+ */
+function refuse(rings: Ring[]): Ring[] {
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const r of rings)
+    for (const p of r) {
+      x0 = Math.min(x0, p.x);
+      y0 = Math.min(y0, p.y);
+      x1 = Math.max(x1, p.x);
+      y1 = Math.max(y1, p.y);
+    }
+  if (!isFinite(x0)) return rings;
+  const ox = Math.floor(x0) - 3;
+  const oy = Math.floor(y0) - 3;
+  const W = Math.ceil(x1) - ox + 4;
+  const H = Math.ceil(y1) - oy + 4;
+  if (W * H > 6e7) return rings.map((r) => simplifyRing(r, 0.2));
+  const cv = document.createElement('canvas');
+  cv.width = W;
+  cv.height = H;
+  const ctx = cv.getContext('2d', { willReadFrequently: true })!;
+  const path = new Path2D();
+  for (const r of rings) {
+    r.forEach((p, i) => (i ? path.lineTo(p.x - ox, p.y - oy) : path.moveTo(p.x - ox, p.y - oy)));
+    path.closePath();
+  }
+  ctx.fillStyle = '#000';
+  // les trous des lettres tournent dans l'autre sens : le remplissage par enroulement les garde
+  // et comble les replis du modelage
+  ctx.fill(path, 'nonzero');
+  return contours(ctx.getImageData(0, 0, W, H).data, W, H, 128)
+    .filter((r) => r.length >= 8)
+    .map((r) =>
+      simplifyRing(
+        r.map((p) => ({ x: p.x + ox, y: p.y + oy })),
+        0.2,
+      ),
+    );
 }
 function densify(r: Ring, gap: number, c: { x: number; y: number }, near: number): Ring {
   const o: Ring = [];

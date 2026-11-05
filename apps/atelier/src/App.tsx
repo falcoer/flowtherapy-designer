@@ -373,7 +373,7 @@ export function App() {
   /** Barre de texte ouverte sur le clavier (ou l'écriture au stylet). */
   const [textEditing, setTextEditing] = useState(false);
   /** Outil Prolonger de la barre de texte. */
-  const [swash, setSwash] = useState<SwashTool>({ on: false, mode: 'draw', r: 0.3, end: 'point', w: null });
+  const [swash, setSwash] = useState<SwashTool>({ on: false, mode: 'mold', r: 0.3, end: 'point', w: null });
   const [size, setSize] = useState(0.05);
   const [opacity, setOpacity] = useState(0.85);
   /** Outil Tampons : motif, taille, opacité et dilution de l'encre. */
@@ -1218,7 +1218,8 @@ export function App() {
       live.current = {
         kind: 'swash',
         layer: sel.id,
-        orig: structuredClone(sel),
+        // copie légère : le texte garde ses modelages tels quels, déjà calculés
+        orig: { ...sel },
         ...(swash.mode === 'mold'
           ? { mold: { pts: [swashPoint(sel.text, loc.x, loc.y)], r: swash.r } }
           : { sw: { pts: [[...swashPoint(sel.text, loc.x, loc.y), pr] as [number, number, number]], w: swash.w ?? swashWidth(sel.text.weight), end: swash.end } }),
@@ -2069,7 +2070,12 @@ export function App() {
       past.current.pop();
       return void setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? o : x)) }));
     }
-    const patch = placeText(o, L.sw ? { ...o.text!, swashes: [...(o.text!.swashes ?? []), { ...L.sw, pts: [...L.sw.pts] }] } : { ...o.text!, molds: [...(o.text!.molds ?? []), { ...L.mold!, pts: [...L.mold!.pts] }] });
+    const patch = placeText(
+      o,
+      L.sw
+        ? { ...o.text!, swashes: [...(o.text!.swashes ?? []), { ...L.sw, pts: [...L.sw.pts] }] }
+        : { ...o.text!, molds: [...(o.text!.molds ?? []), { pts: [...L.mold!.pts], r: L.mold!.r, ...(final ? {} : { live: true }) }] },
+    );
     setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, ...patch } : x)) }));
   };
   /**
