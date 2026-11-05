@@ -254,6 +254,12 @@ export function App() {
   const [stampId, setStampId] = useState('etoile');
   const [stampSize, setStampSize] = useState(0.08);
   const [dilution, setDilution] = useState(0.15);
+  /** Tampon : essuyé (une empreinte qui s'étire) ou semé (copies éparpillées le long du geste). */
+  const [stampSow, setStampSow] = useState(false);
+  const [sowDensity, setSowDensity] = useState(0.5);
+  const [sowSpread, setSowSpread] = useState(0.4);
+  const [sowPersp, setSowPersp] = useState(0.3);
+  const [stampFilled, setStampFilled] = useState(false);
   /** Rotation du tampon (radians), fixée au curseur : Safari ne transmet pas la rotation du crayon. */
   const [stampRot, setStampRot] = useState(0);
   /** Réglage global : l'inclinaison du stylet met les empreintes en perspective. */
@@ -1163,7 +1169,19 @@ export function App() {
       last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
       stroke:
         t === 'stamp'
-          ? { brush: 'stamp', stamp: stampId, dilution, wipe: true, guide, size: stampSize, opacity: 0.95, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr, ...stampAngle(e, target) }] }
+          ? {
+              brush: 'stamp',
+              stamp: stampId,
+              dilution,
+              wipe: true,
+              ...(stampSow ? { sow: { density: sowDensity, spread: sowSpread, persp: sowPersp } } : {}),
+              ...(stampFilled ? { filled: true } : {}),
+              guide,
+              size: stampSize,
+              opacity: 0.95,
+              seed: Math.floor(Math.random() * 1e9),
+              pts: [{ ...q, p: pr, ...stampAngle(e, target) }],
+            }
           : brushKind === 'burn'
             ? { brush: 'burn', grow: 0.15, char: burnChar, hole: burnHole, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
             : brushKind === 'branch'
@@ -1323,7 +1341,7 @@ export function App() {
         const dist = Math.hypot((loc.x - prev.x) * l.w, (loc.y - prev.y) * l.h);
         // un tampon traîné imprime une suite d'empreintes, espacées de leur taille
         // essuyé : le geste est suivi finement, l'encre s'étire derrière l'empreinte
-        if (stamping ? dist < L.stroke.size * (L.stroke.wipe ? 0.05 : 2.2) : dist * Math.min(f.width, f.height) * scale < 1.5) continue;
+        if (stamping ? dist < L.stroke.size * (L.stroke.sow ? 0.12 : L.stroke.wipe ? 0.05 : 2.2) : dist * Math.min(f.width, f.height) * scale < 1.5) continue;
         L.stroke.pts.push({ ...loc, p: pr, ...(stamping && !L.stroke.wipe ? stampAngle(ev, l) : L.stroke.tip ? { r: tipAngle(ev, l) } : {}) });
       }
       const tg = paintTarget(l, f, scale * dpr);
@@ -2179,8 +2197,25 @@ export function App() {
                     </div>
                   )}
                   <Dial label="Rotation" value={stampRot} onChange={setStampRot} />
+                  <button
+                    className="btn small"
+                    onClick={() => setStampSow(!stampSow)}
+                    title={stampSow ? 'Semis : des copies du motif s’éparpillent le long du geste (toucher pour l’essuyé)' : 'Essuyé : l’empreinte s’étire quand on glisse (toucher pour le semis)'}
+                  >
+                    <Icon name={stampSow ? 'stamp-sow' : 'stamp-wipe'} />
+                  </button>
+                  <button className={`btn small ${stampFilled ? 'on' : ''}`} onClick={() => setStampFilled(!stampFilled)} title="Motif rempli : ses formes prennent le dégradé du guide">
+                    <Icon name="stamp-fill" />
+                  </button>
                   <VSlider label="Dilution" value={dilution} onChange={(v) => setDilution(Math.round(v * 100) / 100)} />
                   <VSlider label="Taille" value={(stampSize - 0.02) / 0.28} onChange={(v) => setStampSize(0.02 + v * 0.28)} />
+                  {stampSow && (
+                    <>
+                      <VSlider label="Densité" value={sowDensity} onChange={(v) => setSowDensity(Math.round(v * 100) / 100)} />
+                      <VSlider label="Écart" value={sowSpread} onChange={(v) => setSowSpread(Math.round(v * 100) / 100)} />
+                      <VSlider label="Perspective" value={sowPersp} onChange={(v) => setSowPersp(Math.round(v * 100) / 100)} />
+                    </>
+                  )}
                 </>
               )}
               {tool === 'cut' && (
@@ -2559,7 +2594,7 @@ export function App() {
           {sel && (
             <div className="status">
               {tool === 'paint' && `Peinture dans « ${sel.name} »`}
-              {tool === 'stamp' && `Tampon « ${stampOf(stampId).name} » dans « ${sel.name} » : touche pour imprimer, glisse pour une traînée`}
+              {tool === 'stamp' && `Tampon « ${stampOf(stampId).name} » dans « ${sel.name} » : touche pour imprimer, ${stampSow ? 'glisse pour semer' : 'glisse pour essuyer'}`}
               {tool === 'cut' &&
                 `Trace un contour : le morceau ${blade === 'scalpel' ? 'reste en place, lié à la couche touchée' : 'se détache de la couche touchée'}${magnet ? `, aimanté sur les contours de « ${sel.name} »` : ''}`}
               {tool === 'filter' &&

@@ -1,4 +1,4 @@
-import { guideColor, type Guide, type Stroke } from './model';
+import { guideColor, type Guide, type Pt, type Stroke } from './model';
 import { stampOf, stampPaths } from './stamps';
 
 /**
@@ -200,6 +200,54 @@ function stampTmp(S: number) {
   return c;
 }
 
+/**
+ * Semis : des copies du motif éparpillées autour du geste, à intervalles irréguliers.
+ * Chacune suit le sens du pinceau, varie un peu en taille et en angle, et penche au hasard
+ * comme si elle était posée sur une surface qui fuit.
+ */
+function sowPrints(s: Stroke, t: Target, r: () => number) {
+  const o = s.sow!;
+  const base = s.size * t.pxPerMin * 2;
+  const out: Array<Pt & { R: number }> = [];
+  const rot0 = s.pts[0]?.r ?? 0;
+  // pas entre deux copies : serré à forte densité
+  const gap = base * (1.6 - 1.4 * o.density);
+  let next = 0;
+  let L = 0;
+  const pts = s.pts;
+  const put = (x: number, y: number, dir: number, p: number) => {
+    const R = base * (0.75 + 0.35 * p) * (0.6 + 0.6 * r());
+    const off = (r() - 0.5) * 2 * o.spread * base * 1.6;
+    const along = (r() - 0.5) * gap * 0.6;
+    const px = x + Math.cos(dir) * along - Math.sin(dir) * off;
+    const py = y + Math.sin(dir) * along + Math.cos(dir) * off;
+    const k = o.persp * (0.25 + 0.75 * r());
+    out.push({ x: px / t.pw, y: py / t.ph, p, R, r: dir + rot0 + (r() - 0.5) * 0.5, k: k > 0.02 ? Math.min(0.9, k) : undefined, d: r() * Math.PI * 2 });
+  };
+  if (pts.length === 1) {
+    put(pts[0]!.x * t.pw, pts[0]!.y * t.ph, 0, pts[0]!.p ?? 0.7);
+    return out;
+  }
+  for (let j = 1; j < pts.length; j++) {
+    const a = pts[j - 1]!;
+    const b = pts[j]!;
+    const ax = a.x * t.pw;
+    const ay = a.y * t.ph;
+    const dx = b.x * t.pw - ax;
+    const dy = b.y * t.ph - ay;
+    const seg = Math.hypot(dx, dy);
+    if (seg < 1e-6) continue;
+    const dir = Math.atan2(dy, dx);
+    while (next <= L + seg) {
+      const u = (next - L) / seg;
+      put(ax + dx * u, ay + dy * u, dir, (a.p ?? 0.7) + ((b.p ?? 0.7) - (a.p ?? 0.7)) * u);
+      next += gap * (0.6 + 0.8 * r());
+    }
+    L += seg;
+  }
+  return out;
+}
+
 const warpA = document.createElement('canvas');
 const warpB = document.createElement('canvas');
 /** Déforme l'empreinte (carré S×S au coin de c) en perspective vers la direction d, de force k (0..1). */
@@ -223,7 +271,7 @@ function perspective(c: HTMLCanvasElement, S: number, d: number, k: number) {
   const squash = 1 - 0.55 * k;
   const taper = 0.45 * k;
   const h = S / 2;
-  const col = Math.max(1, Math.round(S / 160));
+  const col = Math.max(1, Math.round(S / 64));
   for (let x = 0; x < S; x += col) {
     const u = (x + col / 2 - h) / h; // -1 côté proche, +1 côté qui fuit
     const v = 1 - taper * u;
@@ -252,10 +300,13 @@ function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: 
   const dil = Math.max(0, Math.min(1, s.dilution ?? 0));
   const r = rng(s.seed);
   const { c: sil, ctx: sx } = buffer('a', t.pw, t.ph);
-  const n = s.wipe ? 1 : s.pts.length;
+  const sow = s.sow;
+  const wipe = s.wipe && !sow;
+  const prints = sow ? sowPrints(s, t, r) : (wipe ? s.pts.slice(0, 1) : s.pts).map((p) => ({ ...p, R: s.size * t.pxPerMin * 2 * (0.75 + 0.35 * (p.p ?? 0.7)) }));
+  const n = prints.length;
   let big = 0;
-  (s.wipe ? s.pts.slice(0, 1) : s.pts).forEach((p, i) => {
-    const R = s.size * t.pxPerMin * 2 * (0.75 + 0.35 * (p.p ?? 0.7));
+  prints.forEach((p, i) => {
+    const R = p.R;
     big = Math.max(big, R);
     const k = R / Math.max(def.w, def.h);
     // la rotation du stylet oriente le tampon ; sans elle, un léger hasard
@@ -274,7 +325,7 @@ function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: 
       sx.translate(-def.w / 2, -def.h / 2);
       // un dégradé traverse le motif ; le long d'une traînée, chaque tampon prend sa teinte
       let style: string | CanvasGradient = guideColor(g, n > 1 ? i / (n - 1) : 0);
-      if (g?.type === 'gradient' && n === 1) {
+      if (g?.type === 'gradient' && (n === 1 || s.filled)) {
         const lg = sx.createLinearGradient(0, 0, def.w, 0);
         for (let q = 0; q <= 8; q++) lg.addColorStop(q / 8, guideColor(g, q / 8));
         style = lg;
@@ -285,6 +336,13 @@ function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: 
           sx.fillStyle = style;
           sx.fill(ps[j]!);
         } else {
+          // rempli : le trait referme sa forme et la peint
+          if (s.filled) {
+            sx.fillStyle = style;
+            sx.globalAlpha *= 0.85;
+            sx.fill(ps[j]!, 'evenodd');
+            sx.globalAlpha /= 0.85;
+          }
           sx.strokeStyle = style;
           sx.lineWidth = part.width ?? 4;
           sx.lineCap = 'round';
@@ -299,7 +357,7 @@ function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: 
     }
     sx0.drawImage(tmp, 0, 0, S, S, p.x * t.pw - S / 2, p.y * t.ph - S / 2, S, S);
     // essuyé : le tampon glisse sans quitter le papier, l'encre s'étire et s'épuise le long du geste
-    if (s.wipe && s.pts.length > 1) {
+    if (wipe && s.pts.length > 1) {
       const x0 = p.x * t.pw;
       const y0 = p.y * t.ph;
       const step = Math.max(1, R * 0.035);

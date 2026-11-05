@@ -65,6 +65,10 @@ export interface Stroke {
   tip?: 'round' | 'flat' | 'triangle';
   /** Tampon essuyé : après l'empreinte, le geste étire l'encre au lieu d'imprimer une traînée. */
   wipe?: boolean;
+  /** Tampon semé : copies du motif éparpillées le long du geste, tournées dans son sens, mises en perspective au hasard. */
+  sow?: { density: number; spread: number; persp: number };
+  /** Motif rempli : ses formes prennent le dégradé du guide. */
+  filled?: boolean;
   /** Pinceau Ramures : nombre de ramifications, convergence (0 = elles s'arrêtent au contact, 1 = elles se croisent), poussée (0..1). */
   branches?: number;
   converge?: number;
