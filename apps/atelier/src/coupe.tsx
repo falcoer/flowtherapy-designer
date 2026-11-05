@@ -400,11 +400,11 @@ function Dots({ label, value, doc, onPick }: { label: string; value: number; doc
   );
 }
 
-function Range({ label, value, onChange, unit }: { label: string; value: number; onChange: (v: number) => void; unit?: string }) {
+function Range({ label, value, onChange, unit, min = 0 }: { label: string; value: number; onChange: (v: number) => void; unit?: string; min?: number }) {
   return (
     <label className="cp-row">
       <span>{label}</span>
-      <input type="range" min={0} max={1} step={0.01} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+      <input type="range" min={min} max={1} step={0.01} value={value} onChange={(e) => onChange(Number(e.target.value))} />
       <output>
         {Math.round(value * 100)}
         {unit && <small> {unit}</small>}
@@ -455,7 +455,7 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
     body = (
       <>
         <Dots label="Couleur" value={gl.guide} doc={doc} onPick={(i) => patch({ glow: { ...gl, guide: i } })} />
-        <Range label="Distance" value={gl.distance} onChange={(v) => live({ glow: { ...gl, distance: Math.round(v * 100) / 100 } })} />
+        <Range label="Distance" min={-1} value={gl.distance} onChange={(v) => live({ glow: { ...gl, distance: Math.round(v * 100) / 100 } })} />
         <Range label="Largeur" value={gl.width} onChange={(v) => live({ glow: { ...gl, width: Math.round(v * 100) / 100 } })} />
       </>
     );

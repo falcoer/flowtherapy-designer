@@ -1046,8 +1046,36 @@ function drawGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, 
   const offset = (k: number) => {
     const p = new Path2D();
     for (const { pts, nr } of lines) {
-      pts.forEach((q, i) => (i ? p.lineTo(q.x + nr[i]!.x * k, q.y + nr[i]!.y * k) : p.moveTo(q.x + nr[i]!.x * k, q.y + nr[i]!.y * k)));
-      p.closePath();
+      if (k >= 0) {
+        pts.forEach((q, i) => (i ? p.lineTo(q.x + nr[i]!.x * k, q.y + nr[i]!.y * k) : p.moveTo(q.x + nr[i]!.x * k, q.y + nr[i]!.y * k)));
+        p.closePath();
+        continue;
+      }
+      // vers l'intérieur : les coins se croisent ; on écarte les points passés trop près du bord d'origine
+      const d = -k;
+      const cell = Math.max(d, step);
+      const grid = new Map<string, Pt[]>();
+      for (const q of pts) {
+        const key = `${Math.floor(q.x / cell)},${Math.floor(q.y / cell)}`;
+        (grid.get(key) ?? grid.set(key, []).get(key)!).push(q);
+      }
+      const keep = (x: number, y: number) => {
+        const gx = Math.floor(x / cell);
+        const gy = Math.floor(y / cell);
+        for (let a = -1; a <= 1; a++)
+          for (let b = -1; b <= 1; b++) for (const q of grid.get(`${gx + a},${gy + b}`) ?? []) if (Math.hypot(q.x - x, q.y - y) < d * 0.9) return false;
+        return true;
+      };
+      let open = false;
+      pts.forEach((q, i) => {
+        const x = q.x + nr[i]!.x * k;
+        const y = q.y + nr[i]!.y * k;
+        if (!keep(x, y)) return;
+        if (open) p.lineTo(x, y);
+        else p.moveTo(x, y);
+        open = true;
+      });
+      if (open) p.closePath();
     }
     return p;
   };

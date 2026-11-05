@@ -3481,7 +3481,7 @@ function EdgeControls({ layer: l, guides, pop, setPop, patch }: { layer: Layer; 
       {gl && (
         <>
           <GuidePick title="Couleur de la lueur" value={gl.guide} guides={guides} open={pop === 'gc'} setOpen={toggle('gc')} onPick={(i) => patch({ glow: { ...gl, guide: i } })} />
-          <VSlider label="Distance" value={gl.distance} onChange={(v) => patch({ glow: { ...gl, distance: Math.round(v * 100) / 100 } }, false)} />
+          <VSlider label="Distance : dedans (−) ou dehors (+)" center value={(gl.distance + 1) / 2} onChange={(v) => patch({ glow: { ...gl, distance: Math.round((v * 2 - 1) * 100) / 100 } }, false)} />
           <VSlider label="Largeur" value={gl.width} onChange={(v) => patch({ glow: { ...gl, width: Math.round(v * 100) / 100 } }, false)} />
         </>
       )}
