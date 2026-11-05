@@ -453,6 +453,10 @@ export function App() {
     kind: 'paint' | 'cut' | 'move' | 'resize' | 'rotate' | 'pivot' | 'view' | null;
     /** Coin opposé (coordonnées de la couche) tenu fixe pendant un agrandissement. */
     opp?: { u: number; v: number };
+    /** Rotation en cours : dernier point du doigt (lignes de repère). */
+    now?: Pt;
+    /** Agrandissement centré (objet posé sur son point d'ancrage). */
+    centered?: boolean;
     pins?: Layer['pins'];
     layer?: string;
     stroke?: Stroke;
@@ -628,16 +632,71 @@ export function App() {
       ctx.restore();
       if (tool === 'move' && L.kind !== 'move') {
         const h = handlesOf(sel);
-        ctx.strokeStyle = '#7a5cff';
-        ctx.lineWidth = 2 * px;
+        const r = sel.rot ?? 0;
+        const ex = { x: Math.cos(r), y: Math.sin(r) };
+        const ey = { x: -Math.sin(r), y: Math.cos(r) };
+        // ligne de rotation : du centre de rotation à la poignée
+        ctx.save();
+        ctx.strokeStyle = 'rgba(122,92,255,0.7)';
+        ctx.lineWidth = 1.4 * px;
+        ctx.setLineDash([4 * px, 4 * px]);
         ctx.beginPath();
-        ctx.moveTo(h.top.x, h.top.y);
+        ctx.moveTo(h.pivot.x, h.pivot.y);
         ctx.lineTo(h.rot.x, h.rot.y);
         ctx.stroke();
-        ctx.fillStyle = '#fff';
-        for (const q of [h.tl, h.br]) {
+        ctx.restore();
+        // pendant la rotation : la direction de départ, la direction courante et l'arc parcouru
+        if (L.kind === 'rotate' && L.start && L.now) {
+          const P = h.pivot;
+          const R = Math.hypot(h.rot.x - P.x, h.rot.y - P.y);
+          const a0 = Math.atan2(L.start.y - P.y, L.start.x - P.x);
+          const a1 = Math.atan2(L.now.y - P.y, L.now.x - P.x);
+          ctx.save();
+          ctx.lineWidth = 1.4 * px;
+          ctx.strokeStyle = 'rgba(122,92,255,0.45)';
           ctx.beginPath();
-          ctx.arc(q.x, q.y, 9 * px, 0, Math.PI * 2);
+          ctx.moveTo(P.x, P.y);
+          ctx.lineTo(P.x + Math.cos(a0) * R, P.y + Math.sin(a0) * R);
+          ctx.stroke();
+          // horizontale et verticale de la page, pour se repérer
+          ctx.setLineDash([2 * px, 5 * px]);
+          ctx.beginPath();
+          ctx.moveTo(P.x - R, P.y);
+          ctx.lineTo(P.x + R, P.y);
+          ctx.moveTo(P.x, P.y - R);
+          ctx.lineTo(P.x, P.y + R);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.strokeStyle = '#7a5cff';
+          ctx.lineWidth = 2 * px;
+          ctx.beginPath();
+          ctx.moveTo(P.x, P.y);
+          ctx.lineTo(P.x + Math.cos(a1) * R, P.y + Math.sin(a1) * R);
+          ctx.stroke();
+          let d = a1 - a0;
+          d = Math.atan2(Math.sin(d), Math.cos(d));
+          ctx.fillStyle = 'rgba(122,92,255,0.14)';
+          ctx.beginPath();
+          ctx.moveTo(P.x, P.y);
+          ctx.arc(P.x, P.y, R * 0.45, a0, a0 + d, d < 0);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
+        // coins : triangles calés dans l'angle, les côtés le long des bords
+        ctx.strokeStyle = '#7a5cff';
+        ctx.lineWidth = 2 * px;
+        ctx.fillStyle = '#fff';
+        ctx.lineJoin = 'round';
+        const g = 3 * px;
+        const len = 18 * px;
+        for (const c of h.corners) {
+          const A = { x: c.q.x + (ex.x * c.sx + ey.x * c.sy) * g, y: c.q.y + (ex.y * c.sx + ey.y * c.sy) * g };
+          ctx.beginPath();
+          ctx.moveTo(A.x, A.y);
+          ctx.lineTo(A.x - ex.x * c.sx * len, A.y - ex.y * c.sx * len);
+          ctx.lineTo(A.x - ey.x * c.sy * len, A.y - ey.y * c.sy * len);
+          ctx.closePath();
           ctx.fill();
           ctx.stroke();
         }
@@ -839,17 +898,35 @@ export function App() {
     return null;
   };
   const toLocal = (l: Layer, x: number, y: number) => pageToLocal(l, f, x, y);
-  /** Poignées : coins du rectangle serré de la découpe, rotation au-dessus du bord haut. */
+  /**
+   * Poignées : un triangle à chacun des quatre coins du rectangle serré de la découpe, la rotation
+   * au-dessus du bord haut. Le centre de rotation est par défaut le point d'ancrage (ramené dans le cadre).
+   */
   const handlesOf = (l: Layer) => {
     const k = localBounds(l);
     const tl = localToPage(l, f, k.u0, k.v0);
     const br = localToPage(l, f, k.u1, k.v1);
+    const tr = localToPage(l, f, k.u1, k.v0);
+    const bl = localToPage(l, f, k.u0, k.v1);
     const top = localToPage(l, f, (k.u0 + k.u1) / 2, k.v0);
     const r = l.rot ?? 0;
     const off = 34 / scale;
-    const pv = l.pivot ?? { u: (k.u0 + k.u1) / 2, v: (k.v0 + k.v1) / 2 };
-    return { k, tl, br, top, pv, pivot: localToPage(l, f, pv.u, pv.v), rot: { x: top.x + Math.sin(r) * off, y: top.y - Math.cos(r) * off } };
+    let pv = l.pivot;
+    if (!pv) {
+      const b = layerBox(l, f);
+      const q = pageToLocal(l, f, b.cx - l.dx * f.width, b.cy - l.dy * f.height);
+      pv = { u: Math.max(k.u0, Math.min(k.u1, q.x)), v: Math.max(k.v0, Math.min(k.v1, q.y)) };
+    }
+    const corners = [
+      { q: tl, sx: -1, sy: -1, opp: { u: k.u1, v: k.v1 } },
+      { q: tr, sx: 1, sy: -1, opp: { u: k.u0, v: k.v1 } },
+      { q: br, sx: 1, sy: 1, opp: { u: k.u0, v: k.v0 } },
+      { q: bl, sx: -1, sy: 1, opp: { u: k.u1, v: k.v0 } },
+    ];
+    return { k, tl, br, top, pv, corners, pivot: localToPage(l, f, pv.u, pv.v), rot: { x: top.x + Math.sin(r) * off, y: top.y - Math.cos(r) * off } };
   };
+  /** L'objet est posé sur son point d'ancrage par son centre : il s'agrandit en restant centré. */
+  const centeredOnAnchor = (l: Layer) => !l.pivot && Math.abs(l.dx) < 1e-4 && Math.abs(l.dy) < 1e-4;
 
   /** Déplace, tourne et agrandit les objets solidaires comme la couche tenue : c' = O + R(dr)·k·(c − O). */
   const carryMates = (mates: Layer[] | undefined, O: Pt, k: number, dr: number, tx: number, ty: number) => {
@@ -1005,13 +1082,10 @@ export function App() {
           live.current = { kind: 'rotate', layer: sel.id, start: p, orig: structuredClone(sel), mates: structuredClone(matesOf(doc, sel)) };
           return;
         }
-        for (const [q, opp] of [
-          [h.br, { u: h.k.u0, v: h.k.v0 }],
-          [h.tl, { u: h.k.u1, v: h.k.v1 }],
-        ] as const)
-          if (near(q)) {
+        for (const c of h.corners)
+          if (near(c.q)) {
             update((d) => d);
-            live.current = { kind: 'resize', layer: sel.id, start: p, orig: structuredClone(sel), opp, mates: structuredClone(matesOf(doc, sel)) };
+            live.current = { kind: 'resize', layer: sel.id, start: p, orig: structuredClone(sel), opp: c.opp, centered: centeredOnAnchor(sel), mates: structuredClone(matesOf(doc, sel)) };
             return;
           }
       }
@@ -1303,7 +1377,8 @@ export function App() {
       // agrandir depuis un coin : le coin opposé reste en place
       const o = L.orig;
       const b = layerBox(o, f);
-      const O = localToPage(o, f, L.opp.u, L.opp.v);
+      // posé par son centre sur son ancrage : il grandit autour de ce centre, sinon le coin opposé reste en place
+      const O = L.centered ? { x: b.cx, y: b.cy } : localToPage(o, f, L.opp.u, L.opp.v);
       let k = Math.max(0.05, Math.hypot(p.x - O.x, p.y - O.y) / Math.max(1e-9, Math.hypot(L.start.x - O.x, L.start.y - O.y)));
       // aimant : un bord de la découpe qui approche un bord de page s'y pose
       const bb = pageBounds(o, f);
@@ -1335,8 +1410,14 @@ export function App() {
       const k = localBounds(o);
       const q = pageToLocal(o, f, p.x, p.y);
       const pivot = { u: Math.max(k.u0, Math.min(k.u1, q.x)), v: Math.max(k.v0, Math.min(k.v1, q.y)) };
-      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, pivot } : x)) }));
+      // près du point d'ancrage, le centre de rotation y revient et le suit ensuite
+      const home = handlesOf({ ...o, pivot: undefined }).pivot;
+      const back = Math.hypot(p.x - home.x, p.y - home.y) * scale < 16;
+      if (back !== !!L.centered) setToast(back ? 'Centre de rotation : point d’ancrage' : 'Centre de rotation libre');
+      L.centered = back;
+      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, pivot: back ? undefined : pivot } : x)) }));
     } else if (L.kind === 'rotate' && L.orig && L.start) {
+      L.now = p;
       const o = L.orig;
       const b = layerBox(o, f);
       const P = handlesOf(o).pivot;
