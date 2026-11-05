@@ -120,7 +120,7 @@ export interface Layer {
   /** Bord : style, guide de la palette, largeur (fraction du petit côté). */
   border?: { style: BorderStyle; guide: number; width: number; /** Seconde couleur (double bord). */ guide2?: number };
   /** Rognage de la découpe (0..1 chacun) : bords flous, flottants arrondis, dents en zigzag. */
-  trim?: { blur: number; float: number; zigzag: number };
+  trim?: { blur: number; float: number; zigzag: number; /** Aléa des dents (0 = régulières, 1 = déchiquetées). */ chaos?: number };
   /** Ombre intérieure (0..1). */
   inner?: number;
   /** Lueur autour de la découpe : style, guide, distance au bord et largeur (0..1). */

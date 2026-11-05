@@ -135,65 +135,93 @@ export function maskPath2D(l: Layer, f: Format): Path2D {
   return p;
 }
 
-const trims = new Map<string, { key: string; path: Path2D }>();
+const trims = new Map<string, { key: string; local: Path2D }>();
 /**
  * Rognage : la découpe rééchantillonnée, arrondie et ondulée (flottant), puis entaillée
- * de dents régulières (zigzag, comme des ciseaux cranteurs) dont la profondeur suit l'intensité.
+ * de dents anguleuses (zigzag) dont la largeur, la profondeur et la pente varient selon l'aléa.
+ * Calculé dans le repère de la boîte (centré, en unités du format) : déplacer ou tourner
+ * l'objet ne refait pas le calcul.
  */
 function trimPath(l: Layer, f: Format, tr: NonNullable<Layer['trim']>): Path2D {
   const b = layerBox(l, f);
   const minSide = Math.min(f.width, f.height);
-  const key = `${cutOf(l)}|${b.cx},${b.cy},${b.w},${b.h},${l.rot ?? 0}|${tr.float},${tr.zigzag}|${minSide}`;
-  const hit = trims.get(l.id);
-  if (hit?.key === key) return hit.path;
+  const key = `${cutOf(l)}|${b.w},${b.h}|${tr.float},${tr.zigzag},${tr.chaos ?? 0.5}|${minSide}`;
+  let local = trims.get(l.id)?.key === key ? trims.get(l.id)!.local : null;
+  if (!local) {
+    local = buildTrim(l, b.w, b.h, minSide, tr);
+    if (trims.size > 200) trims.clear();
+    trims.set(l.id, { key, local });
+  }
+  const p = new Path2D();
+  p.addPath(local, new DOMMatrix().translate(b.cx, b.cy).rotate(((l.rot ?? 0) * 180) / Math.PI));
+  return p;
+}
+
+function buildTrim(l: Layer, w: number, h: number, minSide: number, tr: NonNullable<Layer['trim']>): Path2D {
   let seed = 7;
   for (const ch of l.id) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
   const rnd = rng(seed);
   const ph = Array.from({ length: 4 }, () => rnd() * Math.PI * 2);
-  const amp = tr.zigzag * 0.014 * minSide;
-  const period = Math.max(minSide * 0.006, amp * 1.4 + minSide * 0.004);
-  const step = Math.min(period / 4, minSide * 0.004);
+  const chaos = tr.chaos ?? 0.5;
+  const amp = tr.zigzag * 0.016 * minSide;
+  const period = Math.max(minSide * 0.007, amp * 1.3 + minSide * 0.004);
+  const step = amp ? Math.min(period / 5, minSide * 0.006) : minSide * 0.006;
   const wave = tr.float * 0.022 * minSide;
   const path = new Path2D();
-  for (const ring of maskRings(l, f)) {
+  for (const ring0 of localRings(l)) {
+    const ring = ring0.map((q) => ({ x: (q.x - 0.5) * w, y: (q.y - 0.5) * h }));
     const pts = resampleArc(ring, step);
     const n = pts.length;
     if (n < 8) continue;
     const nr = outwardNormals(ring, pts);
-    // arrondi : moyenne glissante, d'autant plus large que le bord flotte
+    // arrondi : moyenne glissante (somme cumulée), d'autant plus large que le bord flotte
     const K = Math.min(Math.floor(n / 4), Math.round((tr.float * 0.03 * minSide) / step));
-    const sm =
-      K > 0
-        ? pts.map((_, i) => {
-            let x = 0;
-            let y = 0;
-            for (let d = -K; d <= K; d++) {
-              const q = pts[(i + d + n) % n]!;
-              x += q.x;
-              y += q.y;
-            }
-            return { x: x / (2 * K + 1), y: y / (2 * K + 1) };
-          })
-        : pts;
+    let sm = pts;
+    if (K > 0) {
+      const cx = new Float64Array(n + 1);
+      const cy = new Float64Array(n + 1);
+      for (let i = 0; i < n; i++) {
+        cx[i + 1] = cx[i]! + pts[i]!.x;
+        cy[i + 1] = cy[i]! + pts[i]!.y;
+      }
+      const sum = (a: Float64Array, i0: number, i1: number) => (i0 < 0 ? a[n]! - a[n + i0]! + a[i1 + 1]! : i1 >= n ? a[n]! - a[i0]! + a[i1 - n + 1]! : a[i1 + 1]! - a[i0]!);
+      sm = pts.map((_, i) => ({ x: sum(cx, i - K, i + K) / (2 * K + 1), y: sum(cy, i - K, i + K) / (2 * K + 1) }));
+    }
     // ondes basses, propres à la couche, qui bouclent sur le contour
-    const len = n * step;
-    const turns = Math.max(2, Math.round(len / (minSide * 0.12)));
-    for (let i = 0; i < n; i++) {
-      const u = i / n;
-      const s = i * step;
-      const fl = wave * (0.6 * Math.sin(u * Math.PI * 2 * turns + ph[0]!) + 0.3 * Math.sin(u * Math.PI * 2 * (turns * 2 + 1) + ph[1]!) + 0.1 * Math.sin(u * Math.PI * 2 * (turns * 5 + 3) + ph[2]!));
-      // dent triangulaire, taillée vers l'intérieur
-      const tri = amp ? Math.abs(((s / period) % 1) * 2 - 1) : 0;
-      const d = fl - amp * tri;
-      const x = sm[i]!.x + nr[i]!.x * d;
-      const y = sm[i]!.y + nr[i]!.y * d;
-      if (i) path.lineTo(x, y);
-      else path.moveTo(x, y);
+    const turns = Math.max(2, Math.round((n * step) / (minSide * 0.12)));
+    const at = (i: number, depth: number) => {
+      const k = ((i % n) + n) % n;
+      const u = k / n;
+      const fl = wave ? wave * (0.6 * Math.sin(u * Math.PI * 2 * turns + ph[0]!) + 0.3 * Math.sin(u * Math.PI * 2 * (turns * 2 + 1) + ph[1]!) + 0.1 * Math.sin(u * Math.PI * 2 * (turns * 5 + 3) + ph[2]!)) : 0;
+      const d = fl - depth;
+      return { x: sm[k]!.x + nr[k]!.x * d, y: sm[k]!.y + nr[k]!.y * d };
+    };
+    if (!amp) {
+      for (let i = 0; i < n; i++) {
+        const q = at(i, 0);
+        if (i) path.lineTo(q.x, q.y);
+        else path.moveTo(q.x, q.y);
+      }
+    } else {
+      // dents : une pointe sur le bord, un creux taillé vers l'intérieur, à angles vifs
+      const per = period / step;
+      let i = 0;
+      let q = at(0, 0);
+      path.moveTo(q.x, q.y);
+      while (i < n) {
+        const span = Math.max(2, Math.round(per * (1 + chaos * (rnd() * 1.6 - 0.8))));
+        const end = Math.min(n, i + span);
+        const mid = i + Math.max(1, Math.min(end - i - 1, Math.round((end - i) * (0.5 + chaos * (rnd() - 0.5) * 0.9))));
+        const depth = amp * (1 - chaos * 0.75 * rnd()) * (end - i < span ? (end - i) / span : 1);
+        q = at(mid, depth);
+        path.lineTo(q.x, q.y);
+        q = at(end, chaos * amp * 0.25 * rnd());
+        path.lineTo(q.x, q.y);
+        i = end;
+      }
     }
     path.closePath();
   }
-  if (trims.size > 200) trims.clear();
-  trims.set(l.id, { key, path });
   return path;
 }
 
@@ -432,10 +460,23 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
         const mx = m.getContext('2d')!;
         const T = ctx.getTransform();
         mx.setTransform(T);
-        mx.filter = `blur(${Math.max(0.5, l.trim!.blur * 0.035 * minSide * Math.hypot(T.a, T.b))}px)`;
         mx.fillStyle = '#000';
         mx.fill(fpath, 'evenodd');
+        // fondu vers l'intérieur : des traits de plus en plus fins effacent le bord en rampe régulière
+        const fw = l.trim!.blur * 0.12 * minSide;
+        const N = 32;
+        mx.globalCompositeOperation = 'destination-out';
+        // là où le navigateur sait flouter, les marches de la rampe disparaissent
+        mx.filter = `blur(${Math.max(0.5, (fw / N) * 1.5 * Math.hypot(T.a, T.b))}px)`;
+        mx.lineJoin = 'round';
+        for (let j = 1; j <= N; j++) {
+          mx.globalAlpha = 1 / (N - j + 1);
+          mx.lineWidth = 2 * fw * (1 - (j - 1) / N);
+          mx.stroke(fpath);
+        }
+        mx.globalAlpha = 1;
         mx.filter = 'none';
+        mx.globalCompositeOperation = 'source-over';
         bx.save();
         bx.setTransform(1, 0, 0, 1, 0, 0);
         bx.globalCompositeOperation = 'destination-in';

@@ -446,6 +446,7 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
         <Range label="Flou" value={tr.blur} onChange={(v) => live({ trim: { ...tr, blur: r2(v) } })} />
         <Range label="Flottant" value={tr.float} onChange={(v) => live({ trim: { ...tr, float: r2(v) } })} />
         <Range label="Zigzag" value={tr.zigzag} onChange={(v) => live({ trim: { ...tr, zigzag: r2(v) } })} />
+        {tr.zigzag > 0.01 && <Range label="Aléa" value={tr.chaos ?? 0.5} onChange={(v) => live({ trim: { ...tr, chaos: r2(v) } })} />}
       </>
     );
   } else if (item.key === 'bevel') body = <Range label="Relief" value={l.bevel ?? 0} onChange={(v) => live({ bevel: Math.max(0.05, Math.round(v * 100) / 100) })} />;
