@@ -9,7 +9,7 @@ import { TextBar } from './textbar';
 import { PaletteEditor } from './colorpicker';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
-import { anchorsOf, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, marginOf, setAnchorDensity, setAnchorMargin, type Blend } from './model';
+import { anchorsOf, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, marginOf, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
@@ -1122,12 +1122,28 @@ export function App() {
       const tol = MAGNET / scale;
       const ex = { l: bb.x0 - b.cx, r: bb.x1 - b.cx, t: bb.y0 - b.cy, b: bb.y1 - b.cy };
       const pins: NonNullable<Layer['pins']> = {};
-      if (Math.abs(cx + ex.l) < tol) [cx, pins.left] = [-ex.l, true];
-      else if (Math.abs(cx + ex.r - f.width) < tol) [cx, pins.right] = [f.width - ex.r, true];
-      if (Math.abs(cx + ex.r - f.width) < tol) pins.right = true;
-      if (Math.abs(cy + ex.t) < tol) [cy, pins.top] = [-ex.t, true];
-      else if (Math.abs(cy + ex.b - f.height) < tol) [cy, pins.bottom] = [f.height - ex.b, true];
-      if (Math.abs(cy + ex.b - f.height) < tol) pins.bottom = true;
+      // bords de page, puis lignes de marge : le plus proche l'emporte
+      const lines = edgeLines(f);
+      const near1 = (side: 'left' | 'right' | 'top' | 'bottom', v: number) => {
+        let best: { d: number; pin: Pin; at: number } | null = null;
+        for (const [pin, at] of [[true, lines.page[side]], ...(lines.margin ? [['margin', lines.margin[side]]] : [])] as Array<[Pin, number]>) {
+          const d = Math.abs(v - at);
+          if (d < tol && (!best || d < best.d)) best = { d, pin, at };
+        }
+        return best;
+      };
+      const pl = near1('left', cx + ex.l);
+      const pr = near1('right', cx + ex.r);
+      if (pl && (!pr || pl.d <= pr.d)) [cx, pins.left] = [pl.at - ex.l, pl.pin];
+      else if (pr) [cx, pins.right] = [pr.at - ex.r, pr.pin];
+      const pr2 = near1('right', cx + ex.r);
+      if (pr2 && pr2.d < 1e-6) pins.right = pr2.pin;
+      const pt = near1('top', cy + ex.t);
+      const pb = near1('bottom', cy + ex.b);
+      if (pt && (!pb || pt.d <= pb.d)) [cy, pins.top] = [pt.at - ex.t, pt.pin];
+      else if (pb) [cy, pins.bottom] = [pb.at - ex.b, pb.pin];
+      const pb2 = near1('bottom', cy + ex.b);
+      if (pb2 && pb2.d < 1e-6) pins.bottom = pb2.pin;
       const edge = pins.left || pins.right || pins.top || pins.bottom;
       if (edge) L.snap = null;
       L.pins = edge ? pins : undefined;
@@ -1143,12 +1159,16 @@ export function App() {
       // aimant : un bord de la découpe qui approche un bord de page s'y pose
       const bb = pageBounds(o, f);
       let best: number | null = null;
-      for (const [edge, o0, page] of [
+      const lines = edgeLines(f);
+      const targets: Array<readonly [number, number, number]> = [
         [bb.x0, O.x, 0],
         [bb.x1, O.x, f.width],
         [bb.y0, O.y, 0],
         [bb.y1, O.y, f.height],
-      ] as const) {
+      ];
+      // la marge aimante aussi
+      if (lines.margin) targets.push([bb.x0, O.x, lines.margin.left], [bb.x1, O.x, lines.margin.right], [bb.y0, O.y, lines.margin.top], [bb.y1, O.y, lines.margin.bottom]);
+      for (const [edge, o0, page] of targets) {
         if (Math.abs(edge - o0) < 1e-9) continue;
         const kk = (page - o0) / (edge - o0);
         const now = o0 + (edge - o0) * k;
@@ -1250,7 +1270,7 @@ export function App() {
         const pins = l.pins
           ? Object.entries(l.pins)
               .filter(([, v]) => v)
-              .map(([k]) => ({ left: 'gauche', right: 'droite', top: 'haut', bottom: 'bas' })[k])
+              .map(([k, v]) => ({ left: 'gauche', right: 'droite', top: 'haut', bottom: 'bas' })[k] + (v === 'margin' ? ' (marge)' : ''))
           : [];
         setToast(pins.length ? `Tenu au bord ${pins.join(', ')}` : L.snap ? `Ancré sur ${l.anchor.point}` : `Près de ${l.anchor.point}`);
       }
@@ -1689,14 +1709,6 @@ export function App() {
               <button className={`btn ${bubble === 'anchor' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'anchor' ? null : 'anchor')} title="Aide au positionnement : repères, densité, marge">
                 <Icon name="anchor" />
               </button>
-              <button
-                className={`btn ${guidesOn.on ? 'on' : ''}`}
-                aria-pressed={guidesOn.on}
-                onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}
-                title={guidesOn.on ? 'Masquer les repères' : 'Afficher les repères en permanence'}
-              >
-                <Icon name="guides" />
-              </button>
             </div>
             <div className="bar-right">
               <button className={`btn ${bubble === 'layers' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'layers' ? null : 'layers')} title="Couches">
@@ -1711,6 +1723,14 @@ export function App() {
               <span className="sep" />
               <button className={`btn ${tips ? 'on' : ''}`} onClick={() => setTips(!tips)} title={tips ? 'Masquer les astuces' : 'Afficher les astuces'}>
                 <Icon name="tips" />
+              </button>
+              <button
+                className={`btn ${guidesOn.on ? 'on' : ''}`}
+                aria-pressed={guidesOn.on}
+                onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}
+                title={guidesOn.on ? 'Masquer les repères' : 'Afficher les repères en permanence'}
+              >
+                <Icon name="guides" />
               </button>
               <button className="btn fit" onClick={() => setView({ zoom: 1, rot: 0, px: 0, py: 0 })} title="Recadrer la vue" disabled={view.zoom === 1 && !view.rot && !view.px && !view.py}>
                 <Icon name="fit" />
@@ -2127,7 +2147,10 @@ export function App() {
                   onChange={(e) => {
                     // le neutre aimante le curseur
                     const v = Number(e.target.value);
-                    setDoc((d) => ({ ...d, margin: Math.abs(v) < 0.015 ? 0 : v }));
+                    const m = Math.abs(v) < 0.015 ? 0 : v;
+                    // les objets tenus à la marge la suivent
+                    setAnchorMargin(m);
+                    setDoc((d) => holdPins({ ...d, margin: m }, f));
                   }}
                 />
                 <span>+</span>

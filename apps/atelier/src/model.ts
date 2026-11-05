@@ -63,6 +63,8 @@ export type GlowStyle = 'neon' | 'laser' | 'electric' | 'particles' | 'smoke' | 
 export type LayerKind = 'surface' | 'support' | 'photo' | 'shape' | 'text';
 export type ShapeKind = 'star' | 'circle' | 'arch' | 'blob' | 'rounded' | 'triangle' | import('./silhouettes').SilhouetteKind;
 
+export type Pin = boolean | 'margin';
+
 export interface Layer {
   id: string;
   name: string;
@@ -105,7 +107,8 @@ export interface Layer {
   /** Lueur autour de la découpe : style, guide, distance au bord et largeur (0..1). */
   glow?: { style: GlowStyle; guide: number; distance: number; width: number };
   /** Bords de la découpe aimantés sur les bords de la page : tenus au changement de format. */
-  pins?: { left?: boolean; right?: boolean; top?: boolean; bottom?: boolean };
+  /** Bords tenus : true = bord de la page, 'margin' = ligne de la marge des repères. */
+  pins?: { left?: Pin; right?: Pin; top?: Pin; bottom?: Pin };
   /** Style photographique (outil Transformer). */
   look?: LookSettings;
   /** Matière de la forme ou de l'image (outil Matière), une seule. */
@@ -178,6 +181,18 @@ export function marginOf(f: Format) {
   const m = Math.min(f.width, f.height) * margin;
   return { mx: m / f.width, my: m / f.height };
 }
+/** Lignes où un bord d'objet peut se tenir, en unités du format : la page, puis la marge si elle existe. */
+export function edgeLines(f: Format) {
+  const { mx, my } = marginOf(f);
+  const page = { left: 0, right: f.width, top: 0, bottom: f.height };
+  const marg = { left: mx * f.width, right: f.width - mx * f.width, top: my * f.height, bottom: f.height - my * f.height };
+  return { page, margin: margin ? marg : null };
+}
+/** Coordonnée de la ligne tenue par un bord. */
+export const pinLine = (f: Format, side: 'left' | 'right' | 'top' | 'bottom', p: Pin | undefined) => {
+  const e = edgeLines(f);
+  return p === 'margin' && e.margin ? e.margin[side] : e.page[side];
+};
 /** Point du référentiel (0..1) ramené dans la zone des repères. */
 function inset<T extends { x: number; y: number }>(a: T, f: Format): T {
   if (!margin) return a;

@@ -3,7 +3,7 @@ import { rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
-import { blendStops, guideColor, layerBox, shapePath, type Doc, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
+import { blendStops, edgeLines, guideColor, layerBox, pinLine, type Pin, shapePath, type Doc, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { applyLook, lookGuides, lookOf } from './looks';
 import { applyPixelFx, hasPixelFx, hexRGB, opacityOf, type Fx, type FxId } from './fx';
@@ -622,24 +622,31 @@ export function holdPins(doc: Doc, f: Format): Doc {
     layers: doc.layers.map((l) => {
       const p = l.pins;
       if (!p || l.kind === 'surface' || !(p.left || p.right || p.top || p.bottom)) return l;
+      // lignes tenues dans le nouveau format : bord de page ou ligne de marge
+      const L = pinLine(f, 'left', p.left);
+      const R = pinLine(f, 'right', p.right);
+      const T = pinLine(f, 'top', p.top);
+      const B = pinLine(f, 'bottom', p.bottom);
       let bb = pageBounds(l, f);
-      const kx = p.left && p.right ? f.width / (bb.x1 - bb.x0) : 0;
-      const ky = p.top && p.bottom ? f.height / (bb.y1 - bb.y0) : 0;
+      const kx = p.left && p.right ? (R - L) / (bb.x1 - bb.x0) : 0;
+      const ky = p.top && p.bottom ? (B - T) / (bb.y1 - bb.y0) : 0;
       const k = Math.max(kx, ky) || 1;
       let n: Layer = k !== 1 ? { ...l, w: l.w * k, h: l.h * k } : l;
       bb = pageBounds(n, f);
-      const sx = p.left && p.right ? (f.width - bb.x1 - bb.x0) / 2 : p.left ? -bb.x0 : p.right ? f.width - bb.x1 : 0;
-      const sy = p.top && p.bottom ? (f.height - bb.y1 - bb.y0) / 2 : p.top ? -bb.y0 : p.bottom ? f.height - bb.y1 : 0;
+      const sx = p.left && p.right ? (L + R - bb.x1 - bb.x0) / 2 : p.left ? L - bb.x0 : p.right ? R - bb.x1 : 0;
+      const sy = p.top && p.bottom ? (T + B - bb.y1 - bb.y0) / 2 : p.top ? T - bb.y0 : p.bottom ? B - bb.y1 : 0;
       n = { ...n, dx: n.dx + sx / f.width, dy: n.dy + sy / f.height };
       return n;
     }),
   };
 }
 
-/** Bords de la page touchés par la découpe (à `tol` près, unités du format). */
+/** Bords de la découpe posés sur un bord de page ou sur la marge (à `tol` près, unités du format). */
 export function pinsOf(l: Layer, f: Format, tol: number): Layer['pins'] {
   const bb = pageBounds(l, f);
-  const pins = { left: Math.abs(bb.x0) < tol, right: Math.abs(bb.x1 - f.width) < tol, top: Math.abs(bb.y0) < tol, bottom: Math.abs(bb.y1 - f.height) < tol };
+  const e = edgeLines(f);
+  const at = (side: 'left' | 'right' | 'top' | 'bottom', v: number): Pin | undefined => (Math.abs(v - e.page[side]) < tol ? true : e.margin && Math.abs(v - e.margin[side]) < tol ? 'margin' : undefined);
+  const pins = { left: at('left', bb.x0), right: at('right', bb.x1), top: at('top', bb.y0), bottom: at('bottom', bb.y1) };
   return pins.left || pins.right || pins.top || pins.bottom ? pins : undefined;
 }
 
