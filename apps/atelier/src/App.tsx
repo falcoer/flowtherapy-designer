@@ -2213,7 +2213,7 @@ export function App() {
               )}
             </div>
             <span className="side-sep" />
-            <div className="side-actions">
+            <div className={`side-actions ${sideTwo ? 'two' : ''}`}>
               <button className="btn small" onClick={undo} disabled={!past.current.length} title="Annuler (deux doigts)">
                 <Icon name="undo" />
               </button>
