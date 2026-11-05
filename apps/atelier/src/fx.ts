@@ -13,6 +13,7 @@ import { guideColor, type Guide } from './model';
 export type FxId =
   | 'halftone'
   | 'riso'
+  | 'aging'
   | 'posterize'
   | 'gradmap'
   | 'grain'
@@ -405,6 +406,80 @@ export const FX: FxDef[] = [
           d[i] = (paper[0] + (ink[0] - paper[0]) * cov) * 255;
           d[i + 1] = (paper[1] + (ink[1] - paper[1]) * cov) * 255;
           d[i + 2] = (paper[2] + (ink[2] - paper[2]) * cov) * 255;
+        }
+    },
+  },
+  {
+    id: 'aging',
+    name: 'Usure',
+    group: 'effet',
+    slots: [],
+    amount: 0.5,
+    amountLabel: 'Âge',
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      const P = k.pxPerMin;
+      // rayures : quelques traits fins, presque verticaux, placés au hasard mais toujours les mêmes
+      const scratches = Array.from({ length: Math.round(2 + a * 10) }, (_, i) => ({
+        x: hash(i, 1, 141) * w,
+        tilt: (hash(i, 2, 141) - 0.5) * 0.08,
+        y0: hash(i, 3, 141) * h * 0.6,
+        len: (0.3 + 0.7 * hash(i, 4, 141)) * h,
+        dark: hash(i, 5, 141) > 0.6,
+      }));
+      // plis : une ou deux lignes qui traversent l'image, à l'âge avancé
+      const folds = a > 0.45 ? [{ x0: hash(1, 1, 142) * w, y0: 0, x1: hash(1, 2, 142) * w, y1: h }, ...(a > 0.75 ? [{ x0: 0, y0: hash(2, 1, 142) * h, x1: w, y1: hash(2, 2, 142) * h }] : [])] : [];
+      const sw = Math.max(0.6, P * 0.0012);
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          let c: RGB = [d[i]! / 255, d[i + 1]! / 255, d[i + 2]! / 255];
+          // l'image pâlit et perd son contraste
+          const l = lum(...c);
+          c = mixRGB(c, [l, l, l], 0.35 * a);
+          c = mixRGB(c, [0.5 + (c[0] - 0.5) * 0.75, 0.5 + (c[1] - 0.5) * 0.75, 0.5 + (c[2] - 0.5) * 0.75], a * 0.6);
+          // jaunissement inégal, plus fort vers les bords
+          const ex = Math.min(x, w - 1 - x) / w;
+          const ey = Math.min(y, h - 1 - y) / h;
+          const edge = 1 - cl(Math.min(ex, ey) * 6);
+          const stain = fbm(x / (P * 0.18), y / (P * 0.18), 143, 4);
+          const yel = a * (0.25 + 0.35 * stain + 0.35 * edge);
+          c = mixRGB(c, [c[0] * 0.98 + 0.06, c[1] * 0.9 + 0.04, c[2] * 0.66], cl(yel));
+          // taches de rousseur du papier
+          const fox = fbm(x / (P * 0.012), y / (P * 0.012), 144, 2);
+          if (fox > 0.86 - a * 0.1) {
+            const t = cl((fox - (0.86 - a * 0.1)) * 9) * a;
+            c = mixRGB(c, [c[0] * 0.75, c[1] * 0.58, c[2] * 0.38], t * 0.7);
+          }
+          // poussières claires et sombres
+          const dust = hash(x >> 1, y >> 1, 145);
+          if (dust > 1 - 0.0025 * a) c = mixRGB(c, [1, 1, 0.96], 0.8);
+          else if (dust < 0.0015 * a) c = mixRGB(c, [0.1, 0.08, 0.06], 0.7);
+          // rayures
+          for (const s of scratches) {
+            if (y < s.y0 || y > s.y0 + s.len) continue;
+            const dx = Math.abs(x - (s.x + (y - s.y0) * s.tilt + Math.sin(y / (P * 0.05)) * P * 0.002));
+            if (dx < sw) c = mixRGB(c, s.dark ? [0.15, 0.12, 0.1] : [1, 0.98, 0.92], (1 - dx / sw) * 0.55 * a);
+          }
+          // plis : une arête claire et une ombre
+          for (const f of folds) {
+            const fx = f.x1 - f.x0;
+            const fy = f.y1 - f.y0;
+            const n = Math.hypot(fx, fy);
+            const dd = ((x - f.x0) * fy - (y - f.y0) * fx) / n;
+            const s = P * 0.004;
+            if (Math.abs(dd) < s * 3) {
+              const t = dd / s;
+              c = mixRGB(c, t > 0 ? [1, 0.97, 0.9] : [0.2, 0.16, 0.12], Math.exp(-t * t) * 0.35 * a);
+            }
+          }
+          d[i] = cl(c[0]) * 255;
+          d[i + 1] = cl(c[1]) * 255;
+          d[i + 2] = cl(c[2]) * 255;
+          // coins et bords usés : le papier s'effrite
+          const corner = Math.hypot(Math.min(x, w - 1 - x) / P, Math.min(y, h - 1 - y) / P);
+          const wear = a * 0.05 * (0.6 + 0.8 * vnoise(x / (P * 0.01), y / (P * 0.01), 146));
+          if (Math.min(x, w - 1 - x, y, h - 1 - y) / P < wear * 0.25 || corner < wear) d[i + 3] = 0;
         }
     },
   },

@@ -31,6 +31,8 @@ const HINTS: Record<string, [string, string]> = {
   duotone: ['Couleur', 'ombres et lumières en deux teintes'],
   tritone: ['Couleur', 'trois teintes, des ombres aux lumières'],
   vintage: ['Pellicule', 'tons jaunis, contraste doux'],
+  sepia: ['Pellicule', 'virage brun des tirages anciens'],
+  aging: ['Vieillissement', 'jauni, taches, rayures, coins usés'],
   polaroid: ['Pellicule', 'instantané délavé, blancs crème'],
   kodachrome: ['Pellicule', 'couleurs denses, rouges profonds'],
   chrome: ['Pellicule', 'couleurs retenues, ciels froids'],

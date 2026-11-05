@@ -12,6 +12,7 @@ export type LookId =
   | 'bw'
   | 'vintage'
   | 'polaroid'
+  | 'sepia'
   | 'kodachrome'
   | 'chrome'
   | 'cross'
@@ -118,6 +119,24 @@ export const LOOKS: LookDef[] = [
     },
     vignette: 0.35,
     grain: 0.06,
+  },
+  {
+    id: 'sepia',
+    name: 'Sépia',
+    slots: [],
+    px: (c) => {
+      // virage sépia des tirages anciens : brun chaud dans les ombres, crème dans les blancs, noirs levés
+      const l = scurve(lum(c), 1.1);
+      const o = ramp(l, [
+        [0.13, 0.08, 0.05],
+        [0.44, 0.3, 0.19],
+        [0.76, 0.62, 0.45],
+        [0.96, 0.91, 0.8],
+      ]);
+      return lift(o, 0.05, 0.97);
+    },
+    vignette: 0.3,
+    grain: 0.05,
   },
   {
     id: 'polaroid',
@@ -356,7 +375,7 @@ export function applyLook(im: CanvasImageSource & { width: number; height: numbe
   const cols = guides.map((g) => hex(guideColor(g, 0.5)));
   const kx: Ctx = { cols, guides };
   let seed = 12345;
-  const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);
+  const rnd = () => (seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296;
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4;
