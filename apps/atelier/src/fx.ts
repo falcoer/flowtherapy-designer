@@ -419,17 +419,23 @@ export const FX: FxDef[] = [
     pixel: (d, k, a) => {
       const { w, h } = k;
       const P = k.pxPerMin;
-      // rayures : quelques traits fins, presque verticaux, placés au hasard mais toujours les mêmes
-      const scratches = Array.from({ length: Math.round(2 + a * 10) }, (_, i) => ({
+      // rayures : quelques traits fins et discrets, presque verticaux, toujours les mêmes
+      const scratches = Array.from({ length: Math.round(1 + a * 5) }, (_, i) => ({
         x: hash(i, 1, 141) * w,
         tilt: (hash(i, 2, 141) - 0.5) * 0.08,
         y0: hash(i, 3, 141) * h * 0.6,
         len: (0.3 + 0.7 * hash(i, 4, 141)) * h,
-        dark: hash(i, 5, 141) > 0.6,
+        dark: hash(i, 5, 141) > 0.5,
+      }));
+      // taches de café : auréoles larges, plus foncées sur leur bord
+      const stains = Array.from({ length: a < 0.2 ? 0 : Math.round(1 + a * 2.5) }, (_, i) => ({
+        x: (0.1 + 0.8 * hash(i, 1, 147)) * w,
+        y: (0.1 + 0.8 * hash(i, 2, 147)) * h,
+        r: P * (0.06 + 0.12 * hash(i, 3, 147)),
       }));
       // plis : une ou deux lignes qui traversent l'image, à l'âge avancé
       const folds = a > 0.45 ? [{ x0: hash(1, 1, 142) * w, y0: 0, x1: hash(1, 2, 142) * w, y1: h }, ...(a > 0.75 ? [{ x0: 0, y0: hash(2, 1, 142) * h, x1: w, y1: hash(2, 2, 142) * h }] : [])] : [];
-      const sw = Math.max(0.6, P * 0.0012);
+      const sw = Math.max(0.6, P * 0.001);
       for (let y = 0; y < h; y++)
         for (let x = 0; x < w; x++) {
           const i = (y * w + x) * 4;
@@ -443,34 +449,32 @@ export const FX: FxDef[] = [
           const ey = Math.min(y, h - 1 - y) / h;
           const edge = 1 - cl(Math.min(ex, ey) * 6);
           const stain = fbm(x / (P * 0.18), y / (P * 0.18), 143, 4);
-          const yel = a * (0.25 + 0.35 * stain + 0.35 * edge);
-          c = mixRGB(c, [c[0] * 0.98 + 0.06, c[1] * 0.9 + 0.04, c[2] * 0.66], cl(yel));
-          // taches de rousseur du papier
-          const fox = fbm(x / (P * 0.012), y / (P * 0.012), 144, 2);
-          if (fox > 0.86 - a * 0.1) {
-            const t = cl((fox - (0.86 - a * 0.1)) * 9) * a;
-            c = mixRGB(c, [c[0] * 0.75, c[1] * 0.58, c[2] * 0.38], t * 0.7);
+          c = mixRGB(c, [c[0] * 0.98 + 0.06, c[1] * 0.9 + 0.04, c[2] * 0.66], cl(a * (0.25 + 0.35 * stain + 0.35 * edge)));
+          // zones larges un peu plus claires ou plus sombres, sans piqué
+          const m = (fbm(x / (P * 0.3), y / (P * 0.3), 148, 3) - 0.5) * 0.3 * a;
+          c = [c[0] * (1 + m), c[1] * (1 + m), c[2] * (1 + m * 1.2)];
+          for (const t of stains) {
+            const q = Math.hypot(x - t.x, y - t.y) / t.r + (vnoise(x / (P * 0.025), y / (P * 0.025), 149) - 0.5) * 0.25;
+            if (q > 1.25) continue;
+            const inside = q < 1 ? 0.14 * a : 0;
+            const ring = Math.exp(-(((q - 1) / 0.06) ** 2)) * 0.4 * a;
+            c = mixRGB(c, [c[0] * 0.78, c[1] * 0.6, c[2] * 0.4], inside + ring);
           }
-          // poussières claires et sombres
-          const dust = hash(x >> 1, y >> 1, 145);
-          if (dust > 1 - 0.0025 * a) c = mixRGB(c, [1, 1, 0.96], 0.8);
-          else if (dust < 0.0015 * a) c = mixRGB(c, [0.1, 0.08, 0.06], 0.7);
-          // rayures
+          // rayures discrètes
           for (const s of scratches) {
             if (y < s.y0 || y > s.y0 + s.len) continue;
             const dx = Math.abs(x - (s.x + (y - s.y0) * s.tilt + Math.sin(y / (P * 0.05)) * P * 0.002));
-            if (dx < sw) c = mixRGB(c, s.dark ? [0.15, 0.12, 0.1] : [1, 0.98, 0.92], (1 - dx / sw) * 0.55 * a);
+            if (dx < sw) c = mixRGB(c, s.dark ? [c[0] * 0.6, c[1] * 0.55, c[2] * 0.5] : [c[0] * 0.7 + 0.25, c[1] * 0.7 + 0.24, c[2] * 0.7 + 0.2], (1 - dx / sw) * 0.3 * a);
           }
           // plis : une arête claire et une ombre
           for (const f of folds) {
             const fx = f.x1 - f.x0;
             const fy = f.y1 - f.y0;
-            const n = Math.hypot(fx, fy);
-            const dd = ((x - f.x0) * fy - (y - f.y0) * fx) / n;
+            const dd = ((x - f.x0) * fy - (y - f.y0) * fx) / Math.hypot(fx, fy);
             const s = P * 0.004;
             if (Math.abs(dd) < s * 3) {
               const t = dd / s;
-              c = mixRGB(c, t > 0 ? [1, 0.97, 0.9] : [0.2, 0.16, 0.12], Math.exp(-t * t) * 0.35 * a);
+              c = mixRGB(c, t > 0 ? [1, 0.97, 0.9] : [0.2, 0.16, 0.12], Math.exp(-t * t) * 0.3 * a);
             }
           }
           d[i] = cl(c[0]) * 255;
@@ -481,6 +485,34 @@ export const FX: FxDef[] = [
           const wear = a * 0.05 * (0.6 + 0.8 * vnoise(x / (P * 0.01), y / (P * 0.01), 146));
           if (Math.min(x, w - 1 - x, y, h - 1 - y) / P < wear * 0.25 || corner < wear) d[i + 3] = 0;
         }
+      // froissé : des plis droits et courts dans tous les sens ; chacun casse le papier en deux facettes
+      const nf = Math.round(6 + 18 * a);
+      const creases = Array.from({ length: nf }, (_, i) => {
+        const ang = hash(i, 1, 151) * Math.PI;
+        return {
+          x: hash(i, 2, 151) * w,
+          y: hash(i, 3, 151) * h,
+          ux: Math.cos(ang),
+          uy: Math.sin(ang),
+          half: P * (0.08 + 0.25 * hash(i, 4, 151)),
+          s: hash(i, 5, 151) > 0.5 ? 1 : -1,
+        };
+      });
+      const D = P * 0.04;
+      const crease = (x: number, y: number) => {
+        let v = 0;
+        for (const c of creases) {
+          const rx = x - c.x;
+          const ry = y - c.y;
+          const t = Math.abs(rx * c.ux + ry * c.uy) / c.half;
+          if (t > 1) continue;
+          const dn = Math.abs(rx * c.uy - ry * c.ux);
+          const fade = 1 - t * t;
+          v += c.s * Math.min(dn, D) * fade;
+        }
+        return v / D;
+      };
+      if (a > 0.15) relief(d, k, crease, a * 0.35);
     },
   },
   {
