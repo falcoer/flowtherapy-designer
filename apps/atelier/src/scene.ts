@@ -405,7 +405,7 @@ function castShadow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format
   ctx.fillStyle = '#000';
   ctx.fill(path, 'evenodd');
   // le bord déborde de l'objet : il porte ombre lui aussi
-  if (l.border && l.border.width > 0) drawBorder(ctx, l, doc, f, path);
+  if (l.border && l.border.width > 0) borderSprite(ctx, l, doc, f, o, path);
   ctx.restore();
 }
 
@@ -535,15 +535,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
 
     drawGlow(ctx, l, doc, f, o, true);
     // bord : à l'extérieur de la découpe, en débordement de l'objet
-    if (l.border && l.border.width > 0) {
-      ctx.save();
-      const outside = new Path2D();
-      outside.rect(-f.width, -f.height, 3 * f.width, 3 * f.height);
-      outside.addPath(path);
-      ctx.clip(outside, 'evenodd');
-      drawBorder(ctx, l, doc, f, path);
-      ctx.restore();
-    }
+    if (l.border && l.border.width > 0) borderSprite(ctx, l, doc, f, o, path);
 
     ctx.save();
     ctx.clip(path, 'evenodd');
@@ -584,6 +576,72 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     ctx.restore();
   }
   ctx.restore();
+}
+
+/** Numéro court d'une découpe : les clés de cache restent petites même pour un texte modelé. */
+const cutIds = new Map<string, number>();
+export function cutId(l: Layer): number {
+  const d = cutOf(l);
+  let n = cutIds.get(d);
+  if (n === undefined) {
+    if (cutIds.size > 2000) cutIds.clear();
+    cutIds.set(d, (n = cutIds.size + 1));
+  }
+  return n;
+}
+
+/**
+ * Bord mis en image : calculé une fois (contour épais, timbre, explosion…) puis recollé.
+ * Déplacer l'objet ne le recalcule pas ; l'ombre portée reprend la même image.
+ */
+const borderCache = new Map<string, { key: string; c: HTMLCanvasElement; dx: number; dy: number; w: number; h: number }>();
+const borderSeen = new Map<string, { key: string; t: number }>();
+function borderSprite(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, path: Path2D) {
+  const bd = l.border!;
+  const minSide = Math.min(f.width, f.height);
+  const bb = pageBounds(l, f);
+  if (!isFinite(bb.x0)) return;
+  const pad = bd.width * minSide * 7 + minSide * 0.01;
+  const bw = bb.x1 - bb.x0 + 2 * pad;
+  const bh = bb.y1 - bb.y0 + 2 * pad;
+  const S = Math.min(o.scale, 4096 / bw, 4096 / bh);
+  const g = (i?: number) => (i === undefined ? '' : JSON.stringify(doc.guides[i] ?? null));
+  const key = [f.id, Math.round(S * 100), l.w, l.h, l.rot ?? 0, cutId(l), JSON.stringify(l.trim ?? 0), JSON.stringify(bd), g(bd.guide), g(bd.guide2 ?? 1)].join('|');
+  let hit = borderCache.get(l.id);
+  // la découpe change à chaque image (texte modelé, tapé) : on dessine directement, sans mettre en image
+  const seen = borderSeen.get(l.id);
+  const now = performance.now();
+  if (seen?.key !== key) borderSeen.set(l.id, { key, t: now });
+  // image faite seulement quand la découpe n'a pas bougé depuis un instant
+  if (hit?.key !== key && (seen?.key !== key || now - seen.t < 200)) {
+    ctx.save();
+    const outside = new Path2D();
+    outside.rect(bb.x0 - pad, bb.y0 - pad, bw, bh);
+    outside.addPath(path);
+    ctx.clip(outside, 'evenodd');
+    drawBorder(ctx, l, doc, f, path);
+    ctx.restore();
+    return;
+  }
+  if (!hit || hit.key !== key) {
+    const c = hit?.c ?? document.createElement('canvas');
+    c.width = Math.max(1, Math.ceil(bw * S));
+    c.height = Math.max(1, Math.ceil(bh * S));
+    const gx = c.getContext('2d')!;
+    gx.setTransform(S, 0, 0, S, -(bb.x0 - pad) * S, -(bb.y0 - pad) * S);
+    const outside = new Path2D();
+    outside.rect(bb.x0 - pad, bb.y0 - pad, bw, bh);
+    outside.addPath(path);
+    gx.clip(outside, 'evenodd');
+    drawBorder(gx, l, doc, f, path);
+    hit = { key, c, dx: bb.x0 - pad, dy: bb.y0 - pad, w: c.width / S, h: c.height / S };
+    if (borderCache.size > 64) borderCache.clear();
+    borderCache.set(l.id, hit);
+  }
+  // l'image a été faite ailleurs sur la page : elle suit l'objet
+  const ox = bb.x0 - pad;
+  const oy = bb.y0 - pad;
+  ctx.drawImage(hit.c, ox, oy, hit.w, hit.h);
 }
 
 /** Bord extérieur de la découpe (débordement) : arrondi, droit (facettes) ou déchiré. */
@@ -1050,25 +1108,7 @@ function drawGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, 
   const bw = bb.x1 - bb.x0 + 2 * pad;
   const bh = bb.y1 - bb.y0 + 2 * pad;
   const S = Math.min(o.scale, 4096 / bw, 4096 / bh);
-  const key = JSON.stringify([
-    l.id,
-    behind,
-    f.id,
-    Math.round(S * 100),
-    l.w,
-    l.h,
-    l.rot,
-    l.cut,
-    l.shape,
-    l.gen,
-    l.trim,
-    l.text,
-    l.free,
-    l.border?.width,
-    l.border?.style,
-    gl,
-    guideColor(doc.guides[gl.guide], 0.5),
-  ]);
+  const key = JSON.stringify([l.id, behind, f.id, Math.round(S * 100), l.w, l.h, l.rot, cutId(l), l.trim, l.border?.width, l.border?.style, gl, guideColor(doc.guides[gl.guide], 0.5)]);
   let hit = glowCache.get(key);
   if (!hit) {
     const c = document.createElement('canvas');

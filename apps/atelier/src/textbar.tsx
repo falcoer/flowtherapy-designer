@@ -1,6 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Layer } from './model';
-import { ensureFont, fontFamily, fontList, fontOf, loadFonts, type TextStyle } from './text';
+import { ensureFont, fontFamily, fontList, fontOf, loadFonts, swashWidth, WARPS, type SwashEnd, type TextStyle, type WarpKind } from './text';
+
+/** Outil Prolonger : on dessine depuis une lettre, le trait devient une partie des lettres. */
+export interface SwashTool {
+  on: boolean;
+  /** Tracer un prolongement, ou modeler le contour (tirer de l'intérieur, repousser de l'extérieur). */
+  mode: 'draw' | 'mold';
+  /** Rayon du modelage, en corps. */
+  r: number;
+  end: SwashEnd;
+  /** Épaisseur choisie, en corps (null : celle d'un fût à la graisse du texte). */
+  w: number | null;
+}
 
 const WEIGHTS = ['Extra-fin', 'Très fin', 'Fin', 'Normal', 'Medium', 'Demi-gras', 'Gras', 'Extra-gras', 'Noir'];
 export const weightName = (w: number) => WEIGHTS[Math.max(0, Math.min(8, Math.round(w / 100) - 1))]!;
@@ -10,7 +22,21 @@ export const weightName = (w: number) => WEIGHTS[Math.max(0, Math.min(8, Math.ro
  * l'écriture manuscrite de l'iPad est convertie en texte), on choisit la police dans
  * un ruban d'aperçus, l'italique, l'alignement, et la graisse au curseur.
  */
-export function TextBar({ layer, editing, setEditing, onChange }: { layer: Layer; editing: boolean; setEditing: (v: boolean) => void; onChange: (next: Partial<TextStyle>, history: boolean) => void }) {
+export function TextBar({
+  layer,
+  editing,
+  setEditing,
+  onChange,
+  swash,
+  setSwash,
+}: {
+  layer: Layer;
+  editing: boolean;
+  setEditing: (v: boolean) => void;
+  onChange: (next: Partial<TextStyle>, history: boolean) => void;
+  swash: SwashTool;
+  setSwash: (s: SwashTool) => void;
+}) {
   const t = layer.text!;
   const area = useRef<HTMLTextAreaElement>(null);
   const [, setReady] = useState(0);
@@ -90,7 +116,85 @@ export function TextBar({ layer, editing, setEditing, onChange }: { layer: Layer
           <input type="range" min={-0.1} max={0.5} step={0.01} value={t.tracking ?? 0} onChange={(e) => change({ tracking: Number(e.target.value) }, 'tracking')} />
         </label>
       </div>
+      <div className="tb-row">
+        <button
+          className={`tb-btn tb-swash ${swash.on ? 'on' : ''}`}
+          onClick={() => {
+            setSwash({ ...swash, on: !swash.on });
+            if (!swash.on) area.current?.blur();
+          }}
+          title="Modeler : de l'intérieur on tire le trait, de l'extérieur on le repousse"
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M5 19V6h6M5 12h4" />
+            <path d="M11 6c4 0 8 1 9 4s-3 7-8 9" strokeWidth="1.4" />
+          </svg>
+        </button>
+        {swash.on ? (
+          <>
+            <label className="tb-slider">
+              <span className="tb-label">Taille</span>
+              <input type="range" min={0.06} max={1} step={0.01} value={swash.r} onChange={(e) => setSwash({ ...swash, r: Number(e.target.value) })} />
+            </label>
+            {!!(t.swashes?.length || t.molds?.length) && (
+              <button className="tb-btn tb-clear" onClick={() => onChange({ swashes: [], molds: [] }, true)} title="Retirer tous les prolongements et modelages">
+                <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="seg tb-warps">
+              {WARPS.map((w) => (
+                <button
+                  key={w.id}
+                  className={(t.warp?.kind ?? 'none') === w.id ? 'on' : ''}
+                  onClick={() => onChange({ warp: w.id === 'none' ? undefined : { kind: w.id, amount: t.warp?.amount || 0.5 } }, true)}
+                  title={w.name}
+                >
+                  <WarpGlyph k={w.id} />
+                </button>
+              ))}
+            </div>
+            {t.warp && (
+              <label className="tb-slider narrow">
+                <span className="tb-label">Courbure</span>
+                <input type="range" min={-1} max={1} step={0.02} value={t.warp.amount} onChange={(e) => change({ warp: { ...t.warp!, amount: Number(e.target.value) } }, 'warp')} />
+              </label>
+            )}
+          </>
+        )}
+      </div>
     </div>
+  );
+}
+
+/** L'enveloppe dessinée : le haut et le bas du bloc de lettres. */
+function WarpGlyph({ k }: { k: WarpKind | 'none' }) {
+  const top = { none: 'M2 4H20', arc: 'M2 7Q11 -1 20 7', wave: 'M2 6C6 0 9 0 11 5S16 10 20 4', bulge: 'M2 6Q11 -2 20 6', persp: 'M2 6L20 1' }[k];
+  const bot = { none: 'M2 14H20', arc: 'M2 16Q11 8 20 16', wave: 'M2 15C6 9 9 9 11 14S16 19 20 13', bulge: 'M2 13Q11 21 20 13', persp: 'M2 12L20 17' }[k];
+  return (
+    <svg width="22" height="18" viewBox="0 0 22 18" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+      <path d={top} />
+      <path d={bot} />
+    </svg>
+  );
+}
+
+function EndGlyph({ e }: { e: SwashEnd }) {
+  return (
+    <svg width="26" height="14" viewBox="0 0 26 14" aria-hidden fill="currentColor">
+      {e === 'point' && <path d="M2 4.5Q14 4 24 7Q14 10 2 9.5Z" />}
+      {e === 'ball' && (
+        <>
+          <path d="M2 4.5Q12 5 18 6V8Q12 9 2 9.5Z" />
+          <circle cx="20" cy="7" r="4" />
+        </>
+      )}
+      {e === 'flat' && <rect x="2" y="4.5" width="22" height="5" />}
+    </svg>
   );
 }
 

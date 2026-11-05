@@ -4,14 +4,14 @@ import { paintStroke, previewStamps } from './brush';
 import { STAMPS, stampOf, stampSvg } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
-import { ensureFont, fontFamily, loadFonts, onFontReady, TEXT_PRESETS, textCut, textEpoch, type TextPreset, type TextStyle } from './text';
-import { TextBar } from './textbar';
+import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
+import { TextBar, type SwashTool } from './textbar';
 import { PaletteEditor } from './colorpicker';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc } from './export';
 import { listAteliers, newAtelierId, readAtelier, removeAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta } from './server';
-import { anchorsOf, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
+import { anchorsOf, compact, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
@@ -196,7 +196,7 @@ export function App() {
 
   /** Modifie le document en gardant l'historique (annuler / rétablir). */
   const update = useCallback((fn: (d: Doc) => Doc) => {
-    past.current.push(JSON.stringify(docRef.current));
+    past.current.push(JSON.stringify(docRef.current, compact));
     if (past.current.length > 60) past.current.shift();
     future.current = [];
     setDoc((d) => fn(structuredClone(d)));
@@ -204,7 +204,7 @@ export function App() {
   const undo = useCallback(() => {
     const s = past.current.pop();
     if (!s) return;
-    future.current.push(JSON.stringify(docRef.current));
+    future.current.push(JSON.stringify(docRef.current, compact));
     forgetPaint();
     setDoc(JSON.parse(s));
     setToast('Annulé');
@@ -212,7 +212,7 @@ export function App() {
   const redo = useCallback(() => {
     const s = future.current.pop();
     if (!s) return;
-    past.current.push(JSON.stringify(docRef.current));
+    past.current.push(JSON.stringify(docRef.current, compact));
     forgetPaint();
     setDoc(JSON.parse(s));
     setToast('Rétabli');
@@ -220,7 +220,7 @@ export function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORE, JSON.stringify(doc));
+      localStorage.setItem(STORE, JSON.stringify(doc, compact));
     } catch {
       /* photo trop lourde pour le stockage local : on garde en mémoire */
     }
@@ -372,6 +372,8 @@ export function App() {
   const [guide, setGuide] = useState(2);
   /** Barre de texte ouverte sur le clavier (ou l'écriture au stylet). */
   const [textEditing, setTextEditing] = useState(false);
+  /** Outil Prolonger de la barre de texte. */
+  const [swash, setSwash] = useState<SwashTool>({ on: false, mode: 'mold', r: 0.3, end: 'point', w: null });
   const [size, setSize] = useState(0.05);
   const [opacity, setOpacity] = useState(0.85);
   /** Outil Tampons : motif, taille, opacité et dilution de l'encre. */
@@ -590,7 +592,11 @@ export function App() {
   const dotAt = useRef(0);
   // --- état des gestes en cours ---
   const live = useRef<{
-    kind: 'paint' | 'cut' | 'move' | 'resize' | 'rotate' | 'pivot' | 'view' | null;
+    kind: 'paint' | 'cut' | 'move' | 'resize' | 'rotate' | 'pivot' | 'view' | 'swash' | null;
+    /** Prolongement de lettre en cours de tracé. */
+    sw?: Swash;
+    /** Modelage du contour en cours. */
+    mold?: Mold;
     /** Coin opposé (coordonnées de la couche) tenu fixe pendant un agrandissement. */
     opp?: { u: number; v: number };
     /** Rotation en cours : dernier point du doigt (lignes de repère). */
@@ -1204,6 +1210,24 @@ export function App() {
     const t: Tool = e.pointerType === 'touch' ? 'move' : tool;
     const sel = doc.layers.find((l) => l.id === selected);
 
+    // Prolonger : le trait part d'une lettre et devient une partie du texte
+    if (swash.on && tool === 'move' && sel?.kind === 'text' && sel.text) {
+      const loc = toLocal(sel, p.x, p.y);
+      const pr = pressure(e, null);
+      update((d) => d);
+      live.current = {
+        kind: 'swash',
+        layer: sel.id,
+        // copie légère : le texte garde ses modelages tels quels, déjà calculés
+        orig: { ...sel },
+        ...(swash.mode === 'mold'
+          ? { mold: { pts: [swashPoint(sel.text, loc.x, loc.y)], r: swash.r } }
+          : { sw: { pts: [[...swashPoint(sel.text, loc.x, loc.y), pr] as [number, number, number]], w: swash.w ?? swashWidth(sel.text.weight), end: swash.end } }),
+        last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
+      };
+      return;
+    }
+
     // double toucher (ou double clic) sur une forme ou une image : on passe en Disposer
     {
       const now = performance.now();
@@ -1449,6 +1473,24 @@ export function App() {
     if (tap.current && moved > 6) tap.current.moved = true;
     if (hold.current && Math.hypot(e.clientX - hold.current.x, e.clientY - hold.current.y) > 8) stopHold();
     const p = toPage(e.clientX, e.clientY);
+    if (L.kind === 'swash' && (L.sw || L.mold) && L.orig?.text) {
+      const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
+      for (const ev of events) {
+        if (ev.pointerType === 'pen' && ev.buttons === 0) continue;
+        const q = toPage(ev.clientX, ev.clientY);
+        const pr = pressure(ev as unknown as React.PointerEvent, L.last!);
+        L.last = { x: ev.clientX, y: ev.clientY, t: performance.now(), p: pr };
+        const loc = toLocal(L.orig, q.x, q.y);
+        const [x, y] = swashPoint(L.orig.text, loc.x, loc.y);
+        const line = L.sw?.pts ?? L.mold!.pts;
+        const prev = line[line.length - 1]!;
+        if (Math.hypot(x - prev[0], y - prev[1]) < (L.mold ? 0.012 : 0.025)) continue;
+        if (L.sw) L.sw.pts.push([x, y, pr]);
+        else L.mold!.pts.push([x, y]);
+      }
+      if (!swashFrame.current) swashFrame.current = requestAnimationFrame(() => ((swashFrame.current = 0), applySwash(false)));
+      return;
+    }
     if (L.kind === 'paint' && L.stroke && L.layer) {
       const l = doc.layers.find((x) => x.id === L.layer)!;
       const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
@@ -1656,6 +1698,13 @@ export function App() {
     }
     if (remaining > 0) return;
     tap.current = null;
+    if (L.kind === 'swash') {
+      if (swashFrame.current) cancelAnimationFrame(swashFrame.current);
+      swashFrame.current = 0;
+      applySwash(true);
+      live.current = { kind: null };
+      return;
+    }
     if (L.kind === 'paint' && L.stroke && L.layer) {
       const s = L.stroke;
       const id = L.layer;
@@ -1984,9 +2033,50 @@ export function App() {
   const patchText = (l: Layer, next: Partial<TextStyle>, history: boolean) => {
     if (!l.text) return;
     const t = { ...l.text, ...next };
+    // enveloppe et prolongements : les lettres restent où elles sont, la boîte s'adapte autour
+    if ('warp' in next || 'swashes' in next || 'molds' in next) return patchLayer(l.id, placeText(l, t), history);
     const [a, b] = [textCut(l.text), textCut(t)];
     const k = l.h / (a.bh || 1);
     patchLayer(l.id, resizeHeld(l, Math.max(0.01, b.bw * k), Math.max(0.01, b.bh * k), { text: t, cut: undefined }), history);
+  };
+  /** Nouvelle boîte d'un texte dont les lettres ne bougent pas sur la page (seule l'encre autour change). */
+  const placeText = (l: Layer, t: TextStyle): Partial<Layer> => {
+    const [a, b] = [textCut(l.text!), textCut(t)];
+    const m = Math.min(f.width, f.height);
+    const k = l.h / (a.bh || 1);
+    const ux = (b.ox + b.bw / 2 - (a.ox + a.bw / 2)) * k * m;
+    const uy = (b.oy + b.bh / 2 - (a.oy + a.bh / 2)) * k * m;
+    const r = l.rot ?? 0;
+    const [c, sn] = [Math.cos(r), Math.sin(r)];
+    return { text: t, cut: undefined, w: Math.max(0.01, b.bw * k), h: Math.max(0.01, b.bh * k), dx: l.dx + (ux * c - uy * sn) / f.width, dy: l.dy + (ux * sn + uy * c) / f.height };
+  };
+  const swashFrame = useRef(0);
+  // Prolonger se range quand on change de texte ou d'outil
+  useEffect(() => setSwash((s) => (s.on ? { ...s, on: false } : s)), [selected, tool]);
+  useEffect(() => {
+    if (swash.on) {
+      setToast(swash.mode === 'mold' ? 'De l’intérieur, tire le trait ; de l’extérieur, repousse-le' : 'Dessine depuis une lettre pour la prolonger');
+      setToastUndo(false);
+    }
+  }, [swash.on, swash.mode]);
+  /** Pose le prolongement en cours sur le texte (en direct pendant le tracé). */
+  const applySwash = (final: boolean) => {
+    const L = live.current;
+    if (L.kind !== 'swash' || !L.orig?.text) return;
+    const o = L.orig;
+    const n = (L.sw ?? L.mold)?.pts.length ?? 0;
+    if (final && n < 2) {
+      // simple toucher : rien n'est tracé
+      past.current.pop();
+      return void setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? o : x)) }));
+    }
+    const patch = placeText(
+      o,
+      L.sw
+        ? { ...o.text!, swashes: [...(o.text!.swashes ?? []), { ...L.sw, pts: [...L.sw.pts] }] }
+        : { ...o.text!, molds: [...(o.text!.molds ?? []), { pts: [...L.mold!.pts], r: L.mold!.r, ...(final ? {} : { live: true }) }] },
+    );
+    setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, ...patch } : x)) }));
   };
   /**
    * Nouvelle taille d'une couche qui respecte son ancrage et ses marges : le point d'ancrage garde
@@ -2262,7 +2352,9 @@ export function App() {
             </button>
           </aside>
 
-          {tool === 'move' && sel?.kind === 'text' && sel.text && !bubble && <TextBar layer={sel} editing={textEditing} setEditing={setTextEditing} onChange={(next, h) => patchText(sel, next, h)} />}
+          {tool === 'move' && sel?.kind === 'text' && sel.text && !bubble && (
+            <TextBar layer={sel} editing={textEditing} setEditing={setTextEditing} onChange={(next, h) => patchText(sel, next, h)} swash={swash} setSwash={setSwash} />
+          )}
 
           {isEdit(tool) && sel && (
             <CoupePanel

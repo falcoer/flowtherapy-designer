@@ -1,4 +1,4 @@
-import type { Doc } from './model';
+import { compact, type Doc } from './model';
 
 /** Compositions enregistrées sur le serveur du groupe (designer.flowtherapymusic.com). */
 export interface AtelierMeta {
@@ -39,7 +39,7 @@ export async function serverOnline(): Promise<boolean> {
 export const listAteliers = () => call<AtelierMeta[]>('/api/ateliers');
 export const readAtelier = (id: string) => call<AtelierMeta & { doc: Doc }>(`/api/ateliers/${id}`);
 export const saveAtelier = (id: string, title: string, doc: Doc, thumb?: string) =>
-  call<{ meta: AtelierMeta }>(`/api/ateliers/${id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, doc, thumb }) }).then((r) => r.meta);
+  call<{ meta: AtelierMeta }>(`/api/ateliers/${id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, doc, thumb }, compact) }).then((r) => r.meta);
 export const removeAtelier = (id: string) => call<{ ok: boolean }>(`/api/ateliers/${id}`, { method: 'DELETE' });
 export const thumbUrl = (m: AtelierMeta) => `/api/ateliers/${m.id}/thumb.png?v=${encodeURIComponent(m.updated)}`;
 
