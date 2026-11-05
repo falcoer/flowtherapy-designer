@@ -49,10 +49,12 @@ const r4 = (v: number) => Math.round(v * 1e4) / 1e4;
  * Contours → tracé SVG lissé. Un point est un angle vif quand le tracé y
  * tourne de plus de `corner` degrés : il reste pointu, le reste devient courbe.
  */
-export function ringsToPath(rings: Ring[], eps = 0.002, corner = 48): string {
+/** `despikes` retire les aiguilles d'un tracé à main levée ; les lettres gardent leurs angles aigus (creux du N, du M, du V). */
+export function ringsToPath(rings: Ring[], eps = 0.002, corner = 48, despikes = true): string {
   const out: string[] = [];
   for (const raw of rings) {
-    const pts = despike(simplifyRing(dedupe(raw), eps));
+    const simple = simplifyRing(dedupe(raw), eps);
+    const pts = despikes ? despike(simple) : simple;
     const n = pts.length;
     if (n < 3 || polyArea(pts) < eps * eps * 4) continue;
     const P = (i: number) => pts[((i % n) + n) % n]!;
