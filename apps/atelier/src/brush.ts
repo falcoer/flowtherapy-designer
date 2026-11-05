@@ -327,15 +327,17 @@ function branchInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
   const queue: Br[] = [];
   for (const sd of seeds) {
     // cœur : couleur très concentrée
-    const core = R * (0.12 + 0.08 * sd.p);
-    const rg = bx.createRadialGradient(sd.x, sd.y, 0, sd.x, sd.y, core);
-    rg.addColorStop(0, guideColor(g, 0));
-    rg.addColorStop(0.55, guideColor(g, 0.05));
-    rg.addColorStop(1, guideColor(g, 0.1).slice(0, 7) + '00');
-    bx.fillStyle = rg;
-    bx.beginPath();
-    bx.arc(sd.x, sd.y, core, 0, Math.PI * 2);
-    bx.fill();
+    const core = R * (0.12 + 0.08 * sd.p) * Math.max(0, Math.min(1, s.core ?? 1));
+    if (core > 0.5) {
+      const rg = bx.createRadialGradient(sd.x, sd.y, 0, sd.x, sd.y, core);
+      rg.addColorStop(0, guideColor(g, 0));
+      rg.addColorStop(0.55, guideColor(g, 0.05));
+      rg.addColorStop(1, guideColor(g, 0.1).slice(0, 7) + '00');
+      bx.fillStyle = rg;
+      bx.beginPath();
+      bx.arc(sd.x, sd.y, core, 0, Math.PI * 2);
+      bx.fill();
+    }
     const a0 = r() * Math.PI * 2;
     for (let k = 0; k < nb; k++)
       queue.push({
@@ -417,7 +419,7 @@ function branchInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
  * repère de la peinture : le trou, la zone roussie et carbonisée autour, et la lisière
  * de braise (couleur du guide). Le bord est irrégulier et le feu avance avec `grow`.
  */
-export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target) {
+function burnGroup(strokes: Stroke[], guides: Guide[], t: Target) {
   const hole = document.createElement('canvas');
   hole.width = t.pw;
   hole.height = t.ph;
@@ -461,8 +463,9 @@ export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target) {
     return c;
   };
   // roussi : large, brun clair ; carbonisé : plus serré, presque noir
-  const scorch = halo(big * 0.35);
-  const char = halo(big * 0.14);
+  const c = Math.max(0.02, Math.min(1, strokes[strokes.length - 1]?.char ?? 0.3));
+  const scorch = halo(big * (0.15 + 0.7 * c));
+  const char = halo(big * (0.06 + 0.27 * c));
   const ember = halo(big * 0.025);
   const g = guides[strokes[strokes.length - 1]?.guide ?? 0];
   const op = strokes[strokes.length - 1]?.opacity ?? 0.85;
@@ -484,10 +487,35 @@ export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target) {
     ox.globalAlpha = 1;
   };
   tint(scorch, '#8a5a2b', 0.6);
+  // marge large : un second passage garde le roussi dense loin du trou
+  if (c > 0.5) tint(scorch, '#5a3a1c', (c - 0.5) * 0.9);
   tint(char, '#1e130b', 1);
   tint(char, '#1e130b', 0.6);
   tint(ember, guideColor(g, 0.5), Math.min(1, op * 1.2));
   return { hole, edge: out };
+}
+/** Les brûlures d'une couche : chaque réglage de roussi garde sa propre marge. */
+export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target) {
+  const groups = new Map<number, Stroke[]>();
+  for (const s of strokes) {
+    const c = s.char ?? 0.3;
+    groups.set(c, [...(groups.get(c) ?? []), s]);
+  }
+  if (groups.size === 1) return burnGroup(strokes, guides, t);
+  const hole = document.createElement('canvas');
+  hole.width = t.pw;
+  hole.height = t.ph;
+  const edge = document.createElement('canvas');
+  edge.width = t.pw;
+  edge.height = t.ph;
+  const ex = edge.getContext('2d')!;
+  const hx = hole.getContext('2d')!;
+  for (const list of groups.values()) {
+    const r = burnGroup(list, guides, t);
+    ex.drawImage(r.edge, 0, 0);
+    hx.drawImage(r.hole, 0, 0);
+  }
+  return { hole, edge };
 }
 
 /** Aperçu en direct pendant le geste : tampons translucides, sans liseré. */

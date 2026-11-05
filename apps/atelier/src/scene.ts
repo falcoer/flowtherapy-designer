@@ -262,7 +262,7 @@ function burnFor(l: Layer, f: Format, o: DrawOptions) {
   const list = burnsOf(l, o);
   if (!list.length) return null;
   const t = paintTarget(l, f, o.scale);
-  const key = JSON.stringify([t.pw, t.ph, list.map((s) => [s.seed, s.pts.length, s.grow, s.size, s.guide, s.opacity]), burnGuides[list[list.length - 1]!.guide]]);
+  const key = JSON.stringify([t.pw, t.ph, list.map((s) => [s.seed, s.pts.length, s.grow, s.size, s.guide, s.opacity, s.char]), burnGuides[list[list.length - 1]!.guide]]);
   const hit = burnCache.get(l.id);
   if (hit?.key === key) return hit;
   const r = { key, ...burnLayers(list, burnGuides, t) };

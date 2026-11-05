@@ -65,6 +65,10 @@ export interface Stroke {
   branches?: number;
   converge?: number;
   grow?: number;
+  /** Pinceau Ramures : taille du noyau de couleur au point de départ (0 = aucun, 1 = plein). */
+  core?: number;
+  /** Pinceau Brûlure : largeur de la marge roussie et carbonisée autour du trou (0..1). */
+  char?: number;
 }
 
 export type BorderStyle = 'round' | 'straight' | 'torn' | 'stamp' | 'burst' | 'double';

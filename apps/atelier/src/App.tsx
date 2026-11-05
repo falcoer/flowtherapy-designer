@@ -252,6 +252,13 @@ export function App() {
   const [stampSize, setStampSize] = useState(0.08);
   const [stampOpacity, setStampOpacity] = useState(0.9);
   const [dilution, setDilution] = useState(0.15);
+  /** Rotation choisie du tampon (radians), ajoutée à celle du stylet quand il la suit. */
+  const [stampRot, setStampRot] = useState(0);
+  const [stampFollow, setStampFollow] = useState(true);
+  /** Ce que le stylet transmet vraiment : sa rotation, son inclinaison, ou rien. */
+  const [penSrc, setPenSrc] = useState<'rotation' | 'inclinaison' | 'aucun' | null>(null);
+  const [burnChar, setBurnChar] = useState(0.3);
+  const [branchCore, setBranchCore] = useState(1);
   const [stampPick, setStampPick] = useState(false);
   /** Survol du stylet (ou de la souris) : un repère montre où la pointe touchera. */
   const hoverRef = useRef<HTMLDivElement>(null);
@@ -999,9 +1006,9 @@ export function App() {
         t === 'stamp'
           ? { brush: 'stamp', stamp: stampId, dilution, guide, size: stampSize, opacity: stampOpacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr, ...stampAngle(e, target) }] }
           : brushKind === 'burn'
-            ? { brush: 'burn', grow: 0.15, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
+            ? { brush: 'burn', grow: 0.15, char: burnChar, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
             : brushKind === 'branch'
-              ? { brush: 'branch', branches, converge, grow: 0.12, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
+              ? { brush: 'branch', branches, converge, core: branchCore, grow: 0.12, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
               : { brush: brushKind, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] },
     };
     // ramures : tant que la pointe reste posée, les ramifications poussent
@@ -1032,24 +1039,39 @@ export function App() {
    * stylet la donne (Pencil Pro), sinon la direction où il penche. Tenu en main droite,
    * penché vers le bas à droite, le tampon est droit ; tourner le crayon autour de la pointe le tourne.
    */
-  const penAngle = (e: { pointerType: string; twist?: number; tiltX?: number; tiltY?: number }) => {
+  type PenLike = { pointerType: string; twist?: number; tiltX?: number; tiltY?: number; azimuthAngle?: number; altitudeAngle?: number };
+  const penAngle = (e: PenLike) => {
     if (e.pointerType !== 'pen') return null;
     if (e.twist) return (e.twist * Math.PI) / 180;
     const tx = e.tiltX ?? 0;
     const ty = e.tiltY ?? 0;
-    if (Math.hypot(tx, ty) < 8) return null;
-    return Math.atan2(ty, tx) - Math.PI / 4;
+    if (Math.hypot(tx, ty) >= 5) return Math.atan2(ty, tx) - Math.PI / 4;
+    // certains navigateurs ne donnent que l'azimut et l'altitude
+    if (e.azimuthAngle !== undefined && e.altitudeAngle !== undefined && e.altitudeAngle < Math.PI / 2 - 0.09) return e.azimuthAngle - Math.PI / 4;
+    return null;
+  };
+  const notePen = (e: PenLike) => {
+    if (e.pointerType !== 'pen') return;
+    const src = e.twist ? 'rotation' : penAngle(e) !== null ? 'inclinaison' : 'aucun';
+    if (src !== penSrc) setPenSrc(src);
+  };
+  /** Angle du tampon à l'écran : rotation choisie, plus celle du stylet s'il la suit. */
+  const stampScreenAngle = (e: PenLike) => {
+    const a = stampFollow ? penAngle(e) : null;
+    if (a === null && !stampRot) return null;
+    return (a ?? 0) + stampRot;
   };
   /** Rotation et inclinaison du tampon, dans le repère de la couche. */
-  const stampAngle = (e: { pointerType: string; twist?: number; tiltX?: number; tiltY?: number }, l: Layer) => {
-    const a = penAngle(e);
+  const stampAngle = (e: PenLike, l: Layer) => {
+    notePen(e);
+    const a = stampScreenAngle(e);
     const out: { r?: number; k?: number; d?: number } = {};
     if (a !== null) out.r = a - view.rot - (l.rot ?? 0);
     const tx = e.tiltX ?? 0;
     const ty = e.tiltY ?? 0;
     const tilt = Math.hypot(tx, ty);
     // penché au-delà de 15°, le tampon appuie sur le côté où il penche
-    if (e.pointerType === 'pen' && tilt > 15) {
+    if (e.pointerType === 'pen' && stampFollow && tilt > 15) {
       out.k = Math.min(0.85, ((tilt - 15) / 45) * 0.85);
       out.d = Math.atan2(ty, tx) - view.rot - (l.rot ?? 0);
     }
@@ -1062,11 +1084,12 @@ export function App() {
     if (!el) return;
     const painting = tool === 'paint' || tool === 'stamp';
     if (!painting || rendu || (e.pointerType !== 'pen' && e.pointerType !== 'mouse')) return hideHover();
+    if (tool === 'stamp') notePen(e);
     const m = Math.min(f.width, f.height) * scale;
     const d = tool === 'stamp' ? stampSize * 2 * m : size * 2 * m;
     el.style.display = 'block';
     el.style.width = el.style.height = `${Math.max(6, d)}px`;
-    el.style.transform = `translate(${e.clientX - Math.max(6, d) / 2}px, ${e.clientY - Math.max(6, d) / 2}px) rotate(${tool === 'stamp' ? (penAngle(e) ?? 0) : view.rot}rad)`;
+    el.style.transform = `translate(${e.clientX - Math.max(6, d) / 2}px, ${e.clientY - Math.max(6, d) / 2}px) rotate(${tool === 'stamp' ? (stampScreenAngle(e) ?? 0) : view.rot}rad)`;
   };
   const hideHover = () => {
     if (hoverRef.current) hoverRef.current.style.display = 'none';
@@ -1874,8 +1897,10 @@ export function App() {
                   <>
                     <VSlider label="Ramifications" value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
                     <VSlider label="Chaos" value={converge} onChange={(v) => setConverge(Math.round(v * 100) / 100)} />
+                    <VSlider label="Noyau : taille de la tache de couleur au départ" value={branchCore} onChange={(v) => setBranchCore(Math.round(v * 100) / 100)} />
                   </>
                 )}
+                {brushKind === 'burn' && <VSlider label="Roussi : largeur de la marge assombrie" value={burnChar} onChange={(v) => setBurnChar(Math.max(0.02, Math.round(v * 100) / 100))} />}
               </>
             )}
             {tool === 'stamp' && (
@@ -1910,6 +1935,20 @@ export function App() {
                 <VSlider label="Taille" value={(stampSize - 0.02) / 0.28} onChange={(v) => setStampSize(0.02 + v * 0.28)} />
                 <VSlider label="Opacité" value={stampOpacity} onChange={(v) => setStampOpacity(Math.max(0.05, v))} />
                 <VSlider label="Dilution" value={dilution} onChange={(v) => setDilution(Math.round(v * 100) / 100)} />
+                <VSlider
+                  label={`Rotation : ${Math.round((stampRot * 180) / Math.PI)}°`}
+                  center
+                  value={0.5 + stampRot / (2 * Math.PI)}
+                  onChange={(v) => setStampRot(Math.abs(v - 0.5) < 0.004 ? 0 : (v - 0.5) * 2 * Math.PI)}
+                />
+                <button
+                  className={`btn small ${stampFollow ? 'on' : ''}`}
+                  onClick={() => setStampFollow(!stampFollow)}
+                  title={`Suivre le stylet (rotation et inclinaison)${penSrc ? ` — reçu du stylet : ${penSrc}` : ''}`}
+                >
+                  <Icon name="pen-follow" />
+                </button>
+                {penSrc && <small className="pen-src">{penSrc === 'rotation' ? 'rot.' : penSrc === 'inclinaison' ? 'incl.' : '—'}</small>}
               </>
             )}
             {tool === 'cut' && (
