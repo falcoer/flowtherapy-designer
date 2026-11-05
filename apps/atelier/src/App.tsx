@@ -5,6 +5,7 @@ import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { ensureFont, fontFamily, loadFonts, onFontReady, TEXT_PRESETS, textCut, textEpoch, type TextPreset, type TextStyle } from './text';
 import { TextBar } from './textbar';
+import { GradientEditor } from './colorpicker';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
 import { anchorsOf, DENSITY_STEPS, setAnchorDensity } from './model';
@@ -1972,7 +1973,7 @@ export function App() {
               doc={doc}
               active={guide}
               onPick={setGuide}
-              onGuides={(guides) => update((d) => ({ ...d, guides }))}
+              onGuides={(guides, commit = true) => (commit ? update : setDoc)((d) => ({ ...d, guides }))}
               onDrag={(i, x, y) => setDragGuide(i === null ? null : { i, x, y })}
               onDrop={(i, x, y) => {
                 setDragGuide(null);
@@ -2247,7 +2248,7 @@ function PaletteBubble({
   doc: Doc;
   active: number;
   onPick: (i: number) => void;
-  onGuides: (g: Guide[]) => void;
+  onGuides: (g: Guide[], commit?: boolean) => void;
   onDrag: (i: number | null, x: number, y: number) => void;
   onDrop: (i: number, x: number, y: number) => void;
 }) {
@@ -2273,7 +2274,11 @@ function PaletteBubble({
   const edit = (patch: Partial<Guide>) => onGuides(doc.guides.map((x, i) => (i === active ? ({ ...x, ...patch } as Guide) : x)));
   // une teinte = une couleur ; deux ou plus = un dégradé
   const stopsOf = (x: Guide) => (x.type === 'gradient' ? x.stops : [x.color]);
-  const setStops = (stops: string[]) => onGuides(doc.guides.map((x, i) => (i !== active ? x : stops.length > 1 ? { name: x.name, type: 'gradient', stops } : { name: x.name, type: 'color', color: stops[0]! })));
+  const setStops = (stops: string[], commit = true) =>
+    onGuides(
+      doc.guides.map((x, i) => (i !== active ? x : stops.length > 1 ? { name: x.name, type: 'gradient', stops } : { name: x.name, type: 'color', color: stops[0]! })),
+      commit,
+    );
   return (
     <div className="bubble palette-bubble">
       <div className="b-title">Palette du document</div>
@@ -2326,21 +2331,7 @@ function PaletteBubble({
       {g && (
         <div className="guide-edit">
           <input className="gname-input" value={g.name} onChange={(e) => edit({ name: e.target.value })} aria-label="Nom du guide" />
-          <div className="stops">
-            {stopsOf(g).map((c, i, all) => (
-              <span key={i} className="stop">
-                <input type="color" value={c} onChange={(e) => setStops(all.map((x, j) => (j === i ? e.target.value : x)))} aria-label={`Teinte ${i + 1}`} />
-                {all.length > 1 && (
-                  <button className="stop-x" onClick={() => setStops(all.filter((_, j) => j !== i))} title="Retirer cette teinte">
-                    ×
-                  </button>
-                )}
-              </span>
-            ))}
-            <button onClick={() => setStops([...stopsOf(g), stopsOf(g).at(-1)!])} title="Ajouter une teinte : deux teintes ou plus font un dégradé">
-              ＋
-            </button>
-          </div>
+          <GradientEditor key={active} stops={stopsOf(g)} used={doc.guides.flatMap(stopsOf)} onChange={(stops, commit) => setStops(stops, commit)} />
         </div>
       )}
       <p className="fx-hint">Glisse une couleur sur une forme ou un papier pour la lui donner.</p>
