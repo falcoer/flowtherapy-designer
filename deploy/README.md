@@ -23,10 +23,10 @@ node -v                                        # Node 22.13 ou plus récent requ
    sudo git clone https://github.com/falcoer/flowtherapy-designer /opt/ft-designer
    cd /opt/ft-designer && sudo npm ci && sudo npm run build
    sudo PLAYWRIGHT_BROWSERS_PATH=/opt/ft-designer/.browsers npx playwright-core install --with-deps chromium   # exports PNG/PDF
-   sudo mkdir -p /srv/ft-designer/cache && sudo cp -r library /srv/ft-designer/
+   sudo mkdir -p /srv/ft-designer/cache /srv/ft-designer/ateliers && sudo cp -r library /srv/ft-designer/
    sudo chown -R ftdesigner /srv/ft-designer
    ```
-   La bibliothèque vit hors du dépôt (`/srv/ft-designer/library`) pour que les mises à jour du code n'y touchent pas. On peut la versionner avec git à part. Le cache (`/srv/ft-designer/cache`) n'a pas besoin de sauvegarde.
+   La bibliothèque vit hors du dépôt (`/srv/ft-designer/library`) pour que les mises à jour du code n'y touchent pas. On peut la versionner avec git à part. Le cache (`/srv/ft-designer/cache`) n'a pas besoin de sauvegarde. Les compositions de l'atelier (`/srv/ft-designer/ateliers`, un fichier JSON et une vignette par composition) sont à sauvegarder avec la bibliothèque.
 
    Chromium va dans `/opt/ft-designer/.browsers`, le chemin que le service systemd déclare. On peut aussi pointer vers un Chromium existant avec `FTD_CHROMIUM_PATH`.
 4. **Connexion** : configure Google et/ou Apple en suivant [AUTH.md](AUTH.md). En dépannage seulement, un mot de passe unique reste possible avec `FTD_PASSWORD` (utilisateur `ft`), utilisé quand aucun fournisseur n'est configuré.
@@ -40,6 +40,8 @@ node -v                                        # Node 22.13 ou plus récent requ
    sudo certbot --nginx -d designer.flowtherapymusic.com
    ```
    `nginx -t` vérifie la configuration avant de recharger : Odoo n'est pas interrompu si une erreur s'y glisse.
+
+L'atelier est servi à la racine (`https://designer.flowtherapymusic.com/`) ; l'ancien éditeur YAML reste sous `/editeur/`.
 
 `deploy/Caddyfile` reste fourni pour un serveur sans reverse proxy existant.
 6. **Mise à jour** : `git pull && npm ci && npm run build && sudo systemctl restart ft-designer`.

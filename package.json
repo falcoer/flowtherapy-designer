@@ -13,7 +13,7 @@
   },
   "scripts": {
     "dev": "npm run dev -w @ftd/server & npm run dev -w @ftd/web",
-    "build": "npm run build -w @ftd/web",
+    "build": "npm run build -w @ftd/web && npm run build:atelier",
     "start": "npm run start -w @ftd/server",
     "test": "vitest run",
     "typecheck": "tsc -b",

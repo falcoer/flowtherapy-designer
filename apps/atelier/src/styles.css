@@ -527,3 +527,27 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .stamp-ico svg { max-width: 100%; max-height: 100%; }
 .stamp-grid small { font-size: 11px; color: var(--muted); }
 
+/* compositions du groupe et export */
+.project-chip { gap: 8px; max-width: 260px; }
+.project-chip .brand { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.save-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #3aa76d; }
+.save-dot.dirty { background: var(--muted); }
+.save-dot.saving { background: var(--accent); animation: pulse 0.9s ease-in-out infinite alternate; }
+.save-dot.error { background: var(--danger); }
+@keyframes pulse { to { opacity: 0.3; } }
+.projects-bubble { left: max(10px, env(safe-area-inset-left, 0px)); right: auto; width: min(360px, calc(100vw - 20px)); }
+.proj-current { display: flex; gap: 6px; align-items: center; }
+.proj-title { flex: 1; min-width: 0; height: 36px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line); background: none; color: inherit; font: inherit; font-weight: 600; }
+.proj-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.proj { position: relative; border-radius: 12px; }
+.proj.on .proj-open { box-shadow: 0 0 0 2px var(--accent); }
+.proj-open { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 6px; border-radius: 12px; text-align: left; background: var(--line); }
+.proj-open img { width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 8px; background: var(--chrome); }
+.proj-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-open small { color: var(--muted); font-size: 11px; }
+.proj-del { position: absolute; top: 10px; right: 10px; width: 30px; height: 30px; border-radius: 50%; background: var(--chrome-solid); display: grid; place-items: center; opacity: 0.75; }
+.proj-del.hot { background: var(--danger); color: #fff; opacity: 1; }
+.proj-del svg { width: 16px; height: 16px; }
+.export-bubble { width: min(320px, calc(100vw - 20px)); }
+.btn-primary { height: 42px; border-radius: 12px; background: var(--accent); color: #fff; font-weight: 600; margin-top: 4px; }
+.btn-primary:disabled { opacity: 0.5; }

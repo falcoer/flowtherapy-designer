@@ -9,6 +9,8 @@ import { TextBar } from './textbar';
 import { PaletteEditor } from './colorpicker';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
+import { download, exportSize, fileName, pdfOf, pngOf, renderDoc } from './export';
+import { listAteliers, newAtelierId, readAtelier, removeAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta } from './server';
 import { anchorsOf, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
@@ -70,7 +72,7 @@ const EDIT_SECTIONS: Array<[EditTool, string, string]> = [
   ['edge', 'Bords', 'frame'],
 ];
 const isEdit = (t: Tool): t is EditTool => EDIT_SECTIONS.some(([k]) => k === t);
-type Bubble = 'add' | 'layers' | 'palette' | 'light' | 'format' | 'anchor' | null;
+type Bubble = 'add' | 'layers' | 'palette' | 'light' | 'format' | 'anchor' | 'projects' | 'export' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc-v2';
@@ -123,8 +125,17 @@ const LINK_FX_MS = 900;
 function load(): Doc {
   try {
     const s = localStorage.getItem(STORE);
-    if (s) {
-      const d = JSON.parse(s) as Doc;
+    if (s) return migrate(JSON.parse(s) as Doc);
+  } catch {
+    /* stockage indisponible */
+  }
+  return blankDoc();
+}
+
+/** Remet à jour un document enregistré par une version plus ancienne de l'atelier. */
+function migrate(d: Doc): Doc {
+  {
+    {
       // anciens documents : découpe polygonale → tracé
       for (const l of d.layers) {
         // biseau séparé de la hauteur : les anciens documents gardent leur relief
@@ -155,12 +166,9 @@ function load(): Doc {
           l.cut = ringsToPath([l.mask], 0.001);
           delete l.mask;
         }
-      return d;
     }
-  } catch {
-    /* stockage indisponible */
   }
-  return blankDoc();
+  return d;
 }
 
 export function App() {
@@ -217,6 +225,122 @@ export function App() {
       /* photo trop lourde pour le stockage local : on garde en mémoire */
     }
   }, [doc]);
+
+  // --- compositions du groupe, enregistrées sur le serveur ---
+  const [online, setOnline] = useState<boolean | null>(null);
+  const [project, setProjectState] = useState<{ id: string; title: string } | null>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('ftd-atelier-project') ?? 'null');
+    } catch {
+      return null;
+    }
+  });
+  const setProject = (p: { id: string; title: string } | null) => {
+    setProjectState(p);
+    try {
+      localStorage.setItem('ftd-atelier-project', JSON.stringify(p));
+    } catch {
+      /* préférence non retenue */
+    }
+  };
+  const [saving, setSaving] = useState<'saved' | 'dirty' | 'saving' | 'error'>('saved');
+  const [projects, setProjects] = useState<AtelierMeta[]>([]);
+  useEffect(() => {
+    void serverOnline().then(setOnline);
+  }, []);
+  const refreshProjects = () => void listAteliers().then(setProjects, () => {});
+  /** Petite image de la composition pour la liste. */
+  const makeThumb = (d: Doc) => {
+    const ff = formatOf(d.formatId);
+    const k = 360 / Math.max(ff.width, ff.height);
+    const c = document.createElement('canvas');
+    c.width = Math.round(ff.width * k);
+    c.height = Math.round(ff.height * k);
+    const ctx = c.getContext('2d')!;
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    drawLayers(ctx, d, ff, { scale: k, onImage: () => {} });
+    forgetPaint();
+    return c.toDataURL('image/png');
+  };
+  const saveNow = async (p = project, d = docRef.current) => {
+    if (!p || !online) return;
+    setSaving('saving');
+    try {
+      await saveAtelier(p.id, p.title, d, makeThumb(d));
+      setSaving(docRef.current === d ? 'saved' : 'dirty');
+    } catch (err) {
+      setSaving('error');
+      setToast(`Enregistrement impossible : ${(err as Error).message}`);
+    }
+  };
+  // enregistrement automatique, quelques secondes après la dernière retouche
+  const firstDoc = useRef(true);
+  useEffect(() => {
+    // au chargement, ou juste après avoir ouvert une composition : rien de neuf à enregistrer
+    if (firstDoc.current) {
+      firstDoc.current = false;
+      return;
+    }
+    if (!online || !project) return;
+    setSaving('dirty');
+    const t = setTimeout(() => void saveNow(), 2500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc, online, project?.id, project?.title]);
+  const openProject = async (m: AtelierMeta) => {
+    try {
+      const r = await readAtelier(m.id);
+      forgetPaint();
+      past.current = [];
+      future.current = [];
+      firstDoc.current = true;
+      setDoc(migrate(r.doc));
+      setSelected(null);
+      setProject({ id: m.id, title: r.title });
+      setSaving('saved');
+      setBubble(null);
+      setToast(`« ${r.title} » ouverte`);
+    } catch (err) {
+      setToast(`Ouverture impossible : ${(err as Error).message}`);
+    }
+  };
+  const newProject = async (title: string, fromCurrent: boolean) => {
+    const p = { id: newAtelierId(title), title };
+    const d = fromCurrent ? docRef.current : { ...blankDoc(), formatId: docRef.current.formatId, frame: docRef.current.frame, guides: docRef.current.guides };
+    if (!fromCurrent) {
+      forgetPaint();
+      past.current = [];
+      future.current = [];
+      setDoc(d);
+      setSelected(null);
+    }
+    setProject(p);
+    await saveNow(p, d);
+    refreshProjects();
+  };
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
+
+  // --- export ---
+  const [exportFormats, setExportFormats] = useState<string[]>([]);
+  const [exportKind, setExportKind] = useState<'png' | 'pdf'>('png');
+  const [exporting, setExporting] = useState(false);
+  const runExport = async () => {
+    const list = FORMATS.filter((x) => (exportFormats.length ? exportFormats : [doc.formatId]).includes(x.id));
+    setExporting(true);
+    try {
+      for (const ff of list) {
+        setToast(`Export ${ff.title}…`);
+        const c = await renderDoc(docRef.current, ff);
+        const blob = exportKind === 'pdf' ? await pdfOf(c, ff) : await pngOf(c);
+        download(blob, fileName(project?.title ?? 'composition', ff, exportKind));
+      }
+      setToast(list.length > 1 ? `${list.length} fichiers exportés` : 'Fichier exporté');
+    } catch (err) {
+      setToast(`Export impossible : ${(err as Error).message}`);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const [tool, setToolState] = useState<Tool>('paint');
   // Modifier rouvre la dernière section utilisée
@@ -2043,7 +2167,17 @@ export function App() {
         <>
           <header className="bar">
             <div className="bar-left">
-              <span className="brand">Atelier</span>
+              <button
+                className={`chip project-chip ${bubble === 'projects' ? 'on' : ''}`}
+                onClick={() => {
+                  if (bubble !== 'projects' && online) refreshProjects();
+                  setBubble(bubble === 'projects' ? null : 'projects');
+                }}
+                title="Compositions : enregistrer, ouvrir, en commencer une"
+              >
+                <span className="brand">{project?.title ?? 'Atelier'}</span>
+                {online && project && <span className={`save-dot ${saving}`} title={{ saved: 'Enregistrée', dirty: 'Modifications en attente', saving: 'Enregistrement…', error: 'Non enregistrée' }[saving]} />}
+              </button>
               <button className={`chip ${bubble === 'format' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'format' ? null : 'format')}>
                 <FormatGlyph w={f.width} h={f.height} /> <span className="chip-label">{f.title}</span>
               </button>
@@ -2052,6 +2186,16 @@ export function App() {
               </button>
             </div>
             <div className="bar-right">
+              <button
+                className={`btn ${bubble === 'export' ? 'on' : ''}`}
+                onClick={() => {
+                  if (bubble !== 'export') setExportFormats([doc.formatId]);
+                  setBubble(bubble === 'export' ? null : 'export');
+                }}
+                title="Exporter en PNG ou PDF, dans un ou plusieurs formats"
+              >
+                <Icon name="export" />
+              </button>
               <button className={`btn ${bubble === 'layers' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'layers' ? null : 'layers')} title="Couches">
                 <Icon name="layers" />
               </button>
@@ -2326,6 +2470,97 @@ export function App() {
               </button>
             </div>
           </aside>
+
+          {bubble === 'projects' && (
+            <div className="bubble projects-bubble">
+              <div className="b-title">Composition</div>
+              {online ? (
+                <>
+                  <div className="proj-current">
+                    <input className="proj-title" value={project?.title ?? ''} placeholder="Titre de la composition" onChange={(e) => project && setProject({ ...project, title: e.target.value })} disabled={!project} />
+                    {project ? (
+                      <button className="fx-clear" onClick={() => void saveNow()} disabled={saving === 'saving'}>
+                        {saving === 'saving' ? 'Enregistrement…' : saving === 'saved' ? 'Enregistrée' : 'Enregistrer'}
+                      </button>
+                    ) : (
+                      <button className="fx-clear" onClick={() => void newProject('Sans titre', true)}>
+                        Enregistrer cette page
+                      </button>
+                    )}
+                  </div>
+                  <button className="row" onClick={() => void newProject('Sans titre', false)}>
+                    <Icon name="plus" />
+                    <span>Nouvelle composition</span>
+                    <small>page vierge, même format et palette</small>
+                  </button>
+                  <div className="b-title">Compositions du groupe</div>
+                  <div className="proj-list">
+                    {projects.map((m) => (
+                      <div key={m.id} className={`proj ${m.id === project?.id ? 'on' : ''}`}>
+                        <button className="proj-open" onClick={() => void openProject(m)} title={`Ouvrir « ${m.title} »`}>
+                          <img src={thumbUrl(m)} alt="" loading="lazy" />
+                          <span className="proj-name">{m.title}</span>
+                          <small>
+                            {new Date(m.updated).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                            {m.by ? ` · ${m.by.split('@')[0]}` : ''}
+                          </small>
+                        </button>
+                        <button
+                          className={`proj-del ${confirmDel === m.id ? 'hot' : ''}`}
+                          title={confirmDel === m.id ? 'Toucher encore pour supprimer' : 'Supprimer'}
+                          onClick={() => {
+                            if (confirmDel !== m.id) return setConfirmDel(m.id);
+                            setConfirmDel(null);
+                            void removeAtelier(m.id).then(() => {
+                              if (project?.id === m.id) setProject(null);
+                              refreshProjects();
+                              setToast(`« ${m.title} » supprimée`);
+                            });
+                          }}
+                        >
+                          <Icon name="trash" />
+                        </button>
+                      </div>
+                    ))}
+                    {!projects.length && <p className="fx-hint">Aucune composition enregistrée pour l’instant.</p>}
+                  </div>
+                </>
+              ) : (
+                <p className="fx-hint">{online === null ? 'Connexion au serveur…' : 'Hors ligne : la page reste dans ce navigateur. Sur designer.flowtherapymusic.com, elle s’enregistre pour tout le groupe.'}</p>
+              )}
+            </div>
+          )}
+
+          {bubble === 'export' && (
+            <div className="bubble export-bubble">
+              <div className="b-title">Exporter</div>
+              <div className="seg">
+                {(['png', 'pdf'] as const).map((k) => (
+                  <button key={k} className={exportKind === k ? 'on' : ''} onClick={() => setExportKind(k)}>
+                    {k.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <div className="b-title">Formats</div>
+              {FORMATS.map((x) => {
+                const on = exportFormats.includes(x.id);
+                const sz = exportSize(x);
+                return (
+                  <button key={x.id} className={`row ${on ? 'on' : ''}`} onClick={() => setExportFormats(on ? exportFormats.filter((y) => y !== x.id) : [...exportFormats, x.id])}>
+                    <FormatGlyph w={x.width} h={x.height} big />
+                    <span>{x.title}</span>
+                    <small>
+                      {sz.w} × {sz.h} px{x.id === doc.formatId ? ' · en cours' : ''}
+                    </small>
+                  </button>
+                );
+              })}
+              <p className="fx-hint">Les autres formats sont déclinés par les ancrages : chaque élément garde sa place relative et ses bords tenus.</p>
+              <button className="btn-primary" disabled={exporting || !exportFormats.length} onClick={() => void runExport()}>
+                {exporting ? 'Export…' : `Exporter ${exportFormats.length > 1 ? `${exportFormats.length} formats` : ''}`}
+              </button>
+            </div>
+          )}
 
           {bubble === 'format' && (
             <div className="bubble format-bubble">
