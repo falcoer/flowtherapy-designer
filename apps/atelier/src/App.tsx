@@ -262,6 +262,22 @@ export function App() {
       return true;
     }
   });
+  /** Réglage global : la rotation du crayon sur lui-même tourne les tampons. */
+  const [penRoll, setPenRollState] = useState(() => {
+    try {
+      return localStorage.getItem('ftd-atelier-roll') !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const setPenRoll = (v: boolean) => {
+    setPenRollState(v);
+    try {
+      localStorage.setItem('ftd-atelier-roll', v ? 'on' : 'off');
+    } catch {
+      /* stockage indisponible */
+    }
+  };
   const setPenTilt = (v: boolean) => {
     setPenTiltState(v);
     try {
@@ -1059,7 +1075,7 @@ export function App() {
   const lastTwist = useRef(0);
   const twistSeen = useRef(false);
   const stampScreenAngle = (e: PenLike) => {
-    if (e.pointerType !== 'pen') return stampRot;
+    if (e.pointerType !== 'pen' || !penRoll) return stampRot;
     // au contact, la valeur reçue fait foi (0 compris) dès que le crayon a montré qu'il la donne
     if (e.twist) twistSeen.current = true;
     if (e.buttons && twistSeen.current) lastTwist.current = ((e.twist ?? 0) * Math.PI) / 180;
@@ -1807,6 +1823,13 @@ export function App() {
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
               <span className="sep" />
+              <button
+                className={`btn ${penRoll ? 'on' : ''}`}
+                onClick={() => setPenRoll(!penRoll)}
+                title={penRoll ? 'Rotation du stylet : tourner le crayon tourne les tampons (désactiver)' : 'Rotation du stylet ignorée (activer)'}
+              >
+                <Icon name="pen-roll" />
+              </button>
               <button
                 className={`btn ${penTilt ? 'on' : ''}`}
                 onClick={() => setPenTilt(!penTilt)}
