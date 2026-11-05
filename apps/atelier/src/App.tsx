@@ -2283,6 +2283,7 @@ function PaletteBubble({
     }
   });
   const [renaming, setRenaming] = useState<number | null>(null);
+  const [lib, setLib] = useState(false);
   // édition de la couleur : escamotable, retenue d'une ouverture à l'autre
   const [editing, setEditingRaw] = useState(() => {
     try {
@@ -2324,7 +2325,66 @@ function PaletteBubble({
           Modifier
         </button>
         <div className="b-title">Palette du document</div>
+        <button className={`pal-lib-btn ${lib ? 'on' : ''}`} aria-pressed={lib} onClick={() => setLib(!lib)} title="Palettes enregistrées : sauvegarder ou recharger" aria-label="Palettes enregistrées">
+          <Icon name="palettes" />
+        </button>
       </div>
+      {lib && (
+        <div className="pal-lib">
+          <div className="pal-lib-head">
+            <span className="b-title">Mes palettes</span>
+            <button className="pal-lib-save" onClick={() => store([...saved, { name: `Palette ${saved.length + 1}`, guides: doc.guides }])} title="Enregistrer la palette du document">
+              ＋ Enregistrer
+            </button>
+          </div>
+          {saved.length === 0 && <p className="fx-hint">Aucune palette enregistrée.</p>}
+          {saved.map((p, i) => (
+            <div key={i} className="saved">
+              <button
+                className="saved-load"
+                title="Charger cette palette"
+                onClick={() => {
+                  // les traits gardent leur numéro de guide : on complète si la palette est plus courte
+                  const guides = [...p.guides];
+                  while (guides.length < doc.guides.length) guides.push(doc.guides[guides.length]!);
+                  onGuides(guides);
+                }}
+              >
+                <span className="strip" style={{ background: `linear-gradient(90deg, ${p.guides.map((x) => guideColor(x, 0.5)).join(',')})` }} />
+              </button>
+              {renaming === i ? (
+                <input
+                  className="saved-name"
+                  autoFocus
+                  defaultValue={p.name}
+                  aria-label="Nom de la palette"
+                  onFocus={(e) => e.currentTarget.select()}
+                  onBlur={(e) => {
+                    const name = e.currentTarget.value.trim();
+                    if (name) store(saved.map((x, j) => (j === i ? { ...x, name } : x)));
+                    setRenaming(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.currentTarget.blur();
+                    if (e.key === 'Escape') setRenaming(null);
+                    e.stopPropagation();
+                  }}
+                />
+              ) : (
+                <span className="saved-label" onDoubleClick={() => setRenaming(i)}>
+                  {p.name}
+                </span>
+              )}
+              <button className="saved-pen" onClick={() => setRenaming(i)} title="Renommer" aria-label="Renommer">
+                <Icon name="pen" />
+              </button>
+              <button className="saved-x" onClick={() => store(saved.filter((_, j) => j !== i))} aria-label="Supprimer">
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {editing && g && (
         <div className="guide-edit">
           <PaletteEditor
@@ -2334,13 +2394,14 @@ function PaletteBubble({
             onBlend={(blend: Blend) => onGuides(doc.guides.map((x, i) => (i === active && x.type === 'gradient' ? { ...x, blend } : x)))}
             onChange={(stops, commit) => setStops(stops, commit)}
           />
-          <input className="gname-input" value={g.name} onChange={(e) => edit({ name: e.target.value })} aria-label="Nom du guide" />
         </div>
       )}
       <div className="guides">
         {doc.guides.map((x, i) => (
-          <button
+          <div
             key={i}
+            role="button"
+            tabIndex={0}
             className={`guide ${i === active ? 'on' : ''}`}
             onClick={() => onPick(i)}
             title={`${x.name} : glisse-la sur un objet pour lui donner cette couleur`}
@@ -2368,8 +2429,23 @@ function PaletteBubble({
             }}
           >
             <span className="sw" style={{ background: swatch(x) }} />
-            <span className="gname">{x.name}</span>
-          </button>
+            {i === active ? (
+              // le nom de la couleur choisie s'écrit sur place
+              <input
+                className="gname gname-edit"
+                value={x.name}
+                aria-label="Nom de la couleur"
+                onPointerDown={(e) => e.stopPropagation()}
+                onChange={(e) => edit({ name: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                  e.stopPropagation();
+                }}
+              />
+            ) : (
+              <span className="gname">{x.name}</span>
+            )}
+          </div>
         ))}
         <button
           className="guide add"
@@ -2383,53 +2459,6 @@ function PaletteBubble({
           <span className="gname">Ajouter</span>
         </button>
       </div>
-      <p className="fx-hint">Glisse une couleur sur une forme ou un papier pour la lui donner.</p>
-      <div className="b-title">Palettes enregistrées</div>
-      <button className="row" onClick={() => store([...saved, { name: `Palette ${saved.length + 1}`, guides: doc.guides }])}>
-        Enregistrer la palette courante
-      </button>
-      {saved.map((p, i) => (
-        <div key={i} className="saved">
-          <span className="strip" style={{ background: `linear-gradient(90deg, ${p.guides.map((x) => guideColor(x, 0.5)).join(',')})` }} />
-          {renaming === i ? (
-            <input
-              className="saved-name"
-              autoFocus
-              defaultValue={p.name}
-              aria-label="Nom de la palette"
-              onFocus={(e) => e.currentTarget.select()}
-              onBlur={(e) => {
-                const name = e.currentTarget.value.trim();
-                if (name) store(saved.map((x, j) => (j === i ? { ...x, name } : x)));
-                setRenaming(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur();
-                if (e.key === 'Escape') setRenaming(null);
-                e.stopPropagation();
-              }}
-            />
-          ) : (
-            <span className="saved-label">{p.name}</span>
-          )}
-          <button
-            onClick={() => {
-              // les traits gardent leur numéro de guide : on complète si la palette est plus courte
-              const guides = [...p.guides];
-              while (guides.length < doc.guides.length) guides.push(doc.guides[guides.length]!);
-              onGuides(guides);
-            }}
-          >
-            Réimporter
-          </button>
-          <button className="saved-pen" onClick={() => setRenaming(i)} title="Renommer" aria-label="Renommer">
-            <Icon name="pen" />
-          </button>
-          <button onClick={() => store(saved.filter((_, j) => j !== i))} aria-label="Supprimer">
-            ✕
-          </button>
-        </div>
-      ))}
     </div>
   );
 }

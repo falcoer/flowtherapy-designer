@@ -15,7 +15,8 @@ const PATHS: Record<string, string> = {
   pen: 'M4 20l1-4L16 5l3 3L8 19zM14 7l3 3',
   material: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM4 10l6-6M4 16 16 4M8 20 20 8M14 20l6-6',
   frame: 'M6 3h12a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3zM8 8h8v8H8z',
-  'border-stamp': 'M8 8h8v8H8zM4 3h2a1 1 0 0 0 2 0h2a1 1 0 0 0 2 0h2a1 1 0 0 0 2 0h2a1 1 0 0 0 2 0v2a1 1 0 0 0 0 2v2a1 1 0 0 0 0 2v2a1 1 0 0 0 0 2v2a1 1 0 0 0 0 2v2h-2a1 1 0 0 0-2 0h-2a1 1 0 0 0-2 0h-2a1 1 0 0 0-2 0H8a1 1 0 0 0-2 0H4v-2a1 1 0 0 0 0-2v-2a1 1 0 0 0 0-2v-2a1 1 0 0 0 0-2V9a1 1 0 0 0 0-2V5z',
+  'border-stamp':
+    'M8 8h8v8H8zM4 3h2a1 1 0 0 0 2 0h2a1 1 0 0 0 2 0h2a1 1 0 0 0 2 0h2a1 1 0 0 0 2 0v2a1 1 0 0 0 0 2v2a1 1 0 0 0 0 2v2a1 1 0 0 0 0 2v2a1 1 0 0 0 0 2v2h-2a1 1 0 0 0-2 0h-2a1 1 0 0 0-2 0h-2a1 1 0 0 0-2 0H8a1 1 0 0 0-2 0H4v-2a1 1 0 0 0 0-2v-2a1 1 0 0 0 0-2v-2a1 1 0 0 0 0-2V9a1 1 0 0 0 0-2V5z',
   'border-burst': 'M12 2l1.8 4.5L18 3.5l-1 5 5 1-4 3 3.5 4.5-5.5-.5L16 22l-4-4-3.5 4 .2-5.5L3 17.5 6.5 13 2 10l5-1-1.5-5.5 4.5 3z',
   'border-double': 'M9 9h6v6H9zM6 6h12v12H6zM3 3h18v18H3z',
   'glow-none': 'M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM6.3 17.7 17.7 6.3',
@@ -53,6 +54,7 @@ const PATHS: Record<string, string> = {
   'border-straight': 'M7 7h10v10H7zM3 3h18v18H3z',
   'border-torn': 'M7 7h10v10H7zM3 4l3-1 2 2 3-2 2 1 3-1 2 2 3-1v3l-1 3 1 2-1 3 1 3-1 3-3-1-2 1-3-1-2 2-3-2-2 1-3-1 1-3-1-2 1-3-1-3z',
   import: 'M12 3v12M7 10l5 5 5-5M4 17v3h16v-3',
+  palettes: 'M5 4h14v6H5zM8 4v6M11 4v6M14 4v6M5 14h14v6H5zM9 17h6',
 };
 
 export function Icon({ name }: { name: string }) {
