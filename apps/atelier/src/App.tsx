@@ -1963,15 +1963,18 @@ export function App() {
                           </button>
                         </>
                       )}
-                      <button
-                        onClick={() => {
-                          update((d) => ({ ...d, layers: d.layers.filter((x) => x.id !== l.id) }));
-                          if (selected === l.id) setSelected(null);
-                        }}
-                        title="Supprimer"
-                      >
-                        <Icon name="trash" />
-                      </button>
+                      {/* le fond se cache (œil) mais ne se supprime pas */}
+                      {l.kind !== 'surface' && (
+                        <button
+                          onClick={() => {
+                            update((d) => ({ ...d, layers: d.layers.filter((x) => x.id !== l.id) }));
+                            if (selected === l.id) setSelected(null);
+                          }}
+                          title="Supprimer"
+                        >
+                          <Icon name="trash" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
