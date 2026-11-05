@@ -85,6 +85,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
   const out: Item[] = [];
   const g = (i: number) => swatch(doc.guides[i]);
   if (l.kind !== 'surface') {
+    out.push({ sec: 'edge', key: 'shape', name: 'Forme', bg: 'conic-gradient(from 18deg,#8a849a 0 20%,#e8e4f0 0 40%,#8a849a 0 60%,#e8e4f0 0 80%,#8a849a 0)', removable: false });
     if (l.border) out.push({ sec: 'edge', key: 'border', name: BORDER_TYPES.find((x) => x[0] === l.border!.style)![1], bg: g(l.border.guide), removable: true });
     if (l.trim) out.push({ sec: 'edge', key: 'trim', name: 'Rognage', bg: 'repeating-linear-gradient(135deg,#c9c3d6 0 3px,transparent 3px 6px)', removable: true });
     if ((l.bevel ?? 0) > 0.001) out.push({ sec: 'edge', key: 'bevel', name: 'Biseau', bg: 'linear-gradient(135deg,#fff,#8a849a)', removable: true });
@@ -460,10 +461,11 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
       </>
     );
   } else if (item.key === 'paint') {
+    body = <Dots label="Couleur" value={l.guide} doc={doc} onPick={(i) => patch({ guide: i })} />;
+  } else if (item.key === 'shape') {
     const gen = l.gen ?? (l.shape && !l.cut ? GEN_DEFAULTS[l.shape] : undefined);
     body = (
       <>
-        <Dots label="Couleur" value={l.guide} doc={doc} onPick={(i) => patch({ guide: i })} />
         {gen && (
           <>
             <Range label="Côtés" display={`${gen.sides}`} value={(gen.sides - 3) / 21} onChange={(v) => live({ gen: { ...gen, sides: 3 + Math.round(v * 21) } })} />

@@ -2025,6 +2025,9 @@ export function App() {
               <Icon name="plus" />
             </button>
             <span className="side-sep" />
+            <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => setTool(lastEdit.current)} title="Créateur de matériaux (T) : forme, bords, vernis, image, transformations, support">
+              <Icon name="matter" />
+            </button>
             <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => setTool('cut')} title="Découper (C) : trace un contour au stylet">
               <Icon name="scissors" />
             </button>
@@ -2033,9 +2036,6 @@ export function App() {
             </button>
             <button className={`btn small ${tool === 'stamp' ? 'on' : ''}`} onClick={() => setTool('stamp')} title="Tampons (S) : motifs à la couleur courante, dilution et rotation">
               <Icon name="stamp" />
-            </button>
-            <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => setTool(lastEdit.current)} title="Modifier l'objet (T) : filtres, transformations, matière, revêtement, bords">
-              <Icon name="transform" />
             </button>
             <button className={`btn small ${tool === 'move' ? 'on' : ''}`} onClick={() => setTool('move')} title="Disposer (V) : déplacer, agrandir, ancrer">
               <Icon name="move" />
