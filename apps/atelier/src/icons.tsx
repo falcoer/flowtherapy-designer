@@ -58,6 +58,7 @@ const PATHS: Record<string, string> = {
   import: 'M12 3v12M7 10l5 5 5-5M4 17v3h16v-3',
   'burn-hole': 'M12 4c3 1 6 3.5 6 7.5a6 6 0 0 1-12 0C6 8 9 6.5 12 4zM10.5 11.5a1.5 2 0 1 0 3 0a1.5 2 0 1 0-3 0',
   duplicate: 'M8 8h11v11H8zM5 16V5h11',
+  'paint-reset': 'M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4M9 9l6 6M15 9l-6 6',
   'tip-round': 'M12 7a5 5 0 1 0 0 10a5 5 0 1 0 0-10z',
   'tip-flat': 'M4 10.5h16v3H4z',
   'tip-triangle': 'M12 6l6 10.5H6z',

@@ -2089,6 +2089,19 @@ export function App() {
                   )}
                   <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
                   <VSlider label="Opacité" value={opacity} onChange={(v) => setOpacity(Math.max(0.05, v))} />
+                  <button
+                    className="btn small"
+                    disabled={!sel?.strokes.length}
+                    onClick={() => {
+                      if (!sel?.strokes.length) return;
+                      update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === sel.id ? { ...l, strokes: [] } : l)) }));
+                      setToast(`Peinture de « ${sel.name} » effacée`);
+                      setToastUndo(true);
+                    }}
+                    title={sel ? `Effacer toute la peinture de « ${sel.name} » (annulable)` : 'Effacer la peinture'}
+                  >
+                    <Icon name="paint-reset" />
+                  </button>
                   {tipOn(brushKind) && brushTip !== 'round' && <Dial label="Rotation de la brosse" value={brushRot} onChange={setBrushRot} />}
                   {tipOn(brushKind) && (
                     <button
