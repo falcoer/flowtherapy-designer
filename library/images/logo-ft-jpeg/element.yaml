@@ -1,0 +1,12 @@
+id: logo-ft-jpeg
+type: image
+title: Logo Flow Therapy (sur fond)
+source: source.jpeg
+meta:
+  width: 768
+  height: 768
+tags:
+- logo
+- flow-therapy
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/images/logo.jpg

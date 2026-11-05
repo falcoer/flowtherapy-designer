@@ -1,0 +1,20 @@
+id: lauris-basse-exterieur
+type: image
+title: Lauris à la basse en plein air
+description: Lauris à la basse lors d’une prestation en extérieur.
+credit: C.B.
+date: '2026-09-15'
+source: source.jpeg
+meta:
+  width: 1068
+  height: 1600
+focus:
+  x: 0.5
+  y: 0.45
+tags:
+- photo
+- portrait
+- lauris
+- plein-air
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/medias/lauris-basse-exterieur.jpeg

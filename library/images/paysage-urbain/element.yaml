@@ -1,0 +1,13 @@
+id: paysage-urbain
+type: image
+title: Paysage urbain
+source: source.png
+meta:
+  width: 1672
+  height: 941
+tags:
+- paysage
+- aquarelle
+- fond
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/images/fond-urbain-transparent.png

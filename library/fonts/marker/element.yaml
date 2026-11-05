@@ -1,0 +1,15 @@
+id: marker
+type: font
+title: Permanent Marker
+family: Permanent Marker
+files:
+- weight: 400
+  style: normal
+  path: PermanentMarker-Regular.ttf
+tags:
+- police
+- manuscrite
+- feutre
+origin:
+  url: https://github.com/google/fonts/tree/main/apache/permanentmarker
+  license: Apache-2.0

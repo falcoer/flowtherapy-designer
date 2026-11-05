@@ -1,0 +1,20 @@
+id: betty-clavier-noir-blanc
+type: image
+title: Betty au clavier en noir et blanc
+description: Betty au chant et au clavier, photographiée en noir et blanc.
+credit: C.B.
+date: '2026-09-15'
+source: source.jpeg
+meta:
+  width: 1080
+  height: 1620
+focus:
+  x: 0.5
+  y: 0.45
+tags:
+- photo
+- portrait
+- betty
+- noir-et-blanc
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/medias/betty-clavier-noir-blanc.jpeg

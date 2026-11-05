@@ -1,0 +1,13 @@
+id: qr-flowtherapymusic
+type: image
+title: QR code flowtherapymusic.com
+source: source.svg
+meta:
+  width: 984
+  height: 984
+tags:
+- qr
+- lien
+- flow-therapy
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/decorations/flowtherapymusic-qr.svg

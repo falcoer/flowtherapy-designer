@@ -1,0 +1,21 @@
+id: playfair
+type: font
+title: Playfair Display
+family: Playfair Display
+files:
+- weight: 400
+  weightMax: 900
+  style: normal
+  path: PlayfairDisplay-wght.ttf
+- weight: 400
+  weightMax: 900
+  style: italic
+  path: PlayfairDisplay-Italic-wght.ttf
+tags:
+- police
+- titre
+- serif
+- elegant
+origin:
+  url: https://github.com/google/fonts/tree/main/ofl/playfairdisplay
+  license: OFL-1.1

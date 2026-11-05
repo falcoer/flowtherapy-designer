@@ -5,13 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 
-const repoLibrary = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../library');
+const repoLibrary = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'fixtures/library');
 
 async function setup(password?: string) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'ftd-'));
   await cp(repoLibrary, root, { recursive: true });
   const cacheRoot = await mkdtemp(path.join(os.tmpdir(), 'ftd-cache-'));
-  return { root, app: await buildApp({ libraryRoot: root, cacheRoot, password, webFonts: false }) };
+  const ateliersRoot = await mkdtemp(path.join(os.tmpdir(), 'ftd-ateliers-'));
+  return { root, app: await buildApp({ libraryRoot: root, cacheRoot, ateliersRoot, password, webFonts: false }) };
 }
 
 describe('API', () => {
@@ -34,6 +35,24 @@ describe('API', () => {
     const ok = await app.inject({ method: 'PUT', url: '/api/projects/concert-exemple', headers: { 'content-type': 'text/yaml' }, payload: edited });
     expect(ok.statusCode).toBe(200);
     expect(await readFile(path.join(root, 'projects/concert-exemple.yaml'), 'utf8')).toContain('# modifié');
+  });
+
+  it('enregistre, liste, relit et supprime une composition de l’atelier', async () => {
+    const { app } = await setup();
+    const doc = { formatId: 'a4', layers: [{ id: 'x', kind: 'shape' }] };
+    const thumb = 'data:image/png;base64,' + Buffer.from('png').toString('base64');
+    const put = await app.inject({ method: 'PUT', url: '/api/ateliers/affiche-1', payload: { title: 'Affiche', doc, thumb } });
+    expect(put.statusCode).toBe(200);
+    expect(put.json().meta).toMatchObject({ id: 'affiche-1', title: 'Affiche', formatId: 'a4' });
+    const list = (await app.inject('/api/ateliers')).json();
+    expect(list).toHaveLength(1);
+    expect(list[0].doc).toBeUndefined();
+    expect((await app.inject('/api/ateliers/affiche-1')).json().doc).toEqual(doc);
+    expect((await app.inject('/api/ateliers/affiche-1/thumb.png')).statusCode).toBe(200);
+    expect((await app.inject({ method: 'PUT', url: '/api/ateliers/affiche-1', payload: { title: 'x' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'PUT', url: '/api/ateliers/..%2Fetc', payload: { doc } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'DELETE', url: '/api/ateliers/affiche-1' })).statusCode).toBe(200);
+    expect((await app.inject('/api/ateliers/affiche-1')).statusCode).toBe(404);
   });
 
   it('refuse les accès sans mot de passe quand il est configuré', async () => {

@@ -1,0 +1,15 @@
+id: bangers
+type: font
+title: Bangers
+family: Bangers
+files:
+- weight: 400
+  style: normal
+  path: Bangers-Regular.ttf
+tags:
+- police
+- titre
+- bd
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/fonts/bangers
+  license: OFL-1.1

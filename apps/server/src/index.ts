@@ -7,6 +7,7 @@ import { authFromEnv } from './auth.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../../..');
 const webDist = path.join(repo, 'apps/web/dist');
+const atelierDist = path.join(repo, 'apps/atelier/dist');
 
 const app = await buildApp({
   libraryRoot: process.env.FTD_LIBRARY ?? path.join(repo, 'library'),
@@ -14,6 +15,8 @@ const app = await buildApp({
   webFonts: process.env.FTD_WEB_FONTS !== 'off',
   chromiumPath: process.env.FTD_CHROMIUM_PATH,
   webDist: process.env.NODE_ENV === 'production' && existsSync(webDist) ? webDist : undefined,
+  atelierDist: process.env.NODE_ENV === 'production' && existsSync(atelierDist) ? atelierDist : undefined,
+  ateliersRoot: process.env.FTD_ATELIERS,
   auth: authFromEnv(),
   password: process.env.FTD_PASSWORD,
 });

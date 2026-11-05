@@ -11,6 +11,7 @@ Environment=NODE_ENV=production
 Environment=PORT=4310
 Environment=FTD_LIBRARY=/srv/ft-designer/library
 Environment=FTD_CACHE=/srv/ft-designer/cache
+Environment=FTD_ATELIERS=/srv/ft-designer/ateliers
 Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/ft-designer/.browsers
 EnvironmentFile=-/etc/ft-designer.env
 ExecStart=/usr/bin/npm start

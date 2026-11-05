@@ -1,8 +1,17 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/core" },
-    { "path": "apps/server" },
-    { "path": "apps/web" }
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "apps/server"
+    },
+    {
+      "path": "apps/web"
+    },
+    {
+      "path": "apps/atelier"
+    }
   ]
 }

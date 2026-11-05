@@ -1,0 +1,15 @@
+id: pacifico
+type: font
+title: Pacifico
+family: Pacifico
+files:
+- weight: 400
+  style: normal
+  path: Pacifico-Regular.ttf
+tags:
+- police
+- titre
+- script
+origin:
+  url: https://github.com/google/fonts/tree/main/ofl/pacifico
+  license: OFL-1.1

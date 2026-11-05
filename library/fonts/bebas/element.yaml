@@ -1,0 +1,16 @@
+id: bebas
+type: font
+title: Bebas Neue
+family: Bebas Neue
+files:
+- weight: 400
+  style: normal
+  path: BebasNeue-Regular.ttf
+tags:
+- police
+- titre
+- condensee
+- affiche
+origin:
+  url: https://github.com/google/fonts/tree/main/ofl/bebasneue
+  license: OFL-1.1

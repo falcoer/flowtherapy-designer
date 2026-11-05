@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { toFtsQuery } from '../src/search-index.js';
 
-const repoLibrary = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../library');
+const repoLibrary = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'fixtures/library');
 let app: Awaited<ReturnType<typeof buildApp>>;
 let root: string;
 let cacheRoot: string;

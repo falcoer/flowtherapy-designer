@@ -1,0 +1,16 @@
+id: flow-therapy-groupe-noir-blanc
+type: image
+title: Flow therapy groupe noir blanc
+source: source.jpeg
+meta:
+  width: 1600
+  height: 1068
+focus:
+  x: 0.5
+  y: 0.45
+tags:
+- photo
+- groupe
+- noir-et-blanc
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/medias/8b388508-71cf-44e5-ad62-d0ba88dbe9a6.JPG

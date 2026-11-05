@@ -1,0 +1,21 @@
+id: betty-guitare-chant
+type: image
+title: Betty — guitare et chant
+description: Betty au chant et à la guitare acoustique lors d’un concert en plein air.
+credit: C.B.
+date: '2026-06-07'
+source: source.jpeg
+meta:
+  width: 898
+  height: 1600
+focus:
+  x: 0.5
+  y: 0.45
+tags:
+- photo
+- concert
+- portrait
+- betty
+- plein-air
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/medias/7ad9b863-3450-4fec-996e-5837ef948a28.JPG

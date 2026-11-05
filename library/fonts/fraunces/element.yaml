@@ -1,0 +1,21 @@
+id: fraunces
+type: font
+title: Fraunces
+family: Fraunces
+files:
+- weight: 100
+  weightMax: 900
+  style: normal
+  path: Fraunces-SOFT-WONK-opsz-wght.ttf
+- weight: 100
+  weightMax: 900
+  style: italic
+  path: Fraunces-Italic-SOFT-WONK-opsz-wght.ttf
+tags:
+- police
+- titre
+- serif
+- fantaisie
+origin:
+  url: https://github.com/google/fonts/tree/main/ofl/fraunces
+  license: OFL-1.1

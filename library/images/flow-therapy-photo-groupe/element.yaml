@@ -1,0 +1,21 @@
+id: flow-therapy-photo-groupe
+type: image
+title: Flow Therapy — photo de groupe
+description: Betty, Jenni et Lauris réunis après une prestation.
+date: '2026-09-15'
+source: source.jpeg
+meta:
+  width: 2000
+  height: 1500
+focus:
+  x: 0.5
+  y: 0.45
+tags:
+- photo
+- concert
+- groupe
+- betty
+- jenni
+- lauris
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/medias/flow-therapy-photo-groupe.jpeg

@@ -1,0 +1,15 @@
+id: bungee
+type: font
+title: Bungee
+family: Bungee
+files:
+- weight: 400
+  style: normal
+  path: Bungee-Regular.ttf
+tags:
+- police
+- titre
+- enseigne
+origin:
+  url: https://github.com/google/fonts/tree/main/ofl/bungee
+  license: OFL-1.1

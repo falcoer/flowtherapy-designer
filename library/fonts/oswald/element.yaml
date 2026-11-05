@@ -1,0 +1,17 @@
+id: oswald
+type: font
+title: Oswald
+family: Oswald
+files:
+- weight: 200
+  weightMax: 700
+  style: normal
+  path: Oswald-wght.ttf
+tags:
+- police
+- titre
+- condensee
+- affiche
+origin:
+  url: https://github.com/google/fonts/tree/main/ofl/oswald
+  license: OFL-1.1

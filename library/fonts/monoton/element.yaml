@@ -1,0 +1,16 @@
+id: monoton
+type: font
+title: Monoton
+family: Monoton
+files:
+- weight: 400
+  style: normal
+  path: Monoton-Regular.ttf
+tags:
+- police
+- titre
+- neon
+- enseigne
+origin:
+  url: https://github.com/google/fonts/tree/main/ofl/monoton
+  license: OFL-1.1

@@ -1,0 +1,16 @@
+id: anton
+type: font
+title: Anton
+family: Anton
+files:
+- weight: 400
+  style: normal
+  path: Anton-Regular.ttf
+tags:
+- police
+- titre
+- condensee
+- affiche
+origin:
+  url: https://github.com/google/fonts/tree/main/ofl/anton
+  license: OFL-1.1

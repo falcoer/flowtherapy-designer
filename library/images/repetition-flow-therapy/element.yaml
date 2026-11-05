@@ -1,0 +1,20 @@
+id: repetition-flow-therapy
+type: image
+title: Flow Therapy en répétition
+description: Le trio au travail pendant une répétition.
+credit: C.B.
+date: '2026-09-15'
+source: source.jpeg
+meta:
+  width: 2048
+  height: 1012
+focus:
+  x: 0.5
+  y: 0.45
+tags:
+- photo
+- concert
+- groupe
+- repetition
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/medias/repetition-flow-therapy.jpeg

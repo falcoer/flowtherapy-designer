@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { appleClientSecret, appleProvider, googleProvider, type AuthConfig } from '../src/auth.js';
 
-const repoLibrary = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../library');
+const repoLibrary = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'fixtures/library');
 const jwt = (claims: object) => `e30.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.sig`;
 const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
 const pem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();

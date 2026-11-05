@@ -1,0 +1,16 @@
+id: abril
+type: font
+title: Abril Fatface
+family: Abril Fatface
+files:
+- weight: 400
+  style: normal
+  path: AbrilFatface-Regular.ttf
+tags:
+- police
+- titre
+- serif
+- affiche
+origin:
+  url: https://github.com/google/fonts/tree/main/ofl/abrilfatface
+  license: OFL-1.1

@@ -1,0 +1,18 @@
+id: kalam
+type: font
+title: Kalam
+family: Kalam
+files:
+- weight: 400
+  style: normal
+  path: Kalam-Regular.ttf
+- weight: 700
+  style: normal
+  path: Kalam-Bold.ttf
+tags:
+- police
+- manuscrite
+- craie
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/fonts/kalam
+  license: OFL-1.1

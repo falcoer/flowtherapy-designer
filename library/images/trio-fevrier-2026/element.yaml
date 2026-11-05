@@ -1,0 +1,26 @@
+id: trio-fevrier-2026
+type: image
+title: Le trio, février 2026
+description: 'Lauris, Jenni et Betty devant la banderole aux alpagas. Recadrée depuis une capture de galerie (774 × 513 px) : à remplacer par l’original si possible.'
+date: '2026-02-05'
+source: source.jpeg
+meta:
+  width: 774
+  height: 513
+focus:
+  x: 0.5
+  y: 0.4
+tags:
+- photo
+- groupe
+- portrait
+- lauris
+- jenni
+- betty
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/medias/a8c1539c-929f-4d04-9ad3-acca84a10487.JPG
+  crop:
+  - 74
+  - 767
+  - 848
+  - 1280

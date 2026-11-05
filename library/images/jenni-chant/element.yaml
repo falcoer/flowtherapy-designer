@@ -1,0 +1,20 @@
+id: jenni-chant
+type: image
+title: Jenni au chant
+description: Jenni au chant lors d’un concert de Flow Therapy.
+credit: C.B.
+date: '2026-08-20'
+source: source.jpeg
+meta:
+  width: 1068
+  height: 1600
+focus:
+  x: 0.5
+  y: 0.45
+tags:
+- photo
+- concert
+- portrait
+- jenni
+origin:
+  url: https://github.com/falcoer/flowtherapy-bio-website/blob/main/assets-src/medias/dcb14df1-98f3-486a-8e0f-f3825dd78b6b.jpeg
