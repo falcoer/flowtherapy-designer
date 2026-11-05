@@ -332,7 +332,7 @@ export function App() {
         setToast(`Export ${ff.title}…`);
         const c = await renderDoc(docRef.current, ff);
         const blob = exportKind === 'pdf' ? await pdfOf(c, ff) : await pngOf(c);
-        download(blob, fileName(project?.title ?? 'composition', ff, exportKind));
+        await download(blob, fileName(project?.title ?? 'composition', ff, exportKind));
       }
       setToast(list.length > 1 ? `${list.length} fichiers exportés` : 'Fichier exporté');
     } catch (err) {

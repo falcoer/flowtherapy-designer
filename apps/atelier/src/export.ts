@@ -95,8 +95,22 @@ export async function pdfOf(c: HTMLCanvasElement, f: Format): Promise<Blob> {
   return new Blob(parts as BlobPart[], { type: 'application/pdf' });
 }
 
+type Saver = { save(o: { filename: string; data: Blob }): Promise<unknown> };
+let saver: Promise<Saver | null> | null = null;
+/** Dans la démo publiée, le cadre ne télécharge pas lui-même : il passe par la visionneuse. */
+function viewerSaver(): Promise<Saver | null> {
+  const c = (window as unknown as { claude?: { use?: (n: string) => Promise<unknown> } }).claude;
+  if (!c?.use) return Promise.resolve(null);
+  return (saver ??= c.use('downloads').then((x) => (x as Saver | null) ?? null, () => null));
+}
+
 /** Téléchargement d'un fichier (sur iPad : ouvre la feuille de partage ou l'aperçu). */
-export function download(blob: Blob, name: string) {
+export async function download(blob: Blob, name: string) {
+  const v = await viewerSaver();
+  if (v) {
+    await v.save({ filename: name, data: blob });
+    return;
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
