@@ -2098,8 +2098,6 @@ export function App() {
                       ))}
                     </div>
                   )}
-                  <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
-                  <VSlider label="Opacité" value={opacity} onChange={(v) => setOpacity(Math.max(0.05, v))} />
                   <button
                     className="btn small"
                     disabled={!sel?.strokes.length}
@@ -2113,6 +2111,8 @@ export function App() {
                   >
                     <Icon name="paint-reset" />
                   </button>
+                  <VSlider label="Opacité" value={opacity} onChange={(v) => setOpacity(Math.max(0.05, v))} />
+                  <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
                   {tipOn(brushKind) && brushTip !== 'round' && <Dial label="Rotation de la brosse" value={brushRot} onChange={setBrushRot} />}
                   {tipOn(brushKind) && (
                     <button
@@ -2169,9 +2169,9 @@ export function App() {
                       </div>
                     </div>
                   )}
-                  <VSlider label="Taille" value={(stampSize - 0.02) / 0.28} onChange={(v) => setStampSize(0.02 + v * 0.28)} />
-                  <VSlider label="Dilution : de l’encre pleine au lavis" value={dilution} onChange={(v) => setDilution(Math.round(v * 100) / 100)} />
                   <Dial label="Rotation" value={stampRot} onChange={setStampRot} />
+                  <VSlider label="Dilution" value={dilution} onChange={(v) => setDilution(Math.round(v * 100) / 100)} />
+                  <VSlider label="Taille" value={(stampSize - 0.02) / 0.28} onChange={(v) => setStampSize(0.02 + v * 0.28)} />
                 </>
               )}
               {tool === 'cut' && (
