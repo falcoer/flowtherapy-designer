@@ -54,6 +54,7 @@ const PATHS: Record<string, string> = {
   'border-straight': 'M7 7h10v10H7zM3 3h18v18H3z',
   'border-torn': 'M7 7h10v10H7zM3 4l3-1 2 2 3-2 2 1 3-1 2 2 3-1v3l-1 3 1 2-1 3 1 3-1 3-3-1-2 1-3-1-2 2-3-2-2 1-3-1 1-3-1-2 1-3-1-3z',
   import: 'M12 3v12M7 10l5 5 5-5M4 17v3h16v-3',
+  stamp: 'M9 3h6v4l-1 3h4a2 2 0 0 1 2 2v3H4v-3a2 2 0 0 1 2-2h4L9 7zM4 18h16M6 21h12',
   palettes: 'M5 4h14v6H5zM8 4v6M11 4v6M14 4v6M5 14h14v6H5zM9 17h6',
 };
 

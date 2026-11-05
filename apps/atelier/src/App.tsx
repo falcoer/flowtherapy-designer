@@ -1,6 +1,7 @@
 import { FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format } from '@ftd/core';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { previewStamps } from './brush';
+import { paintStroke, previewStamps } from './brush';
+import { STAMPS, stampOf, stampSvg } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { ensureFont, fontFamily, loadFonts, onFontReady, TEXT_PRESETS, textCut, textEpoch, type TextPreset, type TextStyle } from './text';
@@ -58,7 +59,7 @@ import {
   tracePath,
 } from './scene';
 
-type Tool = 'cut' | 'paint' | 'filter' | 'transform' | 'material' | 'coat' | 'edge' | 'move';
+type Tool = 'cut' | 'paint' | 'stamp' | 'filter' | 'transform' | 'material' | 'coat' | 'edge' | 'move';
 /** Les cinq sections du mode Modifier l'objet, dans l'ordre de la barre. */
 type EditTool = 'filter' | 'transform' | 'material' | 'coat' | 'edge';
 const EDIT_SECTIONS: Array<[EditTool, string, string]> = [
@@ -239,6 +240,14 @@ export function App() {
   const [textEditing, setTextEditing] = useState(false);
   const [size, setSize] = useState(0.05);
   const [opacity, setOpacity] = useState(0.85);
+  /** Outil Tampons : motif, taille, opacité et dilution de l'encre. */
+  const [stampId, setStampId] = useState('etoile');
+  const [stampSize, setStampSize] = useState(0.08);
+  const [stampOpacity, setStampOpacity] = useState(0.9);
+  const [dilution, setDilution] = useState(0.15);
+  const [stampPick, setStampPick] = useState(false);
+  /** Survol du stylet (ou de la souris) : un repère montre où la pointe touchera. */
+  const hoverRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>({ zoom: 1, rot: 0, px: 0, py: 0 });
   const [rendu, setRendu] = useState(false);
   const [magnet, setMagnet] = useState(true);
@@ -808,6 +817,7 @@ export function App() {
 
   // --- pointeurs ---
   const onDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    hideHover();
     (e.target as Element).setPointerCapture(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     // le panneau lumière reste ouvert : on règle la lampe en regardant la page
@@ -823,6 +833,7 @@ export function App() {
     setModePick(false);
     setEpop(null);
     setBrushPick(false);
+    setStampPick(false);
     const touches = [...pointers.current.values()].filter((p) => p.type === 'touch');
     if (e.pointerType === 'touch' && touches.length >= 2) {
       // plusieurs doigts : on annule le geste à un doigt et on manipule la vue
@@ -943,8 +954,32 @@ export function App() {
       wet,
       drawn: 0,
       last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
-      stroke: { brush: brushKind, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] },
+      stroke:
+        t === 'stamp'
+          ? { brush: 'stamp', stamp: stampId, dilution, guide, size: stampSize, opacity: stampOpacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
+          : { brush: brushKind, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] },
     };
+    // le tampon s'imprime dès le contact
+    if (t === 'stamp') {
+      paintStroke(wet.getContext('2d')!, live.current.stroke!, doc.guides, tg);
+      redraw();
+    }
+  };
+
+  /** Repère de survol : un rond de la taille du pinceau, ou l'empreinte du tampon. */
+  const showHover = (e: React.PointerEvent) => {
+    const el = hoverRef.current;
+    if (!el) return;
+    const painting = tool === 'paint' || tool === 'stamp';
+    if (!painting || rendu || (e.pointerType !== 'pen' && e.pointerType !== 'mouse')) return hideHover();
+    const m = Math.min(f.width, f.height) * scale;
+    const d = tool === 'stamp' ? stampSize * 2 * m : size * 2 * m;
+    el.style.display = 'block';
+    el.style.width = el.style.height = `${Math.max(6, d)}px`;
+    el.style.transform = `translate(${e.clientX - Math.max(6, d) / 2}px, ${e.clientY - Math.max(6, d) / 2}px) rotate(${view.rot}rad)`;
+  };
+  const hideHover = () => {
+    if (hoverRef.current) hoverRef.current.style.display = 'none';
   };
 
   const pressure = (e: React.PointerEvent, last: { x: number; y: number; t: number; p: number } | null) => {
@@ -963,7 +998,8 @@ export function App() {
 
   const onMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const pt = pointers.current.get(e.pointerId);
-    if (!pt) return;
+    // pointe au-dessus de l'écran, sans contact : on montre seulement où elle touchera
+    if (!pt) return showHover(e);
     if (lampDrag.current === e.pointerId) {
       const q = toPage(e.clientX, e.clientY);
       const lp = lampOf(doc);
@@ -997,17 +1033,26 @@ export function App() {
     if (L.kind === 'paint' && L.stroke && L.layer) {
       const l = doc.layers.find((x) => x.id === L.layer)!;
       const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
+      const stamping = L.stroke.brush === 'stamp';
       for (const ev of events) {
+        // le stylet n'écrit qu'au contact
+        if (ev.pointerType === 'pen' && ev.buttons === 0) continue;
         const q = toPage(ev.clientX, ev.clientY);
         const pr = pressure(ev as unknown as React.PointerEvent, L.last!);
         L.last = { x: ev.clientX, y: ev.clientY, t: performance.now(), p: pr };
         const loc = toLocal(l, q.x, q.y);
         const prev = L.stroke.pts[L.stroke.pts.length - 1]!;
-        if (Math.hypot((loc.x - prev.x) * l.w, (loc.y - prev.y) * l.h) * Math.min(f.width, f.height) * scale < 1.5) continue;
+        const dist = Math.hypot((loc.x - prev.x) * l.w, (loc.y - prev.y) * l.h);
+        // un tampon traîné imprime une suite d'empreintes, espacées de leur taille
+        if (stamping ? dist < L.stroke.size * 2.2 : dist * Math.min(f.width, f.height) * scale < 1.5) continue;
         L.stroke.pts.push({ ...loc, p: pr });
       }
       const tg = paintTarget(l, f, scale * dpr);
-      L.drawn = previewStamps(L.wet!.getContext('2d')!, L.stroke, doc.guides, tg, L.drawn ?? 0);
+      if (stamping) {
+        const wx = L.wet!.getContext('2d')!;
+        wx.clearRect(0, 0, L.wet!.width, L.wet!.height);
+        paintStroke(wx, L.stroke, doc.guides, tg);
+      } else L.drawn = previewStamps(L.wet!.getContext('2d')!, L.stroke, doc.guides, tg, L.drawn ?? 0);
       redraw();
     } else if (L.kind === 'cut' && L.shaped) {
       // forme reconnue : elle reste telle quelle jusqu'au lâcher
@@ -1148,7 +1193,7 @@ export function App() {
       const s = L.stroke;
       const id = L.layer;
       live.current = { kind: null };
-      if (s.pts.length === 1) s.pts.push({ ...s.pts[0]!, x: s.pts[0]!.x + 0.001 });
+      if (s.pts.length === 1 && s.brush !== 'stamp') s.pts.push({ ...s.pts[0]!, x: s.pts[0]!.x + 0.001 });
       dotAt.current = s.pts.length <= 3 ? performance.now() : 0;
       update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, strokes: [...l.strokes, s] } : l)) }));
       return;
@@ -1480,7 +1525,7 @@ export function App() {
         /* on garde le décor tel quel */
       }
     }
-    const size = it.shelf === 'decors' ? 0.32 : it.shelf === 'logos' ? 0.5 : it.tags.includes('paysage') ? 1 : it.shelf === 'illustrations' ? 0.55 : 0.7;
+    const size = it.shelf === 'logos' ? 0.5 : it.tags.includes('paysage') ? 1 : it.shelf === 'illustrations' ? 0.55 : 0.7;
     const cut = it.rings?.length
       ? ringsToPath(
           it.rings.map((r) => r.map(([x, y]) => ({ x, y }))),
@@ -1539,6 +1584,7 @@ export function App() {
         if (e.shiftKey) redo();
         else undo();
       } else if (e.key === 'b') setTool('paint');
+      else if (e.key === 's') setTool('stamp');
       else if (e.key === 'c') setTool('cut');
       else if (e.key === 't') setTool(lastEdit.current);
       else if (e.key === 'e') setTool('edge');
@@ -1589,12 +1635,18 @@ export function App() {
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerCancel={onUp}
+        onPointerLeave={hideHover}
         onContextMenu={(e) => e.preventDefault()}
         onWheel={(e) => {
           // ordinateur : molette = zoom, Maj + molette = rotation
           if (e.shiftKey) setView((v) => ({ ...v, rot: v.rot + e.deltaY * 0.002 }));
           else setView((v) => ({ ...v, zoom: Math.max(0.3, Math.min(6, v.zoom * Math.exp(-e.deltaY * 0.0015))) }));
         }}
+      />
+      <div
+        ref={hoverRef}
+        className={`pen-hover ${tool === 'stamp' ? 'stamp' : ''}`}
+        style={tool === 'stamp' ? { backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(stampSvg(stampOf(stampId), guideColor(doc.guides[guide], 0.5)))}")` } : undefined}
       />
 
       {!rendu && (
@@ -1642,6 +1694,9 @@ export function App() {
             </button>
             <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre (B) : aquarelle, acrylique, pistolet, paillettes, poils">
               <Icon name="brush" />
+            </button>
+            <button className={`btn small ${tool === 'stamp' ? 'on' : ''}`} onClick={() => setTool('stamp')} title="Tampons (S) : motifs à la couleur courante, opacité et dilution">
+              <Icon name="stamp" />
             </button>
             <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => setTool(lastEdit.current)} title="Modifier l'objet (T) : filtres, transformations, matière, revêtement, bords">
               <Icon name="transform" />
@@ -1696,6 +1751,40 @@ export function App() {
                 )}
                 <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
                 <VSlider label="Opacité" value={opacity} onChange={(v) => setOpacity(Math.max(0.05, v))} />
+              </>
+            )}
+            {tool === 'stamp' && (
+              <>
+                <button
+                  className={`btn small stamp-btn ${stampPick ? 'on' : ''}`}
+                  onClick={() => setStampPick(!stampPick)}
+                  title={`Motif : ${stampOf(stampId).name}`}
+                  dangerouslySetInnerHTML={{ __html: stampSvg(stampOf(stampId)) }}
+                />
+                {stampPick && (
+                  <div className="mode-pop wide stamp-pop">
+                    <div className="b-title">Tampons</div>
+                    <div className="stamp-grid">
+                      {STAMPS.map((x) => (
+                        <button
+                          key={x.id}
+                          className={stampId === x.id ? 'on' : ''}
+                          onClick={() => {
+                            setStampId(x.id);
+                            setStampPick(false);
+                          }}
+                          title={x.name}
+                        >
+                          <span className="stamp-ico" dangerouslySetInnerHTML={{ __html: stampSvg(x, guideColor(doc.guides[guide], 0.5)) }} />
+                          <small>{x.name}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <VSlider label="Taille" value={(stampSize - 0.02) / 0.28} onChange={(v) => setStampSize(0.02 + v * 0.28)} />
+                <VSlider label="Opacité" value={stampOpacity} onChange={(v) => setStampOpacity(Math.max(0.05, v))} />
+                <VSlider label="Dilution" value={dilution} onChange={(v) => setDilution(Math.round(v * 100) / 100)} />
               </>
             )}
             {tool === 'cut' && (
@@ -2020,6 +2109,7 @@ export function App() {
           {sel && (
             <div className="status">
               {tool === 'paint' && `Peinture dans « ${sel.name} »`}
+              {tool === 'stamp' && `Tampon « ${stampOf(stampId).name} » dans « ${sel.name} » : touche pour imprimer, glisse pour une traînée`}
               {tool === 'cut' && `Trace un contour : le morceau se détache de la couche touchée${magnet ? `, aimanté sur les contours de « ${sel.name} »` : ''}`}
               {tool === 'filter' &&
                 `« ${sel.name} » · ${sel.kind === 'photo' ? [lookOf(sel.look?.style)?.name ?? 'photo originale', fxOf(sel.look?.draw?.id)?.name].filter(Boolean).join(' + ') : 'les filtres sont réservés aux photos'}`}

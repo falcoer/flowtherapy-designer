@@ -492,3 +492,17 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .pe-blend .seg button:disabled { opacity: 0.4; }
 .pe-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .pe-sliders label { gap: 0; }
+
+/* survol du stylet : où la pointe touchera */
+.pen-hover { position: fixed; left: 0; top: 0; display: none; pointer-events: none; z-index: 4; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9), inset 0 0 0 1px rgba(20, 16, 30, 0.55); }
+.pen-hover.stamp { border-radius: 0; box-shadow: none; background: center / contain no-repeat; opacity: 0.45; }
+
+/* outil Tampons */
+.stamp-btn svg { width: 24px; height: 24px; }
+.stamp-pop { width: 260px; }
+.stamp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.stamp-grid button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border-radius: 12px; }
+.stamp-grid button.on { background: var(--accent-soft); }
+.stamp-ico { width: 56px; height: 44px; display: grid; place-items: center; }
+.stamp-ico svg { max-width: 100%; max-height: 100%; }
+.stamp-grid small { font-size: 11px; color: var(--muted); }

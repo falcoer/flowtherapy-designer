@@ -1,4 +1,5 @@
 import { guideColor, type Guide, type Stroke } from './model';
+import { stampOf, stampPaths } from './stamps';
 
 /**
  * Pinceau aquarelle. Un trait se rend en trois passes :
@@ -118,6 +119,8 @@ export function paintStroke(dst: CanvasRenderingContext2D, s: Stroke, guides: Gu
       return glitter(dst, s, guides, t);
     case 'hair':
       return hair(dst, s, guides, t);
+    case 'stamp':
+      return stampInk(dst, s, guides, t);
     default:
       return aquarelle(dst, s, guides, t);
   }
@@ -151,6 +154,87 @@ function aquarelle(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
   dst.drawImage(sil, 0, 0);
   dst.globalAlpha = 0.75 * s.opacity;
   dst.drawImage(edge, 0, 0);
+  dst.restore();
+}
+
+/**
+ * Tampon encré : le motif est posé à chaque point du geste, à la couleur courante.
+ * Diluée, l'encre s'étale et s'éclaircit, le grain du papier la boit et
+ * le pigment se dépose sur les bords en séchant.
+ */
+function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
+  const def = stampOf(s.stamp);
+  const ps = stampPaths(def);
+  const g = guides[s.guide];
+  const dil = Math.max(0, Math.min(1, s.dilution ?? 0));
+  const r = rng(s.seed);
+  const { c: sil, ctx: sx } = buffer('a', t.pw, t.ph);
+  const n = s.pts.length;
+  let big = 0;
+  s.pts.forEach((p, i) => {
+    const R = s.size * t.pxPerMin * 2 * (0.75 + 0.35 * (p.p ?? 0.7));
+    big = Math.max(big, R);
+    const k = R / Math.max(def.w, def.h);
+    const ang = (r() - 0.5) * 0.35;
+    sx.save();
+    sx.translate(p.x * t.pw, p.y * t.ph);
+    sx.rotate(ang);
+    sx.scale(k, k);
+    sx.translate(-def.w / 2, -def.h / 2);
+    // un dégradé traverse le motif ; le long d'une traînée, chaque tampon prend sa teinte
+    let style: string | CanvasGradient = guideColor(g, n > 1 ? i / (n - 1) : 0);
+    if (g?.type === 'gradient' && n === 1) {
+      const lg = sx.createLinearGradient(0, 0, def.w, 0);
+      for (let q = 0; q <= 8; q++) lg.addColorStop(q / 8, guideColor(g, q / 8));
+      style = lg;
+    }
+    def.parts.forEach((part, j) => {
+      sx.globalAlpha = (part.alpha ?? 1) * (0.92 + 0.08 * r());
+      if (part.fill) {
+        sx.fillStyle = style;
+        sx.fill(ps[j]!);
+      } else {
+        sx.strokeStyle = style;
+        sx.lineWidth = part.width ?? 4;
+        sx.lineCap = 'round';
+        sx.lineJoin = 'round';
+        sx.stroke(ps[j]!);
+      }
+    });
+    sx.restore();
+  });
+  sx.globalAlpha = 1;
+  // encre pressée : le papier ne prend pas tout, même pleine
+  sx.globalCompositeOperation = 'destination-out';
+  sx.globalAlpha = 0.18 + 0.4 * dil;
+  sx.fillStyle = sx.createPattern(paperGrain(), 'repeat')!;
+  sx.fillRect(0, 0, t.pw, t.ph);
+  sx.globalCompositeOperation = 'source-over';
+  sx.globalAlpha = 1;
+  dst.save();
+  if (dil > 0.02) {
+    // l'eau étale l'encre : un lavis flou plus clair, et un liseré sur les bords
+    const { c: wash, ctx: wx } = buffer('b', t.pw, t.ph);
+    wx.filter = `blur(${Math.max(0.5, big * 0.05 * dil)}px)`;
+    wx.drawImage(sil, 0, 0);
+    wx.filter = 'none';
+    dst.globalAlpha = s.opacity * (1 - 0.55 * dil);
+    dst.drawImage(wash, 0, 0);
+    // liseré : la silhouette moins sa version floutée
+    const { c: edge, ctx: ex } = buffer('b', t.pw, t.ph);
+    ex.drawImage(sil, 0, 0);
+    ex.globalCompositeOperation = 'destination-out';
+    ex.filter = `blur(${Math.max(1, big * 0.03)}px)`;
+    ex.drawImage(sil, 0, 0);
+    dst.globalAlpha = s.opacity * 0.7 * dil;
+    dst.drawImage(edge, 0, 0);
+    // peu diluée, l'empreinte reste nette
+    dst.globalAlpha = s.opacity * (1 - dil) * 0.7;
+    dst.drawImage(sil, 0, 0);
+  } else {
+    dst.globalAlpha = s.opacity;
+    dst.drawImage(sil, 0, 0);
+  }
   dst.restore();
 }
 

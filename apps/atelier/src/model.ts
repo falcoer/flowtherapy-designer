@@ -43,7 +43,7 @@ export const cssGradient = (stops: string[], blend: Blend | undefined, angle = '
     : (stops[0] ?? '#888888');
 
 /** Modes de projection du pinceau. */
-export type BrushKind = 'aquarelle' | 'acrylic' | 'roller' | 'spray' | 'glitter' | 'hair';
+export type BrushKind = 'aquarelle' | 'acrylic' | 'roller' | 'spray' | 'glitter' | 'hair' | 'stamp';
 
 export interface Stroke {
   brush: BrushKind;
@@ -53,6 +53,9 @@ export interface Stroke {
   opacity: number;
   seed: number;
   pts: Pt[];
+  /** Outil Tampons : motif posé à chaque point, et dilution de l'encre (0 = encre pleine, 1 = très diluée). */
+  stamp?: string;
+  dilution?: number;
 }
 
 export type BorderStyle = 'round' | 'straight' | 'torn' | 'stamp' | 'burst' | 'double';

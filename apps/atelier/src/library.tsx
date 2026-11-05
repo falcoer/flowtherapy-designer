@@ -19,7 +19,7 @@ export interface LibItem {
   tint?: boolean;
   vector?: boolean;
 }
-export type Shelf = 'photos' | 'illustrations' | 'decors' | 'logos';
+export type Shelf = 'photos' | 'illustrations' | 'logos';
 
 export type DrawerShelf = Shelf | 'formes' | 'textes';
 export const SHELVES: Array<[DrawerShelf, string]> = [
@@ -27,7 +27,6 @@ export const SHELVES: Array<[DrawerShelf, string]> = [
   ['formes', 'Formes'],
   ['photos', 'Photos'],
   ['illustrations', 'Illustrations'],
-  ['decors', 'Décors'],
   ['logos', 'Logos'],
 ];
 

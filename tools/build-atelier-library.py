@@ -24,7 +24,7 @@ MAX = 1600
 THUMB = 360
 
 # rayons du tiroir, par étiquette (la première qui correspond l'emporte)
-SHELVES = [('photo', 'photos'), ('mascotte', 'illustrations'), ('paysage', 'illustrations'), ('decor', 'decors'), ('qr', 'logos'), ('presse', 'logos'), ('logo', 'logos')]
+SHELVES = [('photo', 'photos'), ('mascotte', 'illustrations'), ('paysage', 'illustrations'), ('qr', 'logos'), ('presse', 'logos'), ('logo', 'logos')]
 
 
 def shelf(tags):
@@ -157,7 +157,7 @@ def main():
             item['thumb'] = f'library/{id_}-thumb.webp'
             item['w'], item['h'] = big.size
         items.append(item)
-    order = {'photos': 0, 'illustrations': 1, 'decors': 2, 'logos': 3}
+    order = {'photos': 0, 'illustrations': 1, 'logos': 2}
     items.sort(key=lambda x: (order[x['shelf']], x.get('date', '') == '', x['title']))
     (OUT / 'index.json').write_text(json.dumps({'items': items, 'fonts': fonts()}, ensure_ascii=False, separators=(',', ':')))
     size = sum(p.stat().st_size for p in OUT.rglob('*') if p.is_file())

@@ -120,10 +120,7 @@ def main():
         found = next(x for x in (SRC / 'images').iterdir() if unicodedata.normalize('NFC', x.name) == unicodedata.normalize('NFC', file))
         done.append(image(id_, found, title, ['paysage', 'aquarelle', 'fond'], 'images/' + file))
 
-    # décors à la craie (masques monochromes) et QR code du site
-    names = {'arrow': 'flèche', 'heart': 'cœur', 'paint-splash': 'éclaboussure', 'spark': 'étincelle', 'star': 'étoile', 'swoosh': 'virgule', 'underline': 'soulignement'}
-    for k, fr in names.items():
-        done.append(image(f'craie-{slug(fr)}', SRC / f'decorations/chalk-{k}.svg', f'Craie : {fr}', ['decor', 'craie', 'masque'], f'decorations/chalk-{k}.svg'))
+    # QR code du site (les décors à la craie sont devenus les tampons de l'atelier : apps/atelier/src/stamps.ts)
     done.append(image('qr-flowtherapymusic', SRC / 'decorations/flowtherapymusic-qr.svg', 'QR code flowtherapymusic.com', ['qr', 'lien', 'flow-therapy'], 'decorations/flowtherapymusic-qr.svg'))
     done.append(image('qr-flowtherapymusic-png', SRC / 'decorations/flowtherapymusic-qr.png', 'QR code flowtherapymusic.com (image)', ['qr', 'lien', 'flow-therapy'], 'decorations/flowtherapymusic-qr.png'))
 

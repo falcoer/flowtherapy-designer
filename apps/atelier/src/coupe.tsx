@@ -436,7 +436,7 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
         <Range label="Largeur" value={Math.sqrt((bd.width - 0.002) / 0.198)} onChange={(v) => live({ border: { ...bd, width: 0.002 + Math.round(v * v * 198) / 1000 } })} />
       </>
     );
-  } else if (item.key === 'bevel') body = <Range label="Relief" value={l.bevel ?? 0} onChange={(v) => live({ bevel: Math.round(v * 100) / 100 })} />;
+  } else if (item.key === 'bevel') body = <Range label="Relief" value={l.bevel ?? 0} onChange={(v) => live({ bevel: Math.max(0.05, Math.round(v * 100) / 100) })} />;
   else if (item.key === 'glow' && l.glow) {
     const gl = l.glow;
     body = (
