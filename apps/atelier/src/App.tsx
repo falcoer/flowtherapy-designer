@@ -1053,9 +1053,18 @@ export function App() {
    * stylet la donne (Pencil Pro), sinon la direction où il penche. Tenu en main droite,
    * penché vers le bas à droite, le tampon est droit ; tourner le crayon autour de la pointe le tourne.
    */
-  type PenLike = { pointerType: string; twist?: number; tiltX?: number; tiltY?: number };
+  type PenLike = { pointerType: string; buttons?: number; twist?: number; tiltX?: number; tiltY?: number };
   /** Angle du tampon à l'écran : celui du curseur, plus la rotation du crayon si un navigateur la donne un jour. */
-  const stampScreenAngle = (e: PenLike) => stampRot + (e.pointerType === 'pen' && e.twist ? (e.twist * Math.PI) / 180 : 0);
+  // la rotation du crayon n'arrive qu'au contact : le survol reprend la dernière connue
+  const lastTwist = useRef(0);
+  const twistSeen = useRef(false);
+  const stampScreenAngle = (e: PenLike) => {
+    if (e.pointerType !== 'pen') return stampRot;
+    // au contact, la valeur reçue fait foi (0 compris) dès que le crayon a montré qu'il la donne
+    if (e.twist) twistSeen.current = true;
+    if (e.buttons && twistSeen.current) lastTwist.current = ((e.twist ?? 0) * Math.PI) / 180;
+    return stampRot + lastTwist.current;
+  };
   /** Rotation et inclinaison du tampon, dans le repère de la couche. */
   const stampAngle = (e: PenLike, l: Layer) => {
     const out: { r?: number; k?: number; d?: number } = { r: stampScreenAngle(e) - view.rot - (l.rot ?? 0) };
