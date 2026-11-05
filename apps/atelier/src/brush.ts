@@ -1,5 +1,5 @@
 import { guideColor, type Guide, type Pt, type Stroke } from './model';
-import { stampOf, stampPaths } from './stamps';
+import { stampOf, stampPaths, type StampDef } from './stamps';
 
 /**
  * Pinceau aquarelle. Un trait se rend en trois passes :
@@ -205,24 +205,29 @@ function stampTmp(S: number) {
  * Chacune suit le sens du pinceau, varie un peu en taille et en angle, et penche au hasard
  * comme si elle était posée sur une surface qui fuit.
  */
-function sowPrints(s: Stroke, t: Target, r: () => number) {
+function sowPrints(s: Stroke, t: Target, r: () => number, def: StampDef) {
   const o = s.sow!;
   const base = s.size * t.pxPerMin * 2;
-  const out: Array<Pt & { R: number }> = [];
+  const out: Array<Pt & { R: number; flip?: boolean }> = [];
   const rot0 = s.pts[0]?.r ?? 0;
+  const ahead = def.ahead ?? 0;
+  let foot = 0;
   // pas entre deux copies : serré à forte densité
   const gap = base * (1.6 - 1.4 * o.density);
   let next = 0;
   let L = 0;
   const pts = s.pts;
   const put = (x: number, y: number, dir: number, p: number) => {
-    const R = base * (0.75 + 0.35 * p) * (0.6 + 0.6 * r());
-    const off = (r() - 0.5) * 2 * o.spread * base * 1.6;
-    const along = (r() - 0.5) * gap * 0.6;
+    // traces de pas : en file, gauche puis droite, à peine irrégulières
+    const pair = !!def.pair;
+    const side = pair ? (foot++ % 2 ? 1 : -1) : 0;
+    const R = base * (0.75 + 0.35 * p) * (pair ? 0.95 + 0.1 * r() : 0.6 + 0.6 * r());
+    const off = pair ? side * (0.25 + o.spread) * base * 0.8 + (r() - 0.5) * base * 0.1 : (r() - 0.5) * 2 * o.spread * base * 1.6;
+    const along = (r() - 0.5) * gap * (pair ? 0.1 : 0.6);
     const px = x + Math.cos(dir) * along - Math.sin(dir) * off;
     const py = y + Math.sin(dir) * along + Math.cos(dir) * off;
     const k = o.persp * (0.25 + 0.75 * r());
-    out.push({ x: px / t.pw, y: py / t.ph, p, R, r: dir + rot0 + (r() - 0.5) * 0.5, k: k > 0.02 ? Math.min(0.9, k) : undefined, d: r() * Math.PI * 2 });
+    out.push({ x: px / t.pw, y: py / t.ph, p, R, r: dir - ahead + rot0 + (r() - 0.5) * (pair ? 0.25 : 0.5), k: k > 0.02 ? Math.min(0.9, k) : undefined, d: r() * Math.PI * 2, flip: side > 0 });
   };
   if (pts.length === 1) {
     put(pts[0]!.x * t.pw, pts[0]!.y * t.ph, 0, pts[0]!.p ?? 0.7);
@@ -241,7 +246,7 @@ function sowPrints(s: Stroke, t: Target, r: () => number) {
     while (next <= L + seg) {
       const u = (next - L) / seg;
       put(ax + dx * u, ay + dy * u, dir, (a.p ?? 0.7) + ((b.p ?? 0.7) - (a.p ?? 0.7)) * u);
-      next += gap * (0.6 + 0.8 * r());
+      next += def.pair ? gap * (0.95 + 0.1 * r()) : gap * (0.6 + 0.8 * r());
     }
     L += seg;
   }
@@ -302,7 +307,7 @@ function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: 
   const { c: sil, ctx: sx } = buffer('a', t.pw, t.ph);
   const sow = s.sow;
   const wipe = s.wipe && !sow;
-  const prints = sow ? sowPrints(s, t, r) : (wipe ? s.pts.slice(0, 1) : s.pts).map((p) => ({ ...p, R: s.size * t.pxPerMin * 2 * (0.75 + 0.35 * (p.p ?? 0.7)) }));
+  const prints: Array<Pt & { R: number; flip?: boolean }> = sow ? sowPrints(s, t, r, def) : (wipe ? s.pts.slice(0, 1) : s.pts).map((p) => ({ ...p, R: s.size * t.pxPerMin * 2 * (0.75 + 0.35 * (p.p ?? 0.7)) }));
   const n = prints.length;
   let big = 0;
   prints.forEach((p, i) => {
@@ -321,7 +326,7 @@ function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: 
       sx.save();
       sx.translate(S / 2, S / 2);
       sx.rotate(ang);
-      sx.scale(k, k);
+      sx.scale(p.flip ? -k : k, k);
       sx.translate(-def.w / 2, -def.h / 2);
       // un dégradé traverse le motif ; le long d'une traînée, chaque tampon prend sa teinte
       let style: string | CanvasGradient = guideColor(g, n > 1 ? i / (n - 1) : 0);

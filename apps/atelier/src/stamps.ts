@@ -15,7 +15,15 @@ export interface StampDef {
   w: number;
   h: number;
   parts: StampPart[];
+  /** Sens du motif (radians) : semé, il avance dans la direction du geste. Haut du motif = -π/2. */
+  ahead?: number;
+  /** Traces de pas : semées, elles alternent gauche et droite (pied miroir), en file. */
+  pair?: boolean;
 }
+
+/** Ellipse en tracé SVG. */
+const ell = (cx: number, cy: number, rx: number, ry: number) => `M${cx - rx} ${cy}a${rx} ${ry} 0 1 0 ${2 * rx} 0a${rx} ${ry} 0 1 0 ${-2 * rx} 0Z`;
+const UP = -Math.PI / 2;
 
 export const STAMPS: StampDef[] = [
   {
@@ -165,6 +173,85 @@ export const STAMPS: StampDef[] = [
         width: 3.0,
         alpha: 0.44,
       },
+    ],
+  },
+  {
+    id: 'nuage',
+    name: 'Nuage',
+    w: 190.0,
+    h: 110.0,
+    parts: [
+      { d: 'M42 94c-24 0-34-20-23-36 7-10 19-12 27-8 2-21 21-35 41-29 11-15 35-15 45 2 19-4 35 10 33 29 15 4 19 27 4 37-6 4-14 5-21 5Z', width: 8.0 },
+      { d: 'M46 86c-16 0-23-13-16-24 5-7 14-8 20-5 2-15 15-25 30-21 8-11 25-10 32 2 14-3 25 7 24 20', width: 3.0, alpha: 0.42 },
+    ],
+  },
+  {
+    id: 'laine',
+    name: 'Laine',
+    w: 170.0,
+    h: 120.0,
+    parts: [
+      { d: 'M16 54c0-22 28-22 28 0s-22 16-16-4c7-20 35-20 37 2s-20 20-13-2c7-22 37-22 37 0s-20 18-13-2c7-20 35-18 35 4s-20 18-15 0', width: 6.0 },
+      { d: 'M24 92c0-18 24-18 24 0s-18 13-13-3c6-17 30-17 31 2s-17 16-11-2c6-18 31-18 31 0s-17 15-11-2c6-17 29-15 29 3', width: 5.0, alpha: 0.7 },
+    ],
+  },
+  {
+    id: 'feuille',
+    name: 'Feuille',
+    w: 100.0,
+    h: 170.0,
+    ahead: UP,
+    parts: [
+      { d: 'M50 162C18 124 8 72 50 10c42 62 32 114 0 152Z', width: 7.0 },
+      { d: 'M50 162V34M50 120 30 102M50 92l20-18M50 68 34 54', width: 3.0, alpha: 0.6 },
+    ],
+  },
+  {
+    id: 'pas',
+    name: 'Pas',
+    w: 100.0,
+    h: 170.0,
+    ahead: UP,
+    pair: true,
+    parts: [
+      { d: 'M30 48C17 62 22 90 30 106c6 14 0 26 2 42 2 17 31 19 35 0 3-14-4-26 2-44 6-18 22-36 16-52-6-14-41-16-55-4Z', fill: true },
+      { d: [ell(34, 26, 10, 12), ell(52, 18, 6, 7.5), ell(65, 21, 5.5, 6.5), ell(76, 28, 5, 6), ell(84, 38, 4.5, 5)].join(''), fill: true },
+    ],
+  },
+  {
+    id: 'chien',
+    name: 'Chien',
+    w: 120.0,
+    h: 120.0,
+    ahead: UP,
+    pair: true,
+    parts: [
+      { d: 'M60 114c-23 0-41-10-39-29 2-16 18-22 26-34 6-9 19-9 25 0 8 12 24 18 26 34 2 19-15 29-38 29Z', fill: true },
+      { d: [ell(22, 50, 10, 13), ell(45, 24, 10, 13.5), ell(75, 24, 10, 13.5), ell(98, 50, 10, 13)].join(''), fill: true },
+    ],
+  },
+  {
+    id: 'fer',
+    name: 'Fer à cheval',
+    w: 110.0,
+    h: 120.0,
+    ahead: UP,
+    pair: true,
+    parts: [
+      { d: 'M23 110C9 80 9 40 30 20 44 7 66 7 80 20c21 20 21 60 7 90', width: 16.0 },
+      { d: 'M23 86v.1M17 58v.1M28 32v.1M87 86v.1M93 58v.1M82 32v.1', width: 5.0, alpha: 0.5 },
+    ],
+  },
+  {
+    id: 'sabot',
+    name: 'Sabot',
+    w: 100.0,
+    h: 130.0,
+    ahead: UP,
+    pair: true,
+    parts: [
+      { d: 'M45 124C27 124 17 111 17 90 17 60 27 30 40 12c4-6 9-4 9 4v102c0 4-1 6-4 6Z', fill: true },
+      { d: 'M55 124c18 0 28-13 28-34 0-30-10-60-23-78-4-6-9-4-9 4v102c0 4 1 6 4 6Z', fill: true },
     ],
   },
 ];
