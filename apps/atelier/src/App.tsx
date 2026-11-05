@@ -95,6 +95,7 @@ const BRUSHES: Array<[BrushKind, string, string]> = [
   ['spray', 'Acrylique pistolet', 'nuage de gouttelettes'],
   ['glitter', 'Paillettes', 'éclats qui scintillent'],
   ['hair', 'Poils', 'brins fins effilés'],
+  ['branch', 'Ramures', 'veines, racines : la couleur se propage'],
 ];
 export const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
   [null, 'Aucune', 'pas de lueur'],
@@ -265,6 +266,10 @@ export function App() {
   const [epop, setEpop] = useState<string | null>(null);
   const [brushKind, setBrushKind] = useState<BrushKind>('aquarelle');
   const [brushPick, setBrushPick] = useState(false);
+  /** Ramures : nombre de ramifications et convergence. */
+  const [branches, setBranches] = useState(6);
+  const [converge, setConverge] = useState(0.3);
+  const growTimer = useRef(0);
   /** Couleur glissée depuis la palette (position écran). */
   const [dragGuide, setDragGuide] = useState<{ i: number; x: number; y: number } | null>(null);
   /** Bulle ouverte de l'outil Transformer : style, guide du style, effets, guide d'effet. */
@@ -991,8 +996,26 @@ export function App() {
       stroke:
         t === 'stamp'
           ? { brush: 'stamp', stamp: stampId, dilution, guide, size: stampSize, opacity: stampOpacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
-          : { brush: brushKind, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] },
+          : brushKind === 'branch'
+            ? { brush: 'branch', branches, converge, grow: 0.12, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
+            : { brush: brushKind, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] },
     };
+    // ramures : tant que la pointe reste posée, les ramifications poussent
+    if (t !== 'stamp' && brushKind === 'branch') {
+      const L0 = live.current;
+      const t0 = performance.now();
+      const tick = () => {
+        if (live.current !== L0 || !L0.stroke) return;
+        L0.stroke.grow = Math.min(1, 0.12 + (performance.now() - t0) / 1400);
+        const wx = wet.getContext('2d')!;
+        wx.clearRect(0, 0, wet.width, wet.height);
+        paintStroke(wx, L0.stroke, doc.guides, tg);
+        redraw();
+        if (L0.stroke.grow < 1) growTimer.current = requestAnimationFrame(tick);
+      };
+      cancelAnimationFrame(growTimer.current);
+      growTimer.current = requestAnimationFrame(tick);
+    }
     // le tampon s'imprime dès le contact
     if (t === 'stamp') {
       paintStroke(wet.getContext('2d')!, live.current.stroke!, doc.guides, tg);
@@ -1068,6 +1091,7 @@ export function App() {
       const l = doc.layers.find((x) => x.id === L.layer)!;
       const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
       const stamping = L.stroke.brush === 'stamp';
+      const branching = L.stroke.brush === 'branch';
       for (const ev of events) {
         // le stylet n'écrit qu'au contact
         if (ev.pointerType === 'pen' && ev.buttons === 0) continue;
@@ -1082,7 +1106,7 @@ export function App() {
         L.stroke.pts.push({ ...loc, p: pr });
       }
       const tg = paintTarget(l, f, scale * dpr);
-      if (stamping) {
+      if (stamping || branching) {
         const wx = L.wet!.getContext('2d')!;
         wx.clearRect(0, 0, L.wet!.width, L.wet!.height);
         paintStroke(wx, L.stroke, doc.guides, tg);
@@ -1813,6 +1837,12 @@ export function App() {
                 )}
                 <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
                 <VSlider label="Opacité" value={opacity} onChange={(v) => setOpacity(Math.max(0.05, v))} />
+                {brushKind === 'branch' && (
+                  <>
+                    <VSlider label="Ramifications" value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
+                    <VSlider label="Convergence" value={converge} onChange={(v) => setConverge(Math.round(v * 100) / 100)} />
+                  </>
+                )}
               </>
             )}
             {tool === 'stamp' && (

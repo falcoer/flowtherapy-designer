@@ -121,6 +121,8 @@ export function paintStroke(dst: CanvasRenderingContext2D, s: Stroke, guides: Gu
       return hair(dst, s, guides, t);
     case 'stamp':
       return stampInk(dst, s, guides, t);
+    case 'branch':
+      return branchInk(dst, s, guides, t);
     default:
       return aquarelle(dst, s, guides, t);
   }
@@ -235,6 +237,118 @@ function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: 
     dst.globalAlpha = s.opacity;
     dst.drawImage(sil, 0, 0);
   }
+  dst.restore();
+}
+
+/**
+ * Ramures : la couleur se concentre au point touché puis se propage en ramifications
+ * (veines, racines, fissures). Chaque branche avance en hésitant, s'amincit, se divise ;
+ * vers les bords, le pigment s'égrène en points épars. Tracé, le geste devient un tronc
+ * d'où partent les ramifications. La couleur suit le guide du cœur vers les extrémités.
+ */
+function branchInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
+  const r = rng(s.seed);
+  const g = guides[s.guide];
+  const grow = Math.max(0.05, Math.min(1, s.grow ?? 1));
+  const R = s.size * t.pxPerMin * 4;
+  const w0 = Math.max(0.8, s.size * t.pxPerMin * 0.2);
+  const nb = Math.max(1, Math.round(s.branches ?? 6));
+  const conv = s.converge ?? 0.3;
+  const { c: buf, ctx: bx } = buffer('a', t.pw, t.ph);
+  bx.lineCap = 'round';
+  bx.lineJoin = 'round';
+  // grille d'occupation : une branche qui en touche une autre s'y arrête, sauf si elles peuvent se croiser
+  const cell = Math.max(2, w0 * 1.2);
+  const gw = Math.ceil(t.pw / cell) + 1;
+  const occ = new Int32Array(gw * (Math.ceil(t.ph / cell) + 1));
+  const pts = s.pts.map((p) => ({ x: p.x * t.pw, y: p.y * t.ph, p: p.p ?? 0.7 }));
+  // tronc : le geste lui-même
+  if (pts.length > 2) {
+    bx.strokeStyle = guideColor(g, 0);
+    bx.lineWidth = w0 * 1.3;
+    bx.beginPath();
+    pts.forEach((q, i) => (i ? bx.lineTo(q.x, q.y) : bx.moveTo(q.x, q.y)));
+    bx.stroke();
+  }
+  // départs : le point touché, puis le long du tronc
+  const seeds: Array<{ x: number; y: number; p: number }> = [pts[0]!];
+  let acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    acc += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
+    if (acc > R * 0.45) {
+      seeds.push(pts[i]!);
+      acc = 0;
+    }
+  }
+  let id = 0;
+  type Br = { x: number; y: number; a: number; w: number; len: number; d0: number; id: number; depth: number };
+  const queue: Br[] = [];
+  for (const sd of seeds) {
+    // cœur : couleur très concentrée
+    const core = R * (0.12 + 0.08 * sd.p);
+    const rg = bx.createRadialGradient(sd.x, sd.y, 0, sd.x, sd.y, core);
+    rg.addColorStop(0, guideColor(g, 0));
+    rg.addColorStop(0.55, guideColor(g, 0.05));
+    rg.addColorStop(1, guideColor(g, 0.1).slice(0, 7) + '00');
+    bx.fillStyle = rg;
+    bx.beginPath();
+    bx.arc(sd.x, sd.y, core, 0, Math.PI * 2);
+    bx.fill();
+    const a0 = r() * Math.PI * 2;
+    for (let k = 0; k < nb; k++) queue.push({ x: sd.x, y: sd.y, a: a0 + (k / nb) * Math.PI * 2 + (r() - 0.5) * 0.8, w: w0 * (0.7 + 0.5 * sd.p), len: R * (0.55 + 0.45 * r()) * grow, d0: 0, id: ++id, depth: 0 });
+  }
+  const step = Math.max(1, w0 * 0.8);
+  let guard = 0;
+  while (queue.length && guard++ < 4000) {
+    const b = queue.pop()!;
+    let { x, y, a, w } = b;
+    let travelled = 0;
+    let turn = (r() - 0.5) * 0.1;
+    while (travelled < b.len && w > 0.25) {
+      // hésitation : la direction dérive doucement, avec des coudes francs de temps en temps
+      turn += (r() - 0.5) * 0.12;
+      turn *= 0.85;
+      a += turn + (r() < 0.04 ? (r() - 0.5) * 1.2 : 0);
+      const nx = x + Math.cos(a) * step;
+      const ny = y + Math.sin(a) * step;
+      if (nx < 0 || ny < 0 || nx >= t.pw || ny >= t.ph) break;
+      const ci = Math.floor(ny / cell) * gw + Math.floor(nx / cell);
+      const other = occ[ci]!;
+      const f = (b.d0 + travelled) / (R * grow);
+      bx.strokeStyle = guideColor(g, Math.min(1, f));
+      bx.lineWidth = w;
+      bx.beginPath();
+      bx.moveTo(x, y);
+      bx.lineTo(nx, ny);
+      bx.stroke();
+      x = nx;
+      y = ny;
+      travelled += step;
+      if (other && other !== b.id && travelled > step * 3 && r() > conv) break;
+      occ[ci] = b.id;
+      w *= 0.975 - 0.012 * r();
+      // division : une branche fille part de côté, plus fine et plus courte
+      if (b.depth < 6 && r() < 0.05 + 0.04 * (nb / 12)) {
+        const side = r() < 0.5 ? -1 : 1;
+        queue.push({ x, y, a: a + side * (0.35 + 0.6 * r()), w: w * 0.75, len: (b.len - travelled) * (0.5 + 0.4 * r()), d0: b.d0 + travelled, id: ++id, depth: b.depth + 1 });
+      }
+      // vers les extrémités, le pigment s'égrène
+      if (f > 0.45 && r() < 0.25 * f) {
+        const dr = w * 2 + r() * R * 0.05;
+        const da = r() * Math.PI * 2;
+        bx.fillStyle = guideColor(g, Math.min(1, f));
+        bx.globalAlpha = 0.3 + 0.4 * r();
+        bx.beginPath();
+        bx.arc(x + Math.cos(da) * dr, y + Math.sin(da) * dr, Math.max(0.4, w * (0.3 + 0.5 * r())), 0, Math.PI * 2);
+        bx.fill();
+        bx.globalAlpha = 1;
+      }
+    }
+  }
+  bx.globalAlpha = 1;
+  dst.save();
+  dst.globalAlpha = s.opacity;
+  dst.drawImage(buf, 0, 0);
   dst.restore();
 }
 
