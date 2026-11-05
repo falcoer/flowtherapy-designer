@@ -252,12 +252,24 @@ export function App() {
   const [stampSize, setStampSize] = useState(0.08);
   const [stampOpacity, setStampOpacity] = useState(0.9);
   const [dilution, setDilution] = useState(0.15);
-  /** Rotation choisie du tampon (radians), ajoutée à celle du stylet quand il la suit. */
+  /** Rotation du tampon (radians), fixée au curseur : Safari ne transmet pas la rotation du crayon. */
   const [stampRot, setStampRot] = useState(0);
-  const [stampFollow, setStampFollow] = useState(true);
-  const [stampWipe, setStampWipe] = useState(true);
-  /** Ce que le stylet transmet vraiment : sa rotation, son inclinaison, ou rien. */
-  const [penSrc, setPenSrc] = useState<'rotation' | 'inclinaison' | 'aucun' | null>(null);
+  /** Réglage global : l'inclinaison du stylet met les empreintes en perspective. */
+  const [penTilt, setPenTiltState] = useState(() => {
+    try {
+      return localStorage.getItem('ftd-atelier-tilt') !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const setPenTilt = (v: boolean) => {
+    setPenTiltState(v);
+    try {
+      localStorage.setItem('ftd-atelier-tilt', v ? 'on' : 'off');
+    } catch {
+      /* stockage indisponible */
+    }
+  };
   const [burnChar, setBurnChar] = useState(0.3);
   const [branchCore, setBranchCore] = useState(1);
   const [burnHole, setBurnHole] = useState(true);
@@ -1006,7 +1018,7 @@ export function App() {
       last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
       stroke:
         t === 'stamp'
-          ? { brush: 'stamp', stamp: stampId, dilution, wipe: stampWipe, guide, size: stampSize, opacity: stampOpacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr, ...stampAngle(e, target) }] }
+          ? { brush: 'stamp', stamp: stampId, dilution, wipe: true, guide, size: stampSize, opacity: stampOpacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr, ...stampAngle(e, target) }] }
           : brushKind === 'burn'
             ? { brush: 'burn', grow: 0.15, char: burnChar, hole: burnHole, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
             : brushKind === 'branch'
@@ -1041,39 +1053,17 @@ export function App() {
    * stylet la donne (Pencil Pro), sinon la direction où il penche. Tenu en main droite,
    * penché vers le bas à droite, le tampon est droit ; tourner le crayon autour de la pointe le tourne.
    */
-  type PenLike = { pointerType: string; twist?: number; tiltX?: number; tiltY?: number; azimuthAngle?: number; altitudeAngle?: number };
-  const penAngle = (e: PenLike) => {
-    if (e.pointerType !== 'pen') return null;
-    if (e.twist) return (e.twist * Math.PI) / 180;
-    const tx = e.tiltX ?? 0;
-    const ty = e.tiltY ?? 0;
-    if (Math.hypot(tx, ty) >= 5) return Math.atan2(ty, tx) - Math.PI / 4;
-    // certains navigateurs ne donnent que l'azimut et l'altitude
-    if (e.azimuthAngle !== undefined && e.altitudeAngle !== undefined && e.altitudeAngle < Math.PI / 2 - 0.09) return e.azimuthAngle - Math.PI / 4;
-    return null;
-  };
-  const notePen = (e: PenLike) => {
-    if (e.pointerType !== 'pen') return;
-    const src = e.twist ? 'rotation' : penAngle(e) !== null ? 'inclinaison' : 'aucun';
-    if (src !== penSrc) setPenSrc(src);
-  };
-  /** Angle du tampon à l'écran : rotation choisie, plus celle du stylet s'il la suit. */
-  const stampScreenAngle = (e: PenLike) => {
-    const a = stampFollow ? penAngle(e) : null;
-    if (a === null && !stampRot) return null;
-    return (a ?? 0) + stampRot;
-  };
+  type PenLike = { pointerType: string; twist?: number; tiltX?: number; tiltY?: number };
+  /** Angle du tampon à l'écran : celui du curseur, plus la rotation du crayon si un navigateur la donne un jour. */
+  const stampScreenAngle = (e: PenLike) => stampRot + (e.pointerType === 'pen' && e.twist ? (e.twist * Math.PI) / 180 : 0);
   /** Rotation et inclinaison du tampon, dans le repère de la couche. */
   const stampAngle = (e: PenLike, l: Layer) => {
-    notePen(e);
-    const a = stampScreenAngle(e);
-    const out: { r?: number; k?: number; d?: number } = {};
-    if (a !== null) out.r = a - view.rot - (l.rot ?? 0);
+    const out: { r?: number; k?: number; d?: number } = { r: stampScreenAngle(e) - view.rot - (l.rot ?? 0) };
     const tx = e.tiltX ?? 0;
     const ty = e.tiltY ?? 0;
     const tilt = Math.hypot(tx, ty);
     // penché au-delà de 25°, le tampon se met en perspective dans le sens où il penche
-    if (e.pointerType === 'pen' && stampFollow && tilt > 25) {
+    if (e.pointerType === 'pen' && penTilt && tilt > 25) {
       out.k = Math.min(0.9, ((tilt - 25) / 45) * 0.9);
       out.d = Math.atan2(ty, tx) - view.rot - (l.rot ?? 0);
     }
@@ -1086,12 +1076,11 @@ export function App() {
     if (!el) return;
     const painting = tool === 'paint' || tool === 'stamp';
     if (!painting || rendu || (e.pointerType !== 'pen' && e.pointerType !== 'mouse')) return hideHover();
-    if (tool === 'stamp') notePen(e);
     const m = Math.min(f.width, f.height) * scale;
     const d = tool === 'stamp' ? stampSize * 2 * m : size * 2 * m;
     el.style.display = 'block';
     el.style.width = el.style.height = `${Math.max(6, d)}px`;
-    el.style.transform = `translate(${e.clientX - Math.max(6, d) / 2}px, ${e.clientY - Math.max(6, d) / 2}px) rotate(${tool === 'stamp' ? (stampScreenAngle(e) ?? 0) : view.rot}rad)`;
+    el.style.transform = `translate(${e.clientX - Math.max(6, d) / 2}px, ${e.clientY - Math.max(6, d) / 2}px) rotate(${tool === 'stamp' ? stampScreenAngle(e) : view.rot}rad)`;
   };
   const hideHover = () => {
     if (hoverRef.current) hoverRef.current.style.display = 'none';
@@ -1809,6 +1798,13 @@ export function App() {
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
               <span className="sep" />
+              <button
+                className={`btn ${penTilt ? 'on' : ''}`}
+                onClick={() => setPenTilt(!penTilt)}
+                title={penTilt ? 'Inclinaison du stylet : les tampons se mettent en perspective (désactiver)' : 'Inclinaison du stylet ignorée (activer la perspective des tampons)'}
+              >
+                <Icon name="pen-tilt" />
+              </button>
               <button className={`btn ${tips ? 'on' : ''}`} onClick={() => setTips(!tips)} title={tips ? 'Masquer les astuces' : 'Afficher les astuces'}>
                 <Icon name="tips" />
               </button>
@@ -1951,21 +1947,6 @@ export function App() {
                   value={0.5 + stampRot / (2 * Math.PI)}
                   onChange={(v) => setStampRot(Math.abs(v - 0.5) < 0.004 ? 0 : (v - 0.5) * 2 * Math.PI)}
                 />
-                <button
-                  className={`btn small ${stampWipe ? 'on' : ''}`}
-                  onClick={() => setStampWipe(!stampWipe)}
-                  title={stampWipe ? 'Essuyé : glisser sans lever étire l’encre' : 'Traînée : glisser sans lever imprime une suite de tampons'}
-                >
-                  <Icon name={stampWipe ? 'stamp-wipe' : 'stamp-trail'} />
-                </button>
-                <button
-                  className={`btn small ${stampFollow ? 'on' : ''}`}
-                  onClick={() => setStampFollow(!stampFollow)}
-                  title={`Suivre le stylet (rotation et inclinaison)${penSrc ? ` — reçu du stylet : ${penSrc}` : ''}`}
-                >
-                  <Icon name="pen-follow" />
-                </button>
-                {penSrc && <small className="pen-src">{penSrc === 'rotation' ? 'rot.' : penSrc === 'inclinaison' ? 'incl.' : '—'}</small>}
               </>
             )}
             {tool === 'cut' && (
