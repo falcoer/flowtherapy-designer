@@ -5,7 +5,7 @@ import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { ensureFont, fontFamily, loadFonts, onFontReady, TEXT_PRESETS, textCut, textEpoch, type TextPreset, type TextStyle } from './text';
 import { TextBar } from './textbar';
-import { GradientEditor } from './colorpicker';
+import { PaletteEditor } from './colorpicker';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
 import { anchorsOf, DENSITY_STEPS, setAnchorDensity } from './model';
@@ -2263,6 +2263,22 @@ function PaletteBubble({
     }
   });
   const [renaming, setRenaming] = useState<number | null>(null);
+  // édition de la couleur : escamotable, retenue d'une ouverture à l'autre
+  const [editing, setEditingRaw] = useState(() => {
+    try {
+      return localStorage.getItem('ftd-atelier-palette-edit') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const setEditing = (v: boolean) => {
+    setEditingRaw(v);
+    try {
+      localStorage.setItem('ftd-atelier-palette-edit', v ? '1' : '0');
+    } catch {
+      /* stockage indisponible */
+    }
+  };
   const store = (list: typeof saved) => {
     setSaved(list);
     try {
@@ -2280,8 +2296,19 @@ function PaletteBubble({
       commit,
     );
   return (
-    <div className="bubble palette-bubble">
-      <div className="b-title">Palette du document</div>
+    <div className={`bubble palette-bubble ${editing ? 'editing' : ''}`}>
+      <div className="pal-head">
+        <button className={`cp-bench cp-toggle ${editing ? 'on' : ''}`} aria-pressed={editing} onClick={() => setEditing(!editing)} title="Afficher ou masquer l'édition de la couleur choisie">
+          Modifier
+        </button>
+        <div className="b-title">Palette du document</div>
+      </div>
+      {editing && g && (
+        <div className="guide-edit">
+          <PaletteEditor key={active} stops={stopsOf(g)} onChange={(stops, commit) => setStops(stops, commit)} />
+          <input className="gname-input" value={g.name} onChange={(e) => edit({ name: e.target.value })} aria-label="Nom du guide" />
+        </div>
+      )}
       <div className="guides">
         {doc.guides.map((x, i) => (
           <button
@@ -2328,12 +2355,6 @@ function PaletteBubble({
           <span className="gname">Ajouter</span>
         </button>
       </div>
-      {g && (
-        <div className="guide-edit">
-          <input className="gname-input" value={g.name} onChange={(e) => edit({ name: e.target.value })} aria-label="Nom du guide" />
-          <GradientEditor key={active} stops={stopsOf(g)} used={doc.guides.flatMap(stopsOf)} onChange={(stops, commit) => setStops(stops, commit)} />
-        </div>
-      )}
       <p className="fx-hint">Glisse une couleur sur une forme ou un papier pour la lui donner.</p>
       <div className="b-title">Palettes enregistrées</div>
       <button className="row" onClick={() => store([...saved, { name: `Palette ${saved.length + 1}`, guides: doc.guides }])}>

@@ -1,215 +1,337 @@
-import { useEffect, useRef, useState } from 'react';
+import { gradientStops, harmonies, hexToOklch, maxChroma, oklabToRgb8, oklchToHex, type Oklch } from '@ftd/core';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 /**
- * Éditeur de couleur et de dégradé dans la fenêtre de palette : un cercle des teintes
- * (teinte autour, pureté vers le bord), un curseur de luminosité, la barre du dégradé
- * avec ses teintes à toucher, et l'aperçu du résultat en bas à droite.
- * Les couleurs déjà choisies sont reportées sur le cercle, cerclées vif, pour y revenir d'un toucher.
+ * Éditeur de couleur de la palette : un plan carré (teinte en largeur, clarté en hauteur),
+ * en grille de cases ou en spectre continu ; la saturation du plan se règle au curseur.
+ * Toucher remplace la teinte choisie, double toucher en ajoute une, tracer une ligne prend
+ * plusieurs couleurs d'un coup (un dégradé), garder le doigt appuyé propose les harmonies.
+ * À droite, les teintes du guide en tuiles, dans leur ordre, à réordonner en glissant.
  */
 
-type HSV = { h: number; s: number; v: number };
-const RECENT = 'ftd-atelier-recent-colors';
+type Pt = { x: number; y: number };
+const RES = 120;
+/** Grille : 12 teintes et une colonne de gris, 9 clartés. */
+const COLS = 13;
+const ROWS = 9;
+const L_TOP = 0.97;
+const L_BOT = 0.12;
 
-export function hexToHsv(hex: string): HSV {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  const n = m ? parseInt(m[1]!, 16) : 0;
-  const [r, g, b] = [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
-  const mx = Math.max(r, g, b);
-  const d = mx - Math.min(r, g, b);
-  let h = 0;
-  if (d) h = mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
-  return { h: h * 60, s: mx ? d / mx : 0, v: mx };
-}
-export function hsvToHex({ h, s, v }: HSV): string {
-  const f = (n: number) => {
-    const k = (n + h / 60) % 6;
-    return v - v * s * Math.max(0, Math.min(k, 4 - k, 1));
-  };
-  return (
-    '#' +
-    [f(5), f(3), f(1)]
-      .map((x) =>
-        Math.round(x * 255)
-          .toString(16)
-          .padStart(2, '0'),
-      )
-      .join('')
-  );
-}
+export type PlaneMode = 'grid' | 'spectrum';
+const MODE = 'ftd-atelier-plane-mode';
 
-function loadRecent(): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(RECENT) ?? '[]');
-  } catch {
-    return [];
+const lAt = (v: number) => L_TOP - v * (L_TOP - L_BOT);
+/** Couleur d'un point du plan (u, v en 0..1) pour une saturation relative. */
+function colorAt(u: number, v: number, sat: number, mode: PlaneMode): Oklch {
+  if (mode === 'grid') {
+    const col = Math.min(COLS - 1, Math.max(0, Math.floor(u * COLS)));
+    const row = Math.min(ROWS - 1, Math.max(0, Math.floor(v * ROWS)));
+    const l = lAt((row + 0.5) / ROWS);
+    if (col === 0) return { l, c: 0, h: 0 };
+    const h = ((col - 1) / (COLS - 1)) * 360;
+    return { l, c: sat * maxChroma(l, h), h };
   }
+  const l = lAt(v);
+  const h = Math.max(0, Math.min(1, u)) * 360;
+  return { l, c: sat * maxChroma(l, h), h };
+}
+/** Place d'une couleur sur le plan. */
+function placeOf(hex: string, mode: PlaneMode): Pt {
+  const c = hexToOklch(hex);
+  const v = Math.max(0, Math.min(1, (L_TOP - c.l) / (L_TOP - L_BOT)));
+  if (mode === 'grid') {
+    const col = c.c < 0.02 ? 0 : 1 + (Math.round((c.h / 360) * (COLS - 1)) % (COLS - 1));
+    return { x: (col + 0.5) / COLS, y: (Math.min(ROWS - 1, Math.floor(v * ROWS)) + 0.5) / ROWS };
+  }
+  return { x: c.h / 360, y: v };
 }
 
-export function GradientEditor({ stops, used, onChange }: { stops: string[]; used: string[]; onChange: (stops: string[], commit: boolean) => void }) {
-  const [sel, setSel] = useState(0);
-  const i = Math.min(sel, stops.length - 1);
-  const cur = stops[i]!;
-  // la teinte est gardée même quand la couleur passe au gris (pureté nulle) ou au noir
-  const [hsv, setHsv] = useState<HSV>(() => hexToHsv(cur));
-  useEffect(() => {
-    if (hsvToHex(hsv) !== cur.toLowerCase()) setHsv(hexToHsv(cur));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cur, i]);
-  const [recent, setRecent] = useState<string[]>(loadRecent);
-  const [hex, setHex] = useState(cur);
-  useEffect(() => setHex(cur), [cur]);
+const HARMONIES: Array<[keyof ReturnType<typeof harmonies>, string]> = [
+  ['complementary', 'Duo complémentaire'],
+  ['triadic', 'Trio (triade)'],
+  ['tetradic', 'Quatuor (tétrade)'],
+  ['split', 'Complémentaires voisines'],
+  ['analogous', 'Analogues'],
+  ['tints', 'Camaïeu'],
+];
 
-  const wheel = useRef<HTMLDivElement>(null);
-  const grab = useRef(false);
-  const apply = (next: HSV, commit: boolean) => {
-    setHsv(next);
-    onChange(
-      stops.map((x, j) => (j === i ? hsvToHex(next) : x)),
-      commit,
-    );
-  };
-  /** Mémorise la couleur arrêtée, pour la retrouver plus tard parmi les rappels. */
-  const remember = (c: string) => {
-    const list = [c, ...recent.filter((x) => x !== c)].slice(0, 12);
-    setRecent(list);
+export function PaletteEditor({ stops, onChange }: { stops: string[]; onChange: (stops: string[], commit: boolean) => void }) {
+  const [mode, setModeRaw] = useState<PlaneMode>(() => {
     try {
-      localStorage.setItem(RECENT, JSON.stringify(list));
+      return (localStorage.getItem(MODE) as PlaneMode | null) ?? 'grid';
+    } catch {
+      return 'grid';
+    }
+  });
+  const setMode = (m: PlaneMode) => {
+    setModeRaw(m);
+    try {
+      localStorage.setItem(MODE, m);
     } catch {
       /* stockage indisponible */
     }
   };
-  const fromWheel = (e: React.PointerEvent, commit: boolean) => {
-    const r = wheel.current!.getBoundingClientRect();
-    const [x, y] = [e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2];
-    const s = Math.min(1, Math.hypot(x, y) / (r.width / 2));
-    const h = ((Math.atan2(y, x) * 180) / Math.PI + 450) % 360;
-    apply({ h, s, v: hsv.v || 1 }, commit);
+  const [sat, setSat] = useState(0.85);
+  const [steps, setSteps] = useState(5);
+  const [sel, setSel] = useState(0);
+  const i = Math.min(sel, stops.length - 1);
+  const [line, setLine] = useState<{ a: Pt; b: Pt } | null>(null);
+  const [harm, setHarm] = useState<{ base: string; at: Pt } | null>(null);
+  const plane = useRef<HTMLDivElement>(null);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const press = useRef<{ start: Pt; moved: boolean; held: boolean; timer: number; before: string[] } | null>(null);
+  const lastTap = useRef<{ t: number; p: Pt; before: string[] } | null>(null);
+
+  // le plan, repeint quand la saturation ou le mode change
+  useEffect(() => {
+    const ctx = canvas.current?.getContext('2d');
+    if (!ctx) return;
+    const img = ctx.createImageData(RES, RES);
+    for (let y = 0; y < RES; y++)
+      for (let x = 0; x < RES; x++) {
+        const c = colorAt((x + 0.5) / RES, (y + 0.5) / RES, sat, mode);
+        const hr = (c.h * Math.PI) / 180;
+        const rgb = oklabToRgb8(c.l, c.c * Math.cos(hr), c.c * Math.sin(hr)) ?? [128, 128, 128];
+        img.data.set([rgb[0], rgb[1], rgb[2], 255], (y * RES + x) * 4);
+      }
+    ctx.putImageData(img, 0, 0);
+  }, [sat, mode]);
+
+  const local = (e: { clientX: number; clientY: number }): Pt => {
+    const r = plane.current!.getBoundingClientRect();
+    return { x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) };
   };
-  // rappels : couleurs de la palette et dernières choisies, sans doublon
-  const marks = [...new Set([...used, ...recent].map((c) => c.toLowerCase()))].filter((c) => /^#[0-9a-f]{6}$/.test(c));
-  const at = (c: string) => {
-    const m = hexToHsv(c);
-    const a = ((m.h - 90) * Math.PI) / 180;
-    return { left: `${50 + Math.cos(a) * m.s * 50}%`, top: `${50 + Math.sin(a) * m.s * 50}%` };
-  };
-  const pure = hsvToHex({ h: hsv.h, s: hsv.s, v: 1 });
-  const grad = stops.length > 1 ? `linear-gradient(90deg, ${stops.join(',')})` : cur;
+  const hexAt = (p: Pt) => oklchToHex(colorAt(p.x, p.y, sat, mode));
+  const lineStops = (a: Pt, b: Pt) => gradientStops(colorAt(a.x, a.y, sat, mode), colorAt(b.x, b.y, sat, mode), steps);
+  const setAt = (j: number, c: string, commit: boolean) =>
+    onChange(
+      stops.map((x, k) => (k === j ? c : x)),
+      commit,
+    );
+
+  const marks = useMemo(() => stops.map((c) => placeOf(c, mode)), [stops, mode]);
+  const harmSets = harm ? HARMONIES.map(([k, name]) => ({ name, colors: [harm.base, ...harmonies(harm.base)[k]] })) : [];
 
   return (
-    <div className="cp">
-      <div className="cp-top">
-        <div
-          ref={wheel}
-          className="cp-wheel"
-          style={{ ['--dim' as string]: String(1 - hsv.v) }}
-          onPointerDown={(e) => {
-            (e.currentTarget as Element).setPointerCapture(e.pointerId);
-            grab.current = true;
-            fromWheel(e, true);
-          }}
-          onPointerMove={(e) => grab.current && fromWheel(e, false)}
-          onPointerUp={() => {
-            grab.current = false;
-            remember(cur);
-          }}
-          onPointerCancel={() => (grab.current = false)}
-        >
-          {marks.map((c) => (
-            <button
-              key={c}
-              className="cp-mark"
-              style={{ ...at(c), background: c }}
-              title={`Reprendre ${c}`}
-              onPointerDown={(e) => {
-                e.stopPropagation();
-                apply(hexToHsv(c), true);
-              }}
-            />
-          ))}
-          <span className="cp-cursor" style={{ ...at(pure), background: cur }} />
-        </div>
-        <div className="cp-side">
-          <label className="cp-light">
-            <span className="tb-label">Luminosité</span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={hsv.v}
-              style={{ background: `linear-gradient(90deg, #000, ${pure})` }}
-              onPointerDown={() => onChange(stops, true)}
-              onChange={(e) => apply({ ...hsv, v: Number(e.target.value) }, false)}
-              onPointerUp={() => remember(cur)}
-            />
-          </label>
-          <input
-            className="cp-hex"
-            value={hex}
-            aria-label="Code de la couleur"
-            onChange={(e) => {
-              setHex(e.target.value);
-              const v = e.target.value.trim().replace(/^([0-9a-f]{6})$/i, '#$1');
-              if (/^#[0-9a-f]{6}$/i.test(v)) apply(hexToHsv(v), true);
-            }}
-            onKeyDown={(e) => e.stopPropagation()}
-          />
-          <div className="cp-recall" aria-label="Couleurs déjà choisies">
-            {marks.slice(0, 12).map((c) => (
-              <button key={c} className={`cp-chip ${c === cur.toLowerCase() ? 'on' : ''}`} style={{ background: c }} onClick={() => apply(hexToHsv(c), true)} title={c} />
-            ))}
-          </div>
+    <div className="pe">
+      <div className="pe-head">
+        <div className="seg pe-mode">
+          <button className={mode === 'grid' ? 'on' : ''} onClick={() => setMode('grid')}>
+            Grille
+          </button>
+          <button className={mode === 'spectrum' ? 'on' : ''} onClick={() => setMode('spectrum')}>
+            Spectre
+          </button>
         </div>
       </div>
-      <div className="cp-bottom">
-        <div className="cp-bar-wrap">
-          <div className="cp-bar" style={{ background: grad }}>
-            {stops.map((c, j) => (
-              <button
-                key={j}
-                className={`cp-stop ${j === i ? 'on' : ''}`}
-                style={{ left: stops.length > 1 ? `${(j / (stops.length - 1)) * 100}%` : '50%', background: c }}
-                onClick={() => setSel(j)}
-                title={`Teinte ${j + 1}`}
-              />
-            ))}
-          </div>
-          <div className="cp-bar-tools">
+      <div
+        ref={plane}
+        className={`pe-plane ${mode}`}
+        onPointerDown={(e) => {
+          (e.currentTarget as Element).setPointerCapture(e.pointerId);
+          const p = local(e);
+          setHarm(null);
+          const timer = window.setTimeout(() => {
+            const d = press.current;
+            if (!d || d.moved) return;
+            d.held = true;
+            // doigt gardé : la teinte choisie reste comme avant, on propose ses harmonies
+            onChange(d.before, false);
+            setHarm({ base: hexAt(d.start), at: d.start });
+          }, 520);
+          press.current = { start: p, moved: false, held: false, timer, before: stops };
+          setAt(i, hexAt(p), true);
+        }}
+        onPointerMove={(e) => {
+          const d = press.current;
+          if (!d || d.held) return;
+          const p = local(e);
+          const r = plane.current!.getBoundingClientRect();
+          if (!d.moved && Math.hypot((p.x - d.start.x) * r.width, (p.y - d.start.y) * r.height) > 10) {
+            d.moved = true;
+            clearTimeout(d.timer);
+          }
+          if (d.moved) {
+            setLine({ a: d.start, b: p });
+            onChange(lineStops(d.start, p), false);
+          }
+        }}
+        onPointerUp={(e) => {
+          const d = press.current;
+          press.current = null;
+          if (!d) return;
+          clearTimeout(d.timer);
+          setLine(null);
+          if (d.held || d.moved) {
+            if (d.moved) setSel(0);
+            lastTap.current = null;
+            return;
+          }
+          // double toucher : la couleur s'ajoute au lieu de remplacer
+          const now = performance.now();
+          const lt = lastTap.current;
+          const p = local(e);
+          if (lt && now - lt.t < 380 && Math.hypot(p.x - lt.p.x, p.y - lt.p.y) < 0.05) {
+            lastTap.current = null;
+            onChange([...lt.before, hexAt(p)], false);
+            setSel(lt.before.length);
+            return;
+          }
+          lastTap.current = { t: now, p, before: d.before };
+        }}
+        onPointerCancel={() => {
+          if (press.current) clearTimeout(press.current.timer);
+          press.current = null;
+          setLine(null);
+        }}
+      >
+        <canvas ref={canvas} width={RES} height={RES} />
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+          {!line && marks.length > 1 && <polyline points={marks.map((m) => `${m.x * 100},${m.y * 100}`).join(' ')} className="pe-path" />}
+          {line && <line x1={line.a.x * 100} y1={line.a.y * 100} x2={line.b.x * 100} y2={line.b.y * 100} className="pe-line" />}
+        </svg>
+        {!line && marks.map((m, j) => <span key={j} className={`pe-mark ${j === i ? 'on' : ''}`} style={{ left: `${m.x * 100}%`, top: `${m.y * 100}%`, background: stops[j] }} />)}
+        {harm &&
+          harmSets[0] &&
+          [...new Set(harmSets.flatMap((s) => s.colors.slice(1)))].map((c) => {
+            const m = placeOf(c, mode);
+            return <span key={c} className="pe-mark ghost" style={{ left: `${m.x * 100}%`, top: `${m.y * 100}%`, background: c }} />;
+          })}
+      </div>
+      {harm && (
+        <div className="pe-harm">
+          {harmSets.map((s) => (
             <button
+              key={s.name}
               onClick={() => {
-                // nouvelle teinte juste après celle choisie, un peu plus claire
-                const n = hexToHsv(cur);
-                const next = [...stops.slice(0, i + 1), hsvToHex({ ...n, v: Math.min(1, n.v + 0.25), s: n.s * 0.8 }), ...stops.slice(i + 1)];
-                onChange(next, true);
-                setSel(i + 1);
+                onChange(s.colors, true);
+                setSel(0);
+                setHarm(null);
               }}
-              title="Ajouter une teinte : deux teintes ou plus font un dégradé"
             >
-              ＋ Teinte
+              <span className="pe-harm-sw">
+                {s.colors.map((c, k) => (
+                  <i key={k} style={{ background: c }} />
+                ))}
+              </span>
+              {s.name}
             </button>
-            {stops.length > 1 && (
-              <button
-                onClick={() => {
+          ))}
+          <button className="pe-harm-x" onClick={() => setHarm(null)} aria-label="Fermer les harmonies">
+            ✕
+          </button>
+        </div>
+      )}
+      <div className="pe-bottom">
+        <div className="pe-sliders">
+          <label>
+            <span className="tb-label">Saturation</span>
+            <input type="range" min={0} max={1} step={0.01} value={sat} onChange={(e) => setSat(Number(e.target.value))} />
+          </label>
+          <label>
+            <span className="tb-label">
+              Couleurs par tracé <b>{steps}</b>
+            </span>
+            <input type="range" min={2} max={9} step={1} value={steps} onChange={(e) => setSteps(Number(e.target.value))} />
+          </label>
+        </div>
+        <Tiles stops={stops} sel={i} setSel={setSel} onChange={onChange} />
+      </div>
+    </div>
+  );
+}
+
+/** Teintes du guide en tuiles : toucher pour choisir, glisser pour réordonner, ＋ pour en ajouter. */
+function Tiles({ stops, sel, setSel, onChange }: { stops: string[]; sel: number; setSel: (i: number) => void; onChange: (stops: string[], commit: boolean) => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ from: number; x: number; y: number; on: boolean } | null>(null);
+  const [dragging, setDragging] = useState<number | null>(null);
+  const indexAt = (x: number, y: number) => {
+    const tiles = [...(box.current?.querySelectorAll('.pe-tile') ?? [])];
+    let best = -1;
+    let bd = Infinity;
+    tiles.forEach((t, k) => {
+      const r = t.getBoundingClientRect();
+      const d = Math.hypot(x - (r.left + r.width / 2), y - (r.top + r.height / 2));
+      if (d < bd) [bd, best] = [d, k];
+    });
+    return best;
+  };
+  return (
+    <div className="pe-tiles-wrap">
+      <div className="pe-tiles" ref={box}>
+        {stops.map((c, k) => (
+          <button
+            key={k}
+            className={`pe-tile ${k === sel ? 'on' : ''} ${k === dragging ? 'lift' : ''}`}
+            style={{ background: c }}
+            title={c}
+            onPointerDown={(e) => {
+              (e.currentTarget as Element).setPointerCapture(e.pointerId);
+              drag.current = { from: k, x: e.clientX, y: e.clientY, on: false };
+              setSel(k);
+            }}
+            onPointerMove={(e) => {
+              const d = drag.current;
+              if (!d) return;
+              if (!d.on && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) {
+                d.on = true;
+                onChange(stops, true);
+              }
+              if (!d.on) return;
+              setDragging(d.from);
+              const to = indexAt(e.clientX, e.clientY);
+              if (to >= 0 && to !== d.from) {
+                const next = [...stops];
+                const [m] = next.splice(d.from, 1);
+                next.splice(to, 0, m!);
+                onChange(next, false);
+                d.from = to;
+                setSel(to);
+                setDragging(to);
+              }
+            }}
+            onPointerUp={() => {
+              drag.current = null;
+              setDragging(null);
+            }}
+            onPointerCancel={() => {
+              drag.current = null;
+              setDragging(null);
+            }}
+          >
+            {k === sel && stops.length > 1 && (
+              <span
+                className="pe-tile-x"
+                role="button"
+                aria-label="Retirer cette teinte"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
                   onChange(
-                    stops.filter((_, j) => j !== i),
+                    stops.filter((_, j) => j !== k),
                     true,
                   );
-                  setSel(Math.max(0, i - 1));
+                  setSel(Math.max(0, k - 1));
                 }}
-                title="Retirer la teinte choisie"
               >
-                Retirer
-              </button>
+                ×
+              </span>
             )}
-            {stops.length > 1 && (
-              <button onClick={() => onChange([...stops].reverse(), true)} title="Inverser le dégradé">
-                ⇄
-              </button>
-            )}
-          </div>
-        </div>
-        <span className="cp-preview" style={{ background: stops.length > 1 ? `linear-gradient(135deg, ${stops.join(',')})` : cur }} title={stops.length > 1 ? 'Dégradé obtenu' : 'Couleur obtenue'} />
+          </button>
+        ))}
+        <button
+          className="pe-tile add"
+          onClick={() => {
+            const c = hexToOklch(stops[sel]!);
+            onChange([...stops.slice(0, sel + 1), oklchToHex({ ...c, l: Math.min(0.97, c.l + 0.15) }), ...stops.slice(sel + 1)], true);
+            setSel(sel + 1);
+          }}
+          title="Ajouter une teinte (ou double toucher sur le plan)"
+        >
+          ＋
+        </button>
       </div>
+      <span className="pe-preview" style={{ background: stops.length > 1 ? `linear-gradient(90deg, ${stops.join(',')})` : stops[0] }} title="Résultat" />
     </div>
   );
 }
