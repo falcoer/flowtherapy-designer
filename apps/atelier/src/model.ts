@@ -123,6 +123,10 @@ export interface Layer {
   border?: { style: BorderStyle; guide: number; width: number; /** Seconde couleur (double bord). */ guide2?: number };
   /** Rognage de la découpe (0..1 chacun) : bords flous, flottants arrondis, dents en zigzag. */
   trim?: { blur: number; float: number; zigzag: number; /** Aléa des dents (0 = régulières, 1 = déchiquetées). */ chaos?: number };
+  /** Générateur de forme : polygone régulier de `sides` côtés ; `depth` (0..0.95) creuse le milieu de chaque côté vers le centre (étoile). */
+  gen?: { sides: number; depth: number };
+  /** Proportions libres : les poignées étirent la largeur et la hauteur séparément. */
+  free?: boolean;
   /** Ombre intérieure (0..1). */
   inner?: number;
   /** Lueur autour de la découpe : style, guide, distance au bord et largeur (0..1). */
@@ -232,6 +236,30 @@ export function anchorsOf(frame: AnchorFrame, f: Format) {
 export function anchorFor(frame: AnchorFrame, f: Format, x: number, y: number) {
   const a = nearestAnchor(anchorsOf(frame, f), x / f.width, y / f.height, f);
   return { anchor: { frame, point: a.id }, dx: x / f.width - a.x, dy: y / f.height - a.y, at: a };
+}
+
+/** Formes que le générateur sait refaire, avec leurs réglages d'origine. */
+export const GEN_DEFAULTS: Partial<Record<string, { sides: number; depth: number }>> = {
+  star: { sides: 5, depth: 0.55 },
+  triangle: { sides: 3, depth: 0 },
+  pentagon: { sides: 5, depth: 0 },
+  hexagon: { sides: 6, depth: 0 },
+  octagon: { sides: 8, depth: 0 },
+};
+/** Polygone ou étoile générés, inscrits dans le cercle de la boîte. */
+export function genPath(g: { sides: number; depth: number }): Pt[] {
+  const n = Math.max(3, Math.min(48, Math.round(g.sides)));
+  const pts: Pt[] = [];
+  const inner = 0.5 * Math.cos(Math.PI / n) * (1 - Math.max(0, Math.min(0.95, g.depth)));
+  for (let i = 0; i < n; i++) {
+    const a = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    pts.push({ x: 0.5 + Math.cos(a) * 0.5, y: 0.5 + Math.sin(a) * 0.5 });
+    if (g.depth > 0.001) {
+      const b = a + Math.PI / n;
+      pts.push({ x: 0.5 + Math.cos(b) * inner, y: 0.5 + Math.sin(b) * inner });
+    }
+  }
+  return pts;
 }
 
 /** Contour d'une forme, en coordonnées de la couche. */

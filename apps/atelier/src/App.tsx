@@ -898,6 +898,23 @@ export function App() {
     return null;
   };
   const toLocal = (l: Layer, x: number, y: number) => pageToLocal(l, f, x, y);
+  /** Copie de l'élément sélectionné (et de ses objets solidaires), décalée, posée juste au-dessus. */
+  const duplicate = () => {
+    const me = doc.layers.find((x) => x.id === selected);
+    if (!me || me.kind === 'surface') return;
+    const group = [me, ...matesOf(doc, me)];
+    const link = me.link ? uid() : undefined;
+    const ids = new Map(group.map((g) => [g.id, uid()]));
+    const copies = group.map((g) => ({ ...structuredClone(g), id: ids.get(g.id)!, name: `${g.name} (copie)`, dx: g.dx + 0.03, dy: g.dy + 0.03, pins: undefined, ...(link ? { link } : {}) }));
+    update((d) => {
+      const at = Math.max(...group.map((g) => d.layers.findIndex((x) => x.id === g.id)));
+      const layers = [...d.layers];
+      layers.splice(at + 1, 0, ...copies);
+      return { ...d, layers };
+    });
+    setSelected(ids.get(me.id)!);
+    setToast(`« ${me.name} » dupliqué`);
+  };
   /**
    * Poignées : un triangle à chacun des quatre coins du rectangle serré de la découpe, la rotation
    * au-dessus du bord haut. Le centre de rotation est par défaut le point d'ancrage (ramené dans le cadre).
@@ -1399,6 +1416,24 @@ export function App() {
         if (kk > 0.05 && Math.abs(now - page) * scale < MAGNET && (best === null || Math.abs(kk - k) < Math.abs(best - k))) best = kk;
       }
       if (best !== null) k = best;
+      if (o.free) {
+        // proportions libres : largeur et hauteur suivent le doigt séparément, dans le repère de l'objet
+        const r = o.rot ?? 0;
+        const [c, sn] = [Math.cos(r), Math.sin(r)];
+        const loc = (x: number, y: number) => ({ x: (x - O.x) * c + (y - O.y) * sn, y: -(x - O.x) * sn + (y - O.y) * c });
+        const d0 = loc(L.start.x, L.start.y);
+        const d1 = loc(p.x, p.y);
+        const kx = Math.max(0.05, Math.abs(d0.x) > 1e-6 ? d1.x / d0.x : 1);
+        const ky = Math.max(0.05, Math.abs(d0.y) > 1e-6 ? d1.y / d0.y : 1);
+        const v = loc(b.cx, b.cy);
+        const vx = v.x * kx;
+        const vy = v.y * ky;
+        const cx = O.x + vx * c - vy * sn;
+        const cy = O.y + vx * sn + vy * c;
+        const a = anchorFor(doc.frame, f, cx, cy);
+        setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, w: o.w * kx, h: o.h * ky, anchor: a.anchor, dx: a.dx, dy: a.dy } : x)) }));
+        return;
+      }
       const cx = O.x + (b.cx - O.x) * k;
       const cy = O.y + (b.cy - O.y) * k;
       const a = anchorFor(doc.frame, f, cx, cy);
@@ -1996,7 +2031,7 @@ export function App() {
             <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre (B) : aquarelle, acrylique, pistolet, paillettes, poils">
               <Icon name="brush" />
             </button>
-            <button className={`btn small ${tool === 'stamp' ? 'on' : ''}`} onClick={() => setTool('stamp')} title="Tampons (S) : motifs à la couleur courante, opacité et dilution">
+            <button className={`btn small ${tool === 'stamp' ? 'on' : ''}`} onClick={() => setTool('stamp')} title="Tampons (S) : motifs à la couleur courante, dilution et rotation">
               <Icon name="stamp" />
             </button>
             <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => setTool(lastEdit.current)} title="Modifier l'objet (T) : filtres, transformations, matière, revêtement, bords">
@@ -2163,6 +2198,9 @@ export function App() {
               </button>
               <button className="btn small" onClick={redo} disabled={!future.current.length} title="Rétablir (trois doigts)">
                 <Icon name="redo" />
+              </button>
+              <button className="btn small" onClick={duplicate} disabled={!sel || sel.kind === 'surface'} title="Dupliquer l'élément sélectionné">
+                <Icon name="duplicate" />
               </button>
               <button
                 ref={trashRef}

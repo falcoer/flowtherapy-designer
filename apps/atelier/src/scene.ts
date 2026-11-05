@@ -3,7 +3,7 @@ import { rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
-import { blendStops, edgeLines, guideColor, layerBox, pinLine, type Pin, shapePath, type Doc, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
+import { blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, type Doc, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { applyLook, lookGuides, lookOf } from './looks';
 import { applyPixelFx, hasPixelFx, hexRGB, opacityOf, type Fx, type FxId } from './fx';
@@ -36,7 +36,14 @@ export function shapeCut(k: ShapeKind): string {
 }
 
 /** Découpe d'une couche (tracé SVG, coordonnées de la couche). */
+const genCuts = new Map<string, string>();
 export function cutOf(l: Layer): string {
+  if (!l.cut && l.gen) {
+    const key = `${l.gen.sides}|${l.gen.depth}`;
+    let d = genCuts.get(key);
+    if (!d) genCuts.set(key, (d = ringsToPath([genPath(l.gen)], 0.0002)));
+    return d;
+  }
   return l.cut ?? (l.text ? textCut(l.text).d : l.shape ? shapeCut(l.shape) : RECT);
 }
 
@@ -1062,8 +1069,7 @@ function drawGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, 
       const keep = (x: number, y: number) => {
         const gx = Math.floor(x / cell);
         const gy = Math.floor(y / cell);
-        for (let a = -1; a <= 1; a++)
-          for (let b = -1; b <= 1; b++) for (const q of grid.get(`${gx + a},${gy + b}`) ?? []) if (Math.hypot(q.x - x, q.y - y) < d * 0.9) return false;
+        for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (const q of grid.get(`${gx + a},${gy + b}`) ?? []) if (Math.hypot(q.x - x, q.y - y) < d * 0.9) return false;
         return true;
       };
       let open = false;

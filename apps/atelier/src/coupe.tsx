@@ -4,7 +4,7 @@ import { BORDER_TYPES, fxPreview, GLOW_TYPES, swatch } from './App';
 import { FX, fxGuides, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
-import type { Doc, Layer } from './model';
+import { GEN_DEFAULTS, type Doc, type Layer } from './model';
 
 /**
  * Coupe de l'objet : ses couches lues comme l'objet posé, du dessus au dessous.
@@ -400,13 +400,13 @@ function Dots({ label, value, doc, onPick }: { label: string; value: number; doc
   );
 }
 
-function Range({ label, value, onChange, unit, min = 0 }: { label: string; value: number; onChange: (v: number) => void; unit?: string; min?: number }) {
+function Range({ label, value, onChange, unit, min = 0, display }: { label: string; value: number; onChange: (v: number) => void; unit?: string; min?: number; display?: string }) {
   return (
     <label className="cp-row">
       <span>{label}</span>
       <input type="range" min={min} max={1} step={0.01} value={value} onChange={(e) => onChange(Number(e.target.value))} />
       <output>
-        {Math.round(value * 100)}
+        {display ?? Math.round(value * 100)}
         {unit && <small> {unit}</small>}
       </output>
     </label>
@@ -459,8 +459,25 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
         <Range label="Largeur" value={gl.width} onChange={(v) => live({ glow: { ...gl, width: Math.round(v * 100) / 100 } })} />
       </>
     );
-  } else if (item.key === 'paint') body = <Dots label="Couleur" value={l.guide} doc={doc} onPick={(i) => patch({ guide: i })} />;
-  else if (item.key === 'material' && l.material)
+  } else if (item.key === 'paint') {
+    const gen = l.gen ?? (l.shape && !l.cut ? GEN_DEFAULTS[l.shape] : undefined);
+    body = (
+      <>
+        <Dots label="Couleur" value={l.guide} doc={doc} onPick={(i) => patch({ guide: i })} />
+        {gen && (
+          <>
+            <Range label="Côtés" display={`${gen.sides}`} value={(gen.sides - 3) / 21} onChange={(v) => live({ gen: { ...gen, sides: 3 + Math.round(v * 21) } })} />
+            <Range label="Creux (étoile)" value={gen.depth / 0.95} onChange={(v) => live({ gen: { ...gen, depth: Math.round(v * 95) / 100 } })} />
+          </>
+        )}
+        <label className="cp-row">
+          <span>Proportions libres</span>
+          <input type="checkbox" checked={!!l.free} onChange={(e) => patch({ free: e.target.checked || undefined })} />
+          <output>{l.free ? 'oui' : 'non'}</output>
+        </label>
+      </>
+    );
+  } else if (item.key === 'material' && l.material)
     body = (
       <>
         {fxRows(l.material, (x, h) => patch({ material: x }, h))}
