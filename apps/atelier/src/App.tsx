@@ -297,6 +297,8 @@ export function App() {
   const [view, setView] = useState<View>({ zoom: 1, rot: 0, px: 0, py: 0 });
   const [rendu, setRendu] = useState(false);
   const [magnet, setMagnet] = useState(true);
+  /** Ciseaux : le morceau se détache. Scalpel : il reste en place, lié à son objet. */
+  const [blade, setBlade] = useState<'scissors' | 'scalpel'>('scissors');
   /** Détection des contours de l'image sélectionnée : critère et seuil (0..1). */
   const [edgeMode, setEdgeMode] = useState<EdgeMode>('both');
   const [edgeThreshold, setEdgeThreshold] = useState(0.35);
@@ -320,7 +322,11 @@ export function App() {
       // hauteur sur une seule colonne, curseurs à leur taille naturelle (indépendante du mode courant)
       const vs = Math.max(64, Math.min(100, (window.innerHeight - 640) / 2));
       const one = items.reduce((h, c) => h + (c.classList.contains('vslider') ? vs : c.offsetHeight), 0) + 8 * Math.max(0, items.length - 1);
-      const rest = side.offsetHeight - pr.offsetHeight;
+      // le reste de la barre, actions comptées sur une colonne (sinon passer sur deux colonnes la raccourcit et l'on oscille)
+      const acts = side.querySelector('.side-actions') as HTMLElement | null;
+      const actKids = acts ? ([...acts.children] as HTMLElement[]) : [];
+      const actsOne = actKids.reduce((h, c) => h + c.offsetHeight, 0) + 8 * Math.max(0, actKids.length - 1);
+      const rest = side.offsetHeight - pr.offsetHeight - (acts?.offsetHeight ?? 0) + actsOne;
       // place libre entre la barre d'outils et le bas de l'écran
       const tools = document.querySelector('.side.tools-bar')?.getBoundingClientRect();
       const room = window.innerHeight - (tools ? tools.bottom + 10 : 380) - 12;
@@ -1700,23 +1706,26 @@ export function App() {
       const pieceCut = ringsToPath(ringsOfGeom(piece), eps);
       const restCut = ringsToPath(ringsOfGeom(rest), eps);
       const m = Math.min(f.width, f.height);
+      const scalpel = blade === 'scalpel';
+      const group = scalpel ? (l.link ?? uid()) : undefined;
       const morceau: Layer = {
         ...structuredClone(l),
         id: uid(),
         name: `${l.name} · morceau`,
         cut: pieceCut,
         height: l.height,
-        // légèrement décalé, comme un morceau qu'on vient de détacher
-        dx: l.dx + (0.012 * m) / f.width,
-        dy: l.dy + (0.012 * m) / f.height,
+        // ciseaux : légèrement décalé, comme un morceau qu'on vient de détacher ; scalpel : en place, lié
+        dx: scalpel ? l.dx : l.dx + (0.012 * m) / f.width,
+        dy: scalpel ? l.dy : l.dy + (0.012 * m) / f.height,
+        ...(scalpel ? { link: group } : {}),
       };
       update((d) => {
-        const layers = d.layers.map((x) => (x.id === l.id ? { ...x, cut: restCut } : x));
+        const layers = d.layers.map((x) => (x.id === l.id ? { ...x, cut: restCut, ...(scalpel ? { link: group } : {}) } : x));
         layers.splice(layers.findIndex((x) => x.id === l.id) + 1, 0, morceau);
         return { ...d, layers };
       });
       setSelected(morceau.id);
-      setToast(`« ${l.name} » découpée : le morceau est posé dessus`);
+      setToast(scalpel ? `« ${l.name} » incisée : le morceau reste en place, lié à son objet` : `« ${l.name} » découpée : le morceau est posé dessus`);
       return;
     }
     const m = Math.min(f.width, f.height);
@@ -2176,6 +2185,13 @@ export function App() {
               )}
               {tool === 'cut' && (
                 <>
+                  <button
+                    className="btn small"
+                    onClick={() => setBlade(blade === 'scissors' ? 'scalpel' : 'scissors')}
+                    title={blade === 'scalpel' ? 'Scalpel : le morceau reste en place, lié à son objet (toucher pour les ciseaux)' : 'Ciseaux : le morceau se détache (toucher pour le scalpel)'}
+                  >
+                    <Icon name={blade} />
+                  </button>
                   <button className={`btn small ${magnet ? 'on' : ''}`} onClick={() => setMagnet(!magnet)} title="Lignes magnétiques : les ciseaux suivent les contours détectés">
                     <Icon name="magnet" />
                   </button>
@@ -2544,7 +2560,8 @@ export function App() {
             <div className="status">
               {tool === 'paint' && `Peinture dans « ${sel.name} »`}
               {tool === 'stamp' && `Tampon « ${stampOf(stampId).name} » dans « ${sel.name} » : touche pour imprimer, glisse pour une traînée`}
-              {tool === 'cut' && `Trace un contour : le morceau se détache de la couche touchée${magnet ? `, aimanté sur les contours de « ${sel.name} »` : ''}`}
+              {tool === 'cut' &&
+                `Trace un contour : le morceau ${blade === 'scalpel' ? 'reste en place, lié à la couche touchée' : 'se détache de la couche touchée'}${magnet ? `, aimanté sur les contours de « ${sel.name} »` : ''}`}
               {tool === 'filter' &&
                 `« ${sel.name} » · ${sel.kind === 'photo' ? [lookOf(sel.look?.style)?.name ?? 'photo originale', fxOf(sel.look?.draw?.id)?.name].filter(Boolean).join(' + ') : 'les filtres sont réservés aux photos'}`}
               {(tool === 'transform' || tool === 'coat') &&
