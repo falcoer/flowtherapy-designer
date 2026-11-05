@@ -30,6 +30,11 @@ export type FxId =
   | 'wood'
   | 'metal'
   | 'felt'
+  | 'glass'
+  | 'plexi'
+  | 'ice'
+  | 'smoke'
+  | 'hologram'
   | 'cartoon'
   | 'manga'
   | 'sketch'
@@ -68,6 +73,8 @@ export interface FxDef {
   amount: number;
   /** Nom du curseur principal (Intensité par défaut). */
   amountLabel?: string;
+  /** Matière qui laisse voir à travers : l'objet gagne alors un réglage d'opacité (valeur de départ). */
+  transparent?: number;
   /** Calcul par pixel (matière) ; absent = effet dessiné par la scène. */
   pixel?: (d: Uint8ClampedArray, k: PixelCtx, a: number) => void;
 }
@@ -132,7 +139,6 @@ function relief(d: Uint8ClampedArray, k: PixelCtx, height: (x: number, y: number
       d[i * 4 + 2] = cl(c[2] * s) * 255;
     }
 }
-
 
 /** Flou de boîte séparable (deux passes ≈ flou doux), rayon en pixels. */
 function boxBlur(v: Float32Array, w: number, h: number, r: number, passes = 2): Float32Array {
@@ -617,11 +623,17 @@ export const FX: FxDef[] = [
         const v = Math.sin(((y + warp) / (P * 0.008)) * Math.PI * 2);
         return 0.5 + 0.5 * v * (0.6 + 0.4 * vnoise(x / (P * 0.1), y / (P * 0.02), 72));
       };
-      relief(d, k, (x, y) => ring(x, y) * 0.6 + 0.4 * vnoise(x / (P * 0.03), y / 1.5, 73), a * 0.18 * P * 0.008, (c, x, y) => {
-        const r = ring(x, y);
-        const wood: RGB = [0.62 - 0.12 * r, 0.42 - 0.1 * r, 0.24 - 0.07 * r];
-        return mixRGB(c, [c[0] * wood[0] * 1.5, c[1] * wood[1] * 1.6, c[2] * wood[2] * 1.7], 0.65 * a);
-      });
+      relief(
+        d,
+        k,
+        (x, y) => ring(x, y) * 0.6 + 0.4 * vnoise(x / (P * 0.03), y / 1.5, 73),
+        a * 0.18 * P * 0.008,
+        (c, x, y) => {
+          const r = ring(x, y);
+          const wood: RGB = [0.62 - 0.12 * r, 0.42 - 0.1 * r, 0.24 - 0.07 * r];
+          return mixRGB(c, [c[0] * wood[0] * 1.5, c[1] * wood[1] * 1.6, c[2] * wood[2] * 1.7], 0.65 * a);
+        },
+      );
     },
   },
   {
@@ -659,12 +671,161 @@ export const FX: FxDef[] = [
       const P = k.pxPerMin;
       const fs = Math.max(1, P * 0.0025);
       // fibres emmêlées : un bruit fin dans toutes les directions, couleur douce et mate
-      relief(d, k, (x, y) => fbm(x / fs, y / fs, 91, 4), a * 0.35 * fs, (c, x, y) => {
-        const l = lum(...c);
-        const fuzz = 1 - 0.12 * a * fbm(x / (fs * 0.6), y / (fs * 0.6), 92);
-        const soft = mixRGB(c, [l, l, l], 0.12 * a);
-        return [soft[0] * fuzz + 0.03 * a, soft[1] * fuzz + 0.03 * a, soft[2] * fuzz + 0.03 * a];
-      });
+      relief(
+        d,
+        k,
+        (x, y) => fbm(x / fs, y / fs, 91, 4),
+        a * 0.35 * fs,
+        (c, x, y) => {
+          const l = lum(...c);
+          const fuzz = 1 - 0.12 * a * fbm(x / (fs * 0.6), y / (fs * 0.6), 92);
+          const soft = mixRGB(c, [l, l, l], 0.12 * a);
+          return [soft[0] * fuzz + 0.03 * a, soft[1] * fuzz + 0.03 * a, soft[2] * fuzz + 0.03 * a];
+        },
+      );
+    },
+  },
+  {
+    id: 'glass',
+    name: 'Verre',
+    group: 'materiau',
+    transparent: 0.45,
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      const P = k.pxPerMin;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          const c: RGB = [d[i]! / 255, d[i + 1]! / 255, d[i + 2]! / 255];
+          // verre : teinte gardée, légèrement bleutée ; deux reflets en biais, côté lampe
+          const t = (x * k.ly - y * k.lx) / P;
+          const s1 = Math.max(0, 1 - Math.abs(((((t * 3.2) % 1) + 1) % 1) - 0.5) * 9);
+          const s2 = Math.max(0, 1 - Math.abs(((((t * 3.2 + 0.18) % 1) + 1) % 1) - 0.5) * 22);
+          const lit = 0.5 + 0.5 * ((x * k.lx + y * k.ly) / P) * -1.2;
+          const hi = Math.min(1, (1.1 * s1 + 1.4 * s2) * a * cl(lit + 0.7));
+          const g = mixRGB(mixRGB(c, [c[0] * 0.92, c[1] * 0.98, c[2] * 1.06], 0.6 * a), [1, 1, 1], hi * 0.85);
+          d[i] = cl(g[0]) * 255;
+          d[i + 1] = cl(g[1]) * 255;
+          d[i + 2] = cl(g[2]) * 255;
+          d[i + 3] = d[i + 3]! * Math.min(1, 1 - 0.25 * a + hi * 1.5);
+        }
+    },
+  },
+  {
+    id: 'plexi',
+    name: 'Plexi',
+    group: 'materiau',
+    transparent: 0.7,
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      const P = k.pxPerMin;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          let c: RGB = [d[i]! / 255, d[i + 1]! / 255, d[i + 2]! / 255];
+          // plexi : couleur franche et lisse, reflet large et doux, plus dense dans l'ombre
+          const l = lum(...c);
+          c = mixRGB(c, [c[0] + (c[0] - l) * 0.4, c[1] + (c[1] - l) * 0.4, c[2] + (c[2] - l) * 0.4], a);
+          const sheen = cl(0.5 - ((x * k.lx + y * k.ly) / P) * 0.9);
+          const g = mixRGB(c, [1, 1, 1], 0.35 * a * sheen * sheen);
+          d[i] = cl(g[0]) * 255;
+          d[i + 1] = cl(g[1]) * 255;
+          d[i + 2] = cl(g[2]) * 255;
+          d[i + 3] = d[i + 3]! * (1 - 0.3 * a * sheen + 0.15 * a * (1 - sheen));
+        }
+    },
+  },
+  {
+    id: 'ice',
+    name: 'Glace',
+    group: 'materiau',
+    transparent: 0.65,
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const P = k.pxPerMin;
+      const { w, h } = k;
+      // glace : givre blanchi par endroits, fêlures fines, plus claire là où elle est épaisse
+      const frost = (x: number, y: number) => fbm(x / (P * 0.06), y / (P * 0.06), 111, 4);
+      const crack = (x: number, y: number) => {
+        const v = Math.abs(fbm(x / (P * 0.12), y / (P * 0.12), 112, 3) - 0.5);
+        return cl(1 - v * 40);
+      };
+      relief(
+        d,
+        k,
+        (x, y) => frost(x, y) - crack(x, y) * 0.4,
+        a * 0.25 * P * 0.004,
+        (c, x, y) => {
+          const f = frost(x, y);
+          const cold = mixRGB(c, [c[0] * 0.85 + 0.12, c[1] * 0.92 + 0.1, c[2] + 0.12], 0.6 * a);
+          return mixRGB(cold, [1, 1, 1], a * (0.45 * f * f + 0.5 * crack(x, y)));
+        },
+      );
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          d[i + 3] = d[i + 3]! * Math.min(1, 1 - 0.35 * a + a * (0.6 * frost(x, y) + 0.4 * crack(x, y)));
+        }
+    },
+  },
+  {
+    id: 'smoke',
+    name: 'Fumée',
+    group: 'materiau',
+    transparent: 0.6,
+    slots: [],
+    amount: 0.7,
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      const P = k.pxPerMin;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          const c: RGB = [d[i]! / 255, d[i + 1]! / 255, d[i + 2]! / 255];
+          // fumée : volutes qui montent, couleur éteinte, des trous où l'on voit à travers
+          const warp = fbm(x / (P * 0.2), y / (P * 0.3), 121) * 2.5;
+          const v = fbm(x / (P * 0.09) + warp, y / (P * 0.16) - warp * 0.6, 122, 4);
+          const dens = cl((v - 0.38) * 3.6);
+          const l = lum(...c);
+          const g = mixRGB(c, [l * 0.9 + 0.05, l * 0.9 + 0.05, l * 0.92 + 0.06], 0.55 * a);
+          d[i] = cl(g[0] * (0.85 + 0.3 * dens)) * 255;
+          d[i + 1] = cl(g[1] * (0.85 + 0.3 * dens)) * 255;
+          d[i + 2] = cl(g[2] * (0.85 + 0.3 * dens)) * 255;
+          d[i + 3] = d[i + 3]! * (1 - a + a * dens);
+        }
+    },
+  },
+  {
+    id: 'hologram',
+    name: 'Hologramme',
+    group: 'materiau',
+    transparent: 0.75,
+    slots: [],
+    amount: 0.7,
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      const P = k.pxPerMin;
+      const line = Math.max(2, P * 0.006);
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          const c: RGB = [d[i]! / 255, d[i + 1]! / 255, d[i + 2]! / 255];
+          // hologramme : irisation qui tourne avec la lumière, lignes de balayage, léger tremblé
+          const t = ((x * k.lx + y * k.ly) / P) * 2.2 + 0.25 * fbm(x / (P * 0.1), y / (P * 0.1), 131);
+          const ir: RGB = [0.5 + 0.5 * Math.cos(6.283 * t), 0.5 + 0.5 * Math.cos(6.283 * (t + 0.33)), 0.5 + 0.5 * Math.cos(6.283 * (t + 0.67))];
+          const l = lum(...c);
+          const g = mixRGB(c, [ir[0] * (0.4 + 0.8 * l) + 0.1, ir[1] * (0.4 + 0.8 * l) + 0.15, ir[2] * (0.4 + 0.8 * l) + 0.2], 0.6 * a);
+          const scan = 0.5 + 0.5 * Math.cos((y / line) * Math.PI);
+          d[i] = cl(g[0] + 0.08 * a * scan) * 255;
+          d[i + 1] = cl(g[1] + 0.1 * a * scan) * 255;
+          d[i + 2] = cl(g[2] + 0.14 * a * scan) * 255;
+          d[i + 3] = d[i + 3]! * (1 - 0.45 * a * (1 - scan));
+        }
     },
   },
   {
@@ -831,6 +992,9 @@ export function newFx(id: FxId): Fx {
   const d = fxOf(id)!;
   return { id, guides: d.slots.map((s) => s.def), amount: d.amount };
 }
+
+/** Opacité de l'objet : seule une matière transparente laisse voir à travers. */
+export const opacityOf = (l: { material?: Fx; opacity?: number }) => (l.material && fxOf(l.material.id)?.transparent ? (l.opacity ?? 1) : 1);
 
 export const hasPixelFx = (fx: Fx[] | undefined) => !!fx?.some((x) => fxOf(x.id)?.pixel);
 

@@ -1736,7 +1736,6 @@ export function App() {
             {tool === 'move' && sel && sel.kind !== 'surface' && (
               <>
                 <VSlider label="Hauteur" center value={0.5 + (sel.height - (sel.inner ?? 0)) / 2} onChange={(v) => patchLayer(sel.id, heightPatch(Math.round((v * 2 - 1) * 100) / 100), false)} />
-                <VSlider label="Opacité" value={sel.opacity ?? 1} onChange={(v) => patchLayer(sel.id, { opacity: Math.round(v * 100) / 100 }, false)} />
               </>
             )}
             <span className="side-sep" />

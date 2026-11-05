@@ -70,6 +70,11 @@ const HINTS: Record<string, [string, string]> = {
   wood: ['', 'veines de bois'],
   metal: ['', 'métal brossé, reflets en lignes'],
   felt: ['', 'feutre doux et duveteux'],
+  glass: ['', 'transparent, reflets nets'],
+  plexi: ['', 'transparent, couleur franche'],
+  ice: ['', 'givrée, fêlures'],
+  smoke: ['', 'volutes, on voit à travers'],
+  hologram: ['', 'irisé, lignes de balayage'],
 };
 const fxIn = (l: Layer, g: FxGroup) => (l.fx ?? []).map((x, i) => ({ x, i })).filter(({ x }) => groupOf(x) === g);
 
@@ -139,8 +144,8 @@ function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; pa
   if (sec === 'transform') return fxAdd('effet');
   if (sec === 'support')
     return MATERIALS()
-      .filter((d) => d.id !== l.material?.id)
-      .map((d) => ({ id: d.id, name: d.name, patch: { material: newFx(d.id) }, focus: 'material' }));
+      .filter((d) => d.id !== l.material?.id && !(d.transparent && l.kind === 'surface'))
+      .map((d) => ({ id: d.id, name: d.name, patch: { material: newFx(d.id), ...(d.transparent ? { opacity: d.transparent } : {}) }, focus: 'material' }));
   if (l.kind !== 'photo') return [];
   const look = l.look ?? { guides: [], mix: 1 };
   return [
@@ -442,7 +447,13 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
       </>
     );
   } else if (item.key === 'paint') body = <Dots label="Couleur" value={l.guide} doc={doc} onPick={(i) => patch({ guide: i })} />;
-  else if (item.key === 'material' && l.material) body = fxRows(l.material, (x, h) => patch({ material: x }, h));
+  else if (item.key === 'material' && l.material)
+    body = (
+      <>
+        {fxRows(l.material, (x, h) => patch({ material: x }, h))}
+        {fxOf(l.material.id)?.transparent && <Range label="Opacité" value={l.opacity ?? 1} onChange={(v) => live({ opacity: Math.max(0.05, Math.round(v * 100) / 100) })} />}
+      </>
+    );
   else if (item.key === 'look' && l.look?.style) {
     const look = l.look;
     const def = lookOf(look.style)!;

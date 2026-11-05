@@ -6,7 +6,7 @@ import { textCut, textEpoch } from './text';
 import { blendStops, guideColor, layerBox, shapePath, type Doc, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { applyLook, lookGuides, lookOf } from './looks';
-import { applyPixelFx, hasPixelFx, hexRGB, type Fx, type FxId } from './fx';
+import { applyPixelFx, hasPixelFx, hexRGB, opacityOf, type Fx, type FxId } from './fx';
 
 /**
  * Rendu de la scène sur un canevas 2D. Chaque couche est dessinée dans sa
@@ -296,7 +296,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
   ctx.beginPath();
   ctx.rect(0, 0, f.width, f.height);
   ctx.clip();
-  const order = renderOrder(doc.layers).filter((l) => l.visible && (l.opacity ?? 1) > 0);
+  const order = renderOrder(doc.layers).filter((l) => l.visible && opacityOf(l) > 0);
   // couches déjà posées (hors fond) : les suivantes y projettent leur ombre, raccourcie de leur hauteur
   const below: Array<{ l: Layer; path: Path2D }> = [];
   let pageShadows = false;
@@ -307,10 +307,10 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     // les couches plus basses les recouvrent là où elles sont
     if (!pageShadows && l.kind !== 'surface') {
       pageShadows = true;
-      for (const x of order) if (x.kind !== 'surface' && x.height > 0.001 && (x.opacity ?? 1) >= 1) castShadow(ctx, x, doc, f, o, maskPath2D(x, f), x.height);
+      for (const x of order) if (x.kind !== 'surface' && x.height > 0.001 && opacityOf(x) >= 1) castShadow(ctx, x, doc, f, o, maskPath2D(x, f), x.height);
     }
     // couche translucide : rendue à part, puis posée d'un bloc (son ombre ne transparaît pas)
-    if ((l.opacity ?? 1) < 1) {
+    if (opacityOf(l) < 1) {
       const c = (layerBuffers[depth] ??= document.createElement('canvas'));
       c.width = ctx.canvas.width;
       c.height = ctx.canvas.height;
@@ -321,7 +321,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       depth--;
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.globalAlpha = l.opacity ?? 1;
+      ctx.globalAlpha = opacityOf(l);
       ctx.drawImage(c, 0, 0);
       ctx.restore();
       continue;
