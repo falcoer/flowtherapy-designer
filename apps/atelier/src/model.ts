@@ -130,6 +130,8 @@ export interface Doc {
   frame: AnchorFrame;
   /** Densité des points d'ancrage de la répartition (1 = demis … 6 = vingt-quatrièmes), 3 par défaut. */
   density?: number;
+  /** Marge des repères autour du bord du format, en fraction du petit côté (-0.25..0.25) : positive vers l'intérieur. */
+  margin?: number;
   guides: Guide[];
   /** Lumière unique : direction d'où elle vient (degrés, 0 = haut, sens horaire). */
   light: number;
@@ -155,7 +157,7 @@ export function layerBox(l: Layer, f: Format): { cx: number; cy: number; w: numb
   if (l.kind === 'surface') return { cx: f.width / 2, cy: f.height / 2, w: f.width + 2 * BLEED * m, h: f.height + 2 * BLEED * m };
   let a = { x: 0.5, y: 0.5 };
   try {
-    a = resolveAnchor(l.anchor.frame, l.anchor.point, f);
+    a = inset(resolveAnchor(l.anchor.frame, l.anchor.point, f), f);
   } catch {
     /* ancrage absent de ce format : centre */
   }
@@ -165,14 +167,29 @@ export function layerBox(l: Layer, f: Format): { cx: number; cy: number; w: numb
 /** Dénominateurs de la répartition selon la densité choisie. */
 export const DENSITY_STEPS: number[][] = [[2], [2, 3], [2, 3, 4], [2, 3, 4, 6], [12], [24]];
 // densité du document ouvert : réglée par l'atelier, lue par tous les calculs d'ancrage
-let density = 3;
-export const setAnchorDensity = (d: number | undefined) => (density = Math.max(1, Math.min(DENSITY_STEPS.length, d ?? 3)));
+export const DEFAULT_DENSITY = 4;
+let density = DEFAULT_DENSITY;
+export const setAnchorDensity = (d: number | undefined) => (density = Math.max(1, Math.min(DENSITY_STEPS.length, d ?? DEFAULT_DENSITY)));
+// marge des repères du document ouvert : les points se répartissent dans le format rentré (ou agrandi) de cette marge
+let margin = 0;
+export const setAnchorMargin = (m: number | undefined) => (margin = Math.max(-0.25, Math.min(0.25, m ?? 0)));
+/** Marge en fraction de la largeur et de la hauteur du format. */
+export function marginOf(f: Format) {
+  const m = Math.min(f.width, f.height) * margin;
+  return { mx: m / f.width, my: m / f.height };
+}
+/** Point du référentiel (0..1) ramené dans la zone des repères. */
+function inset<T extends { x: number; y: number }>(a: T, f: Format): T {
+  if (!margin) return a;
+  const { mx, my } = marginOf(f);
+  return { ...a, x: mx + a.x * (1 - 2 * mx), y: my + a.y * (1 - 2 * my) };
+}
 
 /** Points d'ancrage du référentiel ; la répartition suit la densité (les fractions y sont libres). */
 export function anchorsOf(frame: AnchorFrame, f: Format) {
-  if (frame !== 'repartition') return anchorsFor(frame, f);
+  if (frame !== 'repartition') return anchorsFor(frame, f).map((a) => inset(a, f));
   const fr = [...new Set(DENSITY_STEPS[density - 1]!.flatMap((n) => Array.from({ length: n - 1 }, (_, i) => (i + 1) / n)))].sort((a, b) => a - b);
-  return fr.flatMap((x) => fr.map((y) => ({ id: `h${formatFraction(x, 24)} v${formatFraction(y, 24)}`, frame, x, y })));
+  return fr.flatMap((x) => fr.map((y) => inset({ id: `h${formatFraction(x, 24)} v${formatFraction(y, 24)}`, frame, x, y }, f)));
 }
 
 /** Ancrage le plus proche d'un point du format, avec le décalage qui garde la position exacte. */

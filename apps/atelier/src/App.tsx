@@ -9,7 +9,7 @@ import { TextBar } from './textbar';
 import { PaletteEditor } from './colorpicker';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
-import { anchorsOf, cssGradient, DENSITY_STEPS, setAnchorDensity, type Blend } from './model';
+import { anchorsOf, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, marginOf, setAnchorDensity, setAnchorMargin, type Blend } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
@@ -313,6 +313,23 @@ export function App() {
   const f = formatOf(doc.formatId);
   // les calculs d'ancrage suivent la densité du document ouvert
   setAnchorDensity(doc.density);
+  setAnchorMargin(doc.margin);
+  /** Repères toujours visibles, et leur couleur : préférence de l'atelier, gardée d'une séance à l'autre. */
+  const [guidesOn, setGuidesOnRaw] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('ftd-atelier-guides') ?? 'null') ?? { on: false, color: '#7a5cff' };
+    } catch {
+      return { on: false, color: '#7a5cff' };
+    }
+  });
+  const setGuidesOn = (v: { on: boolean; color: string }) => {
+    setGuidesOnRaw(v);
+    try {
+      localStorage.setItem('ftd-atelier-guides', JSON.stringify(v));
+    } catch {
+      /* stockage indisponible */
+    }
+  };
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [vp, setVp] = useState({ w: window.innerWidth, h: window.innerHeight });
   useEffect(() => {
@@ -660,13 +677,25 @@ export function App() {
       }
     }
     // ancrages pendant un déplacement, et tant que le réglage d'ancrage est ouvert
-    if (L.kind === 'move' || bubble === 'anchor') {
-      ctx.fillStyle = 'rgba(122,92,255,0.55)';
+    if (L.kind === 'move' || bubble === 'anchor' || guidesOn.on) {
+      ctx.save();
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = guidesOn.color;
+      // la marge des repères : un cadre pointillé, dedans ou autour de la page
+      if (doc.margin) {
+        const { mx, my } = marginOf(f);
+        ctx.strokeStyle = guidesOn.color;
+        ctx.lineWidth = 1.2 * px;
+        ctx.setLineDash([6 * px, 5 * px]);
+        ctx.strokeRect(mx * f.width, my * f.height, f.width * (1 - 2 * mx), f.height * (1 - 2 * my));
+        ctx.setLineDash([]);
+      }
       for (const a of anchorsOf(doc.frame, f)) {
         ctx.beginPath();
         ctx.arc(a.x * f.width, a.y * f.height, 3.5 * px, 0, Math.PI * 2);
         ctx.fill();
       }
+      ctx.restore();
       if (L.snap) {
         ctx.strokeStyle = '#7a5cff';
         ctx.lineWidth = 2.5 * px;
@@ -1657,6 +1686,17 @@ export function App() {
               <button className={`chip ${bubble === 'format' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'format' ? null : 'format')}>
                 <FormatGlyph w={f.width} h={f.height} /> <span className="chip-label">{f.title}</span>
               </button>
+              <button className={`btn ${bubble === 'anchor' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'anchor' ? null : 'anchor')} title="Aide au positionnement : repères, densité, marge">
+                <Icon name="anchor" />
+              </button>
+              <button
+                className={`btn ${guidesOn.on ? 'on' : ''}`}
+                aria-pressed={guidesOn.on}
+                onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}
+                title={guidesOn.on ? 'Masquer les repères' : 'Afficher les repères en permanence'}
+              >
+                <Icon name="guides" />
+              </button>
             </div>
             <div className="bar-right">
               <button className={`btn ${bubble === 'layers' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'layers' ? null : 'layers')} title="Couches">
@@ -1668,13 +1708,10 @@ export function App() {
               <button className={`btn guide-btn ${bubble === 'palette' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'palette' ? null : 'palette')} title="Palette de guides">
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
-              <button className={`btn ${bubble === 'anchor' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'anchor' ? null : 'anchor')} title="Ancrage : repères et densité des points">
-                <Icon name="anchor" />
-              </button>
+              <span className="sep" />
               <button className={`btn ${tips ? 'on' : ''}`} onClick={() => setTips(!tips)} title={tips ? 'Masquer les astuces' : 'Afficher les astuces'}>
                 <Icon name="tips" />
               </button>
-              <span className="sep" />
               <button className="btn fit" onClick={() => setView({ zoom: 1, rot: 0, px: 0, py: 0 })} title="Recadrer la vue" disabled={view.zoom === 1 && !view.rot && !view.px && !view.py}>
                 <Icon name="fit" />
               </button>
@@ -2044,7 +2081,7 @@ export function App() {
 
           {bubble === 'anchor' && (
             <div className="bubble anchor-bubble">
-              <div className="b-title">Repères d'ancrage</div>
+              <div className="b-title">Aide au positionnement</div>
               <div className="seg">
                 {ANCHOR_FRAMES.filter((x) => x !== 'grid').map((x) => (
                   <button key={x} className={doc.frame === x ? 'on' : ''} onClick={() => setDoc((d) => ({ ...d, frame: x as AnchorFrame }))} title={FRAME_TITLES[x]}>
@@ -2063,16 +2100,47 @@ export function App() {
                   max={DENSITY_STEPS.length}
                   step={1}
                   disabled={doc.frame !== 'repartition'}
-                  value={doc.density ?? 3}
+                  value={doc.density ?? DEFAULT_DENSITY}
                   onChange={(e) => setDoc((d) => ({ ...d, density: Number(e.target.value) }))}
                 />
                 <span>+</span>
               </label>
               <small className="fx-hint">
                 {doc.frame === 'repartition'
-                  ? ['Demis', 'Demis et tiers', 'Demis, tiers et quarts', 'Jusqu’aux sixièmes', 'Douzièmes', 'Vingt-quatrièmes'][(doc.density ?? 3) - 1]
+                  ? ['Demis', 'Demis et tiers', 'Demis, tiers et quarts', 'Jusqu’aux sixièmes', 'Douzièmes', 'Vingt-quatrièmes'][(doc.density ?? DEFAULT_DENSITY) - 1]
                   : 'Le nombre d’or et l’armature ont des points fixes : la densité règle la répartition.'}
               </small>
+              <div className="b-title">
+                Marge <span className="b-count">{Math.round((doc.margin ?? 0) * 100)} %</span>
+              </div>
+              <label className="density">
+                <span>−</span>
+                <input
+                  type="range"
+                  min={-0.25}
+                  max={0.25}
+                  step={0.01}
+                  value={doc.margin ?? 0}
+                  onChange={(e) => {
+                    // le neutre aimante le curseur
+                    const v = Number(e.target.value);
+                    setDoc((d) => ({ ...d, margin: Math.abs(v) < 0.015 ? 0 : v }));
+                  }}
+                />
+                <span>+</span>
+              </label>
+              <small className="fx-hint">Les repères se répartissent à cette distance du bord, dedans (+) ou au-delà (−) ; elle suit le format quand il change.</small>
+              <div className="b-title">Repères visibles</div>
+              <div className="guides-look">
+                <button className={`pal-lib-save ${guidesOn.on ? 'on' : ''}`} onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}>
+                  {guidesOn.on ? 'Toujours' : 'Au déplacement'}
+                </button>
+                <div className="guides-colors">
+                  {['#7a5cff', '#00b3c7', '#ff3b6b', '#1d1b22', '#ffffff'].map((c) => (
+                    <button key={c} className={guidesOn.color === c ? 'on' : ''} style={{ background: c }} onClick={() => setGuidesOn({ ...guidesOn, color: c })} aria-label={`Couleur des repères ${c}`} />
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
