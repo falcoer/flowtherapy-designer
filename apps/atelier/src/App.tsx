@@ -255,10 +255,12 @@ export function App() {
   /** Rotation choisie du tampon (radians), ajoutée à celle du stylet quand il la suit. */
   const [stampRot, setStampRot] = useState(0);
   const [stampFollow, setStampFollow] = useState(true);
+  const [stampWipe, setStampWipe] = useState(true);
   /** Ce que le stylet transmet vraiment : sa rotation, son inclinaison, ou rien. */
   const [penSrc, setPenSrc] = useState<'rotation' | 'inclinaison' | 'aucun' | null>(null);
   const [burnChar, setBurnChar] = useState(0.3);
   const [branchCore, setBranchCore] = useState(1);
+  const [burnHole, setBurnHole] = useState(true);
   const [stampPick, setStampPick] = useState(false);
   /** Survol du stylet (ou de la souris) : un repère montre où la pointe touchera. */
   const hoverRef = useRef<HTMLDivElement>(null);
@@ -1004,9 +1006,9 @@ export function App() {
       last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
       stroke:
         t === 'stamp'
-          ? { brush: 'stamp', stamp: stampId, dilution, guide, size: stampSize, opacity: stampOpacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr, ...stampAngle(e, target) }] }
+          ? { brush: 'stamp', stamp: stampId, dilution, wipe: stampWipe, guide, size: stampSize, opacity: stampOpacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr, ...stampAngle(e, target) }] }
           : brushKind === 'burn'
-            ? { brush: 'burn', grow: 0.15, char: burnChar, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
+            ? { brush: 'burn', grow: 0.15, char: burnChar, hole: burnHole, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
             : brushKind === 'branch'
               ? { brush: 'branch', branches, converge, core: branchCore, grow: 0.12, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
               : { brush: brushKind, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] },
@@ -1070,9 +1072,9 @@ export function App() {
     const tx = e.tiltX ?? 0;
     const ty = e.tiltY ?? 0;
     const tilt = Math.hypot(tx, ty);
-    // penché au-delà de 15°, le tampon appuie sur le côté où il penche
-    if (e.pointerType === 'pen' && stampFollow && tilt > 15) {
-      out.k = Math.min(0.85, ((tilt - 15) / 45) * 0.85);
+    // penché au-delà de 25°, le tampon se met en perspective dans le sens où il penche
+    if (e.pointerType === 'pen' && stampFollow && tilt > 25) {
+      out.k = Math.min(0.9, ((tilt - 25) / 45) * 0.9);
       out.d = Math.atan2(ty, tx) - view.rot - (l.rot ?? 0);
     }
     return out;
@@ -1158,8 +1160,9 @@ export function App() {
         const prev = L.stroke.pts[L.stroke.pts.length - 1]!;
         const dist = Math.hypot((loc.x - prev.x) * l.w, (loc.y - prev.y) * l.h);
         // un tampon traîné imprime une suite d'empreintes, espacées de leur taille
-        if (stamping ? dist < L.stroke.size * 2.2 : dist * Math.min(f.width, f.height) * scale < 1.5) continue;
-        L.stroke.pts.push({ ...loc, p: pr, ...(stamping ? stampAngle(ev, l) : {}) });
+        // essuyé : le geste est suivi finement, l'encre s'étire derrière l'empreinte
+        if (stamping ? dist < L.stroke.size * (L.stroke.wipe ? 0.05 : 2.2) : dist * Math.min(f.width, f.height) * scale < 1.5) continue;
+        L.stroke.pts.push({ ...loc, p: pr, ...(stamping && !L.stroke.wipe ? stampAngle(ev, l) : {}) });
       }
       const tg = paintTarget(l, f, scale * dpr);
       if (stamping || branching) {
@@ -1900,7 +1903,14 @@ export function App() {
                     <VSlider label="Noyau : taille de la tache de couleur au départ" value={branchCore} onChange={(v) => setBranchCore(Math.round(v * 100) / 100)} />
                   </>
                 )}
-                {brushKind === 'burn' && <VSlider label="Roussi : largeur de la marge assombrie" value={burnChar} onChange={(v) => setBurnChar(Math.max(0.02, Math.round(v * 100) / 100))} />}
+                {brushKind === 'burn' && (
+                  <>
+                    <VSlider label="Roussi : largeur de la marge, qui parcourt le dégradé du guide" value={burnChar} onChange={(v) => setBurnChar(Math.max(0.02, Math.round(v * 100) / 100))} />
+                    <button className={`btn small ${burnHole ? 'on' : ''}`} onClick={() => setBurnHole(!burnHole)} title={burnHole ? 'Trous : la brûlure perce la couche' : 'Sans trou : la brûlure teinte seulement'}>
+                      <Icon name="burn-hole" />
+                    </button>
+                  </>
+                )}
               </>
             )}
             {tool === 'stamp' && (
@@ -1941,6 +1951,13 @@ export function App() {
                   value={0.5 + stampRot / (2 * Math.PI)}
                   onChange={(v) => setStampRot(Math.abs(v - 0.5) < 0.004 ? 0 : (v - 0.5) * 2 * Math.PI)}
                 />
+                <button
+                  className={`btn small ${stampWipe ? 'on' : ''}`}
+                  onClick={() => setStampWipe(!stampWipe)}
+                  title={stampWipe ? 'Essuyé : glisser sans lever étire l’encre' : 'Traînée : glisser sans lever imprime une suite de tampons'}
+                >
+                  <Icon name={stampWipe ? 'stamp-wipe' : 'stamp-trail'} />
+                </button>
                 <button
                   className={`btn small ${stampFollow ? 'on' : ''}`}
                   onClick={() => setStampFollow(!stampFollow)}

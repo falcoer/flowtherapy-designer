@@ -61,6 +61,8 @@ export interface Stroke {
   /** Outil Tampons : motif posé à chaque point, et dilution de l'encre (0 = encre pleine, 1 = très diluée). */
   stamp?: string;
   dilution?: number;
+  /** Tampon essuyé : après l'empreinte, le geste étire l'encre au lieu d'imprimer une traînée. */
+  wipe?: boolean;
   /** Pinceau Ramures : nombre de ramifications, convergence (0 = elles s'arrêtent au contact, 1 = elles se croisent), poussée (0..1). */
   branches?: number;
   converge?: number;
@@ -69,6 +71,8 @@ export interface Stroke {
   core?: number;
   /** Pinceau Brûlure : largeur de la marge roussie et carbonisée autour du trou (0..1). */
   char?: number;
+  /** Pinceau Brûlure : false = la couche n'est pas percée, seule la marge la teinte. */
+  hole?: boolean;
 }
 
 export type BorderStyle = 'round' | 'straight' | 'torn' | 'stamp' | 'burst' | 'double';

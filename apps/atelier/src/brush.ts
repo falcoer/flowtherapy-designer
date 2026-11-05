@@ -178,6 +178,46 @@ function stampTmp(S: number) {
   return c;
 }
 
+const warpA = document.createElement('canvas');
+const warpB = document.createElement('canvas');
+/** Déforme l'empreinte (carré S×S au coin de c) en perspective vers la direction d, de force k (0..1). */
+function perspective(c: HTMLCanvasElement, S: number, d: number, k: number) {
+  for (const w of [warpA, warpB]) {
+    if (w.width !== S || w.height !== S) {
+      w.width = S;
+      w.height = S;
+    }
+  }
+  const a = warpA.getContext('2d')!;
+  a.setTransform(1, 0, 0, 1, 0, 0);
+  a.clearRect(0, 0, S, S);
+  a.translate(S / 2, S / 2);
+  a.rotate(-d);
+  a.translate(-S / 2, -S / 2);
+  a.drawImage(c, 0, 0, S, S, 0, 0, S, S);
+  const b = warpB.getContext('2d')!;
+  b.setTransform(1, 0, 0, 1, 0, 0);
+  b.clearRect(0, 0, S, S);
+  const squash = 1 - 0.55 * k;
+  const taper = 0.45 * k;
+  const h = S / 2;
+  const col = Math.max(1, Math.round(S / 160));
+  for (let x = 0; x < S; x += col) {
+    const u = (x + col / 2 - h) / h; // -1 côté proche, +1 côté qui fuit
+    const v = 1 - taper * u;
+    const nx = h + (x - h) * squash * (1 - taper * 0.5 * u);
+    b.drawImage(warpA, x, 0, col, S, nx, h - h * v, col * squash + 0.6, S * v);
+  }
+  const x = c.getContext('2d')!;
+  x.setTransform(1, 0, 0, 1, 0, 0);
+  x.clearRect(0, 0, S, S);
+  x.translate(S / 2, S / 2);
+  x.rotate(d);
+  x.translate(-S / 2, -S / 2);
+  x.drawImage(warpB, 0, 0);
+  x.setTransform(1, 0, 0, 1, 0, 0);
+}
+
 /**
  * Tampon encré : le motif est posé à chaque point du geste, à la couleur courante.
  * Diluée, l'encre s'étale et s'éclaircit, le grain du papier la boit et
@@ -190,9 +230,9 @@ function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: 
   const dil = Math.max(0, Math.min(1, s.dilution ?? 0));
   const r = rng(s.seed);
   const { c: sil, ctx: sx } = buffer('a', t.pw, t.ph);
-  const n = s.pts.length;
+  const n = s.wipe ? 1 : s.pts.length;
   let big = 0;
-  s.pts.forEach((p, i) => {
+  (s.wipe ? s.pts.slice(0, 1) : s.pts).forEach((p, i) => {
     const R = s.size * t.pxPerMin * 2 * (0.75 + 0.35 * (p.p ?? 0.7));
     big = Math.max(big, R);
     const k = R / Math.max(def.w, def.h);
@@ -231,21 +271,38 @@ function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: 
         }
       });
       sx.restore();
-      if (p.k) {
-        const dx = Math.cos(p.d ?? 0);
-        const dy = Math.sin(p.d ?? 0);
-        const lg = sx.createLinearGradient(S / 2 + dx * R * 0.45, S / 2 + dy * R * 0.45, S / 2 - dx * R * 0.45, S / 2 - dy * R * 0.45);
-        lg.addColorStop(0, 'rgba(0,0,0,0)');
-        lg.addColorStop(0.35, `rgba(0,0,0,${0.15 * p.k})`);
-        lg.addColorStop(1, `rgba(0,0,0,${p.k})`);
-        sx.globalCompositeOperation = 'destination-out';
-        sx.globalAlpha = 1;
-        sx.fillStyle = lg;
-        sx.fillRect(0, 0, S, S);
-        sx.globalCompositeOperation = 'source-over';
-      }
+      // penché, le tampon se met en perspective : écrasé dans le sens où le crayon penche,
+      // et plus petit de ce côté-là, comme un motif posé sur une surface qui fuit (un bras, une joue)
+      if (p.k) perspective(tmp, S, p.d ?? 0, p.k);
     }
     sx0.drawImage(tmp, 0, 0, S, S, p.x * t.pw - S / 2, p.y * t.ph - S / 2, S, S);
+    // essuyé : le tampon glisse sans quitter le papier, l'encre s'étire et s'épuise le long du geste
+    if (s.wipe && s.pts.length > 1) {
+      const x0 = p.x * t.pw;
+      const y0 = p.y * t.ph;
+      const step = Math.max(1, R * 0.035);
+      let L = 0;
+      let carry = 0;
+      for (let j = 1; j < s.pts.length; j++) {
+        const a = s.pts[j - 1]!;
+        const b = s.pts[j]!;
+        const ax = a.x * t.pw;
+        const ay = a.y * t.ph;
+        const seg = Math.hypot(b.x * t.pw - ax, b.y * t.ph - ay);
+        for (let d = carry; d < seg; d += step) {
+          const u = d / seg;
+          const cx = ax + (b.x * t.pw - ax) * u;
+          const cy = ay + (b.y * t.ph - ay) * u;
+          const ink = Math.exp(-(L + d) / (R * 1.1));
+          if (ink < 0.02) break;
+          sx0.globalAlpha = 0.16 * ink * (0.8 + 0.4 * r());
+          sx0.drawImage(tmp, 0, 0, S, S, cx - S / 2 + (cx - x0) * 0.04, cy - S / 2 + (cy - y0) * 0.04, S, S);
+        }
+        carry = Math.max(0, carry + Math.ceil((seg - carry) / step) * step - seg);
+        L += seg;
+      }
+      sx0.globalAlpha = 1;
+    }
   });
   sx.globalAlpha = 1;
   // encre pressée : le papier ne prend pas tout, même pleine
@@ -464,9 +521,6 @@ function burnGroup(strokes: Stroke[], guides: Guide[], t: Target) {
   };
   // roussi : large, brun clair ; carbonisé : plus serré, presque noir
   const c = Math.max(0.02, Math.min(1, strokes[strokes.length - 1]?.char ?? 0.3));
-  const scorch = halo(big * (0.15 + 0.7 * c));
-  const char = halo(big * (0.06 + 0.27 * c));
-  const ember = halo(big * 0.025);
   const g = guides[strokes[strokes.length - 1]?.guide ?? 0];
   const op = strokes[strokes.length - 1]?.opacity ?? 0.85;
   const out = document.createElement('canvas');
@@ -486,22 +540,25 @@ function burnGroup(strokes: Stroke[], guides: Guide[], t: Target) {
     ox.drawImage(c, 0, 0);
     ox.globalAlpha = 1;
   };
-  tint(scorch, '#8a5a2b', 0.6);
-  // marge large : un second passage garde le roussi dense loin du trou
-  if (c > 0.5) tint(scorch, '#5a3a1c', (c - 0.5) * 0.9);
-  tint(char, '#1e130b', 1);
-  tint(char, '#1e130b', 0.6);
-  tint(ember, guideColor(g, 0.5), Math.min(1, op * 1.2));
+  // la marge parcourt le dégradé du guide : son début contre le bord brûlé, sa fin au loin.
+  // Chaque bande est un halo plus serré posé sur le précédent, la couleur suit donc la distance au bord.
+  const W = big * (0.15 + 0.7 * c);
+  const N = 7;
+  for (let k = N - 1; k >= 0; k--) {
+    const f = k / (N - 1);
+    tint(halo(big * 0.02 + W * f), guideColor(g, f), op * (0.55 + 0.45 * (1 - f)));
+  }
+  // contre le trou, un liseré carbonisé fin garde l'aspect brûlé
+  if (strokes[0]?.hole !== false) tint(halo(big * 0.03), '#1e130b', 0.75);
   return { hole, edge: out };
 }
 /** Les brûlures d'une couche : chaque réglage de roussi garde sa propre marge. */
 export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target) {
-  const groups = new Map<number, Stroke[]>();
+  const groups = new Map<string, Stroke[]>();
   for (const s of strokes) {
-    const c = s.char ?? 0.3;
-    groups.set(c, [...(groups.get(c) ?? []), s]);
+    const k = `${s.char ?? 0.3}|${s.hole !== false}`;
+    groups.set(k, [...(groups.get(k) ?? []), s]);
   }
-  if (groups.size === 1) return burnGroup(strokes, guides, t);
   const hole = document.createElement('canvas');
   hole.width = t.pw;
   hole.height = t.ph;
@@ -513,7 +570,8 @@ export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target) {
   for (const list of groups.values()) {
     const r = burnGroup(list, guides, t);
     ex.drawImage(r.edge, 0, 0);
-    hx.drawImage(r.hole, 0, 0);
+    // sans trou, la brûlure ne fait que teinter : la couche reste entière
+    if (list[0]!.hole !== false) hx.drawImage(r.hole, 0, 0);
   }
   return { hole, edge };
 }
