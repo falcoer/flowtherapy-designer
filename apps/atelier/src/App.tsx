@@ -2374,21 +2374,9 @@ function PaletteBubble({
   const [renaming, setRenaming] = useState<number | null>(null);
   const [lib, setLib] = useState(false);
   // édition de la couleur : escamotable, retenue d'une ouverture à l'autre
-  const [editing, setEditingRaw] = useState(() => {
-    try {
-      return localStorage.getItem('ftd-atelier-palette-edit') === '1';
-    } catch {
-      return false;
-    }
-  });
-  const setEditing = (v: boolean) => {
-    setEditingRaw(v);
-    try {
-      localStorage.setItem('ftd-atelier-palette-edit', v ? '1' : '0');
-    } catch {
-      /* stockage indisponible */
-    }
-  };
+  // édition de la couleur : fermée à chaque ouverture de la palette ; double toucher sur une couleur l'ouvre
+  const [editing, setEditing] = useState(false);
+  const lastPick = useRef<{ i: number; t: number } | null>(null);
   const store = (list: typeof saved) => {
     setSaved(list);
     try {
@@ -2492,8 +2480,16 @@ function PaletteBubble({
             role="button"
             tabIndex={0}
             className={`guide ${i === active ? 'on' : ''}`}
-            onClick={() => onPick(i)}
-            title={`${x.name} : glisse-la sur un objet pour lui donner cette couleur`}
+            onClick={() => {
+              onPick(i);
+              const now = performance.now();
+              const lp = lastPick.current;
+              if (lp && lp.i === i && now - lp.t < 400) {
+                setEditing(true);
+                lastPick.current = null;
+              } else lastPick.current = { i, t: now };
+            }}
+            title={`${x.name} : double toucher pour la modifier, glisse-la sur un objet pour lui donner cette couleur`}
             onPointerDown={(e) => {
               (e.currentTarget as Element).setPointerCapture(e.pointerId);
               drag.current = { i, x: e.clientX, y: e.clientY, on: false };
