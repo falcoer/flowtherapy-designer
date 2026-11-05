@@ -88,6 +88,8 @@ export const BORDER_TYPES: Array<[BorderStyle | null, string, string]> = [
   ['burst', 'Explosion', 'pointes irrégulières'],
   ['double', 'Double', 'deux couleurs'],
 ];
+/** Pinceaux qui acceptent une forme de brosse. */
+const tipOn = (k: BrushKind) => k === 'aquarelle' || k === 'acrylic' || k === 'roller';
 const BRUSHES: Array<[BrushKind, string, string]> = [
   ['aquarelle', 'Aquarelle', 'lavis transparent'],
   ['acrylic', 'Acrylique pinceau', 'pâte couvrante striée'],
@@ -303,6 +305,9 @@ export function App() {
   const [epop, setEpop] = useState<string | null>(null);
   const [brushKind, setBrushKind] = useState<BrushKind>('aquarelle');
   const [brushPick, setBrushPick] = useState(false);
+  /** Forme de la brosse et son angle (radians), auquel s'ajoute la rotation du crayon. */
+  const [brushTip, setBrushTip] = useState<'round' | 'flat' | 'triangle'>('round');
+  const [brushRot, setBrushRot] = useState(0);
   /** Ramures : nombre de ramifications et convergence. */
   const [branches, setBranches] = useState(6);
   const [converge, setConverge] = useState(0.3);
@@ -1038,7 +1043,15 @@ export function App() {
             ? { brush: 'burn', grow: 0.15, char: burnChar, hole: burnHole, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
             : brushKind === 'branch'
               ? { brush: 'branch', branches, converge, core: branchCore, grow: 0.12, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
-              : { brush: brushKind, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] },
+              : {
+                  brush: brushKind,
+                  guide,
+                  size,
+                  opacity,
+                  seed: Math.floor(Math.random() * 1e9),
+                  ...(tipOn(brushKind) ? { tip: brushTip } : {}),
+                  pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, target) } : {}) }],
+                },
     };
     // ramures : tant que la pointe reste posée, les ramifications poussent
     if (t !== 'stamp' && (brushKind === 'branch' || brushKind === 'burn')) {
@@ -1074,12 +1087,17 @@ export function App() {
   const lastTwist = useRef(0);
   const twistSeen = useRef(false);
   const stampScreenAngle = (e: PenLike) => {
-    if (e.pointerType !== 'pen' || !penRoll) return stampRot;
+    return stampRot + penTwist(e);
+  };
+  const penTwist = (e: PenLike) => {
+    if (e.pointerType !== 'pen' || !penRoll) return 0;
     // au contact, la valeur reçue fait foi (0 compris) dès que le crayon a montré qu'il la donne
     if (e.twist) twistSeen.current = true;
     if (e.buttons && twistSeen.current) lastTwist.current = ((e.twist ?? 0) * Math.PI) / 180;
-    return stampRot + lastTwist.current;
+    return lastTwist.current;
   };
+  /** Angle de la brosse dans le repère de la couche : le curseur, plus la rotation du crayon. */
+  const tipAngle = (e: PenLike, l: Layer) => brushRot + penTwist(e) - view.rot - (l.rot ?? 0);
   /** Rotation et inclinaison du tampon, dans le repère de la couche. */
   const stampAngle = (e: PenLike, l: Layer) => {
     const out: { r?: number; k?: number; d?: number } = { r: stampScreenAngle(e) - view.rot - (l.rot ?? 0) };
@@ -1103,8 +1121,14 @@ export function App() {
     const m = Math.min(f.width, f.height) * scale;
     const d = tool === 'stamp' ? stampSize * 2 * m : size * 2 * m;
     el.style.display = 'block';
-    el.style.width = el.style.height = `${Math.max(6, d)}px`;
-    el.style.transform = `translate(${e.clientX - Math.max(6, d) / 2}px, ${e.clientY - Math.max(6, d) / 2}px) rotate(${tool === 'stamp' ? stampScreenAngle(e) : view.rot}rad)`;
+    const D = Math.max(6, d);
+    // brosse plate ou triangle : la silhouette de la touche, tournée comme elle peindra
+    const tip = tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
+    el.dataset.tip = tip;
+    el.style.width = `${D}px`;
+    el.style.height = `${tip === 'flat' ? Math.max(3, D * 0.3) : D}px`;
+    const ang = tool === 'stamp' ? stampScreenAngle(e) : tip !== 'round' ? brushRot + penTwist(e) : view.rot;
+    el.style.transform = `translate(${e.clientX - D / 2}px, ${e.clientY - (tip === 'flat' ? Math.max(3, D * 0.3) : D) / 2}px) rotate(${ang}rad)`;
   };
   const hideHover = () => {
     if (hoverRef.current) hoverRef.current.style.display = 'none';
@@ -1175,7 +1199,7 @@ export function App() {
         // un tampon traîné imprime une suite d'empreintes, espacées de leur taille
         // essuyé : le geste est suivi finement, l'encre s'étire derrière l'empreinte
         if (stamping ? dist < L.stroke.size * (L.stroke.wipe ? 0.05 : 2.2) : dist * Math.min(f.width, f.height) * scale < 1.5) continue;
-        L.stroke.pts.push({ ...loc, p: pr, ...(stamping && !L.stroke.wipe ? stampAngle(ev, l) : {}) });
+        L.stroke.pts.push({ ...loc, p: pr, ...(stamping && !L.stroke.wipe ? stampAngle(ev, l) : L.stroke.tip ? { r: tipAngle(ev, l) } : {}) });
       }
       const tg = paintTarget(l, f, scale * dpr);
       if (stamping || branching) {
@@ -1923,6 +1947,23 @@ export function App() {
                 )}
                 <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
                 <VSlider label="Opacité" value={opacity} onChange={(v) => setOpacity(Math.max(0.05, v))} />
+                {tipOn(brushKind) && (
+                  <button
+                    className="btn small"
+                    onClick={() => setBrushTip(brushTip === 'round' ? 'flat' : brushTip === 'flat' ? 'triangle' : 'round')}
+                    title={`Forme de la brosse : ${brushTip === 'round' ? 'ronde' : brushTip === 'flat' ? 'plate' : 'triangle'} (toucher pour changer)`}
+                  >
+                    <Icon name={`tip-${brushTip}`} />
+                  </button>
+                )}
+                {tipOn(brushKind) && brushTip !== 'round' && (
+                  <VSlider
+                    label={`Rotation de la brosse : ${Math.round((brushRot * 180) / Math.PI)}°`}
+                    center
+                    value={0.5 + brushRot / (2 * Math.PI)}
+                    onChange={(v) => setBrushRot(Math.abs(v - 0.5) < 0.004 ? 0 : (v - 0.5) * 2 * Math.PI)}
+                  />
+                )}
                 {brushKind === 'branch' && (
                   <>
                     <VSlider label="Ramifications" value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />

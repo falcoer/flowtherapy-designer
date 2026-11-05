@@ -74,8 +74,8 @@ export interface Target {
 /** Tampons d'un trait : position en pixels, rayon, position relative le long du trait. */
 function stamps(s: Stroke, t: Target) {
   const r = rng(s.seed);
-  const out: Array<{ x: number; y: number; r: number; t: number }> = [];
-  const pts = s.pts.map((p) => ({ x: p.x * t.pw, y: p.y * t.ph, p: p.p ?? 0.6 }));
+  const out: Array<{ x: number; y: number; r: number; t: number; a: number }> = [];
+  const pts = s.pts.map((p) => ({ x: p.x * t.pw, y: p.y * t.ph, p: p.p ?? 0.6, a: p.r ?? 0 }));
   let total = 0;
   for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
   let along = 0;
@@ -98,12 +98,35 @@ function stamps(s: Stroke, t: Target) {
         y: a.y + (b.y - a.y) * f + (r() - 0.5) * rad0 * 0.25,
         r: base * (0.35 + 0.65 * p) * wobble,
         t: total ? (along + d * f) / total : 0,
+        a: a.a + (b.a - a.a) * f,
       });
       if (d === 0) break;
     }
     along += d;
   }
   return out;
+}
+
+/** Empreinte de la brosse : ronde, plate (lame fine) ou triangle, tournée de `a`. */
+function tipShape(ctx: CanvasRenderingContext2D, tip: Stroke['tip'], x: number, y: number, r: number, a: number) {
+  ctx.beginPath();
+  if (!tip || tip === 'round') {
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    return;
+  }
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  const pts =
+    tip === 'flat'
+      ? [
+          [-r, -r * 0.16],
+          [r, -r * 0.16],
+          [r, r * 0.16],
+          [-r, r * 0.16],
+        ]
+      : [0, 1, 2].map((k) => [Math.cos(-Math.PI / 2 + (k * 2 * Math.PI) / 3) * r, Math.sin(-Math.PI / 2 + (k * 2 * Math.PI) / 3) * r]);
+  pts.forEach(([px, py], i) => (i ? ctx.lineTo(x + px! * c - py! * s, y + px! * s + py! * c) : ctx.moveTo(x + px! * c - py! * s, y + px! * s + py! * c)));
+  ctx.closePath();
 }
 
 /** Rend un trait dans le canevas de peinture d'une couche, selon son mode de projection. */
@@ -136,8 +159,7 @@ function aquarelle(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
   const g = guides[s.guide];
   for (const st of stamps(s, t)) {
     sx.fillStyle = guideColor(g, st.t);
-    sx.beginPath();
-    sx.arc(st.x, st.y, Math.max(0.5, st.r), 0, Math.PI * 2);
+    tipShape(sx, s.tip, st.x, st.y, Math.max(0.5, st.r), st.a);
     sx.fill();
   }
   // grain : le pigment se dépose moins dans les creux du papier
@@ -626,8 +648,7 @@ export function previewStamps(ctx: CanvasRenderingContext2D, s: Stroke, guides: 
   for (let i = from; i < all.length; i++) {
     const st = all[i]!;
     ctx.fillStyle = guideColor(g, st.t);
-    ctx.beginPath();
-    ctx.arc(st.x, st.y, Math.max(0.5, st.r), 0, Math.PI * 2);
+    tipShape(ctx, s.brush === 'aquarelle' || !s.brush || s.brush === 'acrylic' || s.brush === 'roller' ? s.tip : 'round', st.x, st.y, Math.max(0.5, st.r), st.a);
     ctx.fill();
   }
   ctx.restore();
@@ -678,8 +699,8 @@ function vn(x: number, y: number, seed: number): number {
 
 /** Le trait rééchantillonné à pas régulier : position, normale lissée, pression, abscisse. */
 function track(s: Stroke, t: Target, step: number) {
-  const raw = s.pts.map((p) => ({ x: p.x * t.pw, y: p.y * t.ph, p: p.p ?? 0.6 }));
-  const out: Array<{ x: number; y: number; nx: number; ny: number; p: number; s: number }> = [];
+  const raw = s.pts.map((p) => ({ x: p.x * t.pw, y: p.y * t.ph, p: p.p ?? 0.6, a: p.r ?? 0 }));
+  const out: Array<{ x: number; y: number; nx: number; ny: number; p: number; s: number; a: number }> = [];
   let carry = 0;
   let along = 0;
   for (let i = 0; i + 1 < raw.length; i++) {
@@ -689,7 +710,7 @@ function track(s: Stroke, t: Target, step: number) {
     let u = carry;
     while (u < d) {
       const f = u / d;
-      out.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, nx: 0, ny: 0, p: a.p + (b.p - a.p) * f, s: along + u });
+      out.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, nx: 0, ny: 0, p: a.p + (b.p - a.p) * f, s: along + u, a: a.a + (b.a - a.a) * f });
       u += step;
     }
     carry = u - d;
@@ -762,9 +783,27 @@ function streaks(
     const off = (k / Math.max(1, o.lanes - 1)) * 2 - 1;
     let prev: { x: number; y: number } | null = null;
     for (const q of pts) {
-      const h = o.half(q.p);
-      const x = q.x + q.nx * off * h;
-      const y = q.y + q.ny * off * h;
+      let h = o.half(q.p);
+      // brosse plate : les poils sont alignés sur la lame, le trait s'affine quand on la glisse dans son sens ;
+      // triangle : la largeur suit l'ombre portée du triangle sur la normale du geste
+      let ax = q.nx;
+      let ay = q.ny;
+      if (s.tip === 'flat') {
+        ax = Math.cos(q.a);
+        ay = Math.sin(q.a);
+      } else if (s.tip === 'triangle') {
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (let v = 0; v < 3; v++) {
+          const va = q.a - Math.PI / 2 + (v * 2 * Math.PI) / 3;
+          const dd = Math.cos(va) * q.nx + Math.sin(va) * q.ny;
+          lo = Math.min(lo, dd);
+          hi = Math.max(hi, dd);
+        }
+        h *= (hi - lo) / 2;
+      }
+      const x = q.x + ax * off * h;
+      const y = q.y + ay * off * h;
       if (prev) {
         const c = Math.min(1, o.cover(k, off, q.s, length ? q.s / length : 0));
         if (c > 0.02) {
