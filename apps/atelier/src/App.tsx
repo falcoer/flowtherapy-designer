@@ -2127,12 +2127,12 @@ export function App() {
                     <>
                       <VSlider label="Ramifications" value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
                       <VSlider label="Chaos" value={converge} onChange={(v) => setConverge(Math.round(v * 100) / 100)} />
-                      <VSlider label="Noyau : taille de la tache de couleur au départ" value={branchCore} onChange={(v) => setBranchCore(Math.round(v * 100) / 100)} />
+                      <VSlider label="Taille noyau" value={branchCore} onChange={(v) => setBranchCore(Math.round(v * 100) / 100)} />
                     </>
                   )}
                   {brushKind === 'burn' && (
                     <>
-                      <VSlider label="Roussi : largeur de la marge, qui parcourt le dégradé du guide" value={burnChar} onChange={(v) => setBurnChar(Math.max(0.02, Math.round(v * 100) / 100))} />
+                      <VSlider label="Roussi" value={burnChar} onChange={(v) => setBurnChar(Math.max(0.02, Math.round(v * 100) / 100))} />
                       <button className={`btn small ${burnHole ? 'on' : ''}`} onClick={() => setBurnHole(!burnHole)} title={burnHole ? 'Trous : la brûlure perce la couche' : 'Sans trou : la brûlure teinte seulement'}>
                         <Icon name="burn-hole" />
                       </button>
@@ -3563,7 +3563,7 @@ function EdgeControls({ layer: l, guides, pop, setPop, patch }: { layer: Layer; 
       {gl && (
         <>
           <GuidePick title="Couleur de la lueur" value={gl.guide} guides={guides} open={pop === 'gc'} setOpen={toggle('gc')} onPick={(i) => patch({ glow: { ...gl, guide: i } })} />
-          <VSlider label="Distance : dedans (−) ou dehors (+)" center value={(gl.distance + 1) / 2} onChange={(v) => patch({ glow: { ...gl, distance: Math.round((v * 2 - 1) * 100) / 100 } }, false)} />
+          <VSlider label="Distance" center value={(gl.distance + 1) / 2} onChange={(v) => patch({ glow: { ...gl, distance: Math.round((v * 2 - 1) * 100) / 100 } }, false)} />
           <VSlider label="Largeur" value={gl.width} onChange={(v) => patch({ glow: { ...gl, width: Math.round(v * 100) / 100 } }, false)} />
         </>
       )}
