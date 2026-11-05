@@ -1,0 +1,16 @@
+id: affiche-psyche-bandeau
+type: image
+title: Bandeau crème déchiré
+description: Bandeau papier crème aux bords irréguliers, pour un slogan en noir (texte d’origine effacé).
+source: source.png
+meta:
+  width: 526
+  height: 94
+tags:
+- decor
+- cartouche
+- affiche-psyche
+- transparent
+origin:
+  source: publication Facebook de Flow Therapy
+  note: extraction automatique (détourage BiRefNet + SAM)

@@ -1,0 +1,18 @@
+id: affiche-psyche-lama-jenni
+type: image
+title: Lama Jenni (affiche psyché)
+description: Lama crinière rose et orange, boucles d’oreilles, micro rétro. Buste détouré de l’affiche psychédélique.
+source: source.png
+meta:
+  width: 393
+  height: 497
+tags:
+- mascotte
+- alpaga
+- lama
+- jenni
+- affiche-psyche
+- transparent
+origin:
+  source: publication Facebook de Flow Therapy
+  note: extraction automatique (détourage BiRefNet + SAM)

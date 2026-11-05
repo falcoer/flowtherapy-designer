@@ -41,10 +41,15 @@ const FILTERS: Partial<Record<Shelf, Array<[string, string]>>> = {
     ['portrait', 'Portrait'],
     ['noir-et-blanc', 'Noir et blanc'],
     ['plein-air', 'Plein air'],
+    ['tremplin', 'Tremplin'],
+    ['radio', 'Radio'],
   ],
   illustrations: [
     ['alpaga', 'Alpagas'],
     ['paysage', 'Paysages'],
+    ['affiche-psyche', 'Affiche psyché'],
+    ['decor', 'Décors'],
+    ['fond', 'Fonds'],
   ],
   logos: [
     ['flow-therapy', 'Flow Therapy'],

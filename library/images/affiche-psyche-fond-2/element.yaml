@@ -1,0 +1,15 @@
+id: affiche-psyche-fond-2
+type: image
+title: Fond psyché, vagues bleues
+description: 'Morceau du fond de l’affiche, sans personnage : à agrandir ou répéter.'
+source: source.png
+meta:
+  width: 200
+  height: 330
+tags:
+- fond
+- texture
+- affiche-psyche
+origin:
+  source: publication Facebook de Flow Therapy
+  note: image publiée telle quelle

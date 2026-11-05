@@ -1,0 +1,18 @@
+id: affiche-psyche-lama-betty
+type: image
+title: Lama Betty (affiche psyché)
+description: Lama doré au bandeau rose. Buste détouré de l’affiche psychédélique (clavier et batterie non repris).
+source: source.png
+meta:
+  width: 239
+  height: 479
+tags:
+- mascotte
+- alpaga
+- lama
+- betty
+- affiche-psyche
+- transparent
+origin:
+  source: publication Facebook de Flow Therapy
+  note: extraction automatique (détourage BiRefNet + SAM)

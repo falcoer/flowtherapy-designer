@@ -1,0 +1,18 @@
+id: affiche-psyche-lama-lauris
+type: image
+title: Lama Lauris (affiche psyché)
+description: Lama bleu à casquette et lunettes violettes, basse en main. Détouré de l’affiche psychédélique (1024 px de large à l’origine).
+source: source.png
+meta:
+  width: 339
+  height: 672
+tags:
+- mascotte
+- alpaga
+- lama
+- lauris
+- affiche-psyche
+- transparent
+origin:
+  source: publication Facebook de Flow Therapy
+  note: extraction automatique (détourage BiRefNet + SAM)

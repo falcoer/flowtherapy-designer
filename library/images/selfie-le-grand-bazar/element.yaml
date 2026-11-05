@@ -1,0 +1,19 @@
+id: selfie-le-grand-bazar
+type: image
+title: Selfie au studio, émission Le Grand Bazar
+description: Selfie de la bande dans le studio radio de l’émission « Le Grand Bazar » de Gilles Fenech.
+source: source.jpeg
+meta:
+  width: 1440
+  height: 1920
+focus:
+  x: 0.5
+  y: 0.35
+tags:
+- photo
+- groupe
+- portrait
+- radio
+origin:
+  source: publication Facebook de Flow Therapy
+  note: image publiée telle quelle
