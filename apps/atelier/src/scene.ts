@@ -827,7 +827,8 @@ export function holdPins(doc: Doc, f: Format): Doc {
 export function pinsOf(l: Layer, f: Format, tol: number): Layer['pins'] {
   const bb = pageBounds(l, f);
   const e = edgeLines(f);
-  const at = (side: 'left' | 'right' | 'top' | 'bottom', v: number): Pin | undefined => (Math.abs(v - e.page[side]) < tol ? true : e.margin && Math.abs(v - e.margin[side]) < tol ? 'margin' : undefined);
+  const at = (side: 'left' | 'right' | 'top' | 'bottom', v: number): Pin | undefined =>
+    Math.abs(v - e.page[side]) < tol ? (e.margin ? true : 'margin') : e.margin && Math.abs(v - e.margin[side]) < tol ? 'margin' : undefined;
   const pins = { left: at('left', bb.x0), right: at('right', bb.x1), top: at('top', bb.y0), bottom: at('bottom', bb.y1) };
   return pins.left || pins.right || pins.top || pins.bottom ? pins : undefined;
 }

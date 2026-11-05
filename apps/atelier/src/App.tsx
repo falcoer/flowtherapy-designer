@@ -1394,7 +1394,8 @@ export function App() {
       const lines = edgeLines(f);
       const near1 = (side: 'left' | 'right' | 'top' | 'bottom', v: number) => {
         let best: { d: number; pin: Pin; at: number } | null = null;
-        for (const [pin, at] of [[true, lines.page[side]], ...(lines.margin ? [['margin', lines.margin[side]]] : [])] as Array<[Pin, number]>) {
+        // sans marge, la ligne de marge se confond avec le bord : on s'y attache, pour suivre la marge si elle change ensuite
+        for (const [pin, at] of [[lines.margin ? true : 'margin', lines.page[side]], ...(lines.margin ? [['margin', lines.margin[side]]] : [])] as Array<[Pin, number]>) {
           const d = Math.abs(v - at);
           if (d < tol && (!best || d < best.d)) best = { d, pin, at };
         }
@@ -1861,7 +1862,45 @@ export function App() {
     const t = { ...l.text, ...next };
     const [a, b] = [textCut(l.text), textCut(t)];
     const k = l.h / (a.bh || 1);
-    patchLayer(l.id, { text: t, cut: undefined, w: Math.max(0.01, b.bw * k), h: Math.max(0.01, b.bh * k) }, history);
+    patchLayer(l.id, resizeHeld(l, Math.max(0.01, b.bw * k), Math.max(0.01, b.bh * k), { text: t, cut: undefined }), history);
+  };
+  /**
+   * Nouvelle taille d'une couche qui respecte son ancrage et ses marges : le point d'ancrage garde
+   * sa place relative dans la boîte (ancré à gauche, le texte s'allonge vers la droite), puis les
+   * bords tenus sur une marge ou un bord de page y restent, quitte à réduire l'ensemble.
+   */
+  const resizeHeld = (l: Layer, w: number, h: number, extra: Partial<Layer>, depth = 0): Partial<Layer> => {
+    const m = Math.min(f.width, f.height);
+    const b = layerBox(l, f);
+    const ax = b.cx - l.dx * f.width;
+    const ay = b.cy - l.dy * f.height;
+    const rot = l.rot ?? 0;
+    const [c, sn] = [Math.cos(rot), Math.sin(rot)];
+    // décalage centre - ancre dans le repère de la couche
+    const ox = (b.cx - ax) * c + (b.cy - ay) * sn;
+    const oy = -(b.cx - ax) * sn + (b.cy - ay) * c;
+    const keep = (o: number, half: number, half2: number) => (Math.abs(o) <= half ? (o * half2) / (half || 1) : o - Math.sign(o) * (half - half2));
+    const nx = keep(ox, b.w / 2, (w * m) / 2);
+    const ny = keep(oy, b.h / 2, (h * m) / 2);
+    const cx = ax + nx * c - ny * sn;
+    const cy = ay + nx * sn + ny * c;
+    const n: Layer = { ...l, ...extra, w, h, dx: (cx - ax) / f.width, dy: (cy - ay) / f.height };
+    let held = n.pins ? holdPins({ ...doc, layers: [n] }, f).layers[0]! : n;
+    // ce qui tenait dans la marge (ou la page) y reste : réduit s'il le faut, puis ramené dedans
+    const e = edgeLines(f);
+    const z = e.margin ?? e.page;
+    const tol = 0.5 / scale;
+    const inside = (bb: { x0: number; x1: number; y0: number; y1: number }) => bb.x0 >= z.left - tol && bb.x1 <= z.right + tol && bb.y0 >= z.top - tol && bb.y1 <= z.bottom + tol;
+    if (!depth && inside(pageBounds(l, f)) && !inside(pageBounds(held, f))) {
+      let bb = pageBounds(held, f);
+      const k = Math.min(1, (z.right - z.left) / (bb.x1 - bb.x0), (z.bottom - z.top) / (bb.y1 - bb.y0));
+      if (k < 1) held = { ...held, ...resizeHeld(l, w * k * 0.999, h * k * 0.999, extra, 1) };
+      bb = pageBounds(held, f);
+      const sx = bb.x0 < z.left ? z.left - bb.x0 : bb.x1 > z.right ? z.right - bb.x1 : 0;
+      const sy = bb.y0 < z.top ? z.top - bb.y0 : bb.y1 > z.bottom ? z.bottom - bb.y1 : 0;
+      held = { ...held, dx: held.dx + sx / f.width, dy: held.dy + sy / f.height };
+    }
+    return { ...extra, w: held.w, h: held.h, dx: held.dx, dy: held.dy };
   };
   /** Pose un élément de la bibliothèque : centré, ou là où il a été lâché sur la page. */
   const insertItem = async (it: LibItem, client?: { x: number; y: number }) => {
