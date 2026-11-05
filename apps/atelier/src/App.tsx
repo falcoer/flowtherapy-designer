@@ -316,15 +316,28 @@ export function App() {
   // transformation page → écran (pixels CSS)
   const top = rendu ? 0 : TOP;
   const fit = Math.min((vp.w - (rendu ? 24 : vp.w < 560 ? 84 : 150)) / f.width, (vp.h - top - 24) / f.height);
-  const matrix = useMemo(
-    () =>
-      new DOMMatrix()
-        .translate(vp.w / 2 + view.px, top + (vp.h - top) / 2 + view.py)
-        .rotate((view.rot * 180) / Math.PI)
-        .scale(fit * view.zoom)
-        .translate(-f.width / 2, -f.height / 2),
-    [vp, view, fit, f, top],
-  );
+  const viewMatrix = (v: View) =>
+    new DOMMatrix()
+      .translate(vp.w / 2 + v.px, top + (vp.h - top) / 2 + v.py)
+      .rotate((v.rot * 180) / Math.PI)
+      .scale(fit * v.zoom)
+      .translate(-f.width / 2, -f.height / 2);
+  const matrix = useMemo(() => viewMatrix(view), [vp, view, fit, f, top]);
+  /**
+   * Pendant le geste à deux doigts, l'image déjà peinte est seulement déplacée (transformation CSS,
+   * faite par la carte graphique) ; la page n'est repeinte qu'au lâcher, à la nouvelle vue.
+   */
+  const previewView = (next: View | null) => {
+    const c = canvasRef.current;
+    if (!c) return;
+    if (!next) {
+      c.style.transform = '';
+      return;
+    }
+    const t = viewMatrix(next).multiply(matrix.inverse());
+    c.style.transformOrigin = '0 0';
+    c.style.transform = `matrix(${t.a},${t.b},${t.c},${t.d},${t.e},${t.f})`;
+  };
   const toPage = (cx: number, cy: number) => {
     const p = matrix.inverse().transformPoint(new DOMPoint(cx, cy));
     return { x: p.x, y: p.y };
@@ -406,7 +419,7 @@ export function App() {
     cutStill.current = null;
   };
   const pointers = useRef(new Map<number, { x: number; y: number; type: string }>());
-  const gesture = useRef<{ view: View; c: { x: number; y: number }; d: number; a: number } | null>(null);
+  const gesture = useRef<{ view: View; c: { x: number; y: number }; d: number; a: number; next?: View } | null>(null);
   const tap = useRef<{ n: number; t0: number; moved: boolean } | null>(null);
   const lampDrag = useRef<number | null>(null);
   // doigt gardé posé sur un objet : il se solidarise avec celui du dessous
@@ -435,6 +448,9 @@ export function App() {
   useLayoutEffect(() => {
     const c = canvasRef.current;
     if (!c) return;
+    // repeinte pendant un geste de vue : l'aperçu reste aligné sur la vue en cours
+    if (gesture.current?.next) previewView(gesture.current.next);
+    else previewView(null);
     c.width = Math.round(vp.w * dpr);
     c.height = Math.round(vp.h * dpr);
     const ctx = c.getContext('2d')!;
@@ -821,7 +837,7 @@ export function App() {
       live.current = { kind: 'view' };
       const [a, b] = touches;
       gesture.current = {
-        view,
+        view: gesture.current?.next ?? view,
         c: { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 },
         d: Math.hypot(b!.x - a!.x, b!.y - a!.y),
         a: Math.atan2(b!.y - a!.y, b!.x - a!.x),
@@ -971,7 +987,8 @@ export function App() {
       let rot = g.view.rot + (ang - g.a);
       // la rotation s'aimante sur l'horizontale
       if (Math.abs(rot) < 0.08) rot = 0;
-      setView({ zoom: Math.max(0.3, Math.min(6, (g.view.zoom * d) / g.d)), rot, px: g.view.px + c.x - g.c.x, py: g.view.py + c.y - g.c.y });
+      g.next = { zoom: Math.max(0.3, Math.min(6, (g.view.zoom * d) / g.d)), rot, px: g.view.px + c.x - g.c.x, py: g.view.py + c.y - g.c.y };
+      previewView(g.next);
       return;
     }
     if (tap.current && moved > 6) tap.current.moved = true;
@@ -1118,7 +1135,10 @@ export function App() {
         }
         tap.current = null;
         live.current = { kind: null };
+        const next = gesture.current?.next;
         gesture.current = null;
+        // la vue est appliquée : la page est repeinte nette et la transformation provisoire retirée
+        if (next) setView(next);
       }
       return;
     }
