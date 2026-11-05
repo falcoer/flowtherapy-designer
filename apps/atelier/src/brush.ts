@@ -123,6 +123,9 @@ export function paintStroke(dst: CanvasRenderingContext2D, s: Stroke, guides: Gu
       return stampInk(dst, s, guides, t);
     case 'branch':
       return branchInk(dst, s, guides, t);
+    case 'burn':
+      // la brûlure ne peint pas : elle consume la couche (voir burnFor)
+      return;
     default:
       return aquarelle(dst, s, guides, t);
   }
@@ -159,6 +162,22 @@ function aquarelle(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
   dst.restore();
 }
 
+let tmpStamp: HTMLCanvasElement | null = null;
+/** Petit canevas de travail d'une empreinte, vidé. */
+function stampTmp(S: number) {
+  const c = (tmpStamp ??= document.createElement('canvas'));
+  if (c.width < S || c.height < S || c.width > S * 2) {
+    c.width = S;
+    c.height = S;
+  }
+  const x = c.getContext('2d')!;
+  x.setTransform(1, 0, 0, 1, 0, 0);
+  x.globalCompositeOperation = 'source-over';
+  x.globalAlpha = 1;
+  x.clearRect(0, 0, c.width, c.height);
+  return c;
+}
+
 /**
  * Tampon encré : le motif est posé à chaque point du geste, à la couleur courante.
  * Diluée, l'encre s'étale et s'éclaircit, le grain du papier la boit et
@@ -177,33 +196,56 @@ function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: 
     const R = s.size * t.pxPerMin * 2 * (0.75 + 0.35 * (p.p ?? 0.7));
     big = Math.max(big, R);
     const k = R / Math.max(def.w, def.h);
-    const ang = (r() - 0.5) * 0.35;
-    sx.save();
-    sx.translate(p.x * t.pw, p.y * t.ph);
-    sx.rotate(ang);
-    sx.scale(k, k);
-    sx.translate(-def.w / 2, -def.h / 2);
-    // un dégradé traverse le motif ; le long d'une traînée, chaque tampon prend sa teinte
-    let style: string | CanvasGradient = guideColor(g, n > 1 ? i / (n - 1) : 0);
-    if (g?.type === 'gradient' && n === 1) {
-      const lg = sx.createLinearGradient(0, 0, def.w, 0);
-      for (let q = 0; q <= 8; q++) lg.addColorStop(q / 8, guideColor(g, q / 8));
-      style = lg;
-    }
-    def.parts.forEach((part, j) => {
-      sx.globalAlpha = (part.alpha ?? 1) * (0.92 + 0.08 * r());
-      if (part.fill) {
-        sx.fillStyle = style;
-        sx.fill(ps[j]!);
-      } else {
-        sx.strokeStyle = style;
-        sx.lineWidth = part.width ?? 4;
-        sx.lineCap = 'round';
-        sx.lineJoin = 'round';
-        sx.stroke(ps[j]!);
+    // la rotation du stylet oriente le tampon ; sans elle, un léger hasard
+    const jitter = (r() - 0.5) * 0.35;
+    const ang = p.r ?? jitter;
+    // chaque empreinte se forme à part : penché, le tampon n'imprime franchement que d'un côté
+    const S = Math.ceil(R * 1.6) + 2;
+    const tmp = stampTmp(S);
+    const sx0 = sx;
+    {
+      const sx = tmp.getContext('2d')!;
+      sx.save();
+      sx.translate(S / 2, S / 2);
+      sx.rotate(ang);
+      sx.scale(k, k);
+      sx.translate(-def.w / 2, -def.h / 2);
+      // un dégradé traverse le motif ; le long d'une traînée, chaque tampon prend sa teinte
+      let style: string | CanvasGradient = guideColor(g, n > 1 ? i / (n - 1) : 0);
+      if (g?.type === 'gradient' && n === 1) {
+        const lg = sx.createLinearGradient(0, 0, def.w, 0);
+        for (let q = 0; q <= 8; q++) lg.addColorStop(q / 8, guideColor(g, q / 8));
+        style = lg;
       }
-    });
-    sx.restore();
+      def.parts.forEach((part, j) => {
+        sx.globalAlpha = (part.alpha ?? 1) * (0.92 + 0.08 * r());
+        if (part.fill) {
+          sx.fillStyle = style;
+          sx.fill(ps[j]!);
+        } else {
+          sx.strokeStyle = style;
+          sx.lineWidth = part.width ?? 4;
+          sx.lineCap = 'round';
+          sx.lineJoin = 'round';
+          sx.stroke(ps[j]!);
+        }
+      });
+      sx.restore();
+      if (p.k) {
+        const dx = Math.cos(p.d ?? 0);
+        const dy = Math.sin(p.d ?? 0);
+        const lg = sx.createLinearGradient(S / 2 + dx * R * 0.45, S / 2 + dy * R * 0.45, S / 2 - dx * R * 0.45, S / 2 - dy * R * 0.45);
+        lg.addColorStop(0, 'rgba(0,0,0,0)');
+        lg.addColorStop(0.35, `rgba(0,0,0,${0.15 * p.k})`);
+        lg.addColorStop(1, `rgba(0,0,0,${p.k})`);
+        sx.globalCompositeOperation = 'destination-out';
+        sx.globalAlpha = 1;
+        sx.fillStyle = lg;
+        sx.fillRect(0, 0, S, S);
+        sx.globalCompositeOperation = 'source-over';
+      }
+    }
+    sx0.drawImage(tmp, 0, 0, S, S, p.x * t.pw - S / 2, p.y * t.ph - S / 2, S, S);
   });
   sx.globalAlpha = 1;
   // encre pressée : le papier ne prend pas tout, même pleine
@@ -350,6 +392,84 @@ function branchInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
   dst.globalAlpha = s.opacity;
   dst.drawImage(buf, 0, 0);
   dst.restore();
+}
+
+/**
+ * Brûlure : la couche se consume là où la pointe appuie. Renvoie trois calques dans le
+ * repère de la peinture : le trou, la zone roussie et carbonisée autour, et la lisière
+ * de braise (couleur du guide). Le bord est irrégulier et le feu avance avec `grow`.
+ */
+export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target) {
+  const hole = document.createElement('canvas');
+  hole.width = t.pw;
+  hole.height = t.ph;
+  const hx = hole.getContext('2d')!;
+  hx.fillStyle = '#000';
+  let big = 0;
+  for (const s of strokes) {
+    const r = rng(s.seed);
+    const grow = Math.max(0.05, Math.min(1, s.grow ?? 1));
+    const R = s.size * t.pxPerMin * 2.2 * grow;
+    big = Math.max(big, R);
+    // le feu avance par à-coups : rayon modulé par un bruit sur l'angle, propre à chaque point
+    const ph = Array.from({ length: 5 }, () => r() * 6.28);
+    s.pts.forEach((p, i) => {
+      if (i % 2 && i !== s.pts.length - 1) return;
+      const cx = p.x * t.pw;
+      const cy = p.y * t.ph;
+      const rr = R * (0.75 + 0.35 * (p.p ?? 0.7)) * (0.85 + 0.3 * r());
+      hx.beginPath();
+      const n = 120;
+      for (let k = 0; k <= n; k++) {
+        const a = (k / n) * Math.PI * 2;
+        const m = 1 + 0.12 * Math.sin(a * 3 + ph[0]!) + 0.06 * Math.sin(a * 7 + ph[1]!) + 0.03 * Math.sin(a * 17 + ph[2]! + i) + 0.025 * (r() - 0.5);
+        const x = cx + Math.cos(a) * rr * m;
+        const y = cy + Math.sin(a) * rr * m;
+        if (k) hx.lineTo(x, y);
+        else hx.moveTo(x, y);
+      }
+      hx.fill();
+    });
+  }
+  const halo = (blur: number) => {
+    const c = document.createElement('canvas');
+    c.width = t.pw;
+    c.height = t.ph;
+    const cx = c.getContext('2d')!;
+    cx.filter = `blur(${Math.max(1, blur)}px)`;
+    cx.drawImage(hole, 0, 0);
+    cx.drawImage(hole, 0, 0);
+    cx.filter = 'none';
+    return c;
+  };
+  // roussi : large, brun clair ; carbonisé : plus serré, presque noir
+  const scorch = halo(big * 0.35);
+  const char = halo(big * 0.14);
+  const ember = halo(big * 0.025);
+  const g = guides[strokes[strokes.length - 1]?.guide ?? 0];
+  const op = strokes[strokes.length - 1]?.opacity ?? 0.85;
+  const out = document.createElement('canvas');
+  out.width = t.pw;
+  out.height = t.ph;
+  const ox = out.getContext('2d')!;
+  const tint = (src: HTMLCanvasElement, color: string, alpha: number) => {
+    const c = document.createElement('canvas');
+    c.width = t.pw;
+    c.height = t.ph;
+    const cx = c.getContext('2d')!;
+    cx.drawImage(src, 0, 0);
+    cx.globalCompositeOperation = 'source-in';
+    cx.fillStyle = color;
+    cx.fillRect(0, 0, t.pw, t.ph);
+    ox.globalAlpha = alpha;
+    ox.drawImage(c, 0, 0);
+    ox.globalAlpha = 1;
+  };
+  tint(scorch, '#8a5a2b', 0.6);
+  tint(char, '#1e130b', 1);
+  tint(char, '#1e130b', 0.6);
+  tint(ember, guideColor(g, 0.5), Math.min(1, op * 1.2));
+  return { hole, edge: out };
 }
 
 /** Aperçu en direct pendant le geste : tampons translucides, sans liseré. */

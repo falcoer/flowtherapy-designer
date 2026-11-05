@@ -96,6 +96,7 @@ const BRUSHES: Array<[BrushKind, string, string]> = [
   ['glitter', 'Paillettes', 'éclats qui scintillent'],
   ['hair', 'Poils', 'brins fins effilés'],
   ['branch', 'Ramures', 'veines, racines : la couleur se propage'],
+  ['burn', 'Brûlure', 'consume la couche, lisière de braise'],
 ];
 export const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
   [null, 'Aucune', 'pas de lueur'],
@@ -508,6 +509,7 @@ export function App() {
       rot: view.rot,
       onImage: redraw,
       wet: L.kind === 'paint' && L.wet && L.layer ? { id: L.layer, canvas: L.wet } : undefined,
+      burning: L.kind === 'paint' && L.stroke?.brush === 'burn' && L.layer ? { id: L.layer, stroke: L.stroke } : undefined,
     });
     drawLampTint(ctx, doc, f);
     if (rendu) return;
@@ -995,18 +997,20 @@ export function App() {
       last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
       stroke:
         t === 'stamp'
-          ? { brush: 'stamp', stamp: stampId, dilution, guide, size: stampSize, opacity: stampOpacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
-          : brushKind === 'branch'
-            ? { brush: 'branch', branches, converge, grow: 0.12, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
-            : { brush: brushKind, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] },
+          ? { brush: 'stamp', stamp: stampId, dilution, guide, size: stampSize, opacity: stampOpacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr, ...stampAngle(e, target) }] }
+          : brushKind === 'burn'
+            ? { brush: 'burn', grow: 0.15, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
+            : brushKind === 'branch'
+              ? { brush: 'branch', branches, converge, grow: 0.12, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
+              : { brush: brushKind, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] },
     };
     // ramures : tant que la pointe reste posée, les ramifications poussent
-    if (t !== 'stamp' && brushKind === 'branch') {
+    if (t !== 'stamp' && (brushKind === 'branch' || brushKind === 'burn')) {
       const L0 = live.current;
       const t0 = performance.now();
       const tick = () => {
         if (live.current !== L0 || !L0.stroke) return;
-        L0.stroke.grow = Math.min(1, 0.12 + (performance.now() - t0) / 1400);
+        L0.stroke.grow = Math.min(1, (brushKind === 'burn' ? 0.15 : 0.12) + (performance.now() - t0) / (brushKind === 'burn' ? 2200 : 1400));
         const wx = wet.getContext('2d')!;
         wx.clearRect(0, 0, wet.width, wet.height);
         paintStroke(wx, L0.stroke, doc.guides, tg);
@@ -1023,6 +1027,35 @@ export function App() {
     }
   };
 
+  /**
+   * Orientation du stylet à l'écran (radians) : la rotation du crayon sur lui-même quand le
+   * stylet la donne (Pencil Pro), sinon la direction où il penche. Tenu en main droite,
+   * penché vers le bas à droite, le tampon est droit ; tourner le crayon autour de la pointe le tourne.
+   */
+  const penAngle = (e: { pointerType: string; twist?: number; tiltX?: number; tiltY?: number }) => {
+    if (e.pointerType !== 'pen') return null;
+    if (e.twist) return (e.twist * Math.PI) / 180;
+    const tx = e.tiltX ?? 0;
+    const ty = e.tiltY ?? 0;
+    if (Math.hypot(tx, ty) < 8) return null;
+    return Math.atan2(ty, tx) - Math.PI / 4;
+  };
+  /** Rotation et inclinaison du tampon, dans le repère de la couche. */
+  const stampAngle = (e: { pointerType: string; twist?: number; tiltX?: number; tiltY?: number }, l: Layer) => {
+    const a = penAngle(e);
+    const out: { r?: number; k?: number; d?: number } = {};
+    if (a !== null) out.r = a - view.rot - (l.rot ?? 0);
+    const tx = e.tiltX ?? 0;
+    const ty = e.tiltY ?? 0;
+    const tilt = Math.hypot(tx, ty);
+    // penché au-delà de 15°, le tampon appuie sur le côté où il penche
+    if (e.pointerType === 'pen' && tilt > 15) {
+      out.k = Math.min(0.85, ((tilt - 15) / 45) * 0.85);
+      out.d = Math.atan2(ty, tx) - view.rot - (l.rot ?? 0);
+    }
+    return out;
+  };
+
   /** Repère de survol : un rond de la taille du pinceau, ou l'empreinte du tampon. */
   const showHover = (e: React.PointerEvent) => {
     const el = hoverRef.current;
@@ -1033,7 +1066,7 @@ export function App() {
     const d = tool === 'stamp' ? stampSize * 2 * m : size * 2 * m;
     el.style.display = 'block';
     el.style.width = el.style.height = `${Math.max(6, d)}px`;
-    el.style.transform = `translate(${e.clientX - Math.max(6, d) / 2}px, ${e.clientY - Math.max(6, d) / 2}px) rotate(${view.rot}rad)`;
+    el.style.transform = `translate(${e.clientX - Math.max(6, d) / 2}px, ${e.clientY - Math.max(6, d) / 2}px) rotate(${tool === 'stamp' ? (penAngle(e) ?? 0) : view.rot}rad)`;
   };
   const hideHover = () => {
     if (hoverRef.current) hoverRef.current.style.display = 'none';
@@ -1103,7 +1136,7 @@ export function App() {
         const dist = Math.hypot((loc.x - prev.x) * l.w, (loc.y - prev.y) * l.h);
         // un tampon traîné imprime une suite d'empreintes, espacées de leur taille
         if (stamping ? dist < L.stroke.size * 2.2 : dist * Math.min(f.width, f.height) * scale < 1.5) continue;
-        L.stroke.pts.push({ ...loc, p: pr });
+        L.stroke.pts.push({ ...loc, p: pr, ...(stamping ? stampAngle(ev, l) : {}) });
       }
       const tg = paintTarget(l, f, scale * dpr);
       if (stamping || branching) {

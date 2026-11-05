@@ -1,9 +1,9 @@
-import { paintStroke, type Target } from './brush';
+import { burnLayers, paintStroke, type Target } from './brush';
 import { rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
-import { blendStops, edgeLines, guideColor, layerBox, pinLine, type Pin, shapePath, type Doc, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
+import { blendStops, edgeLines, guideColor, layerBox, pinLine, type Pin, shapePath, type Doc, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { applyLook, lookGuides, lookOf } from './looks';
 import { applyPixelFx, hasPixelFx, hexRGB, opacityOf, type Fx, type FxId } from './fx';
@@ -248,10 +248,29 @@ export interface DrawOptions {
   onImage: () => void;
   /** Couche peinte en direct : aperçu dessiné par-dessus, dans sa découpe. */
   wet?: { id: string; canvas: HTMLCanvasElement };
+  /** Brûlure en cours sur une couche : prise en compte avant d'être enregistrée. */
+  burning?: { id: string; stroke: Stroke };
 }
 
 const layerBuffers: HTMLCanvasElement[] = [];
 let depth = 0;
+// couches en train d'être rendues à part pour leur brûlure (pas de seconde passe)
+const flattening = new Set<string>();
+const burnsOf = (l: Layer, o: DrawOptions) => [...l.strokes.filter((s) => s.brush === 'burn'), ...(o.burning?.id === l.id ? [o.burning.stroke] : [])];
+const burnCache = new Map<string, { key: string; hole: HTMLCanvasElement; edge: HTMLCanvasElement }>();
+function burnFor(l: Layer, f: Format, o: DrawOptions) {
+  const list = burnsOf(l, o);
+  if (!list.length) return null;
+  const t = paintTarget(l, f, o.scale);
+  const key = JSON.stringify([t.pw, t.ph, list.map((s) => [s.seed, s.pts.length, s.grow, s.size, s.guide, s.opacity]), burnGuides[list[list.length - 1]!.guide]]);
+  const hit = burnCache.get(l.id);
+  if (hit?.key === key) return hit;
+  const r = { key, ...burnLayers(list, burnGuides, t) };
+  if (burnCache.size > 40) burnCache.clear();
+  burnCache.set(l.id, r);
+  return r;
+}
+let burnGuides: Guide[] = [];
 
 /** Dessine les couches ; le contexte est déjà transformé en unités du format. */
 /** Hauteur effective : positive au-dessus de la feuille, négative quand la couche est creusée. */
@@ -309,16 +328,34 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       pageShadows = true;
       for (const x of order) if (x.kind !== 'surface' && x.height > 0.001 && opacityOf(x) >= 1) castShadow(ctx, x, doc, f, o, maskPath2D(x, f), x.height);
     }
-    // couche translucide : rendue à part, puis posée d'un bloc (son ombre ne transparaît pas)
-    if (opacityOf(l) < 1) {
+    // couche translucide ou brûlée : rendue à part, puis posée d'un bloc (son ombre ne transparaît pas)
+    const burnt = !flattening.has(l.id) && l.kind !== 'surface' ? ((burnGuides = doc.guides), burnFor(l, f, o)) : null;
+    if (opacityOf(l) < 1 || burnt) {
       const c = (layerBuffers[depth] ??= document.createElement('canvas'));
       c.width = ctx.canvas.width;
       c.height = ctx.canvas.height;
       const bx = c.getContext('2d')!;
       bx.setTransform(ctx.getTransform());
       depth++;
+      flattening.add(l.id);
       drawLayers(bx, { ...doc, layers: [{ ...l, opacity: 1 }] }, f, o);
+      flattening.delete(l.id);
       depth--;
+      if (burnt) {
+        // la brûlure, dans le repère de la couche (qui peut tourner) : bords roussis puis trou
+        const b = layerBox(l, f);
+        bx.save();
+        if (l.rot) {
+          bx.translate(b.cx, b.cy);
+          bx.rotate(l.rot);
+          bx.translate(-b.cx, -b.cy);
+        }
+        bx.globalCompositeOperation = 'source-atop';
+        bx.drawImage(burnt.edge, b.cx - b.w / 2, b.cy - b.h / 2, b.w, b.h);
+        bx.globalCompositeOperation = 'destination-out';
+        bx.drawImage(burnt.hole, b.cx - b.w / 2, b.cy - b.h / 2, b.w, b.h);
+        bx.restore();
+      }
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = opacityOf(l);

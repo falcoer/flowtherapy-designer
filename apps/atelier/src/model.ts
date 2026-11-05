@@ -14,6 +14,11 @@ export interface Pt {
   y: number;
   /** Pression du stylet (0..1). */
   p?: number;
+  /** Tampons : rotation donnée par le stylet (radians, repère de la couche). */
+  r?: number;
+  /** Tampons : inclinaison (0 = droit, 1 = très penché) et côté où il penche (radians, repère de la couche). */
+  k?: number;
+  d?: number;
 }
 
 /** Passage d'une teinte à l'autre dans un dégradé : douce (fondu continu), faible (aplats aux bords fondus), sans (aplats nets). */
@@ -43,7 +48,7 @@ export const cssGradient = (stops: string[], blend: Blend | undefined, angle = '
     : (stops[0] ?? '#888888');
 
 /** Modes de projection du pinceau. */
-export type BrushKind = 'aquarelle' | 'acrylic' | 'roller' | 'spray' | 'glitter' | 'hair' | 'stamp' | 'branch';
+export type BrushKind = 'aquarelle' | 'acrylic' | 'roller' | 'spray' | 'glitter' | 'hair' | 'stamp' | 'branch' | 'burn';
 
 export interface Stroke {
   brush: BrushKind;
