@@ -74,6 +74,8 @@ export interface FxDef {
   amount: number;
   /** Nom du curseur principal (Intensité par défaut). */
   amountLabel?: string;
+  /** Unité affichée après la valeur (0..100). */
+  amountUnit?: string;
   /** Matière qui laisse voir à travers : l'objet gagne alors un réglage d'opacité (valeur de départ). */
   transparent?: number;
   /** Calcul par pixel (matière) ; absent = effet dessiné par la scène. */
@@ -414,13 +416,36 @@ export const FX: FxDef[] = [
     name: 'Usure',
     group: 'effet',
     slots: [],
-    amount: 0.5,
+    amount: 0.4,
     amountLabel: 'Âge',
+    amountUnit: 'ans',
     pixel: (d, k, a) => {
       const { w, h } = k;
       const P = k.pxPerMin;
+      // bruits lents calculés sur une grille grossière puis interpolés : dix fois moins de calcul
+      const field = (step: number, fn: (x: number, y: number) => number) => {
+        const gw = Math.ceil(w / step) + 2;
+        const gh = Math.ceil(h / step) + 2;
+        const g = new Float32Array(gw * gh);
+        for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) g[j * gw + i] = fn(i * step, j * step);
+        return (x: number, y: number) => {
+          const fx = x / step;
+          const fy = y / step;
+          const i = fx | 0;
+          const j = fy | 0;
+          const u = fx - i;
+          const v = fy - j;
+          const o = j * gw + i;
+          return (g[o]! * (1 - u) + g[o + 1]! * u) * (1 - v) + (g[o + gw]! * (1 - u) + g[o + gw + 1]! * u) * v;
+        };
+      };
+      const step = Math.max(2, Math.round(P * 0.006));
+      const yellowing = field(step, (x, y) => fbm(x / (P * 0.18), y / (P * 0.18), 143, 4));
+      const mottle = field(step, (x, y) => fbm(x / (P * 0.3), y / (P * 0.3), 148, 3) - 0.5);
+      const wobble = field(step, (x, y) => vnoise(x / (P * 0.025), y / (P * 0.025), 149) - 0.5);
+      const wearN = field(step, (x, y) => vnoise(x / (P * 0.01), y / (P * 0.01), 146));
       // rayures : quelques traits fins et discrets, presque verticaux, toujours les mêmes
-      const scratches = Array.from({ length: Math.round(1 + a * 5) }, (_, i) => ({
+      const scratches = Array.from({ length: Math.round(1 + a * 7) }, (_, i) => ({
         x: hash(i, 1, 141) * w,
         tilt: (hash(i, 2, 141) - 0.5) * 0.08,
         y0: hash(i, 3, 141) * h * 0.6,
@@ -428,91 +453,100 @@ export const FX: FxDef[] = [
         dark: hash(i, 5, 141) > 0.5,
       }));
       // taches de café : auréoles larges, plus foncées sur leur bord
-      const stains = Array.from({ length: a < 0.2 ? 0 : Math.round(1 + a * 2.5) }, (_, i) => ({
+      const stains = Array.from({ length: a < 0.15 ? 0 : Math.round(1 + a * 4) }, (_, i) => ({
         x: (0.1 + 0.8 * hash(i, 1, 147)) * w,
         y: (0.1 + 0.8 * hash(i, 2, 147)) * h,
-        r: P * (0.06 + 0.12 * hash(i, 3, 147)),
+        r: P * (0.06 + 0.16 * hash(i, 3, 147)),
       }));
-      // plis : une ou deux lignes qui traversent l'image, à l'âge avancé
-      const folds = a > 0.45 ? [{ x0: hash(1, 1, 142) * w, y0: 0, x1: hash(1, 2, 142) * w, y1: h }, ...(a > 0.75 ? [{ x0: 0, y0: hash(2, 1, 142) * h, x1: w, y1: hash(2, 2, 142) * h }] : [])] : [];
+      // plis francs qui traversent l'image : un vers 30 ans, deux vers 60, trois vers 85
+      const folds = [
+        { on: 0.3, x0: hash(1, 1, 142) * w, y0: 0, x1: hash(1, 2, 142) * w, y1: h },
+        { on: 0.6, x0: 0, y0: hash(2, 1, 142) * h, x1: w, y1: hash(2, 2, 142) * h },
+        { on: 0.85, x0: hash(3, 1, 142) * w, y0: 0, x1: hash(3, 2, 142) * w, y1: h },
+      ].filter((f) => a > f.on);
       const sw = Math.max(0.6, P * 0.001);
+      const fs = P * 0.004;
       for (let y = 0; y < h; y++)
         for (let x = 0; x < w; x++) {
           const i = (y * w + x) * 4;
           let c: RGB = [d[i]! / 255, d[i + 1]! / 255, d[i + 2]! / 255];
-          // l'image pâlit et perd son contraste
+          // l'image pâlit, perd son contraste et brunit
           const l = lum(...c);
-          c = mixRGB(c, [l, l, l], 0.35 * a);
-          c = mixRGB(c, [0.5 + (c[0] - 0.5) * 0.75, 0.5 + (c[1] - 0.5) * 0.75, 0.5 + (c[2] - 0.5) * 0.75], a * 0.6);
+          c = mixRGB(c, [l, l, l], 0.55 * a);
+          c = mixRGB(c, [0.5 + (c[0] - 0.5) * 0.65, 0.5 + (c[1] - 0.5) * 0.65, 0.5 + (c[2] - 0.5) * 0.65], a * 0.75);
           // jaunissement inégal, plus fort vers les bords
           const ex = Math.min(x, w - 1 - x) / w;
           const ey = Math.min(y, h - 1 - y) / h;
-          const edge = 1 - cl(Math.min(ex, ey) * 6);
-          const stain = fbm(x / (P * 0.18), y / (P * 0.18), 143, 4);
-          c = mixRGB(c, [c[0] * 0.98 + 0.06, c[1] * 0.9 + 0.04, c[2] * 0.66], cl(a * (0.25 + 0.35 * stain + 0.35 * edge)));
-          // zones larges un peu plus claires ou plus sombres, sans piqué
-          const m = (fbm(x / (P * 0.3), y / (P * 0.3), 148, 3) - 0.5) * 0.3 * a;
+          const edge = 1 - cl(Math.min(ex, ey) * 5);
+          c = mixRGB(c, [c[0] * 0.97 + 0.07, c[1] * 0.86 + 0.05, c[2] * 0.58], cl(a * (0.35 + 0.5 * yellowing(x, y) + 0.5 * edge)));
+          // zones larges plus claires ou plus sombres, sans piqué
+          const m = mottle(x, y) * 0.5 * a - 0.12 * a * edge;
           c = [c[0] * (1 + m), c[1] * (1 + m), c[2] * (1 + m * 1.2)];
           for (const t of stains) {
-            const q = Math.hypot(x - t.x, y - t.y) / t.r + (vnoise(x / (P * 0.025), y / (P * 0.025), 149) - 0.5) * 0.25;
-            if (q > 1.25) continue;
-            const inside = q < 1 ? 0.14 * a : 0;
-            const ring = Math.exp(-(((q - 1) / 0.06) ** 2)) * 0.4 * a;
-            c = mixRGB(c, [c[0] * 0.78, c[1] * 0.6, c[2] * 0.4], inside + ring);
+            const r0 = Math.hypot(x - t.x, y - t.y) / t.r;
+            if (r0 > 1.4) continue;
+            const q = r0 + wobble(x, y) * 0.25;
+            const inside = q < 1 ? 0.16 * a : 0;
+            const ring = Math.exp(-(((q - 1) / 0.06) ** 2)) * 0.5 * a;
+            c = mixRGB(c, [c[0] * 0.75, c[1] * 0.56, c[2] * 0.36], Math.min(0.8, inside + ring));
           }
           // rayures discrètes
           for (const s of scratches) {
             if (y < s.y0 || y > s.y0 + s.len) continue;
-            const dx = Math.abs(x - (s.x + (y - s.y0) * s.tilt + Math.sin(y / (P * 0.05)) * P * 0.002));
-            if (dx < sw) c = mixRGB(c, s.dark ? [c[0] * 0.6, c[1] * 0.55, c[2] * 0.5] : [c[0] * 0.7 + 0.25, c[1] * 0.7 + 0.24, c[2] * 0.7 + 0.2], (1 - dx / sw) * 0.3 * a);
+            const dx = Math.abs(x - (s.x + (y - s.y0) * s.tilt));
+            if (dx < sw) c = mixRGB(c, s.dark ? [c[0] * 0.6, c[1] * 0.55, c[2] * 0.5] : [c[0] * 0.7 + 0.25, c[1] * 0.7 + 0.24, c[2] * 0.7 + 0.2], (1 - dx / sw) * 0.35 * a);
           }
           // plis : une arête claire et une ombre
           for (const f of folds) {
             const fx = f.x1 - f.x0;
             const fy = f.y1 - f.y0;
             const dd = ((x - f.x0) * fy - (y - f.y0) * fx) / Math.hypot(fx, fy);
-            const s = P * 0.004;
-            if (Math.abs(dd) < s * 3) {
-              const t = dd / s;
-              c = mixRGB(c, t > 0 ? [1, 0.97, 0.9] : [0.2, 0.16, 0.12], Math.exp(-t * t) * 0.3 * a);
+            if (Math.abs(dd) < fs * 3) {
+              const t = dd / fs;
+              c = mixRGB(c, t > 0 ? [1, 0.97, 0.9] : [0.2, 0.16, 0.12], Math.exp(-t * t) * 0.45 * a);
             }
           }
           d[i] = cl(c[0]) * 255;
           d[i + 1] = cl(c[1]) * 255;
           d[i + 2] = cl(c[2]) * 255;
           // coins et bords usés : le papier s'effrite
-          const corner = Math.hypot(Math.min(x, w - 1 - x) / P, Math.min(y, h - 1 - y) / P);
-          const wear = a * 0.05 * (0.6 + 0.8 * vnoise(x / (P * 0.01), y / (P * 0.01), 146));
-          if (Math.min(x, w - 1 - x, y, h - 1 - y) / P < wear * 0.25 || corner < wear) d[i + 3] = 0;
+          const near = Math.min(x, w - 1 - x, y, h - 1 - y) / P;
+          if (near < 0.07 * a) {
+            const corner = Math.hypot(Math.min(x, w - 1 - x) / P, Math.min(y, h - 1 - y) / P);
+            const wear = a * 0.06 * (0.5 + wearN(x, y));
+            if (near < wear * 0.3 || corner < wear) d[i + 3] = 0;
+          }
         }
-      // froissé : des plis droits et courts dans tous les sens ; chacun casse le papier en deux facettes
-      const nf = Math.round(6 + 18 * a);
-      const creases = Array.from({ length: nf }, (_, i) => {
-        const ang = hash(i, 1, 151) * Math.PI;
-        return {
-          x: hash(i, 2, 151) * w,
-          y: hash(i, 3, 151) * h,
-          ux: Math.cos(ang),
-          uy: Math.sin(ang),
-          half: P * (0.08 + 0.25 * hash(i, 4, 151)),
-          s: hash(i, 5, 151) > 0.5 ? 1 : -1,
-        };
-      });
-      const D = P * 0.04;
-      const crease = (x: number, y: number) => {
-        let v = 0;
-        for (const c of creases) {
-          const rx = x - c.x;
-          const ry = y - c.y;
-          const t = Math.abs(rx * c.ux + ry * c.uy) / c.half;
-          if (t > 1) continue;
-          const dn = Math.abs(rx * c.uy - ry * c.ux);
-          const fade = 1 - t * t;
-          v += c.s * Math.min(dn, D) * fade;
+      // froissé : des plis courts dans tous les sens, chacun une arête entre deux facettes, posés seulement autour d'eux
+      if (a > 0.1) {
+        const H = new Float32Array(w * h);
+        const D = P * 0.035;
+        const nf = Math.round(8 + 30 * a);
+        for (let n = 0; n < nf; n++) {
+          const ang = hash(n, 1, 151) * Math.PI;
+          const cx = hash(n, 2, 151) * w;
+          const cy = hash(n, 3, 151) * h;
+          const ux = Math.cos(ang);
+          const uy = Math.sin(ang);
+          const half = P * (0.06 + 0.22 * hash(n, 4, 151));
+          const sg = hash(n, 5, 151) > 0.5 ? 1 : -1;
+          const x0 = Math.max(0, Math.floor(cx - Math.abs(ux) * half - D));
+          const x1 = Math.min(w - 1, Math.ceil(cx + Math.abs(ux) * half + D));
+          const y0 = Math.max(0, Math.floor(cy - Math.abs(uy) * half - D));
+          const y1 = Math.min(h - 1, Math.ceil(cy + Math.abs(uy) * half + D));
+          for (let y = y0; y <= y1; y++)
+            for (let x = x0; x <= x1; x++) {
+              const rx = x - cx;
+              const ry = y - cy;
+              const t = Math.abs(rx * ux + ry * uy) / half;
+              if (t > 1) continue;
+              const dn = Math.abs(rx * uy - ry * ux);
+              if (dn > D) continue;
+              H[y * w + x] += (sg * (D - dn) * (1 - t * t)) / D;
+            }
         }
-        return v / D;
-      };
-      if (a > 0.15) relief(d, k, crease, a * 0.35);
+        relief(d, k, (x, y) => H[y * w + x]!, a * 0.5);
+      }
     },
   },
   {

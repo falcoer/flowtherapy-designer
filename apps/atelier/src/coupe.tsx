@@ -396,12 +396,15 @@ function Dots({ label, value, doc, onPick }: { label: string; value: number; doc
   );
 }
 
-function Range({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function Range({ label, value, onChange, unit }: { label: string; value: number; onChange: (v: number) => void; unit?: string }) {
   return (
     <label className="cp-row">
       <span>{label}</span>
       <input type="range" min={0} max={1} step={0.01} value={value} onChange={(e) => onChange(Number(e.target.value))} />
-      <output>{Math.round(value * 100)}</output>
+      <output>
+        {Math.round(value * 100)}
+        {unit && <small> {unit}</small>}
+      </output>
     </label>
   );
 }
@@ -418,7 +421,7 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
         {def.slots.map((sl, i) => (
           <Dots key={i} label={sl.label} value={slots[i]!} doc={doc} onPick={(g) => set({ ...x, guides: slots.map((v, j) => (j === i ? g : v)) })} />
         ))}
-        <Range label={def.amountLabel ?? amountLabel} value={x.amount} onChange={(v) => set({ ...x, amount: Math.round(v * 100) / 100 }, false)} />
+        <Range label={def.amountLabel ?? amountLabel} unit={def.amountUnit} value={x.amount} onChange={(v) => set({ ...x, amount: Math.round(v * 100) / 100 }, false)} />
       </>
     );
   };
