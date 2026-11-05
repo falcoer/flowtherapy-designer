@@ -5,6 +5,10 @@ import { ensureFont, fontFamily, fontList, fontOf, loadFonts, swashWidth, WARPS,
 /** Outil Prolonger : on dessine depuis une lettre, le trait devient une partie des lettres. */
 export interface SwashTool {
   on: boolean;
+  /** Tracer un prolongement, ou modeler le contour (tirer de l'intérieur, repousser de l'extérieur). */
+  mode: 'draw' | 'mold';
+  /** Rayon du modelage, en corps. */
+  r: number;
   end: SwashEnd;
   /** Épaisseur choisie, en corps (null : celle d'un fût à la graisse du texte). */
   w: number | null;
@@ -128,19 +132,36 @@ export function TextBar({
         </button>
         {swash.on ? (
           <>
-            <div className="seg tb-ends">
-              {(['point', 'ball', 'flat'] as const).map((e) => (
-                <button key={e} className={swash.end === e ? 'on' : ''} onClick={() => setSwash({ ...swash, end: e })} title={{ point: 'Bout effilé', ball: 'Bout en goutte', flat: 'Bout franc' }[e]}>
-                  <EndGlyph e={e} />
-                </button>
-              ))}
+            <div className="seg tb-mode">
+              <button className={swash.mode === 'draw' ? 'on' : ''} onClick={() => setSwash({ ...swash, mode: 'draw' })} title="Tracer : un trait qui part d'une lettre">
+                Tracer
+              </button>
+              <button className={swash.mode === 'mold' ? 'on' : ''} onClick={() => setSwash({ ...swash, mode: 'mold' })} title="Modeler : de l'intérieur on tire le trait, de l'extérieur on le repousse">
+                Modeler
+              </button>
             </div>
-            <label className="tb-slider narrow">
-              <span className="tb-label">Épaisseur</span>
-              <input type="range" min={0.015} max={0.3} step={0.005} value={swash.w ?? swashWidth(t.weight)} onChange={(e) => setSwash({ ...swash, w: Number(e.target.value) })} />
-            </label>
-            {!!t.swashes?.length && (
-              <button className="tb-btn tb-clear" onClick={() => onChange({ swashes: [] }, true)} title="Retirer tous les prolongements">
+            {swash.mode === 'draw' ? (
+              <>
+                <div className="seg tb-ends">
+                  {(['point', 'ball', 'flat'] as const).map((e) => (
+                    <button key={e} className={swash.end === e ? 'on' : ''} onClick={() => setSwash({ ...swash, end: e })} title={{ point: 'Bout effilé', ball: 'Bout en goutte', flat: 'Bout franc' }[e]}>
+                      <EndGlyph e={e} />
+                    </button>
+                  ))}
+                </div>
+                <label className="tb-slider narrow">
+                  <span className="tb-label">Épaisseur</span>
+                  <input type="range" min={0.015} max={0.3} step={0.005} value={swash.w ?? swashWidth(t.weight)} onChange={(e) => setSwash({ ...swash, w: Number(e.target.value) })} />
+                </label>
+              </>
+            ) : (
+              <label className="tb-slider narrow">
+                <span className="tb-label">Taille</span>
+                <input type="range" min={0.06} max={1} step={0.01} value={swash.r} onChange={(e) => setSwash({ ...swash, r: Number(e.target.value) })} />
+              </label>
+            )}
+            {!!(t.swashes?.length || t.molds?.length) && (
+              <button className="tb-btn tb-clear" onClick={() => onChange({ swashes: [], molds: [] }, true)} title="Retirer tous les prolongements et modelages">
                 <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <path d="M6 6l12 12M18 6 6 18" />
                 </svg>

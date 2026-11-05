@@ -23,6 +23,51 @@ export interface TextStyle {
   swashes?: Swash[];
   /** Enveloppe : les lettres se courbent, gonflent ou fuient ensemble. */
   warp?: TextWarp;
+  /** Modelages : le contour tiré ou repoussé au stylet, après les paraphes et avant l'enveloppe. */
+  molds?: Mold[];
+}
+
+/**
+ * Un modelage : le contour proche de la pointe suit son mouvement. Parti de l'intérieur, le geste
+ * tire la lettre (elle s'étire) ; parti de l'extérieur vers l'intérieur, il la repousse (elle se creuse).
+ * Points en corps depuis le coin du bloc de lignes, avant l'enveloppe ; r = rayon d'action en corps.
+ */
+export interface Mold {
+  pts: [number, number][];
+  r: number;
+}
+
+/** Applique un modelage aux contours (en pixels), en gardant des points assez serrés. */
+function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number): Ring[] {
+  const R = Math.max(2, m.r * size);
+  const pts = m.pts.map(([x, y]) => ({ x: X0 + x * size, y: Y0 + y * size }));
+  let out = rings.map((r) => r.map((p) => ({ ...p })));
+  for (let i = 1; i < pts.length; i++) {
+    const [a, b] = [pts[i - 1]!, pts[i]!];
+    const [dx, dy] = [b.x - a.x, b.y - a.y];
+    if (!dx && !dy) continue;
+    for (const r of out)
+      for (const q of r) {
+        const d2 = ((q.x - a.x) ** 2 + (q.y - a.y) ** 2) / (R * R);
+        if (d2 >= 1) continue;
+        const f = (1 - d2) ** 2;
+        q.x += dx * f;
+        q.y += dy * f;
+      }
+    // le contour étiré : on rajoute des points là où ils s'écartent
+    if (i % 4 === 0 || i === pts.length - 1) out = out.map((r) => densify(r, 1.6));
+  }
+  return out;
+}
+function densify(r: Ring, gap: number): Ring {
+  const o: Ring = [];
+  for (let i = 0; i < r.length; i++) {
+    const [a, b] = [r[i]!, r[(i + 1) % r.length]!];
+    o.push(a);
+    const n = Math.floor(Math.hypot(b.x - a.x, b.y - a.y) / gap);
+    for (let k = 1; k <= n; k++) o.push({ x: a.x + ((b.x - a.x) * k) / (n + 1), y: a.y + ((b.y - a.y) * k) / (n + 1) });
+  }
+  return o;
 }
 
 export type SwashEnd = 'point' | 'ball' | 'flat';
@@ -172,7 +217,7 @@ const cache = new Map<string, TextCut>();
 
 /** Découpe des lettres en coordonnées 0..1 de leur boîte. */
 export function textCut(t: TextStyle): TextCut {
-  const key = JSON.stringify([t.content, t.font, t.weight, t.italic, t.align, t.tracking ?? 0, t.leading ?? 1.1, t.swashes ?? 0, t.warp ?? 0, fontEpoch]);
+  const key = JSON.stringify([t.content, t.font, t.weight, t.italic, t.align, t.tracking ?? 0, t.leading ?? 1.1, t.swashes ?? 0, t.warp ?? 0, t.molds ?? 0, fontEpoch]);
   let c = cache.get(key);
   if (!c) {
     c = trace(t);
@@ -253,7 +298,9 @@ function trace(t: TextStyle): TextCut {
   for (const s of sw) drawSwash(ctx, s, X0, Y0, size);
   const alpha = ctx.getImageData(0, 0, W, H).data;
   const fh = lines.length * lead * size;
-  const rings = contours(alpha, W, H, 128).map((r) =>
+  let raw = contours(alpha, W, H, 128);
+  for (const m of t.molds ?? []) raw = mold(raw, m, X0, Y0, size);
+  const rings = raw.map((r) =>
     t.warp?.amount
       ? r.map((p) => {
           const [x, y] = warpPoint(t.warp, widest, fh, p.x - X0, p.y - Y0);

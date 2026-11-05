@@ -472,6 +472,8 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .tb-swash, .tb-clear { display: grid; place-items: center; }
 .tb-warps { width: 230px; }
 .tb-ends { width: 150px; }
+.tb-mode { width: 170px; }
+.tb-mode button { font-size: 13px; }
 .tb-warps button, .tb-ends button { display: grid; place-items: center; }
 
 /* Palette : édition escamotable (bouton Modifier), plan carré en haut */
