@@ -79,19 +79,31 @@ const HINTS: Record<string, [string, string]> = {
   smoke: ['', 'volutes, on voit à travers'],
   hologram: ['', 'irisé, lignes de balayage'],
 };
+const genOf = (l: Layer) => l.gen ?? (l.shape && !l.cut ? GEN_DEFAULTS[l.shape] : undefined);
+/** Pour une forme, la section Image devient Forme : sa découpe et sa couleur. */
+const secLabel = (sec: Section, l: Layer) => (sec === 'image' && l.kind === 'shape' ? 'Forme' : SECTIONS.find((s) => s.sec === sec)!.name);
 const fxIn = (l: Layer, g: FxGroup) => (l.fx ?? []).map((x, i) => ({ x, i })).filter(({ x }) => groupOf(x) === g);
 
 function itemsOf(l: Layer, doc: Doc): Item[] {
   const out: Item[] = [];
   const g = (i: number) => swatch(doc.guides[i]);
   if (l.kind !== 'surface') {
-    out.push({ sec: 'edge', key: 'shape', name: 'Forme', bg: 'conic-gradient(from 18deg,#8a849a 0 20%,#e8e4f0 0 40%,#8a849a 0 60%,#e8e4f0 0 80%,#8a849a 0)', removable: false });
     if (l.border) out.push({ sec: 'edge', key: 'border', name: BORDER_TYPES.find((x) => x[0] === l.border!.style)![1], bg: g(l.border.guide), removable: true });
     if (l.trim) out.push({ sec: 'edge', key: 'trim', name: 'Rognage', bg: 'repeating-linear-gradient(135deg,#c9c3d6 0 3px,transparent 3px 6px)', removable: true });
     if ((l.bevel ?? 0) > 0.001) out.push({ sec: 'edge', key: 'bevel', name: 'Biseau', bg: 'linear-gradient(135deg,#fff,#8a849a)', removable: true });
     if (l.glow) out.push({ sec: 'edge', key: 'glow', name: GLOW_TYPES.find((x) => x[0] === l.glow!.style)![1], bg: `radial-gradient(circle, #fff 20%, ${swatch(doc.guides[l.glow.guide])} 60%)`, removable: true });
   }
   for (const { x, i } of fxIn(l, 'lumiere')) out.push({ sec: 'coat', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: true });
+  if (l.kind === 'shape') {
+    const gen = genOf(l);
+    out.push({
+      sec: 'image',
+      key: 'shape',
+      name: gen ? `${gen.sides} côtés` : 'Proportions',
+      bg: 'conic-gradient(from 18deg,#8a849a 0 20%,#e8e4f0 0 40%,#8a849a 0 60%,#e8e4f0 0 80%,#8a849a 0)',
+      removable: false,
+    });
+  }
   if (l.kind === 'photo') {
     if (l.look?.style) out.push({ sec: 'image', key: 'look', name: lookOf(l.look.style)!.name, bg: 'linear-gradient(135deg,#2b3a8c,#9b4f9e,#ee6b5b)', removable: true });
   } else out.push({ sec: 'image', key: 'paint', name: doc.guides[l.guide]?.name ?? 'Couleur', bg: g(l.guide), removable: false });
@@ -199,6 +211,7 @@ export function CoupePanel({
   patch,
   onClose,
   onToast,
+  openOn,
 }: {
   layer: Layer;
   doc: Doc;
@@ -206,8 +219,13 @@ export function CoupePanel({
   patch: (p: Partial<Layer>, history?: boolean) => void;
   onClose: () => void;
   onToast: (msg: string, undoable?: boolean) => void;
+  /** Élément à ouvrir d'emblée (une forme qu'on vient de poser : ses paramètres). */
+  openOn?: { key: string; n: number };
 }) {
-  const [focus, setFocus] = useState<string | null>(null);
+  const [focus, setFocus] = useState<string | null>(openOn?.key ?? null);
+  useEffect(() => {
+    if (openOn) setFocus(openOn.key);
+  }, [openOn]);
   const [adding, setAdding] = useState<Section | null>(null);
   const [tick, bump] = useState(0);
   const items = itemsOf(l, doc);
@@ -255,14 +273,21 @@ export function CoupePanel({
   const card = (s: (typeof SECTIONS)[number]) => {
     const mine = items.filter((x) => x.sec === s.sec);
     const can = choicesOf(l, s.sec).length > 0;
+    // une seule couche possible (matière, filtre) : on la change au crayon plutôt que d'en ajouter
+    const one = s.sec === 'support' || s.sec === 'image';
     return (
       <div key={s.sec} className={`cp-card ${adding === s.sec ? 'open' : ''}`}>
         <div className="cp-h">
           <span className={`slab ${s.slab}`} />
-          <span className="cn">{s.name}</span>
+          <span className="cn">{secLabel(s.sec, l)}</span>
           {can && (
-            <button className="cp-add" onClick={() => setAdding(adding === s.sec ? null : s.sec)} title={`Ajouter : ${s.name}`} aria-label={`Ajouter : ${s.name}`}>
-              <Icon name="plus" />
+            <button
+              className="cp-add"
+              onClick={() => setAdding(adding === s.sec ? null : s.sec)}
+              title={`${one ? 'Changer' : 'Ajouter'} : ${secLabel(s.sec, l)}`}
+              aria-label={`${one ? 'Changer' : 'Ajouter'} : ${secLabel(s.sec, l)}`}
+            >
+              <Icon name={one ? 'pen' : 'plus'} />
             </button>
           )}
         </div>
@@ -461,9 +486,20 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
       </>
     );
   } else if (item.key === 'paint') {
-    body = <Dots label="Couleur" value={l.guide} doc={doc} onPick={(i) => patch({ guide: i })} />;
+    body = (
+      <>
+        <Dots label="Couleur" value={l.guide} doc={doc} onPick={(i) => patch({ guide: i })} />
+        {l.kind !== 'shape' && (
+          <label className="cp-row">
+            <span>Proportions libres</span>
+            <input type="checkbox" checked={!!l.free} onChange={(e) => patch({ free: e.target.checked || undefined })} />
+            <output>{l.free ? 'oui' : 'non'}</output>
+          </label>
+        )}
+      </>
+    );
   } else if (item.key === 'shape') {
-    const gen = l.gen ?? (l.shape && !l.cut ? GEN_DEFAULTS[l.shape] : undefined);
+    const gen = genOf(l);
     body = (
       <>
         {gen && (
@@ -503,11 +539,11 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
     const x = l.fx?.[i];
     if (x) body = fxRows(x, (y, h) => patch({ fx: l.fx!.map((z, j) => (j === i ? y : z)) }, h));
   }
-  const secName = SECTIONS.find((s) => s.sec === item.sec)!.name;
+  const secName = secLabel(item.sec, l);
   return (
     <section className="cp-attrs">
       <div className="cp-attrs-h">
-        <b>{item.name}</b>
+        <b>{item.key === 'shape' ? 'Paramètres de la forme' : item.name}</b>
         <small>{secName}</small>
       </div>
       {body}

@@ -221,6 +221,7 @@ export function App() {
   const [tool, setToolState] = useState<Tool>('paint');
   // Modifier rouvre la dernière section utilisée
   const lastEdit = useRef<EditTool>('transform');
+  const [coupeOpen, setCoupeOpen] = useState<{ key: string; n: number } | undefined>();
   const setTool = (t: Tool) => {
     if (isEdit(t)) lastEdit.current = t;
     setToolState(t);
@@ -1777,8 +1778,14 @@ export function App() {
     };
     update((d) => ({ ...d, layers: [...d.layers, layer] }));
     setSelected(layer.id);
-    setTool('move');
     setBubble(null);
+    if (kind === 'shape') {
+      // une forme posée : ses paramètres s'ouvrent tout de suite
+      setTool(lastEdit.current);
+      setCoupeOpen((o) => ({ key: 'shape', n: (o?.n ?? 0) + 1 }));
+      setToast(`Règle la forme de « ${opts.name} » ici, ou touche Disposer (V) pour la placer`);
+      setToastUndo(false);
+    } else setTool('move');
   };
   /** Pose un texte dans le style choisi, prêt à être réécrit. */
   const addText = async (p: TextPreset) => {
@@ -2051,6 +2058,7 @@ export function App() {
               f={f}
               patch={(p, h) => patchLayer(sel.id, p, h)}
               onClose={() => setTool('move')}
+              openOn={coupeOpen}
               onToast={(m, u) => {
                 setToast(m);
                 setToastUndo(!!u);
