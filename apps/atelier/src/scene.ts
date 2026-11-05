@@ -1032,9 +1032,61 @@ const GLOW_BEHIND = new Set<string>();
  * Lueur autour de la découpe, à une distance du bord et sur une largeur
  * réglables : néon, laser, électricité, particules, fumée, halo, énergie.
  */
+/**
+ * Lueurs mises en cache : leurs flammes, faisceaux et flous coûtent cher, on les peint une fois
+ * dans une image à part, recalculée seulement quand la forme, la lueur, la couleur ou le zoom changent.
+ * Déplacer l'objet ne la recalcule pas : l'image suit sa boîte.
+ */
+const glowCache = new Map<string, { c: HTMLCanvasElement; x: number; y: number; w: number; h: number }>();
 function drawGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, behind: boolean) {
   const gl = l.glow;
   if (!gl || GLOW_BEHIND.has(gl.style) !== behind) return;
+  const minSide = Math.min(f.width, f.height);
+  const bb = pageBounds(l, f);
+  if (!isFinite(bb.x0)) return;
+  const dist = gl.distance * 0.08 * minSide + (l.border ? l.border.width * minSide * (l.border.style === 'double' ? 2 : 1) : 0);
+  const w = (0.002 + gl.width * gl.width * 0.05) * minSide;
+  const pad = Math.abs(dist) + w * 18 + minSide * 0.06;
+  const bw = bb.x1 - bb.x0 + 2 * pad;
+  const bh = bb.y1 - bb.y0 + 2 * pad;
+  const S = Math.min(o.scale, 4096 / bw, 4096 / bh);
+  const key = JSON.stringify([
+    l.id,
+    behind,
+    f.id,
+    Math.round(S * 100),
+    l.w,
+    l.h,
+    l.rot,
+    l.cut,
+    l.shape,
+    l.gen,
+    l.trim,
+    l.text,
+    l.free,
+    l.border?.width,
+    l.border?.style,
+    gl,
+    guideColor(doc.guides[gl.guide], 0.5),
+  ]);
+  let hit = glowCache.get(key);
+  if (!hit) {
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.ceil(bw * S));
+    c.height = Math.max(1, Math.ceil(bh * S));
+    const gx = c.getContext('2d')!;
+    gx.setTransform(S, 0, 0, S, -(bb.x0 - pad) * S, -(bb.y0 - pad) * S);
+    paintGlow(gx, l, doc, f, { ...o, scale: S }, gl);
+    hit = { c, x: bb.x0 - pad, y: bb.y0 - pad, w: c.width / S, h: c.height / S };
+    // une seule image par lueur et par passe : on oublie l'ancienne
+    for (const k of glowCache.keys()) if (k.startsWith(JSON.stringify([l.id, behind]).slice(0, -1) + ',')) glowCache.delete(k);
+    glowCache.set(key, hit);
+    if (glowCache.size > 64) glowCache.delete(glowCache.keys().next().value!);
+  }
+  ctx.drawImage(hit.c, bb.x0 - pad, bb.y0 - pad, hit.w, hit.h);
+}
+
+function paintGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, gl: NonNullable<Layer['glow']>) {
   const minSide = Math.min(f.width, f.height);
   const dist = gl.distance * 0.08 * minSide + (l.border ? l.border.width * minSide * (l.border.style === 'double' ? 2 : 1) : 0);
   const w = (0.002 + gl.width * gl.width * 0.05) * minSide;
