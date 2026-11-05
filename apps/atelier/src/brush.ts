@@ -307,7 +307,7 @@ function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: 
   sx.globalAlpha = 1;
   // encre pressée : le papier ne prend pas tout, même pleine
   sx.globalCompositeOperation = 'destination-out';
-  sx.globalAlpha = 0.18 + 0.4 * dil;
+  sx.globalAlpha = 0.18 + 0.6 * dil;
   sx.fillStyle = sx.createPattern(paperGrain(), 'repeat')!;
   sx.fillRect(0, 0, t.pw, t.ph);
   sx.globalCompositeOperation = 'source-over';
@@ -316,21 +316,21 @@ function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: 
   if (dil > 0.02) {
     // l'eau étale l'encre : un lavis flou plus clair, et un liseré sur les bords
     const { c: wash, ctx: wx } = buffer('b', t.pw, t.ph);
-    wx.filter = `blur(${Math.max(0.5, big * 0.05 * dil)}px)`;
+    wx.filter = `blur(${Math.max(0.5, big * (0.04 * dil + 0.16 * dil * dil))}px)`;
     wx.drawImage(sil, 0, 0);
     wx.filter = 'none';
-    dst.globalAlpha = s.opacity * (1 - 0.55 * dil);
+    dst.globalAlpha = s.opacity * (1 - 0.8 * dil);
     dst.drawImage(wash, 0, 0);
     // liseré : la silhouette moins sa version floutée
     const { c: edge, ctx: ex } = buffer('b', t.pw, t.ph);
     ex.drawImage(sil, 0, 0);
     ex.globalCompositeOperation = 'destination-out';
-    ex.filter = `blur(${Math.max(1, big * 0.03)}px)`;
+    ex.filter = `blur(${Math.max(1, big * (0.03 + 0.05 * dil))}px)`;
     ex.drawImage(sil, 0, 0);
-    dst.globalAlpha = s.opacity * 0.7 * dil;
+    dst.globalAlpha = s.opacity * Math.min(1, 0.9 * dil);
     dst.drawImage(edge, 0, 0);
     // peu diluée, l'empreinte reste nette
-    dst.globalAlpha = s.opacity * (1 - dil) * 0.7;
+    dst.globalAlpha = s.opacity * Math.pow(1 - dil, 1.5) * 0.7;
     dst.drawImage(sil, 0, 0);
   } else {
     dst.globalAlpha = s.opacity;
