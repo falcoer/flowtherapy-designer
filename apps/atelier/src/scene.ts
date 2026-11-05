@@ -128,9 +128,73 @@ export function maskPath2D(l: Layer, f: Format): Path2D {
     if (paths.size > 400) paths.clear();
     paths.set(d, (local = new Path2D(d)));
   }
+  const tr = l.trim;
+  if (tr && (tr.float > 0.01 || tr.zigzag > 0.01)) return trimPath(l, f, tr);
   const p = new Path2D();
   p.addPath(local, layerMatrix(l, f));
   return p;
+}
+
+const trims = new Map<string, { key: string; path: Path2D }>();
+/**
+ * Rognage : la découpe rééchantillonnée, arrondie et ondulée (flottant), puis entaillée
+ * de dents régulières (zigzag, comme des ciseaux cranteurs) dont la profondeur suit l'intensité.
+ */
+function trimPath(l: Layer, f: Format, tr: NonNullable<Layer['trim']>): Path2D {
+  const b = layerBox(l, f);
+  const minSide = Math.min(f.width, f.height);
+  const key = `${cutOf(l)}|${b.cx},${b.cy},${b.w},${b.h},${l.rot ?? 0}|${tr.float},${tr.zigzag}|${minSide}`;
+  const hit = trims.get(l.id);
+  if (hit?.key === key) return hit.path;
+  let seed = 7;
+  for (const ch of l.id) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const rnd = rng(seed);
+  const ph = Array.from({ length: 4 }, () => rnd() * Math.PI * 2);
+  const amp = tr.zigzag * 0.014 * minSide;
+  const period = Math.max(minSide * 0.006, amp * 1.4 + minSide * 0.004);
+  const step = Math.min(period / 4, minSide * 0.004);
+  const wave = tr.float * 0.022 * minSide;
+  const path = new Path2D();
+  for (const ring of maskRings(l, f)) {
+    const pts = resampleArc(ring, step);
+    const n = pts.length;
+    if (n < 8) continue;
+    const nr = outwardNormals(ring, pts);
+    // arrondi : moyenne glissante, d'autant plus large que le bord flotte
+    const K = Math.min(Math.floor(n / 4), Math.round((tr.float * 0.03 * minSide) / step));
+    const sm =
+      K > 0
+        ? pts.map((_, i) => {
+            let x = 0;
+            let y = 0;
+            for (let d = -K; d <= K; d++) {
+              const q = pts[(i + d + n) % n]!;
+              x += q.x;
+              y += q.y;
+            }
+            return { x: x / (2 * K + 1), y: y / (2 * K + 1) };
+          })
+        : pts;
+    // ondes basses, propres à la couche, qui bouclent sur le contour
+    const len = n * step;
+    const turns = Math.max(2, Math.round(len / (minSide * 0.12)));
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      const s = i * step;
+      const fl = wave * (0.6 * Math.sin(u * Math.PI * 2 * turns + ph[0]!) + 0.3 * Math.sin(u * Math.PI * 2 * (turns * 2 + 1) + ph[1]!) + 0.1 * Math.sin(u * Math.PI * 2 * (turns * 5 + 3) + ph[2]!));
+      // dent triangulaire, taillée vers l'intérieur
+      const tri = amp ? Math.abs(((s / period) % 1) * 2 - 1) : 0;
+      const d = fl - amp * tri;
+      const x = sm[i]!.x + nr[i]!.x * d;
+      const y = sm[i]!.y + nr[i]!.y * d;
+      if (i) path.lineTo(x, y);
+      else path.moveTo(x, y);
+    }
+    path.closePath();
+  }
+  if (trims.size > 200) trims.clear();
+  trims.set(l.id, { key, path });
+  return path;
 }
 
 export function tracePath(ctx: CanvasRenderingContext2D, pts: Pt[]) {
@@ -256,6 +320,7 @@ const layerBuffers: HTMLCanvasElement[] = [];
 let depth = 0;
 // couches en train d'être rendues à part pour leur brûlure (pas de seconde passe)
 const flattening = new Set<string>();
+let featherBuf: HTMLCanvasElement | null = null;
 const burnsOf = (l: Layer, o: DrawOptions) => [...l.strokes.filter((s) => s.brush === 'burn'), ...(o.burning?.id === l.id ? [o.burning.stroke] : [])];
 const burnCache = new Map<string, { key: string; hole: HTMLCanvasElement; edge: HTMLCanvasElement }>();
 function burnFor(l: Layer, f: Format, o: DrawOptions) {
@@ -330,7 +395,8 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     }
     // couche translucide ou brûlée : rendue à part, puis posée d'un bloc (son ombre ne transparaît pas)
     const burnt = !flattening.has(l.id) && l.kind !== 'surface' ? ((burnGuides = doc.guides), burnFor(l, f, o)) : null;
-    if (opacityOf(l) < 1 || burnt) {
+    const feather = !flattening.has(l.id) && l.kind !== 'surface' && (l.trim?.blur ?? 0) > 0.01;
+    if (opacityOf(l) < 1 || burnt || feather) {
       const c = (layerBuffers[depth] ??= document.createElement('canvas'));
       c.width = ctx.canvas.width;
       c.height = ctx.canvas.height;
@@ -338,7 +404,8 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       bx.setTransform(ctx.getTransform());
       depth++;
       flattening.add(l.id);
-      drawLayers(bx, { ...doc, layers: [{ ...l, opacity: 1 }] }, f, o);
+      // bords flous : le bord et la lueur restent nets, posés à part autour de la couche adoucie
+      drawLayers(bx, { ...doc, layers: [{ ...l, opacity: 1, ...(feather ? { border: undefined, glow: undefined } : {}) }] }, f, o);
       flattening.delete(l.id);
       depth--;
       if (burnt) {
@@ -356,11 +423,41 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
         bx.drawImage(burnt.hole, b.cx - b.w / 2, b.cy - b.h / 2, b.w, b.h);
         bx.restore();
       }
+      const fpath = feather ? maskPath2D(l, f) : null;
+      if (fpath) {
+        // rognage flou : la couche s'efface vers son bord
+        const m = (featherBuf ??= document.createElement('canvas'));
+        m.width = c.width;
+        m.height = c.height;
+        const mx = m.getContext('2d')!;
+        const T = ctx.getTransform();
+        mx.setTransform(T);
+        mx.filter = `blur(${Math.max(0.5, l.trim!.blur * 0.035 * minSide * Math.hypot(T.a, T.b))}px)`;
+        mx.fillStyle = '#000';
+        mx.fill(fpath, 'evenodd');
+        mx.filter = 'none';
+        bx.save();
+        bx.setTransform(1, 0, 0, 1, 0, 0);
+        bx.globalCompositeOperation = 'destination-in';
+        bx.drawImage(m, 0, 0);
+        bx.restore();
+        drawGlow(ctx, l, doc, f, o, true);
+        if (l.border && l.border.width > 0) {
+          ctx.save();
+          const outside = new Path2D();
+          outside.rect(-f.width, -f.height, 3 * f.width, 3 * f.height);
+          outside.addPath(fpath);
+          ctx.clip(outside, 'evenodd');
+          drawBorder(ctx, l, doc, f, fpath);
+          ctx.restore();
+        }
+      }
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = opacityOf(l);
       ctx.drawImage(c, 0, 0);
       ctx.restore();
+      if (fpath) drawGlow(ctx, l, doc, f, o, false);
       continue;
     }
     ctx.save();

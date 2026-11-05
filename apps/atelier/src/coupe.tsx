@@ -26,6 +26,7 @@ const groupOf = (x: Fx) => fxOf(x.id)?.group;
 
 /** Ce que fait chaque choix, en quelques mots, et sa famille dans la liste. */
 const HINTS: Record<string, [string, string]> = {
+  trim: ['Rognage', 'bords flous, flottants, zigzag'],
   mono: ['Couleur', 'une seule teinte de la palette'],
   bw: ['Couleur', 'noir et blanc franc, grain'],
   duotone: ['Couleur', 'ombres et lumières en deux teintes'],
@@ -85,6 +86,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
   const g = (i: number) => swatch(doc.guides[i]);
   if (l.kind !== 'surface') {
     if (l.border) out.push({ sec: 'edge', key: 'border', name: BORDER_TYPES.find((x) => x[0] === l.border!.style)![1], bg: g(l.border.guide), removable: true });
+    if (l.trim) out.push({ sec: 'edge', key: 'trim', name: 'Rognage', bg: 'repeating-linear-gradient(135deg,#c9c3d6 0 3px,transparent 3px 6px)', removable: true });
     if ((l.bevel ?? 0) > 0.001) out.push({ sec: 'edge', key: 'bevel', name: 'Biseau', bg: 'linear-gradient(135deg,#fff,#8a849a)', removable: true });
     if (l.glow) out.push({ sec: 'edge', key: 'glow', name: GLOW_TYPES.find((x) => x[0] === l.glow!.style)![1], bg: `radial-gradient(circle, #fff 20%, ${swatch(doc.guides[l.glow.guide])} 60%)`, removable: true });
   }
@@ -101,6 +103,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
 function removal(l: Layer, key: string): Partial<Layer> {
   if (key === 'border') return { border: undefined };
   if (key === 'bevel') return { bevel: 0 };
+  if (key === 'trim') return { trim: undefined };
   if (key === 'glow') return { glow: undefined };
   if (key === 'material') return { material: undefined };
   if (key === 'look' || key === 'draw') {
@@ -133,6 +136,7 @@ function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; pa
         patch: { border: { style: st!, guide: l.border?.guide ?? 0, guide2: l.border?.guide2 ?? 1, width: l.border?.width ?? 0.012 } },
         focus: 'border',
       })),
+      ...(l.trim ? [] : [{ id: 'trim', name: 'Rognage', patch: { trim: { blur: 0.25, float: 0.3, zigzag: 0 } }, focus: 'trim' }]),
       ...((l.bevel ?? 0) > 0.001 ? [] : [{ id: 'bevel', name: 'Biseau', patch: { bevel: 0.5 }, focus: 'bevel' }]),
       ...GLOW_TYPES.filter((x) => x[0] && x[0] !== l.glow?.style).map(([st, name]) => ({
         id: `g-${st}`,
@@ -169,7 +173,7 @@ const SECTIONS: Array<{ sec: Section; name: string; role: string; empty: string;
 
 /** Couches de l'aperçu éclaté, de la plus basse à la plus haute. */
 function pliesOf(l: Layer): Array<{ id: string; name: string; sec: Section; patch: Partial<Layer> }> {
-  const bare = { border: undefined, glow: undefined, bevel: 0 } as Partial<Layer>;
+  const bare = { border: undefined, glow: undefined, bevel: 0, trim: undefined } as Partial<Layer>;
   const effects = (l.fx ?? []).filter((x) => groupOf(x) === 'effet');
   const coat = (l.fx ?? []).filter((x) => groupOf(x) === 'lumiere');
   const out: Array<{ id: string; name: string; sec: Section; patch: Partial<Layer> }> = [
@@ -238,7 +242,7 @@ export function CoupePanel({
   // vignettes des choix de la section ouverte : l'objet avec ce choix appliqué
   const choices = adding ? choicesOf(l, adding) : [];
   const hintOf = (id: string) => HINTS[id] ?? HINTS[id.replace(/^[bg]-/, '')] ?? ['', ''];
-  const edgeGroup = (id: string) => (id.startsWith('b-') ? 'Bord' : id.startsWith('g-') ? 'Lueur' : 'Relief');
+  const edgeGroup = (id: string) => (id.startsWith('b-') || id === 'trim' ? 'Bord' : id.startsWith('g-') ? 'Lueur' : 'Relief');
   const thumbs = useMemo(() => {
     const out: Record<string, string> = {};
     for (const c of choices) out[c.id] = fxPreview(l, doc, f, l.fx, `add-${c.id}`, reload, c.patch);
@@ -432,6 +436,16 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
         <Dots label={bd.style === 'double' ? 'Intérieur' : 'Couleur'} value={bd.guide} doc={doc} onPick={(i) => patch({ border: { ...bd, guide: i } })} />
         {bd.style === 'double' && <Dots label="Extérieur" value={bd.guide2 ?? 1} doc={doc} onPick={(i) => patch({ border: { ...bd, guide2: i } })} />}
         <Range label="Largeur" value={Math.sqrt((bd.width - 0.002) / 0.198)} onChange={(v) => live({ border: { ...bd, width: 0.002 + Math.round(v * v * 198) / 1000 } })} />
+      </>
+    );
+  } else if (item.key === 'trim' && l.trim) {
+    const tr = l.trim;
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    body = (
+      <>
+        <Range label="Flou" value={tr.blur} onChange={(v) => live({ trim: { ...tr, blur: r2(v) } })} />
+        <Range label="Flottant" value={tr.float} onChange={(v) => live({ trim: { ...tr, float: r2(v) } })} />
+        <Range label="Zigzag" value={tr.zigzag} onChange={(v) => live({ trim: { ...tr, zigzag: r2(v) } })} />
       </>
     );
   } else if (item.key === 'bevel') body = <Range label="Relief" value={l.bevel ?? 0} onChange={(v) => live({ bevel: Math.max(0.05, Math.round(v * 100) / 100) })} />;
