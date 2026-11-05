@@ -72,8 +72,7 @@ export const SHAPE_FAMILIES: Array<[string, Array<[string, string]>]> = [
     [
       ['rounded', 'Rectangle arrondi'],
       ['circle', 'Rond'],
-      ['triangle', 'Triangle'],
-      ['star', 'Étoile'],
+      ['polystar', 'Polygone, étoile'],
       ['arch', 'Arche'],
       ['blob', 'Tache'],
     ],
@@ -81,9 +80,6 @@ export const SHAPE_FAMILIES: Array<[string, Array<[string, string]>]> = [
   [
     'Géométrie',
     [
-      ['hexagon', 'Hexagone'],
-      ['pentagon', 'Pentagone'],
-      ['octagon', 'Octogone'],
       ['diamond', 'Losange'],
       ['oval', 'Ovale'],
       ['semicircle', 'Demi-cercle'],

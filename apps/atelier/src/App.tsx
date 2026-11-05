@@ -9,7 +9,7 @@ import { TextBar } from './textbar';
 import { PaletteEditor } from './colorpicker';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
-import { anchorsOf, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, marginOf, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
+import { anchorsOf, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
@@ -2404,8 +2404,12 @@ export function App() {
                       <div className="b-title">{fam}</div>
                       <div className="add-grid forms-grid">
                         {list.map(([sh, name]) => (
-                          <button key={sh} onClick={() => addLayer('shape', { shape: sh as ShapeKind, name })} title={name}>
-                            <ShapeGlyph shape={sh as ShapeKind} />
+                          <button
+                            key={sh}
+                            onClick={() => addLayer('shape', sh === 'polystar' ? { shape: 'star', name: 'Étoile' } : { shape: sh as ShapeKind, name })}
+                            title={sh === 'polystar' ? 'Polygone ou étoile : côtés et creux se règlent ensuite' : name}
+                          >
+                            {sh === 'polystar' ? <PolyStarGlyph /> : <ShapeGlyph shape={sh as ShapeKind} />}
                             {name}
                           </button>
                         ))}
@@ -2673,6 +2677,22 @@ function FormatGlyph({ w, h, big }: { w: number; h: number; big?: boolean }) {
   return (
     <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`} aria-hidden>
       <rect x={(s - w * k) / 2 + 0.75} y={(s - h * k) / 2 + 0.75} width={w * k - 1.5} height={h * k - 1.5} rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+/** Le générateur : un hexagone et l'étoile qu'il devient. */
+function PolyStarGlyph() {
+  const pt = (n: number, depth: number, r: number) =>
+    'M' +
+    genPath({ sides: n, depth })
+      .map((p) => `${(12 + (p.x - 0.5) * 2 * r).toFixed(2)} ${(12 + (p.y - 0.5) * 2 * r).toFixed(2)}`)
+      .join('L') +
+    'Z';
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden>
+      <path d={pt(6, 0, 10)} fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+      <path d={pt(5, 0.55, 7)} fill="currentColor" fillOpacity="0.25" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
     </svg>
   );
 }
