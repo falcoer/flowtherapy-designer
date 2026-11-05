@@ -1873,7 +1873,7 @@ export function App() {
                 {brushKind === 'branch' && (
                   <>
                     <VSlider label="Ramifications" value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
-                    <VSlider label="Convergence" value={converge} onChange={(v) => setConverge(Math.round(v * 100) / 100)} />
+                    <VSlider label="Chaos" value={converge} onChange={(v) => setConverge(Math.round(v * 100) / 100)} />
                   </>
                 )}
               </>

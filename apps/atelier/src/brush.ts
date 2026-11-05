@@ -323,7 +323,7 @@ function branchInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
     }
   }
   let id = 0;
-  type Br = { x: number; y: number; a: number; w: number; len: number; d0: number; id: number; depth: number };
+  type Br = { x: number; y: number; a: number; w: number; len: number; d0: number; id: number; depth: number; ox: number; oy: number };
   const queue: Br[] = [];
   for (const sd of seeds) {
     // cœur : couleur très concentrée
@@ -337,7 +337,19 @@ function branchInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
     bx.arc(sd.x, sd.y, core, 0, Math.PI * 2);
     bx.fill();
     const a0 = r() * Math.PI * 2;
-    for (let k = 0; k < nb; k++) queue.push({ x: sd.x, y: sd.y, a: a0 + (k / nb) * Math.PI * 2 + (r() - 0.5) * 0.8, w: w0 * (0.7 + 0.5 * sd.p), len: R * (0.55 + 0.45 * r()) * grow, d0: 0, id: ++id, depth: 0 });
+    for (let k = 0; k < nb; k++)
+      queue.push({
+        x: sd.x,
+        y: sd.y,
+        a: a0 + (k / nb) * Math.PI * 2 + (r() - 0.5) * 0.8,
+        w: w0 * (0.7 + 0.5 * sd.p),
+        len: R * (0.55 + 0.45 * r()) * grow * (1 + 0.6 * conv),
+        d0: 0,
+        id: ++id,
+        depth: 0,
+        ox: sd.x,
+        oy: sd.y,
+      });
   }
   const step = Math.max(1, w0 * 0.8);
   let guard = 0;
@@ -348,9 +360,15 @@ function branchInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
     let turn = (r() - 0.5) * 0.1;
     while (travelled < b.len && w > 0.25) {
       // hésitation : la direction dérive doucement, avec des coudes francs de temps en temps
-      turn += (r() - 0.5) * 0.12;
+      // chaos : 0 = les branches filent droit vers l'extérieur, 1 = elles errent et reviennent sur leurs pas
+      turn += (r() - 0.5) * (0.05 + 0.35 * conv);
       turn *= 0.85;
-      a += turn + (r() < 0.04 ? (r() - 0.5) * 1.2 : 0);
+      a += turn + (r() < 0.02 + 0.04 * conv ? (r() - 0.5) * (0.8 + 1.6 * conv) : 0);
+      // rappel vers la direction qui s'éloigne du cœur, d'autant plus fort que le chaos est faible
+      const out = Math.atan2(y - b.oy, x - b.ox);
+      if (Math.hypot(x - b.ox, y - b.oy) > step * 2) a += Math.atan2(Math.sin(out - a), Math.cos(out - a)) * (1 - conv) * 0.12;
+      // retours de racines : au chaos fort, une branche fait parfois demi-tour
+      if (r() < 0.012 * conv * conv) a += Math.PI * (0.6 + 0.4 * r()) * (r() < 0.5 ? -1 : 1);
       const nx = x + Math.cos(a) * step;
       const ny = y + Math.sin(a) * step;
       if (nx < 0 || ny < 0 || nx >= t.pw || ny >= t.ph) break;
@@ -372,7 +390,7 @@ function branchInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
       // division : une branche fille part de côté, plus fine et plus courte
       if (b.depth < 6 && r() < 0.05 + 0.04 * (nb / 12)) {
         const side = r() < 0.5 ? -1 : 1;
-        queue.push({ x, y, a: a + side * (0.35 + 0.6 * r()), w: w * 0.75, len: (b.len - travelled) * (0.5 + 0.4 * r()), d0: b.d0 + travelled, id: ++id, depth: b.depth + 1 });
+        queue.push({ x, y, a: a + side * (0.3 + (0.5 + conv) * r()), w: w * 0.75, len: (b.len - travelled) * (0.5 + 0.4 * r()), d0: b.d0 + travelled, id: ++id, depth: b.depth + 1, ox: b.ox, oy: b.oy });
       }
       // vers les extrémités, le pigment s'égrène
       if (f > 0.45 && r() < 0.25 * f) {
