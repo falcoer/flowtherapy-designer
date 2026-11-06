@@ -25,6 +25,8 @@ export interface GlView {
   /** Inclinaison en degrés : [autour de l'axe vertical, autour de l'axe horizontal]. */
   tilt: [number, number];
   zoom: number;
+  /** Déplacement de la vue, en pixels d'écran CSS. */
+  pan?: [number, number];
   /** Hauteur d'une plaque à 1, en unités du format (l'écartement). */
   lift: number;
   selected?: string | null;
@@ -341,7 +343,9 @@ export class Gl3d {
     // même perspective que la vue CSS : l'œil à 1800 px de l'écran
     const D = 1800 * (window.devicePixelRatio || 1);
     const proj = perspective(2 * Math.atan(H / 2 / D), W / H, D * 0.05, D * 4);
-    const view = mul(translate(0, 0, -D), mul(scale(fit * v.zoom, fit * v.zoom, fit * v.zoom), mul(rotX((-v.tilt[1] * Math.PI) / 180), rotY((v.tilt[0] * Math.PI) / 180))));
+    const dpr = window.devicePixelRatio || 1;
+    const [px, py] = v.pan ?? [0, 0];
+    const view = mul(translate(px * Math.min(2, dpr), -py * Math.min(2, dpr), -D), mul(scale(fit * v.zoom, fit * v.zoom, fit * v.zoom), mul(rotX((-v.tilt[1] * Math.PI) / 180), rotY((v.tilt[0] * Math.PI) / 180))));
     return { proj, view };
   }
 

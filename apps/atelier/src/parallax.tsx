@@ -182,6 +182,17 @@ export function ParallaxView({
   // ouverte d'un geste (molette, trois doigts) : revenir de face la referme
   const peek = useRef(!!start);
   const [zoom, setZoom] = useState(1);
+  /** Déplacement de la vue (deux doigts, clic droit ou molette du milieu), en pixels. */
+  const [pan, setPan] = useState<[number, number]>([0, 0]);
+  const tiltRef = useRef<[number, number]>([0, 0]);
+  const zoomRef = useRef(1);
+  const panRef = useRef<[number, number]>([0, 0]);
+  tiltRef.current = tilt;
+  zoomRef.current = zoom;
+  panRef.current = pan;
+  /** Doigts posés : un seul tourne (ou choisit d'un toucher), deux déplacent et zooment, trois tournent. */
+  const fingers = useRef(new Map<number, { x: number; y: number }>());
+  const gesture = useRef<{ n: number; cx: number; cy: number; d: number; t: [number, number]; z: number; p: [number, number] } | null>(null);
   // écartement des plaques : la hauteur réelle, exagérée pour bien voir
   const [spread, setSpread] = useState(2);
   const [gyro, setGyro] = useState(false);
@@ -195,8 +206,8 @@ export function ParallaxView({
   const glCanvas = useRef<HTMLCanvasElement>(null);
   const gl = useRef<Gl3d | null>(null);
   /** Vue affichée (elle rejoint en douceur la vue demandée) et vue demandée. */
-  const shown = useRef<GlView & { z: Map<string, number> }>({ tilt: [0, 0], zoom: 1, lift: 0, z: new Map() });
-  const wanted = useRef<GlView & { z: Map<string, number>; t: Map<string, number> }>({ tilt: [0, 0], zoom: 1, lift: 0, z: new Map(), t: new Map() });
+  const shown = useRef<GlView & { z: Map<string, number> }>({ tilt: [0, 0], zoom: 1, lift: 0, pan: [0, 0], z: new Map() });
+  const wanted = useRef<GlView & { z: Map<string, number>; t: Map<string, number> }>({ tilt: [0, 0], zoom: 1, lift: 0, pan: [0, 0], z: new Map(), t: new Map() });
   const kick = useRef<() => void>(() => {});
   const heightRef = useRef(false);
   heightRef.current = heightDrag;
@@ -324,14 +335,15 @@ export function ParallaxView({
       };
       const k = drag.current ? 0.55 : 0.14;
       S.tilt = [step(S.tilt[0], T.tilt[0], k), step(S.tilt[1], T.tilt[1], k)];
-      S.zoom = step(S.zoom, T.zoom, 0.2);
+      S.zoom = step(S.zoom, T.zoom, k > 0.5 ? 0.6 : 0.2);
+      S.pan = [step(S.pan![0], T.pan![0], k > 0.5 ? 0.6 : 0.2), step(S.pan![1], T.pan![1], k > 0.5 ? 0.6 : 0.2)];
       S.lift = S.lift ? step(S.lift, T.lift, 0.2) : T.lift;
       for (const [id, z] of T.z) {
         const v = step(S.z.get(id) ?? z, z, heightRef.current ? 0.5 : 0.15);
         S.z.set(id, v);
         g.setLevel(id, v, T.t.get(id) ?? 0);
       }
-      g.render({ tilt: S.tilt, zoom: S.zoom, lift: S.lift, selected: T.selected });
+      g.render({ tilt: S.tilt, zoom: S.zoom, pan: S.pan, lift: S.lift, selected: T.selected });
       if (moving) raf = requestAnimationFrame(frame);
     };
     kick.current = () => {
@@ -358,9 +370,10 @@ export function ParallaxView({
     const T = wanted.current;
     T.tilt = tilt;
     T.zoom = zoom;
+    T.pan = pan;
     T.lift = Math.min(f.width, f.height) * 0.12 * spread;
     kick.current();
-  }, [tilt, zoom, spread, busy, f]);
+  }, [tilt, zoom, pan, spread, busy, f]);
 
   // les hauteurs suivent le document (réglage en direct) ; les ombres se refont au repos
   useEffect(() => {
@@ -413,14 +426,14 @@ export function ParallaxView({
     if (g3 && cv) {
       const b = cv.getBoundingClientRect();
       const S = shown.current;
-      return g3.pickAt(((cx - b.left) / b.width) * cv.width, ((cy - b.top) / b.height) * cv.height, { tilt: S.tilt, zoom: S.zoom, lift: S.lift });
+      return g3.pickAt(((cx - b.left) / b.width) * cv.width, ((cy - b.top) / b.height) * cv.height, { tilt: S.tilt, zoom: S.zoom, pan: S.pan, lift: S.lift });
     }
     const host = stage.current?.parentElement;
     const g = geo.current;
     if (!host || !g) return null;
     const box = host.getBoundingClientRect();
     const P = 1800;
-    const [sx, sy] = [cx - (box.left + box.width / 2), cy - (box.top + box.height / 2)];
+    const [sx, sy] = [cx - (box.left + box.width / 2) - pan[0], cy - (box.top + box.height / 2) - pan[1]];
     const [ax, ay] = [(tilt[1] * Math.PI) / 180, (tilt[0] * Math.PI) / 180];
     // M = échelle · rotateX · rotateY (repère CSS : y vers le bas, z vers l'œil)
     const M = (x: number, y: number, z: number): [number, number, number] => {
@@ -456,6 +469,19 @@ export function ParallaxView({
     return null;
   };
   const tapAt = useRef<{ x: number; y: number } | null>(null);
+  const centroid = () => {
+    const pts = [...fingers.current.values()];
+    return { x: pts.reduce((a, p) => a + p.x, 0) / pts.length, y: pts.reduce((a, p) => a + p.y, 0) / pts.length };
+  };
+  const spreadOf = () => {
+    const pts = [...fingers.current.values()];
+    return pts.length < 2 ? 0 : Math.hypot(pts[0]!.x - pts[1]!.x, pts[0]!.y - pts[1]!.y);
+  };
+  /** (Re)part d'un geste à n doigts depuis la vue actuelle : poser ou lever un doigt ne fait pas sauter la vue. */
+  const startGesture = (n: number) => {
+    const c = centroid();
+    gesture.current = { n, cx: c.x, cy: c.y, d: spreadOf(), t: tiltRef.current, z: zoomRef.current, p: panRef.current };
+  };
 
   // tablette : on penche l'appareil, le document suit
   useEffect(() => {
@@ -496,28 +522,52 @@ export function ParallaxView({
   const view = (
     <div
       className={`px3d ${inline ? 'px-inline' : ''} ${dragging || gyro ? 'dragging' : ''}`}
+      onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         if ((e.target as Element).closest('.px-bar')) return;
-        const now = performance.now();
-        if (now - lastTap.current < 300) {
-          setTilt([0, 0]);
-          setZoom(1);
-          lastTap.current = 0;
-          return;
-        }
-        lastTap.current = now;
-        tapAt.current = { x: e.clientX, y: e.clientY };
         (e.currentTarget as Element).setPointerCapture(e.pointerId);
+        fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        const n = fingers.current.size;
+        if (n === 1) {
+          const now = performance.now();
+          if (now - lastTap.current < 300) {
+            setTilt([0, 0]);
+            setZoom(1);
+            setPan([0, 0]);
+            lastTap.current = 0;
+            return;
+          }
+          lastTap.current = now;
+          tapAt.current = { x: e.clientX, y: e.clientY };
+        } else tapAt.current = null;
+        // souris : clic droit ou bouton du milieu déplacent, comme deux doigts
+        const panMouse = e.pointerType === 'mouse' && (e.button === 1 || e.button === 2);
+        startGesture(panMouse ? 2 : n);
         drag.current = { x: e.clientX, y: e.clientY, t: tilt };
         setDragging(true);
       }}
       onPointerMove={(e) => {
-        const d = drag.current;
-        if (!d) return;
+        if (!fingers.current.has(e.pointerId)) return;
+        fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        const g = gesture.current;
+        if (!g) return;
+        const c = centroid();
         const clamp = (v: number) => Math.max(-70, Math.min(70, v));
-        setTilt([clamp(d.t[0] + (e.clientX - d.x) * 0.3), clamp(d.t[1] - (e.clientY - d.y) * 0.3)]);
+        if (g.n === 2) {
+          // deux doigts : la vue suit leur milieu, l'écart des doigts zoome
+          const d = spreadOf();
+          setPan([g.p[0] + c.x - g.cx, g.p[1] + c.y - g.cy]);
+          if (g.d > 20 && d > 20) setZoom(Math.max(0.4, Math.min(4, (g.z * d) / g.d)));
+        } else setTilt([clamp(g.t[0] + (c.x - g.cx) * 0.3), clamp(g.t[1] - (c.y - g.cy) * 0.3)]);
       }}
       onPointerUp={(e) => {
+        fingers.current.delete(e.pointerId);
+        if (fingers.current.size) {
+          // un doigt se lève : le geste continue avec ceux qui restent, sans saut
+          startGesture(fingers.current.size);
+          return;
+        }
+        gesture.current = null;
         drag.current = null;
         setDragging(false);
         const t0 = tapAt.current;
@@ -529,7 +579,13 @@ export function ParallaxView({
         }
         if (peek.current && Math.abs(tilt[0]) < 3 && Math.abs(tilt[1]) < 3) onClose();
       }}
-      onPointerCancel={() => ((drag.current = null), setDragging(false))}
+      onPointerCancel={(e) => {
+        fingers.current.delete(e.pointerId);
+        if (fingers.current.size) return startGesture(fingers.current.size);
+        gesture.current = null;
+        drag.current = null;
+        setDragging(false);
+      }}
       onWheel={(e) => {
         // Maj + molette ou défilement horizontal : tourner ; molette : zoomer
         if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
@@ -539,7 +595,10 @@ export function ParallaxView({
             if (peek.current && Math.abs(nx) < 1.5 && Math.abs(y) < 1.5) onClose();
             return [nx, y];
           });
-        } else setZoom((z) => Math.max(0.4, Math.min(3, z * Math.exp(-e.deltaY * 0.0015))));
+        } else if (!e.ctrlKey && e.deltaMode === 0 && Math.abs(e.deltaY) < 40 && e.altKey) {
+          // Alt + défilement du trackpad : déplacer
+          setPan(([x, y]) => [x - e.deltaX, y - e.deltaY]);
+        } else setZoom((z) => Math.max(0.4, Math.min(4, z * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)))));
       }}
     >
       {useGl && <canvas ref={glCanvas} className="px-gl" />}
@@ -551,7 +610,7 @@ export function ParallaxView({
             width: size[0],
             height: size[1],
             '--lift': `${minPx * 0.12 * spread}px`,
-            transform: `scale(${zoom}) rotateX(${tilt[1]}deg) rotateY(${tilt[0]}deg)`,
+            transform: `translate(${pan[0]}px, ${pan[1]}px) scale(${zoom}) rotateX(${tilt[1]}deg) rotateY(${tilt[0]}deg)`,
           } as React.CSSProperties
         }
       />
@@ -587,7 +646,7 @@ export function ParallaxView({
               Inclinaison
             </button>
           )}
-          <button className="chip" onClick={() => (setTilt([0, 0]), setZoom(1))} title="Revenir de face (ou toucher deux fois)">
+          <button className="chip" onClick={() => (setTilt([0, 0]), setZoom(1), setPan([0, 0]))} title="Revenir de face, au centre (ou toucher deux fois)">
             De face
           </button>
           <button className="chip" onClick={onClose}>
