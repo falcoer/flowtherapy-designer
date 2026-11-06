@@ -851,3 +851,16 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 /* biseau : profil arrondi / chanfrein */
 .cp-row .cp-seg { grid-column: 2 / 4; }
 .cp-row .cp-seg button { height: 26px; font-size: 12px; }
+/* Vue 3D : les couches en plaques, à leur hauteur */
+.px3d { position: fixed; inset: 0; z-index: 40; background: radial-gradient(ellipse at 50% 40%, var(--chrome-solid), var(--ground)); color: var(--ink); perspective: 1800px; display: grid; place-items: center; touch-action: none; user-select: none; cursor: grab; }
+.px3d.dragging { cursor: grabbing; }
+.px-stage { position: relative; transform-style: preserve-3d; transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.px3d.dragging .px-stage { transition: transform 0.08s linear; }
+.px-plate { position: absolute; transform: translateZ(calc(var(--z) * var(--lift))); transition: transform 0.4s ease; pointer-events: none; }
+.px-page { box-shadow: 0 30px 60px -20px rgba(20, 16, 30, 0.45); }
+.px-busy { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: var(--muted); font-size: 14px; }
+.px-bar { position: absolute; bottom: max(16px, env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center; width: max-content; max-width: calc(100vw - 32px); cursor: default; }
+.px-bar .chip { background: var(--chrome-solid); box-shadow: var(--shadow); height: 40px; padding: 0 16px; border-radius: 20px; }
+.px-bar .chip.on { color: var(--accent); }
+.px-spread { display: flex; align-items: center; gap: 8px; background: var(--chrome-solid); box-shadow: var(--shadow); height: 40px; padding: 0 16px; border-radius: 20px; font-size: 13px; }
+.px-spread input { width: 120px; accent-color: var(--accent); }

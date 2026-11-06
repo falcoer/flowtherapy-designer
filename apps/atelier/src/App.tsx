@@ -6,6 +6,7 @@ import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { PrefsPanel, type Theme } from './prefs';
 import { BrushWheel } from './wheel';
+import { ParallaxView } from './parallax';
 import { blankBump, bumpHeights, dab, encodeBump, smoothBump } from './bump';
 import { currentPx, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
 import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
@@ -505,6 +506,8 @@ export function App() {
   const hoverRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>({ zoom: 1, rot: 0, px: 0, py: 0 });
   const [rendu, setRendu] = useState(false);
+  /** Vue 3D : les couches en plaques, à leur hauteur. */
+  const [view3d, setView3d] = useState(false);
   const [magnet, setMagnet] = useState(true);
   /** Ciseaux : le morceau se détache. Scalpel : il reste en place, lié à son objet. */
   const [blade, setBlade] = useState<'scissors' | 'scalpel'>('scissors');
@@ -3279,6 +3282,17 @@ export function App() {
                 <span>Aperçu plein écran</span>
                 <small>le rendu final, sans les outils</small>
               </button>
+              <button
+                className="row"
+                onClick={() => {
+                  setBubble(null);
+                  setView3d(true);
+                }}
+              >
+                <Icon name="layers" />
+                <span>Vue 3D</span>
+                <small>les couches en relief, à leur hauteur</small>
+              </button>
               <div className="b-title">Exporter</div>
               <div className="seg">
                 {(['png', 'pdf'] as const).map((k) => (
@@ -3587,11 +3601,15 @@ export function App() {
           <button className="chip" onClick={makeSnapshot}>
             <Icon name="photo" /> Image finale
           </button>
+          <button className="chip" onClick={() => setView3d(true)} title="Voir les couches en relief, à leur hauteur">
+            Vue 3D
+          </button>
           <button className="chip" onClick={() => setRendu(false)}>
             Retour à l'atelier
           </button>
         </div>
       )}
+      {view3d && <ParallaxView doc={doc} f={f} onClose={() => setView3d(false)} />}
       {snapshot && (
         <div className="snapshot" onClick={() => setSnapshot(null)}>
           <img src={snapshot} alt="Rendu final" />
