@@ -63,14 +63,14 @@ function buildPlates(doc: Doc, f: Format, r: number): Plate[] {
     if (l.kind === 'surface') continue;
     // la couche seule, sans son ombre : l'ombre est posée à part, sur les plaques du dessous
     const one = page();
-    drawLayers(one.ctx, { ...doc, layers: [{ ...l, height: 0, inner: 0 }] }, f, { scale: r, onImage: () => {} });
+    drawLayers(one.ctx, { ...doc, layers: [{ ...l, height: 0, inner: 0, extrude: 0 }] }, f, { scale: r, onImage: () => {} });
     const b = crop(one.c);
     if (!b) continue;
     const c = document.createElement('canvas');
     c.width = b.w;
     c.height = b.h;
     c.getContext('2d')!.drawImage(one.c, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
-    plates.push({ c, x: b.x, y: b.y, h: Math.max(0, levelOf(l)), l });
+    plates.push({ c, x: b.x, y: b.y, h: topOf(l), l });
   }
   forgetPaint();
   return plates;
@@ -140,8 +140,12 @@ function buildShadows(doc: Doc, f: Format, r: number, plates: Plate[]): ShadowPi
 const SLICES = 10;
 /** Épaisseur d'un objet découpé (en hauteur de page) : un carton, plus son volume et son biseau. */
 function thicknessOf(l: Layer): number {
-  return 0.035 + (l.volume ? l.volume.amount * 0.07 : 0) + (l.bevel ?? 0) * 0.025;
+  return 0.035 + (l.volume ? l.volume.amount * 0.07 : 0) + (l.bevel ?? 0) * 0.025 + (l.extrude ?? 0) * EXTRUDE;
 }
+/** Extrusion à 1, en hauteur de page : le dessus monte d'autant, la tranche descend jusqu'à la feuille. */
+const EXTRUDE = 0.5;
+/** Hauteur du dessus d'une plaque. */
+const topOf = (l: Layer) => Math.max(0, levelOf(l)) + (l.extrude ?? 0) * EXTRUDE;
 
 /** Une plaque posée dans la vue : son image, ses tranches, et de quoi la retrouver sous le doigt. */
 interface Placed {
@@ -365,7 +369,7 @@ export function ParallaxView({
       const T = wanted.current;
       for (const l of doc.layers) {
         if (l.kind === 'surface') continue;
-        T.z.set(l.id, Math.max(0, levelOf(l)));
+        T.z.set(l.id, topOf(l));
         T.t.set(l.id, thicknessOf(l));
       }
       T.selected = selected ?? null;
@@ -378,7 +382,7 @@ export function ParallaxView({
       const l = byId.get(P.p.l.id);
       if (!l) continue;
       P.p.l = l;
-      P.p.h = Math.max(0, levelOf(l));
+      P.p.h = topOf(l);
       P.el.style.setProperty('--z', String(P.p.h + P.i * 0.0015));
       const t = thicknessOf(l);
       P.slices.forEach((c, j) => c.style.setProperty('--z', String(Math.max(0.0004, P.p.h - t + (t * j) / P.slices.length) + P.i * 0.0015)));

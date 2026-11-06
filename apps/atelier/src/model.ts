@@ -130,6 +130,8 @@ export interface Layer {
   bump?: import('./bump').Bump;
   /** Biseau (0..1) : largeur du relief au bord, éclairé par la lampe (scene.ts drawBevel). */
   bevel?: number;
+  /** Extrusion (0..1) : l'objet prend de l'épaisseur, comme un bloc découpé ; toutes ses pièces solidaires la partagent. */
+  extrude?: number;
   /** Volume de la forme, tiré de son contour (indépendant du matériau). */
   volume?: Volume;
   /** Profil du biseau : arrondi (par défaut) ou chanfrein. */

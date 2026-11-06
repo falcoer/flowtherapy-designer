@@ -2701,7 +2701,12 @@ export function App() {
   };
 
   const patchLayer = (id: string, patch: Partial<Layer>, history = true) => {
-    const fn = (d: Doc) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, ...patch } : l)) });
+    // l'extrusion épaissit l'objet entier : toutes ses pièces solidaires la partagent
+    const fn = (d: Doc) => {
+      const me = d.layers.find((l) => l.id === id);
+      const group = 'extrude' in patch && me?.link ? me.link : null;
+      return { ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, ...patch } : group && l.link === group ? { ...l, extrude: patch.extrude } : l)) };
+    };
     if (history) update(fn);
     else setDoc(fn);
   };

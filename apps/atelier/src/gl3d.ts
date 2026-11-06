@@ -423,8 +423,10 @@ export class Gl3d {
       const z0 = Math.max(0.0005, p.z - p.t) * v.lift;
       // la tranche ne se fait pas d'ombre à elle-même : seule l'orientation de son bord compte
       gl.uniform1f(P.u('uShadowOn'), 0);
-      for (let j = 0; j < WALL; j++) {
-        const u = j / WALL;
+      // une tranche épaisse (extrusion) en demande davantage pour rester pleine
+      const n = Math.min(120, Math.max(WALL, Math.round(p.t * 180)));
+      for (let j = 0; j < n; j++) {
+        const u = j / n;
         gl.uniform1f(P.u('uDepth'), u);
         this.drawQuad(P, p, z0 + (z1 - z0) * u);
       }

@@ -410,6 +410,31 @@ function castShadow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format
   ctx.restore();
 }
 
+/** Profondeur de l'extrusion à 1, en fraction du petit côté, et sa part dans la hauteur d'ombre. */
+export const EXTRUDE_DEPTH = 0.05;
+const shadowLevel = (l: Layer) => l.height + (l.extrude ?? 0) * 0.4;
+
+/**
+ * Extrusion à plat : le flanc de l'objet, sa silhouette répétée vers l'ombre (à l'opposé de la
+ * lampe) dans sa couleur assombrie, avant de poser l'objet lui-même par-dessus.
+ */
+function drawExtrude(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, path: Path2D) {
+  const e = l.extrude ?? 0;
+  if (e < 0.005 || l.kind === 'surface') return;
+  const b = layerBox(l, f);
+  const li = lightAt(doc, f, b.cx, b.cy);
+  const D = e * EXTRUDE_DEPTH * Math.min(f.width, f.height) * (0.6 + 0.4 * Math.min(1.5, li.k));
+  const n = Math.max(2, Math.min(48, Math.ceil(D * o.scale)));
+  const side = new Path2D();
+  for (let i = n; i >= 1; i--) side.addPath(path, new DOMMatrix().translate((-li.lx * D * i) / n, (-li.ly * D * i) / n));
+  ctx.save();
+  ctx.fillStyle = guideColor(doc.guides[l.guide], 0.5);
+  ctx.fill(side, 'nonzero');
+  ctx.fillStyle = 'rgba(20, 16, 30, 0.42)';
+  ctx.fill(side, 'nonzero');
+  ctx.restore();
+}
+
 export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o: DrawOptions) {
   const minSide = Math.min(f.width, f.height);
   ctx.save();
@@ -427,7 +452,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     // les couches plus basses les recouvrent là où elles sont
     if (!pageShadows && l.kind !== 'surface') {
       pageShadows = true;
-      for (const x of order) if (x.kind !== 'surface' && x.height > 0.001 && opacityOf(x) >= 1) castShadow(ctx, x, doc, f, o, maskPath2D(x, f), x.height);
+      for (const x of order) if (x.kind !== 'surface' && shadowLevel(x) > 0.001 && opacityOf(x) >= 1) castShadow(ctx, x, doc, f, o, maskPath2D(x, f), shadowLevel(x));
     }
     // couche translucide ou brûlée : rendue à part, puis posée d'un bloc (son ombre ne transparaît pas)
     const burnt = !flattening.has(l.id) && l.kind !== 'surface' ? ((burnGuides = doc.guides), burnFor(l, f, o)) : null;
@@ -517,9 +542,9 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
 
     // ombre sur les couches plus basses : seulement la différence de hauteur,
     // et seulement sur la partie visible de chacune (les couches posées après la cachent)
-    if (l.kind !== 'surface' && l.height > 0.001) {
+    if (l.kind !== 'surface' && shadowLevel(l) > 0.001) {
       below.forEach((B, i) => {
-        const dh = l.height - Math.max(0, levelOf(B.l));
+        const dh = shadowLevel(l) - Math.max(0, levelOf(B.l));
         if (dh <= 0.001) return;
         ctx.save();
         ctx.clip(B.path, 'evenodd');
@@ -535,6 +560,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     if (l.kind !== 'surface') below.push({ l, path });
 
     drawGlow(ctx, l, doc, f, o, true);
+    drawExtrude(ctx, l, doc, f, o, path);
     // bord : à l'extérieur de la découpe, en débordement de l'objet
     if (l.border && l.border.width > 0) borderSprite(ctx, l, doc, f, o, path);
 
