@@ -701,3 +701,8 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .hand-left .height-bar { right: auto; left: calc(max(8px, env(safe-area-inset-left, 0px)) + 58px); }
 .atelier .side:not(.tools-bar):not(:has(.side-params > *)) { display: none; }
 .lamp-panel { left: auto; right: calc(max(8px, env(safe-area-inset-right, 0px)) + 58px); }
+/* la barre Hauteur va du côté des réglages d'outil (à gauche pour un droitier) */
+.hand-right .height-bar { right: auto; left: max(8px, env(safe-area-inset-left, 0px)); top: 64px; }
+.hand-left .height-bar { left: auto; right: max(8px, env(safe-area-inset-right, 0px)); top: 64px; }
+/* bulles ouvertes à droite : elles laissent la barre des outils visible */
+.hand-right .bubble:not(.format-bubble):not(.anchor-bubble):not(.projects-bubble) { left: auto; right: calc(max(8px, env(safe-area-inset-right, 0px)) + 58px); }
