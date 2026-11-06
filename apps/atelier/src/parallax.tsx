@@ -486,12 +486,30 @@ export function ParallaxView({
   // tablette : on penche l'appareil, le document suit
   useEffect(() => {
     if (!gyro) return;
+    // Les angles bêta/gamma du capteur basculent d'un coup près de la verticale (gamma passe de +90 à −90
+    // et bêta saute de 180°). On passe donc par la direction du haut vue depuis l'écran, qui varie sans
+    // à-coup, en tenant compte de l'orientation de l'écran (portrait, paysage).
+    const rad = Math.PI / 180;
+    const upOnScreen = (e: DeviceOrientationEvent): [number, number, number] => {
+      const [b, g] = [e.beta! * rad, e.gamma! * rad];
+      const [ux, uy, uz] = [-Math.cos(b) * Math.sin(g), Math.sin(b), Math.cos(b) * Math.cos(g)];
+      const th = ((screen.orientation?.angle ?? (window as unknown as { orientation?: number }).orientation ?? 0) as number) * rad;
+      return [ux * Math.cos(th) - uy * Math.sin(th), ux * Math.sin(th) + uy * Math.cos(th), uz];
+    };
+    const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
     let ref: [number, number] | null = null;
+    let cur: [number, number] = [0, 0];
     const on = (e: DeviceOrientationEvent) => {
       if (e.beta == null || e.gamma == null) return;
-      ref ??= [e.beta, e.gamma];
+      const [x, y, z] = upOnScreen(e);
+      // pente gauche-droite et avant-arrière, chacune dans son plan
+      const a: [number, number] = [Math.atan2(x, z), Math.atan2(y, z)];
+      ref ??= a;
       const clamp = (v: number) => Math.max(-50, Math.min(50, v));
-      setTilt([clamp((e.gamma - ref[1]) * 1.2), clamp(-(e.beta - ref[0]) * 1.2)]);
+      const next: [number, number] = [clamp((-wrap(a[0] - ref[0]) / rad) * 1.2), clamp((-wrap(a[1] - ref[1]) / rad) * 1.2)];
+      // un peu de lissage : le capteur tremble
+      cur = [cur[0] + (next[0] - cur[0]) * 0.35, cur[1] + (next[1] - cur[1]) * 0.35];
+      setTilt([Math.round(cur[0] * 10) / 10, Math.round(cur[1] * 10) / 10]);
     };
     window.addEventListener('deviceorientation', on);
     return () => window.removeEventListener('deviceorientation', on);
