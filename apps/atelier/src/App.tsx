@@ -510,7 +510,7 @@ export function App() {
   const [view, setView] = useState<View>({ zoom: 1, rot: 0, px: 0, py: 0 });
   const [rendu, setRendu] = useState(false);
   /** Vue 3D : les couches en plaques, à leur hauteur. */
-  const [view3d, setView3d] = useState(false);
+  const [view3d, setView3d] = useState<false | { start?: [number, number] }>(false);
   const [magnet, setMagnet] = useState(true);
   /** Ciseaux : le morceau se détache. Scalpel : il reste en place, lié à son objet. */
   const [blade, setBlade] = useState<'scissors' | 'scalpel'>('scissors');
@@ -786,7 +786,7 @@ export function App() {
     cutStill.current = null;
   };
   const pointers = useRef(new Map<number, { x: number; y: number; type: string }>());
-  const gesture = useRef<{ view: View; c: { x: number; y: number }; d: number; a: number; next?: View } | null>(null);
+  const gesture = useRef<{ view: View; c: { x: number; y: number }; d: number; a: number; next?: View; c3?: { x: number; y: number } } | null>(null);
   const tap = useRef<{ n: number; t0: number; moved: boolean } | null>(null);
   const lampDrag = useRef<number | null>(null);
   /** Souris : molette enfoncée, on fait glisser la feuille. */
@@ -1734,6 +1734,21 @@ export function App() {
       if (touches.length < 2) return;
       const [a, b] = touches;
       const g = gesture.current;
+      // trois doigts qui glissent ensemble : la page s'incline en Vue 3D
+      if (touches.length >= 3) {
+        const c3 = { x: touches.reduce((s, t) => s + t.x, 0) / touches.length, y: touches.reduce((s, t) => s + t.y, 0) / touches.length };
+        g.c3 ??= c3;
+        const [dx, dy] = [c3.x - g.c3.x, c3.y - g.c3.y];
+        if (Math.hypot(dx, dy) > 30) {
+          previewView(null);
+          live.current = { kind: null };
+          gesture.current = null;
+          tap.current = null;
+          pointers.current.clear();
+          setView3d({ start: [Math.max(-40, Math.min(40, dx * 0.3)), Math.max(-40, Math.min(40, -dy * 0.3))] });
+        }
+        return;
+      }
       const c = { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 };
       const d = Math.hypot(b!.x - a!.x, b!.y - a!.y);
       const ang = Math.atan2(b!.y - a!.y, b!.x - a!.x);
@@ -2813,8 +2828,11 @@ export function App() {
         // molette enfoncée : pas de défilement automatique du navigateur
         onMouseDown={(e) => e.button === 1 && e.preventDefault()}
         onWheel={(e) => {
-          // ordinateur : molette = zoom, Maj + molette = rotation
-          if (e.shiftKey) setView((v) => ({ ...v, rot: v.rot + e.deltaY * 0.002 }));
+          // ordinateur : molette = zoom, Alt + molette = rotation ; Maj + molette ou défilement horizontal = Vue 3D
+          if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+            const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            setView3d({ start: [Math.max(-40, Math.min(40, d * 0.15)), 0] });
+          } else if (e.altKey) setView((v) => ({ ...v, rot: v.rot + e.deltaY * 0.002 }));
           else setView((v) => ({ ...v, zoom: Math.max(0.3, Math.min(6, v.zoom * Math.exp(-e.deltaY * 0.0015))) }));
         }}
       />
@@ -3351,7 +3369,7 @@ export function App() {
                 className="row"
                 onClick={() => {
                   setBubble(null);
-                  setView3d(true);
+                  setView3d({});
                 }}
               >
                 <Icon name="layers" />
@@ -3684,7 +3702,7 @@ export function App() {
           <button className="chip" onClick={makeSnapshot}>
             <Icon name="photo" /> Image finale
           </button>
-          <button className="chip" onClick={() => setView3d(true)} title="Voir les couches en relief, à leur hauteur">
+          <button className="chip" onClick={() => setView3d({})} title="Voir les couches en relief, à leur hauteur">
             Vue 3D
           </button>
           <button className="chip" onClick={() => setRendu(false)}>
@@ -3692,7 +3710,7 @@ export function App() {
           </button>
         </div>
       )}
-      {view3d && <ParallaxView doc={doc} f={f} onClose={() => setView3d(false)} />}
+      {view3d && <ParallaxView doc={doc} f={f} start={view3d.start} onClose={() => setView3d(false)} />}
       {snapshot && (
         <div className="snapshot" onClick={() => setSnapshot(null)}>
           <img src={snapshot} alt="Rendu final" />

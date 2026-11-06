@@ -135,9 +135,11 @@ function buildShadows(doc: Doc, f: Format, r: number, plates: Plate[]): ShadowPi
   return out;
 }
 
-export function ParallaxView({ doc, f, onClose }: { doc: Doc; f: Format; onClose: () => void }) {
+export function ParallaxView({ doc, f, onClose, start }: { doc: Doc; f: Format; onClose: () => void; start?: [number, number] }) {
   const stage = useRef<HTMLDivElement>(null);
-  const [tilt, setTilt] = useState<[number, number]>([0, 0]);
+  const [tilt, setTilt] = useState<[number, number]>(start ?? [0, 0]);
+  // ouverte d'un geste (molette, trois doigts) : revenir de face la referme
+  const peek = useRef(!!start);
   const [zoom, setZoom] = useState(1);
   // écartement des plaques : la hauteur réelle, exagérée pour bien voir
   const [spread, setSpread] = useState(2);
@@ -174,7 +176,7 @@ export function ParallaxView({ doc, f, onClose }: { doc: Doc; f: Format; onClose
       for (const s of shadows) put(s.c, s.x, s.y, plates[s.on]!.h + s.on * 0.0015 + 0.0008, 'px-plate px-shadow', 0.5);
       setBusy(false);
       // une légère inclinaison d'entrée montre tout de suite l'épaisseur
-      requestAnimationFrame(() => setTilt([-14, 10]));
+      if (!start) requestAnimationFrame(() => setTilt([-14, 10]));
     }, 30);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -193,6 +195,12 @@ export function ParallaxView({ doc, f, onClose }: { doc: Doc; f: Format; onClose
     window.addEventListener('deviceorientation', on);
     return () => window.removeEventListener('deviceorientation', on);
   }, [gyro]);
+
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [onClose]);
 
   const askGyro = async () => {
     if (gyro) return setGyro(false);
@@ -230,9 +238,23 @@ export function ParallaxView({ doc, f, onClose }: { doc: Doc; f: Format; onClose
         const clamp = (v: number) => Math.max(-70, Math.min(70, v));
         setTilt([clamp(d.t[0] + (e.clientX - d.x) * 0.3), clamp(d.t[1] - (e.clientY - d.y) * 0.3)]);
       }}
-      onPointerUp={() => ((drag.current = null), setDragging(false))}
+      onPointerUp={() => {
+        drag.current = null;
+        setDragging(false);
+        if (peek.current && Math.abs(tilt[0]) < 3 && Math.abs(tilt[1]) < 3) onClose();
+      }}
       onPointerCancel={() => ((drag.current = null), setDragging(false))}
-      onWheel={(e) => setZoom((z) => Math.max(0.4, Math.min(3, z * Math.exp(-e.deltaY * 0.0015))))}
+      onWheel={(e) => {
+        // Maj + molette ou défilement horizontal : tourner ; molette : zoomer
+        if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+          const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+          setTilt(([x, y]) => {
+            const nx = Math.max(-70, Math.min(70, x + d * 0.15));
+            if (peek.current && Math.abs(nx) < 1.5 && Math.abs(y) < 1.5) onClose();
+            return [nx, y];
+          });
+        } else setZoom((z) => Math.max(0.4, Math.min(3, z * Math.exp(-e.deltaY * 0.0015))));
+      }}
     >
       <div
         ref={stage}
