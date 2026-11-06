@@ -810,3 +810,19 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .bw-choice-row small { font-size: 11px; color: var(--muted); }
 @media (pointer: coarse) and (min-width: 600px) { .bw-pick { width: 60px; height: 60px; } .bw-pick svg { width: 26px; height: 26px; } .bw-stamp-face svg { width: 34px; height: 34px; } }
 .bw-pick { right: -22px; bottom: -8px; }
+/* roue du pinceau, d'après le croquis : jauge en segments sur 3/4, flèche de rotation, perspective en bas à droite, pinceau en bas à gauche */
+.brush-wheel > svg { width: 236px; height: 236px; border-radius: 0; box-shadow: none; filter: drop-shadow(0 6px 16px rgba(20, 16, 30, 0.18)); }
+.brush-wheel .bw-disc { fill: var(--chrome-solid); stroke: var(--line); stroke-width: 1; }
+.brush-wheel .bw-seg { fill: var(--line); }
+.brush-wheel .bw-seg.on { fill: var(--accent); }
+.brush-wheel .bw-seg.half { fill: var(--accent); opacity: 0.45; }
+.brush-wheel .bw-seg.off { opacity: 0.4; }
+.brush-wheel .bw-center { fill: color-mix(in srgb, var(--chrome-solid) 35%, transparent); stroke: var(--line); }
+.brush-wheel .bw-arrow { fill: var(--accent); stroke: var(--chrome-solid); stroke-width: 1.5; stroke-linejoin: round; }
+.brush-wheel .bw-pad { fill: var(--chrome-solid); stroke: var(--line); }
+.brush-wheel .bw-plane { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.4; stroke-linejoin: round; }
+.brush-wheel .bw-tilt-pad.off { opacity: 0.4; }
+.brush-wheel .bw-tilt { fill: var(--chrome-solid); stroke: var(--accent); stroke-width: 2.2; }
+.bw-pick { right: auto; bottom: auto; width: 48px; height: 48px; transform: translate(-50%, -50%); }
+@media (pointer: coarse) and (min-width: 600px) { .brush-wheel > svg { width: 296px; height: 296px; } .bw-pick { width: 58px; height: 58px; } }
+@media (max-width: 560px) { .brush-wheel > svg { width: 196px; height: 196px; } .bw-pick { width: 42px; height: 42px; } }

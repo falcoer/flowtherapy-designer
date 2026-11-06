@@ -7,46 +7,65 @@ interface Props {
   size: number;
   sizeText: string;
   onSize: (v: number) => void;
-  /** Intensité, de 0 à 1 (absente : pas de jauge). */
+  /** Intensité, de 0 à 1 (absente : jauge éteinte). */
   intensity?: number;
   onIntensity?: (v: number) => void;
-  /** Rotation, en radians (absente : la pointe ne tourne pas). */
+  /** Rotation, en radians (absente : pas de flèche). */
   rotation?: number;
   onRotation?: (a: number) => void;
-  /** Inclinaison, x et y de -1 à 1 (absente : pas d'inclinaison). */
+  /** Perspective, x et y de -1 à 1 (absente : cadran éteint). */
   tilt?: [number, number];
   onTilt?: (x: number, y: number) => void;
   /** Empreinte montrée au centre : une pointe, ou l'image d'un tampon. */
   tip?: Tip;
+  stamp?: string;
   /**
-   * Sélecteur rond en bas à droite de la roue, à la même place dans tous les modes :
-   * un toucher passe à la pointe (ou au tampon) suivante ; double toucher ou appui long ouvre le choix.
+   * Choix du pinceau, en bas à gauche, à la même place dans tous les modes :
+   * un toucher passe au suivant ; double toucher ou appui long ouvre le choix.
    */
   pick?: { face: ReactNode; title: string; next?: () => void; choices?: (close: () => void) => ReactNode };
-  stamp?: string;
-  /** Pendant un réglage de la pointe (taille, rotation, inclinaison) et au lâcher : montrer l'empreinte en vraie grandeur sur la page. */
+  /** Pendant un réglage de la pointe (taille, rotation, perspective) et au lâcher : montrer l'empreinte en vraie grandeur sur la page. */
   onSizing?: (on: boolean) => void;
 }
 
-const S = 176;
-const C = S / 2;
-const RING = 78; // jauge d'intensité
-const MAXF = 54; // rayon de l'empreinte à taille maximale
-const MINF = 7;
-const A0 = (-135 * Math.PI) / 180; // la jauge va de -135° à +135° (0 en haut)
-const A1 = (135 * Math.PI) / 180;
+// repère : 0 en haut, sens horaire
+const S = 236;
+const C = 112; // centre de la roue
+const RO = 92; // bord extérieur de la jauge
+const RI = 64; // bord intérieur de la jauge (dedans : la taille)
+const MAXF = 52; // rayon de l'empreinte à taille maximale
+const MINF = 6;
+// jauge d'intensité sur 3/4 de tour : de 0 % en bas à 100 % à droite, par la gauche et le haut
+const A0 = Math.PI;
+const A1 = 2.5 * Math.PI;
+const SEG = 18;
+// cadran de perspective, en bas à droite ; choix du pinceau, en bas à gauche
+const TX = C + RO * 0.74;
+const TY = C + RO * 0.74;
+const TR = 40;
+const PX = C - RO * 0.74;
+const PY = C + RO * 0.74;
 
 const fr = (v: number) => MINF + v * (MAXF - MINF);
 const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
-/** Point à l'angle a (0 en haut, sens horaire) et au rayon r. */
-const at = (a: number, r: number): [number, number] => [C + Math.sin(a) * r, C - Math.cos(a) * r];
-const arc = (a: number, b: number, r: number) => {
-  const [x0, y0] = at(a, r);
-  const [x1, y1] = at(b, r);
-  return `M${x0} ${y0}A${r} ${r} 0 ${b - a > Math.PI ? 1 : 0} 1 ${x1} ${y1}`;
+const at = (a: number, r: number, cx = C, cy = C): [number, number] => [cx + Math.sin(a) * r, cy - Math.cos(a) * r];
+/** Secteur de couronne entre deux angles. */
+const band = (a: number, b: number, r0: number, r1: number) => {
+  const [x0, y0] = at(a, r1);
+  const [x1, y1] = at(b, r1);
+  const [x2, y2] = at(b, r0);
+  const [x3, y3] = at(a, r0);
+  const big = b - a > Math.PI ? 1 : 0;
+  return `M${x0} ${y0}A${r1} ${r1} 0 ${big} 1 ${x1} ${y1}L${x2} ${y2}A${r0} ${r0} 0 ${big} 0 ${x3} ${y3}Z`;
+};
+/** Angle du point sur la jauge, ramené entre 0 % et 100 % (le creux renvoie au bout le plus proche). */
+const gaugeT = (a: number) => {
+  let t = ((((a - Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) + Math.PI;
+  if (t > A1) t = t > A1 + (3 * Math.PI - A1) / 2 ? A0 : A1;
+  return (t - A0) / (A1 - A0);
 };
 
-/** Points d'une empreinte en pointillés, pour l'allure « nuage de points ». */
+/** Points d'une empreinte en pointillés. */
 function stipple(tip: Tip, r: number, density: number) {
   const out: Array<[number, number, number]> = [];
   const step = Math.max(3.2, 6.5 - density * 3);
@@ -62,15 +81,16 @@ function stipple(tip: Tip, r: number, density: number) {
   return out;
 }
 
+type Zone = 'size' | 'ring' | 'rot' | 'tilt';
+
 /**
  * Roue du pinceau : une seule palette pour le modelage, le dessin et les tampons.
- * Gestes : faire glisser le long de l'anneau règle l'intensité ; tirer le bord de l'empreinte règle la taille
- * (vers l'extérieur ou l'intérieur) et la rotation (en tournant) ; pousser le point du centre l'incline.
- * Double toucher : sur l'anneau, l'intensité revient au neutre ; ailleurs, la rotation et l'inclinaison reviennent à zéro.
+ * La flèche extérieure tourne la pointe ; la jauge (3/4 de tour) règle l'intensité ;
+ * le milieu règle la taille ; en bas à gauche le choix du pinceau, en bas à droite la perspective.
  */
 export function BrushWheel(p: Props) {
   const ref = useRef<SVGSVGElement>(null);
-  const drag = useRef<{ zone: 'ring' | 'edge' | 'tilt'; x: number; y: number; lock?: 'size' | 'rot'; a0: number; rot0: number } | null>(null);
+  const drag = useRef<{ zone: Zone; a0: number; rot0: number } | null>(null);
   const [active, setActive] = useState<string | null>(null);
   const lastTap = useRef<{ t: number; zone: string }>({ t: 0, zone: '' });
   const rot = p.rotation ?? 0;
@@ -80,66 +100,56 @@ export function BrushWheel(p: Props) {
   const local = (e: React.PointerEvent) => {
     const b = ref.current!.getBoundingClientRect();
     const k = S / b.width;
-    return [(e.clientX - b.left) * k - C, (e.clientY - b.top) * k - C] as const;
+    return [(e.clientX - b.left) * k, (e.clientY - b.top) * k] as const;
   };
-  const angle = (x: number, y: number) => Math.atan2(x, -y);
+  const angle = (x: number, y: number) => Math.atan2(x - C, -(y - C));
 
   const apply = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d) return;
     const [x, y] = local(e);
     if (d.zone === 'ring' && p.onIntensity) {
-      const a = clamp(angle(x, y), A0, A1);
-      p.onIntensity(Math.round(((a - A0) / (A1 - A0)) * 100) / 100);
-      setActive(`Intensité ${Math.round(((a - A0) / (A1 - A0)) * 100)} %`);
+      const v = Math.round(gaugeT(angle(x, y)) * 100) / 100;
+      p.onIntensity(v);
+      setActive(`Intensité ${Math.round(v * 100)} %`);
     } else if (d.zone === 'tilt' && p.onTilt) {
-      let [u, v] = [x / (MAXF * 0.9), y / (MAXF * 0.9)];
+      let [u, v] = [(x - TX) / (TR * 0.8), (y - TY) / (TR * 0.8)];
       const m = Math.hypot(u, v);
       if (m > 1) [u, v] = [u / m, v / m];
-      if (Math.hypot(u, v) < 0.08) [u, v] = [0, 0];
+      if (Math.hypot(u, v) < 0.1) [u, v] = [0, 0];
       p.onTilt(Math.round(u * 100) / 100, Math.round(v * 100) / 100);
-      setActive(`Inclinaison ${Math.round(Math.hypot(u, v) * 100)} %`);
-    } else if (d.zone === 'edge') {
-      // le geste choisit son sens dès les premiers pixels : tirer (taille) ou tourner (rotation)
-      if (!d.lock) {
-        const moved = Math.hypot(x - d.x, y - d.y);
-        if (moved < 5) return;
-        const radial = Math.abs((x - d.x) * d.x + (y - d.y) * d.y) / (Math.hypot(d.x, d.y) || 1);
-        d.lock = p.onRotation && radial < moved * 0.6 ? 'rot' : 'size';
-        p.onSizing?.(true);
-      }
-      if (d.lock === 'size') {
-        const v = clamp((Math.hypot(x, y) - MINF) / (MAXF - MINF));
-        p.onSize(Math.round(v * 100) / 100);
-        setActive(`Taille ${p.sizeText}`);
-      } else if (p.onRotation) {
-        let a = d.rot0 + angle(x, y) - d.a0;
-        a = Math.atan2(Math.sin(a), Math.cos(a));
-        const deg = (a * 180) / Math.PI;
-        const snap = Math.round(deg / 15) * 15;
-        if (Math.abs(deg - snap) < 3) a = (snap * Math.PI) / 180;
-        p.onRotation(a);
-        setActive(`Rotation ${Math.round((a * 180) / Math.PI)}°`);
-      }
+      setActive(`Perspective ${Math.round(Math.hypot(u, v) * 100)} %`);
+    } else if (d.zone === 'rot' && p.onRotation) {
+      let a = d.rot0 + angle(x, y) - d.a0;
+      a = Math.atan2(Math.sin(a), Math.cos(a));
+      const deg = (a * 180) / Math.PI;
+      const snap = Math.round(deg / 15) * 15;
+      if (Math.abs(deg - snap) < 3) a = (snap * Math.PI) / 180;
+      p.onRotation(a);
+      setActive(`Rotation ${Math.round((a * 180) / Math.PI)}°`);
+    } else if (d.zone === 'size') {
+      const v = clamp((Math.hypot(x - C, y - C) - MINF) / (MAXF - MINF));
+      p.onSize(Math.round(v * 100) / 100);
+      setActive(`Taille ${p.sizeText}`);
     }
   };
 
   const down = (e: React.PointerEvent) => {
     const [x, y] = local(e);
-    const r = Math.hypot(x, y);
-    const tiltAt = [tx * MAXF * 0.9, ty * MAXF * 0.9];
-    let zone: 'ring' | 'edge' | 'tilt' | null = null;
-    if (p.onIntensity && r >= RING - 12 && r <= C) zone = 'ring';
-    else if (p.onTilt && Math.hypot(x - tiltAt[0]!, y - tiltAt[1]!) < 15) zone = 'tilt';
-    else if (r < RING - 12) zone = 'edge';
+    const r = Math.hypot(x - C, y - C);
+    let zone: Zone | null = null;
+    if (Math.hypot(x - TX, y - TY) <= TR) zone = p.onTilt ? 'tilt' : null;
+    else if (r < RI) zone = 'size';
+    else if (r <= RO) zone = p.onIntensity ? 'ring' : null;
+    else if (r <= RO + 26) zone = p.onRotation ? 'rot' : null;
     if (!zone) return;
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     const now = performance.now();
     if (now - lastTap.current.t < 320 && lastTap.current.zone === zone) {
-      // double toucher : au neutre
+      // double toucher : au neutre (au milieu : la pointe revient droite et à plat)
       if (zone === 'ring') p.onIntensity?.(0.85);
+      else if (zone === 'tilt') p.onTilt?.(0, 0);
       else {
-        // ailleurs sur la roue : la pointe revient droite et à plat
         p.onRotation?.(0);
         p.onTilt?.(0, 0);
       }
@@ -147,94 +157,87 @@ export function BrushWheel(p: Props) {
       return;
     }
     lastTap.current = { t: now, zone };
-    drag.current = { zone, x, y, a0: angle(x, y), rot0: rot };
-    if (zone === 'tilt') p.onSizing?.(true);
-    // sur l'anneau, le toucher règle tout de suite ; ailleurs, on attend le sens du geste
-    if (zone !== 'edge') apply(e);
+    drag.current = { zone, a0: angle(x, y), rot0: rot };
+    if (zone !== 'ring') p.onSizing?.(true);
+    // la flèche se tourne en glissant ; ailleurs, le toucher règle tout de suite
+    if (zone !== 'rot') apply(e);
+  };
+  const up = () => {
+    if (drag.current && drag.current.zone !== 'ring') p.onSizing?.(false);
+    drag.current = null;
+    setActive(null);
   };
 
-  // empreinte : tournée, puis mise en perspective vers l'inclinaison
+  // empreinte : tournée, puis mise en perspective
   const k = Math.min(1, Math.hypot(tx, ty));
   const dir = Math.atan2(ty, tx);
   const persp = k > 0.02 ? `rotate(${(dir * 180) / Math.PI}) scale(${1 - k * 0.35} 1) rotate(${(-dir * 180) / Math.PI})` : '';
   const dots = p.stamp ? [] : stipple(p.tip ?? 'round', R, p.intensity ?? 0.8);
-  const ia = p.intensity !== undefined ? A0 + p.intensity * (A1 - A0) : A0;
-  const knob = at(rot, R);
-  const ticks = Array.from({ length: 28 }, (_, i) => A0 + (i / 27) * (A1 - A0));
+  const level = p.intensity ?? 0;
+  const segs = Array.from({ length: SEG }, (_, i) => [A0 + (i / SEG) * (A1 - A0), A0 + ((i + 1) / SEG) * (A1 - A0)] as const);
+  // plan en perspective : un carré écrasé vers la direction choisie
+  const h = 15;
+  const plane = (
+    [
+      [-h, -h],
+      [h, -h],
+      [h, h],
+      [-h, h],
+    ] as Array<[number, number]>
+  ).map(([a, b]) => {
+    const [c, s] = [Math.cos(dir), Math.sin(dir)];
+    const along = (a * c + b * s) * (1 - k * 0.35);
+    const across = (-a * s + b * c) * (1 - (k * 0.45 * (a * c + b * s)) / h);
+    return [TX + along * c - across * s, TY + along * s + across * c];
+  });
+  const [ax, ay] = at(rot, RO + 4);
   return (
     <div className="brush-wheel">
-      <svg
-        ref={ref}
-        viewBox={`0 0 ${S} ${S}`}
-        onPointerDown={down}
-        onPointerMove={(e) => e.buttons && apply(e)}
-        onPointerUp={() => {
-          if (drag.current?.lock || drag.current?.zone === 'tilt') p.onSizing?.(false);
-          drag.current = null;
-          setActive(null);
-        }}
-        onPointerCancel={() => {
-          if (drag.current?.lock || drag.current?.zone === 'tilt') p.onSizing?.(false);
-          drag.current = null;
-          setActive(null);
-        }}
-      >
-        {/* couronne pleine, centre transparent : on voit la page à travers */}
-        <circle cx={C} cy={C} r={C - 1} className="bw-center" />
-        <circle cx={C} cy={C} r={(C - 1 + RING - 13) / 2} className="bw-disc" strokeWidth={C - 1 - (RING - 13)} />
-        {/* cercles de taille repères */}
-        <circle cx={C} cy={C} r={MAXF} className="bw-guide" />
-        <circle cx={C} cy={C} r={fr(0.5)} className="bw-guide faint" />
-        {p.intensity !== undefined && (
-          <>
-            {ticks.map((a, i) => {
-              const [x0, y0] = at(a, RING + 6);
-              const [x1, y1] = at(a, RING + (i % 9 === 0 ? 11 : 9));
-              return <line key={i} x1={x0} y1={y0} x2={x1} y2={y1} className={`bw-tick ${a <= ia + 1e-6 ? 'on' : ''}`} />;
-            })}
-            <path d={arc(A0, A1, RING)} className="bw-track" />
-            {p.intensity > 0.005 && <path d={arc(A0, ia, RING)} className="bw-level" />}
-            <circle cx={at(ia, RING)[0]} cy={at(ia, RING)[1]} r={5} className="bw-knob" />
-          </>
-        )}
+      <svg ref={ref} viewBox={`0 0 ${S} ${S}`} onPointerDown={down} onPointerMove={(e) => e.buttons && apply(e)} onPointerUp={up} onPointerCancel={up}>
+        {/* jauge d'intensité : 3/4 de tour en segments */}
+        <circle cx={C} cy={C} r={RO} className="bw-disc" />
+        {segs.map(([a, b], i) => (
+          <path key={i} d={band(a + 0.012, b - 0.012, RI + 3, RO - 3)} className={`bw-seg ${p.intensity === undefined ? 'off' : (i + 1) / SEG <= level + 1e-6 ? 'on' : (i + 0.5) / SEG <= level ? 'half' : ''}`} />
+        ))}
+        <text x={at(A0 + 0.16, RO + 12)[0]} y={at(A0 + 0.16, RO + 12)[1] + 3} className="bw-label faint">
+          0 %
+        </text>
+        <text x={at(A1 - 0.16, RO + 14)[0] + 4} y={at(A1 - 0.16, RO + 14)[1] + 3} className="bw-label faint">
+          100 %
+        </text>
+        {/* milieu : la taille, l'empreinte à l'échelle */}
+        <circle cx={C} cy={C} r={RI} className="bw-center" />
+        <circle cx={C} cy={C} r={MAXF} className="bw-guide faint dashed" />
         <g transform={`translate(${C} ${C}) ${persp} rotate(${(rot * 180) / Math.PI})`}>
           {p.stamp ? (
             <image href={p.stamp} x={-R} y={-R} width={R * 2} height={R * 2} opacity={0.35 + 0.65 * (p.intensity ?? 1)} />
           ) : (
             dots.map(([x, y, o], i) => <circle key={i} cx={x} cy={y} r={0.95} className="bw-dot" opacity={o} />)
           )}
-          {p.stamp || (p.tip ?? 'round') === 'round' ? <circle r={R} className="bw-edge" /> : null}
+          <circle r={R} className="bw-edge" />
         </g>
-        {/* poignée : tirer pour la taille, tourner pour la rotation */}
-        <line x1={C} y1={C} x2={knob[0]} y2={knob[1]} className="bw-spoke" />
-        <circle cx={knob[0]} cy={knob[1]} r={4.5} className="bw-handle" />
-        {p.onTilt && (
-          <>
-            <circle cx={C} cy={C} r={MAXF * 0.9} className="bw-guide faint dashed" />
-            {/* pastille d'inclinaison : à pousser hors du centre */}
-            <g transform={`translate(${C + tx * MAXF * 0.9} ${C + ty * MAXF * 0.9})`} className="bw-tilt-g">
-              <circle r={8} className="bw-tilt" />
-              <path d="M-12 0h-3M12 0h3M0 -12v-3M0 12v3" className="bw-tilt-cross" />
-              <circle r={2} className="bw-tilt-dot" />
-            </g>
-          </>
-        )}
-        <text x={C} y={S - 18} className="bw-label">
-          {active ?? `Ø ${p.sizeText}${p.onRotation ? ` · ${Math.round((rot * 180) / Math.PI)}°` : ''}`}
+        <text x={C} y={C + RI - 8} className="bw-label">
+          {active ?? `Ø ${p.sizeText}`}
         </text>
-        {p.intensity !== undefined && !active && (
-          <text x={C} y={S - 7} className="bw-label faint">
-            INT {Math.round(p.intensity * 100)}
-            {p.onTilt ? ` · INCL ${Math.round(k * 100)}` : ''}
-          </text>
+        {/* rotation : la flèche extérieure */}
+        {p.onRotation && (
+          <g transform={`translate(${ax} ${ay}) rotate(${(rot * 180) / Math.PI})`}>
+            <path d="M0 0 L-9 -16 L9 -16 Z" className="bw-arrow" />
+          </g>
         )}
+        {/* perspective, en bas à droite */}
+        <g className={`bw-tilt-pad ${p.onTilt ? '' : 'off'}`}>
+          <circle cx={TX} cy={TY} r={TR} className="bw-pad" />
+          <polygon points={plane.map((q) => q.join(',')).join(' ')} className="bw-plane" />
+          {p.onTilt && <circle cx={TX + tx * TR * 0.8} cy={TY + ty * TR * 0.8} r={5.5} className="bw-tilt" />}
+        </g>
       </svg>
       {p.pick && <Picker {...p.pick} />}
     </div>
   );
 }
 
-/** Le sélecteur de pointe : toucher pour passer à la suivante, double toucher ou appui long pour choisir. */
+/** Le choix du pinceau : toucher pour passer au suivant, double toucher ou appui long pour choisir. */
 function Picker({ face, title, next, choices }: NonNullable<Props['pick']>) {
   const [open, setOpen] = useState(false);
   const press = useRef<{ timer: number; long: boolean } | null>(null);
@@ -249,6 +252,7 @@ function Picker({ face, title, next, choices }: NonNullable<Props['pick']>) {
     <>
       <button
         className={`bw-pick ${open ? 'on' : ''}`}
+        style={{ left: `${(PX / S) * 100}%`, top: `${(PY / S) * 100}%` }}
         title={`${title} (toucher : suivant ; double toucher ou appui long : choisir)`}
         aria-label={title}
         onPointerDown={() => {
@@ -266,7 +270,7 @@ function Picker({ face, title, next, choices }: NonNullable<Props['pick']>) {
           clearTimeout(st.timer);
           if (st.long) return;
           if (single.current) {
-            // deuxième toucher : on ouvre le choix au lieu de passer à la suivante
+            // deuxième toucher : on ouvre le choix au lieu de passer au suivant
             clearTimeout(single.current);
             single.current = null;
             if (choices) setOpen(true);
