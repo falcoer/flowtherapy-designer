@@ -14,6 +14,9 @@ export interface SwashTool {
   w: number | null;
   /** Force du modelage, de 0 à 1 (absente : 1). */
   k?: number;
+  /** Forme de la pointe du modelage, et son angle à l'écran (radians). */
+  tip?: 'round' | 'flat' | 'triangle';
+  rot?: number;
 }
 
 const WEIGHTS = ['Extra-fin', 'Très fin', 'Fin', 'Normal', 'Medium', 'Demi-gras', 'Gras', 'Extra-gras', 'Noir'];

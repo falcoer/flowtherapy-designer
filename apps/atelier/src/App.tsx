@@ -1322,7 +1322,7 @@ export function App() {
         mold:
           swash.mode === 'orn'
             ? { pts: [], r: 0, orn: { pts: [[x, y, pr]], w: (swash.w ?? (target.text ? swashWidth(target.text.weight) * 0.8 : 0.08)) * U, end: 'fine', nib: -Math.PI / 4 } }
-            : { pts: [[x, y]], r: swash.r * U, k: swash.k ?? 1 },
+            : { pts: [[x, y]], r: swash.r * U, k: swash.k ?? 1, ...(swash.tip && swash.tip !== 'round' ? { tip: swash.tip, rot: (swash.rot ?? 0) - view.rot - (target.rot ?? 0) } : {}) },
         last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
       };
       return;
@@ -1352,7 +1352,7 @@ export function App() {
               },
             }
           : swash.mode === 'mold'
-            ? { mold: { pts: [swashPoint(sel.text, loc.x, loc.y)], r: swash.r, k: swash.k ?? 1 } }
+            ? { mold: { pts: [swashPoint(sel.text, loc.x, loc.y)], r: swash.r, k: swash.k ?? 1, ...(swash.tip && swash.tip !== 'round' ? { tip: swash.tip, rot: (swash.rot ?? 0) - view.rot - (sel.rot ?? 0) } : {}) } }
             : { sw: { pts: [[...swashPoint(sel.text, loc.x, loc.y), pr] as [number, number, number]], w: swash.w ?? swashWidth(sel.text.weight), end: swash.end } }),
         last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
       };
@@ -1557,6 +1557,8 @@ export function App() {
   /** Repère de survol : un rond de la taille du pinceau, ou l'empreinte du tampon. */
   /** Empreinte en vraie grandeur au centre de l'écran, pendant le réglage de la taille sur la roue. */
   const [sizing, setSizing] = useState<'on' | 'after' | null>(null);
+  /** Où survole le stylet (s'il survole la page) : l'empreinte réglée sur la roue s'y montre plutôt qu'au centre. */
+  const penHover = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
     if (sizing !== 'after') return;
     const t = setTimeout(() => setSizing(null), 900);
@@ -1565,20 +1567,24 @@ export function App() {
   useEffect(() => {
     const el = hoverRef.current;
     if (!el) return;
-    if (!sizing) return void (el.style.display = 'none');
+    if (!sizing) {
+      if (!penHover.current) el.style.display = 'none';
+      return;
+    }
+    const at = penHover.current ?? { x: window.innerWidth / 2, y: window.innerHeight / 2 };
     const m = Math.min(f.width, f.height) * scale;
     const D = Math.max(
       6,
       tool === 'mold' ? (swash.mode === 'orn' ? (swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) : swash.r * 2) * MOLD_UNIT * m : tool === 'stamp' ? stampSize * 2 * m : size * 2 * m,
     );
-    const tip = tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
+    const tip = tool === 'paint' && tipOn(brushKind) ? brushTip : tool === 'mold' && swash.mode !== 'orn' ? (swash.tip ?? 'round') : 'round';
     const H = tip === 'flat' ? Math.max(3, D * 0.3) : D;
-    const ang = tool === 'stamp' ? stampRot : tip !== 'round' ? brushRot : 0;
+    const ang = tool === 'stamp' ? stampRot : tool === 'mold' ? (swash.rot ?? 0) : tip !== 'round' ? brushRot : 0;
     el.dataset.tip = tip;
     el.style.display = 'block';
     el.style.width = `${D}px`;
     el.style.height = `${H}px`;
-    el.style.transform = `translate(${window.innerWidth / 2 - D / 2}px, ${window.innerHeight / 2 - H / 2}px) rotate(${ang}rad)`;
+    el.style.transform = `translate(${at.x - D / 2}px, ${at.y - H / 2}px) rotate(${ang}rad)`;
   });
   const showHover = (e: React.PointerEvent) => {
     const el = hoverRef.current;
@@ -1588,6 +1594,7 @@ export function App() {
     const molding = tool === 'mold';
     const painting = tool === 'paint' || tool === 'stamp' || shaping || molding;
     if (!painting || rendu || (e.pointerType !== 'pen' && e.pointerType !== 'mouse')) return hideHover();
+    penHover.current = e.pointerType === 'pen' ? { x: e.clientX, y: e.clientY } : null;
     const m = Math.min(f.width, f.height) * scale;
     // Modeler : le rond couvre la zone qui bouge ; Plume : l'épaisseur du trait
     const em = shaping ? (layerBox(sel!, f).w * scale) / Math.max(1e-6, textEm(sel!.text!)) : 0;
@@ -1604,14 +1611,15 @@ export function App() {
     el.style.display = 'block';
     const D = Math.max(6, d);
     // brosse plate ou triangle : la silhouette de la touche, tournée comme elle peindra
-    const tip = !shaping && !molding && tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
+    const tip = molding && swash.mode !== 'orn' ? (swash.tip ?? 'round') : !shaping && !molding && tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
     el.dataset.tip = tip;
     el.style.width = `${D}px`;
     el.style.height = `${tip === 'flat' ? Math.max(3, D * 0.3) : D}px`;
-    const ang = tool === 'stamp' ? stampScreenAngle(e) : tip !== 'round' ? brushRot + penTwist(e) : view.rot;
+    const ang = tool === 'stamp' ? stampScreenAngle(e) : molding && tip !== 'round' ? (swash.rot ?? 0) : tip !== 'round' ? brushRot + penTwist(e) : view.rot;
     el.style.transform = `translate(${e.clientX - D / 2}px, ${e.clientY - (tip === 'flat' ? Math.max(3, D * 0.3) : D) / 2}px) rotate(${ang}rad)`;
   };
   const hideHover = () => {
+    penHover.current = null;
     if (hoverRef.current) hoverRef.current.style.display = 'none';
   };
 
@@ -2711,11 +2719,11 @@ export function App() {
             <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => setTool('cut')} title="Découper (C) : trace un contour au stylet">
               <Icon name="scissors" />
             </button>
-            <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre (B) : aquarelle, acrylique, pistolet, paillettes, poils">
-              <Icon name="brush" />
-            </button>
             <button className={`btn small ${tool === 'mold' ? 'on' : ''}`} onClick={() => setTool('mold')} title="Modeler (G) : tirer ou repousser le contour de l'objet, à la plume ou au doigt de glaise">
               <Icon name="mold" />
+            </button>
+            <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre (B) : aquarelle, acrylique, pistolet, paillettes, poils">
+              <Icon name="brush" />
             </button>
             <button className={`btn small ${tool === 'stamp' ? 'on' : ''}`} onClick={() => setTool('stamp')} title="Tampons (S) : motifs à la couleur courante, intensité et rotation">
               <Icon name="stamp" />
@@ -2816,15 +2824,6 @@ export function App() {
                   >
                     <Icon name="paint-reset" />
                   </button>
-                  {tipOn(brushKind) && (
-                    <button
-                      className="btn small"
-                      onClick={() => setBrushTip(brushTip === 'round' ? 'flat' : brushTip === 'flat' ? 'triangle' : 'round')}
-                      title={`Forme de la brosse : ${brushTip === 'round' ? 'ronde' : brushTip === 'flat' ? 'plate' : 'triangle'} (toucher pour changer)`}
-                    >
-                      <Icon name={`tip-${brushTip}`} />
-                    </button>
-                  )}
                   {brushKind === 'branch' && (
                     <>
                       <VSlider label="Ramifications" value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
@@ -2922,7 +2921,7 @@ export function App() {
                     <>
                       <VSlider label="Densité" value={sowDensity} onChange={(v) => setSowDensity(Math.round(v * 100) / 100)} />
                       <VSlider label="Écart" value={sowSpread} onChange={(v) => setSowSpread(Math.round(v * 100) / 100)} />
-                      <VSlider label="Inclinaison au hasard" value={sowPersp} onChange={(v) => setSowPersp(Math.round(v * 100) / 100)} />
+                      <VSlider label="Inclinaison" value={sowPersp} onChange={(v) => setSowPersp(Math.round(v * 100) / 100)} />
                     </>
                   )}
                 </>
@@ -2981,7 +2980,7 @@ export function App() {
                   intensity={opacity}
                   onIntensity={(v) => setOpacity(Math.max(0.05, v))}
                   onSizing={(on) => setSizing(on ? 'on' : 'after')}
-                  {...(tipOn(brushKind) && brushTip !== 'round' ? { rotation: brushRot, onRotation: setBrushRot, tip: brushTip } : {})}
+                  {...(tipOn(brushKind) ? { tip: brushTip, onTip: setBrushTip, ...(brushTip !== 'round' ? { rotation: brushRot, onRotation: setBrushRot } : {}) } : {})}
                 />
               )}
               {tool === 'stamp' && (
@@ -3014,6 +3013,9 @@ export function App() {
                     onSizing={(on) => setSizing(on ? 'on' : 'after')}
                     intensity={swash.k ?? 1}
                     onIntensity={(v) => setSwash({ ...swash, k: Math.max(0.05, v) })}
+                    tip={swash.tip ?? 'round'}
+                    onTip={(tip) => setSwash({ ...swash, tip })}
+                    {...((swash.tip ?? 'round') !== 'round' ? { rotation: swash.rot ?? 0, onRotation: (rot: number) => setSwash({ ...swash, rot }) } : {})}
                   />
                 ))}
             </div>

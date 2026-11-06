@@ -18,6 +18,8 @@ interface Props {
   onTilt?: (x: number, y: number) => void;
   /** Empreinte montrée au centre : une pointe, ou l'image d'un tampon. */
   tip?: Tip;
+  /** Choix de la forme de pointe, sous la roue (absent : pas de choix, comme pour les tampons). */
+  onTip?: (t: Tip) => void;
   stamp?: string;
   /** Pendant le réglage de la taille (et au lâcher) : montrer l'empreinte en vraie grandeur sur la page. */
   onSizing?: (on: boolean) => void;
@@ -48,7 +50,8 @@ function stipple(tip: Tip, r: number, density: number) {
   for (let y = -r; y <= r; y += step)
     for (let x = -r; x <= r; x += step) {
       const [u, v] = [x / r, y / r];
-      const inside = tip === 'flat' ? Math.abs(u) <= 1 && Math.abs(v) <= 0.32 : tip === 'triangle' ? v <= 0.8 && v >= -0.9 + 0 && Math.abs(u) <= (v + 0.9) * 0.6 : u * u + v * v <= 1;
+      // mêmes silhouettes que les pointes peintes : lame, triangle pointe en haut, rond
+      const inside = tip === 'flat' ? Math.abs(u) <= 1 && Math.abs(v) <= 0.22 : tip === 'triangle' ? v <= 0.5 && Math.abs(u) <= ((v + 1) / 1.5) * 0.866 : u * u + v * v <= 1;
       if (!inside) continue;
       const edge = tip === 'round' ? Math.sqrt(u * u + v * v) : 0.6;
       out.push([x, y, 0.35 + 0.65 * density * (0.55 + 0.45 * edge)]);
@@ -177,7 +180,9 @@ export function BrushWheel(p: Props) {
             <circle cx="3" cy="3" r="0.55" className="bw-grid-dot" />
           </pattern>
         </defs>
-        <circle cx={C} cy={C} r={C - 1} className="bw-disc" />
+        {/* couronne pleine, centre transparent : on voit la page à travers */}
+        <circle cx={C} cy={C} r={C - 1} className="bw-center" />
+        <circle cx={C} cy={C} r={(C - 1 + RING - 13) / 2} className="bw-disc" strokeWidth={C - 1 - (RING - 13)} />
         <circle cx={C} cy={C} r={RING - 13} fill="url(#bw-grid)" />
         {/* cercles de taille repères */}
         <circle cx={C} cy={C} r={MAXF} className="bw-guide" />
@@ -221,6 +226,23 @@ export function BrushWheel(p: Props) {
           </text>
         )}
       </svg>
+      {p.onTip && (
+        <div className="bw-tips">
+          {(
+            [
+              ['round', 'Ronde', 'M12 7a5 5 0 1 0 0 10a5 5 0 1 0 0-10z'],
+              ['flat', 'Plate', 'M4 10.5h16v3H4z'],
+              ['triangle', 'Triangle', 'M12 6l6 10.5H6z'],
+            ] as const
+          ).map(([t, name, d]) => (
+            <button key={t} className={(p.tip ?? 'round') === t ? 'on' : ''} onClick={() => p.onTip!(t)} title={`Pointe ${name.toLowerCase()}`} aria-label={`Pointe ${name.toLowerCase()}`}>
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
+                <path d={d} fill="currentColor" />
+              </svg>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

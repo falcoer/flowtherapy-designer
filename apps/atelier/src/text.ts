@@ -39,6 +39,9 @@ export interface Mold {
   r: number;
   /** Force : la part du geste que le contour suit (absente : 1). */
   k?: number;
+  /** Forme de la pointe (absente : ronde) et son angle, en radians. */
+  tip?: 'round' | 'flat' | 'triangle';
+  rot?: number;
   /** Geste en cours : le contour n'est refondu qu'au lâcher. */
   live?: boolean;
   /** Régularisation (sans geste) : force du lissage, en corps. */
@@ -51,6 +54,17 @@ export interface Mold {
 export const moldPx = (rings: Ring[], m: Mold, pristine: Ring[]): Ring[] => mold(rings, m, 0, 0, 1, pristine);
 
 /** Applique un modelage aux contours (en pixels), en gardant des points assez serrés. */
+/** Distance normalisée (au carré) d'un point à la pointe : moins de 1 à l'intérieur. Plate : une lame ; triangle : pointe en haut. */
+function tipDist(x: number, y: number, R: number, tip: Mold['tip'], rot: number) {
+  if (!tip || tip === 'round') return (x * x + y * y) / (R * R);
+  const [c, s] = [Math.cos(rot), Math.sin(rot)];
+  const [u, v] = [x * c + y * s, -x * s + y * c];
+  if (tip === 'flat') return Math.max(Math.abs(u) / R, Math.abs(v) / (0.3 * R)) ** 2;
+  let d = -Infinity;
+  for (const a of [Math.PI / 2, -Math.PI / 6, (7 * Math.PI) / 6]) d = Math.max(d, (u * Math.cos(a) + v * Math.sin(a)) / (R / 2));
+  return Math.max(0, d) ** 2;
+}
+
 function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number, pristine: Ring[]): Ring[] {
   if (m.smooth) return regularize(rings, m.smooth * size, pristine);
   if (m.orn) return ornament(rings, m.orn, X0, Y0, size, !!m.live);
@@ -65,7 +79,7 @@ function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number, pris
     if ((i - 1) % 3 === 0) out = out.map((r) => densify(r, 1.6, a, R * 1.5));
     for (const r of out)
       for (const q of r) {
-        const d2 = ((q.x - a.x) ** 2 + (q.y - a.y) ** 2) / (R * R);
+        const d2 = tipDist(q.x - a.x, q.y - a.y, R, m.tip, m.rot ?? 0);
         if (d2 >= 1) continue;
         const f = (1 - d2) ** 2 * (m.k ?? 1);
         q.x += dx * f;
