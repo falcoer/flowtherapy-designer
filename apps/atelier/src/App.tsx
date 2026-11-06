@@ -7,6 +7,8 @@ import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } fro
 import { PrefsPanel, type Theme } from './prefs';
 import { BrushWheel } from './wheel';
 import { ParallaxView } from './parallax';
+import { kitFromSvg, nearestGuide, type Kit } from './kits';
+import { KIT_SAMPLES } from './kit-samples';
 import { blankBump, bumpHeights, dab, encodeBump, smoothBump } from './bump';
 import { currentPx, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
 import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
@@ -2287,6 +2289,44 @@ export function App() {
   };
 
   // --- ajout de couches ---
+  /** Objet en pièces : une couche par pièce, toutes dans la même boîte, solidaires. */
+  const addKit = (kit: Kit) => {
+    const a = anchorFor(doc.frame, f, f.width / 2, f.height / 2);
+    const k = 0.62;
+    const [w, h] = kit.ratio >= 1 ? [k, k / kit.ratio] : [k * kit.ratio, k];
+    const group = uid();
+    const colors = doc.guides.map((g) => guideColor(g, 0.5));
+    const layers: Layer[] = kit.parts.map((p) => ({
+      id: uid(),
+      name: `${kit.name} · ${p.name}`,
+      kind: 'shape',
+      anchor: a.anchor,
+      dx: a.dx,
+      dy: a.dy,
+      w,
+      h,
+      guide: nearestGuide(p.color, colors),
+      cut: p.d,
+      height: Math.round((0.12 + p.lift) * 1000) / 1000,
+      ...(p.volume ? { volume: p.volume } : {}),
+      link: group,
+      visible: true,
+      strokes: [],
+    }));
+    update((d) => ({ ...d, layers: [...d.layers, ...layers] }));
+    setSelected(layers[0]!.id);
+    setBubble(null);
+    setToast(`« ${kit.name} » posé en ${layers.length} pièces solidaires : touche une pièce pour sa couleur, son matériau, son volume`);
+    setToastUndo(false);
+  };
+  const importKit = async (file: File) => {
+    try {
+      addKit(kitFromSvg(await file.text(), file.name.replace(/\.svg$/i, '')));
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Ce dessin SVG n’a pas pu être lu');
+    }
+  };
+
   const addLayer = (kind: 'shape' | 'photo', opts: { shape?: ShapeKind; src?: string; name: string; ratio?: number; size?: number; at?: Pt; cut?: string; ref?: string }) => {
     const a = anchorFor(doc.frame, f, opts.at?.x ?? f.width / 2, opts.at?.y ?? f.height / 2);
     let w = 0.4;
@@ -3443,6 +3483,30 @@ export function App() {
                       </div>
                     </div>
                   ))}
+                  <div className="forms-fam">
+                    <div className="b-title">Objets en pièces</div>
+                    <div className="add-grid forms-grid kits-grid">
+                      {KIT_SAMPLES.map((k) => (
+                        <button key={k.id} onClick={() => addKit(kitFromSvg(k.svg, k.name))} title={`${k.name} : déjà découpée en pièces à colorer séparément`}>
+                          <img alt="" src={`data:image/svg+xml,${encodeURIComponent(k.svg)}`} />
+                          {k.name}
+                        </button>
+                      ))}
+                      <label className="file" title="Un dessin SVG : chaque groupe devient une pièce nommée (data-volume, data-lift facultatifs)">
+                        <Icon name="import" />
+                        Importer un SVG
+                        <input
+                          type="file"
+                          accept="image/svg+xml,.svg"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = '';
+                            if (file) void importKit(file);
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
                   <div className="add-grid">
                     {!doc.layers.some((l) => l.kind === 'surface') && (
                       <button

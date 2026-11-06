@@ -864,3 +864,6 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .px-bar .chip.on { color: var(--accent); }
 .px-spread { display: flex; align-items: center; gap: 8px; background: var(--chrome-solid); box-shadow: var(--shadow); height: 40px; padding: 0 16px; border-radius: 20px; font-size: 13px; }
 .px-spread input { width: 120px; accent-color: var(--accent); }
+/* objets en pièces : aperçu du dessin */
+.kits-grid img { width: 52px; height: 34px; object-fit: contain; }
+.kits-grid > .file { justify-content: center; color: var(--accent); }
