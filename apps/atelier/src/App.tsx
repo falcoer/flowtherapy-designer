@@ -2371,9 +2371,11 @@ export function App() {
         S.mask = m;
         S.img = m ? maskImage(m, [122, 92, 255]) : null;
         if (m && l) {
-          // le sujet reste dans la découpe, et dans la zone tracée
-          const keep = S.zone ? ringsOfGeom(intersect(localRings(l), [S.zone])) : localRings(l);
-          S.geom = subjectGeom(m, keep, S.crop);
+          // la découpe suit le contour du modèle (dans la forme de la couche), même là où il
+          // déborde du tracé ; on ne garde que les morceaux que le tracé touche
+          const g = subjectGeom(m, localRings(l), S.crop);
+          const zone = S.zone;
+          S.geom = zone ? g.filter((poly) => geomArea(intersect(ringsOfGeom([poly]), [zone])) > 0) : g;
         } else S.geom = null;
       })
       .catch((e) => {
@@ -2391,7 +2393,8 @@ export function App() {
     const zone = simplifyRing(line, 0.002);
     const us = zone.map((q) => q.x);
     const vs = zone.map((q) => q.y);
-    const [mu, mv] = [(Math.max(...us) - Math.min(...us)) * 0.12, (Math.max(...vs) - Math.min(...vs)) * 0.12];
+    // large marge : le sujet peut déborder du tracé, la découpe suivra le modèle
+    const [mu, mv] = [(Math.max(...us) - Math.min(...us)) * 0.5, (Math.max(...vs) - Math.min(...vs)) * 0.5];
     const crop = {
       u0: Math.max(0, Math.min(...us) - mu),
       v0: Math.max(0, Math.min(...vs) - mv),
@@ -2440,17 +2443,16 @@ export function App() {
   /** Bandeau d'état du mode Sujet. */
   const subjectStatus = (l: Layer) => {
     const S = subject.current;
-    const cut = blade === 'scalpel' ? 'le scalpel le détache en place' : 'les ciseaux le détachent';
     if (l.kind === 'surface') return 'Touche une photo : son sujet sera détouré';
     if (!S || S.layer !== l.id) return `Entoure le sujet de « ${l.name} » : il sera détouré dans cette zone (ou touche-le)`;
     if (S.state === 'busy') return `Analyse de « ${l.name} »… (la première fois, le modèle de 30 Mo se télécharge)`;
     if (S.state === 'error') return `Détourage indisponible : ${S.error}`;
     if (S.running) return S.geom ? 'Mise à jour du sujet…' : 'Recherche du sujet…';
     if (!S.geom?.length) return 'Aucun sujet trouvé : touche le sujet, ou entoure-le de plus près';
-    return subjectErase ? 'Retirer : glisse sur ce qui déborde du sujet' : `Sujet trouvé : touche ce qui manque pour l’ajouter ; ${cut} (coche)`;
+    return subjectErase ? 'Retirer : glisse sur ce qui déborde du sujet' : 'Sujet trouvé : touche ce qui manque pour l’ajouter, puis coupe aux ciseaux ou au scalpel';
   };
   /** Détache le sujet détouré : un morceau posé au-dessus (ciseaux) ou en place (scalpel). */
-  const detachSubject = () => {
+  const detachSubject = (how: 'scissors' | 'scalpel') => {
     const S = subject.current;
     const l = S && doc.layers.find((x) => x.id === S.layer);
     if (!S || !l || !S.geom?.length) return;
@@ -2460,7 +2462,7 @@ export function App() {
       setToast(`Le sujet couvre toute « ${l.name} »`);
       return;
     }
-    detach(l, S.geom, rest, 'sujet');
+    detach(l, S.geom, rest, 'sujet', how);
     subject.current = null;
     setSubjectErase(false);
   };
@@ -2565,13 +2567,13 @@ export function App() {
    * au-dessus, et le reste qui garde la place. Ciseaux : le morceau est un peu décalé ;
    * scalpel : il reste en place, lié à son objet.
    */
-  const detach = (l: Layer, piece: MultiPolygon, rest: MultiPolygon, label = 'morceau') => {
+  const detach = (l: Layer, piece: MultiPolygon, rest: MultiPolygon, label = 'morceau', how: 'scissors' | 'scalpel' = blade) => {
     const b = layerBox(l, f);
     const eps = 0.6 / (scale * Math.max(b.w, b.h));
     const pieceCut = ringsToPath(ringsOfGeom(piece), eps);
     const restCut = ringsToPath(ringsOfGeom(rest), eps);
     const m = Math.min(f.width, f.height);
-    const scalpel = blade === 'scalpel';
+    const scalpel = how === 'scalpel';
     const group = scalpel ? (l.link ?? uid()) : undefined;
     const morceau: Layer = {
       ...structuredClone(l),
@@ -3559,14 +3561,17 @@ export function App() {
                       >
                         <Icon name="undo" />
                       </button>
-                      <button
-                        className="btn small primary"
-                        disabled={!subject.current.geom?.length}
-                        onClick={detachSubject}
-                        title={blade === 'scalpel' ? 'Valider : le sujet est incisé, il reste en place, lié à son image' : 'Valider : le sujet est découpé et posé sur son image'}
-                      >
-                        <Icon name="subject-cut" />
-                      </button>
+                      {(['scissors', 'scalpel'] as const).map((how) => (
+                        <button
+                          key={how}
+                          className="btn small primary"
+                          disabled={!subject.current?.geom?.length}
+                          onClick={() => detachSubject(how)}
+                          title={how === 'scalpel' ? 'Couper au scalpel : le sujet reste en place, lié à son image' : 'Couper aux ciseaux : le sujet se détache, posé sur son image'}
+                        >
+                          <Icon name={how} />
+                        </button>
+                      ))}
                     </>
                   )}
                   {!(subjectOn && subject.current) && (
