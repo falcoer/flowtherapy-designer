@@ -97,7 +97,7 @@ type Zone = 'size' | 'ring' | 'rot' | 'tilt' | 'edge';
 /**
  * Roue du pinceau : une seule palette pour le modelage, le dessin et les tampons.
  * La flèche extérieure tourne la pointe ; la jauge (3/4 de tour) règle l'intensité ;
- * le milieu règle la taille ; en bas à gauche le choix du pinceau, en bas à droite la perspective.
+ * le milieu règle la taille (glisser vers le haut ou la droite pour grossir, vers le bas ou la gauche pour réduire) ; en bas à gauche le choix du pinceau, en bas à droite la perspective.
  */
 export function BrushWheel(p: Props) {
   const ref = useRef<SVGSVGElement>(null);
@@ -195,8 +195,8 @@ export function BrushWheel(p: Props) {
       p.onRotation(a);
       setActive(`Rotation ${Math.round((a * 180) / Math.PI)}°`);
     } else if (d.zone === 'size') {
-      // relatif : on part de la taille actuelle, s'éloigner du centre l'agrandit
-      const v = clamp(d.v0 + (Math.hypot(x - C, y - C) - d.r0) / (MAXF - MINF));
+      // relatif, depuis la taille actuelle : vers le haut ou la droite elle grandit, vers le bas ou la gauche elle diminue
+      const v = clamp(d.v0 + (x - d.x0 - (y - d.y0)) / ((MAXF - MINF) * 1.6));
       p.onSize(Math.round(v * 100) / 100);
       setActive(`Taille ${p.sizeText}`);
     }
