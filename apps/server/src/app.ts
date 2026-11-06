@@ -1,7 +1,7 @@
 import path from 'node:path';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
-import Fastify from 'fastify';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import { Ateliers } from './ateliers.js';
 import { registerAuth, type AuthConfig } from './auth.js';
 import { Exporter, type ExportKind } from './export.js';
@@ -24,6 +24,10 @@ export interface AppOptions {
   auth?: AuthConfig | null;
   /** Repli : mot de passe unique (HTTP Basic), ignoré si `auth` est fourni. */
   password?: string;
+  /** Adresses des administrateurs (état du serveur, redémarrage). Accès partagé par mot de passe : tout le monde. */
+  adminEmails?: string[];
+  /** Version affichée dans les préférences (paquet et commit). */
+  version?: { version: string; commit?: string };
 }
 
 export async function buildApp(opts: AppOptions) {
@@ -52,8 +56,39 @@ export async function buildApp(opts: AppOptions) {
     });
   }
 
+  const startedAt = new Date().toISOString();
+  const admins = (opts.adminEmails ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean);
+  const isAdmin = (req: FastifyRequest) => (opts.auth ? !!req.user && admins.includes(req.user.email.toLowerCase()) : true);
+  const adminOnly = async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!isAdmin(req)) reply.code(403).send({ error: 'Réservé aux administrateurs' });
+  };
+
   app.get('/api/health', async () => ({ ok: true }));
-  app.get('/api/me', async (req) => req.user ?? null);
+  app.get('/api/me', async (req) => {
+    if (opts.auth) return req.user ? { ...req.user, admin: isAdmin(req), mode: 'compte' } : null;
+    return { name: opts.password ? 'Accès partagé' : 'Accès local', admin: true, mode: opts.password ? 'mot-de-passe' : 'local' };
+  });
+  app.get('/api/system', { preHandler: adminOnly }, async () => {
+    const [elements, ateliersList] = await Promise.all([lib.elements(), ateliers.list()]);
+    const mem = process.memoryUsage();
+    return {
+      ...(opts.version ?? { version: '?' }),
+      node: process.version,
+      startedAt,
+      uptime: Math.round(process.uptime()),
+      memory: { rss: mem.rss, heap: mem.heapUsed },
+      library: elements.length,
+      ateliers: ateliersList.length,
+      auth: opts.auth ? 'compte' : opts.password ? 'mot-de-passe' : 'local',
+      restartable: !!process.env.INVOCATION_ID,
+    };
+  });
+  // le service systemd relance le serveur quand il s'arrête en erreur (Restart=on-failure)
+  app.post('/api/system/restart', { preHandler: adminOnly }, async (_req, reply) => {
+    if (!process.env.INVOCATION_ID) return reply.code(409).send({ error: 'Le serveur ne tourne pas sous systemd : redémarrage manuel' });
+    setTimeout(() => process.exit(75), 300);
+    return { ok: true };
+  });
   app.get('/api/formats', async () => lib.formats());
 
   app.get<{ Querystring: { type?: string; tags?: string; q?: string } }>('/api/library', async (req) =>
@@ -101,7 +136,7 @@ export async function buildApp(opts: AppOptions) {
     }
   });
 
-  app.post('/api/library/reindex', async () => ({ count: await lib.reindex() }));
+  app.post('/api/library/reindex', { preHandler: adminOnly }, async () => ({ count: await lib.reindex() }));
 
   app.get<{ Params: { id: string; profile: string } }>('/cache/images/:id/:profile', async (req, reply) => {
     if (!(req.params.profile in CACHE_PROFILES)) return reply.code(404).send({ error: 'Profil inconnu' });

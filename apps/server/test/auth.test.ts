@@ -106,7 +106,7 @@ describe('connexion externe', () => {
     expect(cb.statusCode).toBe(303);
     expect(calls[0]!.url).toBe('https://appleid.apple.com/auth/token');
     const me = (await app.inject({ url: '/api/me', headers: { cookie: cookiesOf(cb) } })).json();
-    expect(me).toEqual({ email: 'betty@example.org', name: 'Betty' });
+    expect(me).toEqual({ email: 'betty@example.org', name: 'Betty', admin: false, mode: 'compte' });
   });
 
   it('signe le secret client Apple en ES256', () => {

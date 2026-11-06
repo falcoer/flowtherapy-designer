@@ -55,6 +55,15 @@ describe('API', () => {
     expect((await app.inject('/api/ateliers/affiche-1')).statusCode).toBe(404);
   });
 
+  it('donne le profil et l’état du système', async () => {
+    const { app } = await setup();
+    expect((await app.inject('/api/me')).json()).toMatchObject({ admin: true, mode: 'local' });
+    const sys = (await app.inject('/api/system')).json();
+    expect(sys).toMatchObject({ ateliers: 0, auth: 'local' });
+    expect(sys.library).toBeGreaterThan(0);
+    expect(typeof sys.uptime).toBe('number');
+  });
+
   it('refuse les accès sans mot de passe quand il est configuré', async () => {
     const { app } = await setup('secret');
     expect((await app.inject('/api/formats')).statusCode).toBe(401);

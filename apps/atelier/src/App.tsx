@@ -4,6 +4,7 @@ import { paintStroke, previewStamps } from './brush';
 import { STAMPS, stampOf, stampSvg } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
+import { PrefsPanel, type Theme } from './prefs';
 import { currentPx, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
 import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
 import { QuickText, TextBar, type SwashTool } from './textbar';
@@ -73,7 +74,7 @@ const EDIT_SECTIONS: Array<[EditTool, string, string]> = [
   ['edge', 'Bords', 'frame'],
 ];
 const isEdit = (t: Tool): t is EditTool => EDIT_SECTIONS.some(([k]) => k === t);
-type Bubble = 'add' | 'layers' | 'palette' | 'light' | 'format' | 'anchor' | 'projects' | 'export' | null;
+type Bubble = 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'anchor' | 'projects' | 'export' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc-v2';
@@ -364,6 +365,26 @@ export function App() {
       return true;
     }
   });
+  /** Thème : suit le système, ou clair ou sombre au choix. */
+  const [theme, setThemeState] = useState<Theme>(() => {
+    try {
+      return (localStorage.getItem('ftd-atelier-theme') as Theme) || 'auto';
+    } catch {
+      return 'auto';
+    }
+  });
+  const setTheme = (t: Theme) => {
+    setThemeState(t);
+    try {
+      localStorage.setItem('ftd-atelier-theme', t);
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  useEffect(() => {
+    if (theme === 'auto') delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = theme;
+  }, [theme]);
   const setTips = (v: boolean) => {
     setTipsState(v);
     try {
@@ -2555,23 +2576,6 @@ export function App() {
               </button>
               <span className="sep" />
               <button
-                className={`btn ${penRoll ? 'on' : ''}`}
-                onClick={() => setPenRoll(!penRoll)}
-                title={penRoll ? 'Rotation du stylet : tourner le crayon tourne les tampons (désactiver)' : 'Rotation du stylet ignorée (activer)'}
-              >
-                <Icon name="pen-roll" />
-              </button>
-              <button
-                className={`btn ${penTilt ? 'on' : ''}`}
-                onClick={() => setPenTilt(!penTilt)}
-                title={penTilt ? 'Inclinaison du stylet : les tampons se mettent en perspective (désactiver)' : 'Inclinaison du stylet ignorée (activer la perspective des tampons)'}
-              >
-                <Icon name="pen-tilt" />
-              </button>
-              <button className={`btn ${tips ? 'on' : ''}`} onClick={() => setTips(!tips)} title={tips ? 'Masquer les astuces' : 'Afficher les astuces'}>
-                <Icon name="tips" />
-              </button>
-              <button
                 className={`btn ${guidesOn.on ? 'on' : ''}`}
                 aria-pressed={guidesOn.on}
                 onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}
@@ -2581,6 +2585,9 @@ export function App() {
               </button>
               <button className="btn" onClick={() => setRendu(true)} title="Rendu final">
                 <Icon name="eye" />
+              </button>
+              <button className={`btn ${bubble === 'prefs' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'prefs' ? null : 'prefs')} title="Préférences : affichage, compte, système">
+                <Icon name="settings" />
               </button>
               <button
                 className={`btn ${bubble === 'export' ? 'on' : ''}`}
@@ -2989,6 +2996,20 @@ export function App() {
             </div>
           )}
 
+          {bubble === 'prefs' && (
+            <PrefsPanel
+              online={online}
+              tips={tips}
+              setTips={setTips}
+              penRoll={penRoll}
+              setPenRoll={setPenRoll}
+              penTilt={penTilt}
+              setPenTilt={setPenTilt}
+              theme={theme}
+              setTheme={setTheme}
+              onClose={() => setBubble(null)}
+            />
+          )}
           {bubble === 'format' && (
             <div className="bubble format-bubble">
               <div className="b-title">Format</div>
