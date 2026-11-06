@@ -836,3 +836,13 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .bw-pick > * { transition: opacity 0.2s; }
 @media (pointer: coarse) and (min-width: 600px) { .brush-wheel > svg { width: 320px; height: 320px; } }
 @media (max-width: 560px) { .brush-wheel > svg { width: 212px; height: 212px; } }
+/* roue écartée sur le côté : elle revient au survol ou au toucher */
+.brush-wheel { transition: transform 0.4s cubic-bezier(0.3, 0.7, 0.2, 1); }
+.brush-wheel.side-left.away { transform: translateX(-58%); }
+.brush-wheel.side-right.away { transform: translateX(58%); }
+.brush-wheel .bw-axis { stroke: var(--accent); stroke-width: 1.4; stroke-dasharray: 3 3; }
+.brush-wheel .bw-rot { fill: var(--accent); stroke: var(--chrome-solid); stroke-width: 1.5; }
+.brush-wheel .bw-rot-ico { fill: none; stroke: #fff; stroke-width: 1.6; stroke-linecap: round; }
+.brush-wheel .bw-legend text { font: 600 9px ui-monospace, 'SF Mono', Menlo, monospace; letter-spacing: 0.1em; text-transform: uppercase; fill: var(--muted); text-anchor: middle; pointer-events: none; }
+.brush-wheel .bw-legend, .brush-wheel .bw-label.faint { transition: opacity 0.3s; }
+.brush-wheel.away .bw-legend, .brush-wheel.away .bw-label.faint { opacity: 0; }

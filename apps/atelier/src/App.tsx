@@ -2979,6 +2979,8 @@ export function App() {
                 tool === 'paint' && (
                   <BrushWheel
                     key="wheel"
+                    side={lefty ? 'right' : 'left'}
+                    tips={tips}
                     size={(size - 0.01) / 0.14}
                     sizeText={`${Math.round(size * 100)}`}
                     onSize={(v) => setSize(0.01 + v * 0.14)}
@@ -2992,6 +2994,8 @@ export function App() {
                 tool === 'stamp' && (
                   <BrushWheel
                     key="wheel"
+                    side={lefty ? 'right' : 'left'}
+                    tips={tips}
                     size={(stampSize - 0.02) / 0.28}
                     sizeText={`${Math.round(stampSize * 100)}`}
                     onSize={(v) => setStampSize(0.02 + v * 0.28)}
@@ -3031,6 +3035,8 @@ export function App() {
                   (swash.mode === 'orn' ? (
                     <BrushWheel
                       key="wheel"
+                      side={lefty ? 'right' : 'left'}
+                      tips={tips}
                       size={((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) - 0.01) / 0.29}
                       sizeText={`${Math.round((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) * 100)}`}
                       onSize={(v) => setSwash({ ...swash, w: 0.01 + v * 0.29 })}
@@ -3040,6 +3046,8 @@ export function App() {
                   ) : (
                     <BrushWheel
                       key="wheel"
+                      side={lefty ? 'right' : 'left'}
+                      tips={tips}
                       size={(swash.r - 0.06) / 0.94}
                       sizeText={`${Math.round(swash.r * 100)}`}
                       onSize={(v) => setSwash({ ...swash, r: 0.06 + v * 0.94 })}

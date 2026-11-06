@@ -24,6 +24,10 @@ interface Props {
    * un toucher passe au suivant ; double toucher ou appui long ouvre le choix.
    */
   pick?: { face: ReactNode; title: string; next?: () => void; choices?: (close: () => void) => ReactNode };
+  /** Côté de l'écran où la roue est posée (et vers lequel elle s'écarte). */
+  side?: 'left' | 'right';
+  /** Légendes (mode astuces). */
+  tips?: boolean;
   /** Pendant un réglage de la pointe (taille, rotation, perspective) et au lâcher : montrer l'empreinte en vraie grandeur sur la page. */
   onSizing?: (on: boolean) => void;
 }
@@ -40,11 +44,10 @@ const A0 = Math.PI;
 const A1 = 2.5 * Math.PI;
 const SEG = 18;
 // cadran de perspective, en bas à droite ; choix du pinceau, en bas à gauche
-const TX = C + RO * 0.74;
-const TY = C + RO * 0.74;
+// leur côté dépend de la main : le choix du pinceau reste du côté visible quand la roue s'écarte
+const BY = C + RO * 0.74;
+const BX = RO * 0.74;
 const TR = 32;
-const PX = C - RO * 0.74;
-const PY = C + RO * 0.74;
 // la flèche de rotation tourne au-delà des bulles du bas, pour rester visible
 const RA = RO + 20;
 
@@ -92,7 +95,33 @@ type Zone = 'size' | 'ring' | 'rot' | 'tilt';
  */
 export function BrushWheel(p: Props) {
   const ref = useRef<SVGSVGElement>(null);
-  const drag = useRef<{ zone: Zone; a0: number; rot0: number } | null>(null);
+  const drag = useRef<{ zone: Zone; a0: number; rot0: number; r0: number; v0: number } | null>(null);
+  // roue posée à gauche : le pinceau à droite (visible), la perspective à gauche ; l'inverse pour un gaucher
+  const left = (p.side ?? 'left') === 'left';
+  const TX = left ? C - BX : C + BX;
+  const TY = BY;
+  const PX = left ? C + BX : C - BX;
+  const PY = BY;
+  // écartée sur le côté ; elle revient au survol ou au toucher, puis repart
+  const [out, setOut] = useState(false);
+  const away = useRef<number | null>(null);
+  const comeBack = () => {
+    if (away.current) clearTimeout(away.current);
+    away.current = null;
+    setOut(true);
+  };
+  const leaveSoon = (ms: number) => {
+    if (away.current) clearTimeout(away.current);
+    away.current = window.setTimeout(() => {
+      if (!drag.current) setOut(false);
+    }, ms);
+  };
+  useEffect(
+    () => () => {
+      if (away.current) clearTimeout(away.current);
+    },
+    [],
+  );
   const [active, setActive] = useState<string | null>(null);
   const lastTap = useRef<{ t: number; zone: string }>({ t: 0, zone: '' });
   const rot = p.rotation ?? 0;
@@ -130,7 +159,8 @@ export function BrushWheel(p: Props) {
       p.onRotation(a);
       setActive(`Rotation ${Math.round((a * 180) / Math.PI)}°`);
     } else if (d.zone === 'size') {
-      const v = clamp((Math.hypot(x - C, y - C) - MINF) / (MAXF - MINF));
+      // relatif : on part de la taille actuelle, s'éloigner du centre l'agrandit
+      const v = clamp(d.v0 + (Math.hypot(x - C, y - C) - d.r0) / (MAXF - MINF));
       p.onSize(Math.round(v * 100) / 100);
       setActive(`Taille ${p.sizeText}`);
     }
@@ -161,15 +191,16 @@ export function BrushWheel(p: Props) {
       return;
     }
     lastTap.current = { t: now, zone };
-    drag.current = { zone, a0: angle(x, y), rot0: rot };
+    drag.current = { zone, a0: angle(x, y), rot0: rot, r0: r, v0: p.size };
     if (zone !== 'ring') p.onSizing?.(true);
-    // la flèche se tourne en glissant ; ailleurs, le toucher règle tout de suite
-    if (zone !== 'rot') apply(e);
+    // la rotation et la taille se règlent en glissant ; la jauge et la perspective, dès le toucher
+    if (zone === 'ring' || zone === 'tilt') apply(e);
   };
-  const up = () => {
+  const up = (e?: React.PointerEvent) => {
     if (drag.current && drag.current.zone !== 'ring') p.onSizing?.(false);
     drag.current = null;
     setActive(null);
+    if (!e || e.pointerType !== 'mouse') leaveSoon(2500);
   };
 
   // empreinte : tournée, puis mise en perspective
@@ -195,19 +226,28 @@ export function BrushWheel(p: Props) {
     return [TX + along * c - across * s, TY + along * s + across * c];
   });
   return (
-    <div className="brush-wheel">
+    <div
+      className={`brush-wheel side-${left ? 'left' : 'right'} ${out ? '' : 'away'}`}
+      onPointerEnter={(e) => e.pointerType !== 'touch' && comeBack()}
+      onPointerLeave={(e) => e.pointerType !== 'touch' && !drag.current && leaveSoon(900)}
+      onPointerDownCapture={comeBack}
+    >
       <svg ref={ref} className={active ? 'live' : ''} viewBox={`0 0 ${S} ${S}`} onPointerDown={down} onPointerMove={(e) => e.buttons && apply(e)} onPointerUp={up} onPointerCancel={up}>
         {/* jauge d'intensité : 3/4 de tour en segments */}
         <circle cx={C} cy={C} r={RO} className="bw-disc" />
         {segs.map(([a, b], i) => (
           <path key={i} d={band(a + 0.012, b - 0.012, RI + 3, RO - 3)} className={`bw-seg ${p.intensity === undefined ? 'off' : (i + 1) / SEG <= level + 1e-6 ? 'on' : (i + 0.5) / SEG <= level ? 'half' : ''}`} />
         ))}
-        <text x={at(A0 + 0.16, RO + 12)[0]} y={at(A0 + 0.16, RO + 12)[1] + 3} className="bw-label faint">
-          0 %
-        </text>
-        <text x={at(A1 - 0.16, RO + 14)[0] + 4} y={at(A1 - 0.16, RO + 14)[1] + 3} className="bw-label faint">
-          100 %
-        </text>
+        {p.tips && (
+          <>
+            <text x={at(A0 + 0.16, RO + 12)[0]} y={at(A0 + 0.16, RO + 12)[1] + 3} className="bw-label faint">
+              0 %
+            </text>
+            <text x={at(A1 - 0.16, RO + 14)[0] + 4} y={at(A1 - 0.16, RO + 14)[1] + 3} className="bw-label faint">
+              100 %
+            </text>
+          </>
+        )}
         {/* milieu : la taille, l'empreinte à l'échelle */}
         <circle cx={C} cy={C} r={RI} className="bw-center" />
         <circle cx={C} cy={C} r={MAXF} className="bw-guide faint dashed" />
@@ -228,18 +268,38 @@ export function BrushWheel(p: Props) {
           <polygon points={plane.map((q) => q.join(',')).join(' ')} className="bw-plane" />
           {p.onTilt && <circle cx={TX + tx * TR * 0.8} cy={TY + ty * TR * 0.8} r={5.5} className="bw-tilt" />}
         </g>
-        {/* rotation : la flèche extérieure, au-dessus des bulles */}
-        <g className={`bw-arrow-g ${p.onRotation ? '' : 'off'}`} style={{ transform: `translate(${C}px, ${C}px) rotate(${(rot * 180) / Math.PI}deg) translate(0px, ${-RA}px)` }}>
-          <path d="M0 0 L-9 -16 L9 -16 Z" className="bw-arrow" />
+        {/* rotation : même convention que les objets de la page, un axe pointillé et sa pastille */}
+        <g className={`bw-arrow-g ${p.onRotation ? '' : 'off'}`} style={{ transform: `translate(${C}px, ${C}px) rotate(${(rot * 180) / Math.PI}deg)` }}>
+          <line x1={0} y1={-RI + 4} x2={0} y2={-RA + 11} className="bw-axis" />
+          <circle cx={0} cy={-RA} r={11} className="bw-rot" />
+          <path d="M-4.76 -1.55 A5 5 0 1 1 1.55 4.76" transform={`translate(0 ${-RA})`} className="bw-rot-ico" />
         </g>
+        {p.tips && (
+          <g className="bw-legend">
+            <text x={at(-0.62, RO + 10)[0]} y={at(-0.62, RO + 10)[1]} textAnchor="end">
+              Intensité
+            </text>
+            <text x={C} y={C - RI + 14}>
+              Taille
+            </text>
+            <text x={TX} y={TY + TR + 12}>
+              {p.onTilt ? 'Inclinaison' : ''}
+            </text>
+            {p.onRotation && (
+              <text x={at(rot, RA + 20)[0]} y={at(rot, RA + 20)[1] + 3}>
+                Rotation
+              </text>
+            )}
+          </g>
+        )}
       </svg>
-      {p.pick && <Picker {...p.pick} />}
+      {p.pick && <Picker {...p.pick} at={[PX / S, PY / S]} />}
     </div>
   );
 }
 
 /** Le choix du pinceau : toucher pour passer au suivant, double toucher ou appui long pour choisir. */
-function Picker({ face, title, next, choices }: NonNullable<Props['pick']>) {
+function Picker({ face, title, next, choices, at: [px, py] }: NonNullable<Props['pick']> & { at: [number, number] }) {
   const [open, setOpen] = useState(false);
   const press = useRef<{ timer: number; long: boolean } | null>(null);
   const single = useRef<number | null>(null);
@@ -253,7 +313,7 @@ function Picker({ face, title, next, choices }: NonNullable<Props['pick']>) {
     <>
       <button
         className={`bw-pick ${open ? 'on' : ''}`}
-        style={{ left: `${(PX / S) * 100}%`, top: `${(PY / S) * 100}%` }}
+        style={{ left: `${px * 100}%`, top: `${py * 100}%` }}
         title={`${title} (toucher : suivant ; double toucher ou appui long : choisir)`}
         aria-label={title}
         onPointerDown={() => {
