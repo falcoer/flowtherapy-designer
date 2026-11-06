@@ -919,3 +919,5 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .cp-tag-more b { color: var(--muted); }
 .cp-more { margin: 8px 0 2px; height: 32px; padding: 0 14px; border-radius: 16px; color: var(--accent); background: var(--accent-soft); font-weight: 600; }
 .hpeek .hp-shadow { filter: brightness(0) blur(2px); opacity: 0.3; }
+.cp-h .cp-sculpt { margin-left: auto; height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12px; }
+.cp-h .cp-sculpt + .cp-add { margin-left: 0; }

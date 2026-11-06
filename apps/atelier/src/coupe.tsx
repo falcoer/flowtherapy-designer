@@ -352,6 +352,11 @@ export function CoupePanel({
         <div className="cp-h">
           <span className={`slab ${s.slab}`} />
           <span className="cn">{secLabel(s.sec, l)}</span>
+          {s.sec === 'depth' && onSculpt && (
+            <button className="chip cp-sculpt" onClick={onSculpt} title="Modeler › Relief : bosser, creuser, lisser la surface au stylet">
+              {l.bump ? 'Reprendre la sculpture' : 'Sculpter le volume'}
+            </button>
+          )}
           {can && (
             <button
               className="cp-add"
@@ -411,11 +416,6 @@ export function CoupePanel({
             <span className="cp-empty">{s.empty}</span>
           )}
         </div>
-        {s.sec === 'depth' && onSculpt && (
-          <button className="chip cp-sculpt" onClick={onSculpt} title="Modeler › Relief : bosser, creuser, lisser la surface au stylet">
-            {l.bump ? 'Reprendre la sculpture' : 'Sculpter le relief'}
-          </button>
-        )}
         {adding === s.sec && (
           <div className="cp-pick-wrap">
             {(() => {
