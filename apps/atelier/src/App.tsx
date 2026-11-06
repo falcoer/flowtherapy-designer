@@ -5,7 +5,7 @@ import { STAMPS, stampOf, stampSvg } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { PrefsPanel, type Theme } from './prefs';
-import { TiltPad } from './tilt';
+import { BrushWheel } from './wheel';
 import { currentPx, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
 import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
 import { QuickText, TextBar, type SwashTool } from './textbar';
@@ -349,6 +349,22 @@ export function App() {
   // Modifier rouvre la dernière section utilisée
   const lastEdit = useRef<EditTool>('transform');
   const [coupeOpen, setCoupeOpen] = useState<{ key: string; n: number; sec?: 'edge' | 'coat' | 'image' | 'transform' | 'support' } | undefined>();
+  /** Hauteur du bandeau des attributs, quand il est ouvert : la roue du pinceau se pose au-dessus. */
+  const [bandH, setBandH] = useState(0);
+  useEffect(() => {
+    if (!coupeOpen) return setBandH(0);
+    let ro: ResizeObserver | null = null;
+    const id = requestAnimationFrame(() => {
+      const el = document.querySelector('aside.coupe.with-list');
+      if (!el) return;
+      ro = new ResizeObserver(() => setBandH(Math.round(el.getBoundingClientRect().height)));
+      ro.observe(el);
+    });
+    return () => {
+      cancelAnimationFrame(id);
+      ro?.disconnect();
+    };
+  }, [coupeOpen]);
   // glisser-déposer dans la liste des objets
   const [quickText, setQuickText] = useState<string | null>(null);
   const listPress = useRef<{ id: string; y: number; moved: boolean; grip: boolean } | null>(null);
@@ -1306,7 +1322,7 @@ export function App() {
         mold:
           swash.mode === 'orn'
             ? { pts: [], r: 0, orn: { pts: [[x, y, pr]], w: (swash.w ?? (target.text ? swashWidth(target.text.weight) * 0.8 : 0.08)) * U, end: 'fine', nib: -Math.PI / 4 } }
-            : { pts: [[x, y]], r: swash.r * U },
+            : { pts: [[x, y]], r: swash.r * U, k: swash.k ?? 1 },
         last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
       };
       return;
@@ -1336,7 +1352,7 @@ export function App() {
               },
             }
           : swash.mode === 'mold'
-            ? { mold: { pts: [swashPoint(sel.text, loc.x, loc.y)], r: swash.r } }
+            ? { mold: { pts: [swashPoint(sel.text, loc.x, loc.y)], r: swash.r, k: swash.k ?? 1 } }
             : { sw: { pts: [[...swashPoint(sel.text, loc.x, loc.y), pr] as [number, number, number]], w: swash.w ?? swashWidth(sel.text.weight), end: swash.end } }),
         last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
       };
@@ -2643,17 +2659,6 @@ export function App() {
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
               <span className="sep" />
-              <button
-                className={`btn ${guidesOn.on ? 'on' : ''}`}
-                aria-pressed={guidesOn.on}
-                onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}
-                title={guidesOn.on ? 'Masquer les repères' : 'Afficher les repères en permanence'}
-              >
-                <Icon name="guides" />
-              </button>
-              <button className="btn" onClick={() => setRendu(true)} title="Rendu final">
-                <Icon name="eye" />
-              </button>
               <button className={`btn ${bubble === 'prefs' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'prefs' ? null : 'prefs')} title="Préférences : affichage, compte, système">
                 <Icon name="settings" />
               </button>
@@ -2687,7 +2692,7 @@ export function App() {
             <button className={`btn small ${tool === 'mold' ? 'on' : ''}`} onClick={() => setTool('mold')} title="Modeler (G) : tirer ou repousser le contour de l'objet, à la plume ou au doigt de glaise">
               <Icon name="mold" />
             </button>
-            <button className={`btn small ${tool === 'stamp' ? 'on' : ''}`} onClick={() => setTool('stamp')} title="Tampons (S) : motifs à la couleur courante, dilution et rotation">
+            <button className={`btn small ${tool === 'stamp' ? 'on' : ''}`} onClick={() => setTool('stamp')} title="Tampons (S) : motifs à la couleur courante, intensité et rotation">
               <Icon name="stamp" />
             </button>
           </aside>
@@ -2786,9 +2791,6 @@ export function App() {
                   >
                     <Icon name="paint-reset" />
                   </button>
-                  <VSlider label="Opacité" value={opacity} onChange={(v) => setOpacity(Math.max(0.05, v))} />
-                  <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
-                  {tipOn(brushKind) && brushTip !== 'round' && <Dial label="Rotation de la brosse" value={brushRot} onChange={setBrushRot} />}
                   {tipOn(brushKind) && (
                     <button
                       className="btn small"
@@ -2844,11 +2846,6 @@ export function App() {
                   >
                     <Icon name="paint-reset" />
                   </button>
-                  {swash.mode === 'orn' ? (
-                    <VSlider label="Taille" value={((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) - 0.01) / 0.29} onChange={(v) => setSwash({ ...swash, w: 0.01 + v * 0.29 })} />
-                  ) : (
-                    <VSlider label="Taille" value={(swash.r - 0.06) / 0.94} onChange={(v) => setSwash({ ...swash, r: 0.06 + v * 0.94 })} />
-                  )}
                   <button className="btn small" disabled={!sel?.molded} onClick={() => sel && smoothMold(sel)} title="Lisser : seules les parties modelées s’adoucissent (à répéter pour lisser plus)">
                     <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M3 16c2-1 2.5-3 4-3s2 2.5 3.5 2.5S12 12 13.5 12 15 14 16.5 14" strokeDasharray="2 2" />
@@ -2886,8 +2883,6 @@ export function App() {
                       </div>
                     </div>
                   )}
-                  <Dial label="Rotation" value={stampRot} onChange={setStampRot} />
-                  {!stampSow && <TiltPad label="Inclinaison" x={stampTilt[0]} y={stampTilt[1]} display={`${Math.round(Math.hypot(stampTilt[0], stampTilt[1]) * 100)}%`} onChange={(x, y) => setStampTilt([x, y])} />}
                   <button
                     className="btn small"
                     onClick={() => setStampSow(!stampSow)}
@@ -2898,8 +2893,6 @@ export function App() {
                   <button className={`btn small ${stampFilled ? 'on' : ''}`} onClick={() => setStampFilled(!stampFilled)} title="Motif rempli : ses formes prennent le dégradé du guide">
                     <Icon name="stamp-fill" />
                   </button>
-                  <VSlider label="Dilution" value={dilution} onChange={(v) => setDilution(Math.round(v * 100) / 100)} />
-                  <VSlider label="Taille" value={(stampSize - 0.02) / 0.28} onChange={(v) => setStampSize(0.02 + v * 0.28)} />
                   {stampSow && (
                     <>
                       <VSlider label="Densité" value={sowDensity} onChange={(v) => setSowDensity(Math.round(v * 100) / 100)} />
@@ -2953,6 +2946,49 @@ export function App() {
               )}
             </div>
           </aside>
+          {(tool === 'paint' || tool === 'stamp' || tool === 'mold') && (
+            <div className="wheel-dock" style={bandH ? { bottom: bandH + 12 } : undefined}>
+              {tool === 'paint' && (
+                <BrushWheel
+                  size={(size - 0.01) / 0.14}
+                  sizeText={`${Math.round(size * 100)}`}
+                  onSize={(v) => setSize(0.01 + v * 0.14)}
+                  intensity={opacity}
+                  onIntensity={(v) => setOpacity(Math.max(0.05, v))}
+                  {...(tipOn(brushKind) && brushTip !== 'round' ? { rotation: brushRot, onRotation: setBrushRot, tip: brushTip } : {})}
+                />
+              )}
+              {tool === 'stamp' && (
+                <BrushWheel
+                  size={(stampSize - 0.02) / 0.28}
+                  sizeText={`${Math.round(stampSize * 100)}`}
+                  onSize={(v) => setStampSize(0.02 + v * 0.28)}
+                  intensity={1 - dilution}
+                  onIntensity={(v) => setDilution(Math.round((1 - v) * 100) / 100)}
+                  rotation={stampRot}
+                  onRotation={setStampRot}
+                  {...(stampSow ? {} : { tilt: stampTilt, onTilt: (x: number, y: number) => setStampTilt([x, y]) })}
+                  stamp={`data:image/svg+xml,${encodeURIComponent(stampSvg(stampOf(stampId), guideColor(doc.guides[guide], 0.5)))}`}
+                />
+              )}
+              {tool === 'mold' &&
+                (swash.mode === 'orn' ? (
+                  <BrushWheel
+                    size={((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) - 0.01) / 0.29}
+                    sizeText={`${Math.round((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) * 100)}`}
+                    onSize={(v) => setSwash({ ...swash, w: 0.01 + v * 0.29 })}
+                  />
+                ) : (
+                  <BrushWheel
+                    size={(swash.r - 0.06) / 0.94}
+                    sizeText={`${Math.round(swash.r * 100)}`}
+                    onSize={(v) => setSwash({ ...swash, r: 0.06 + v * 0.94 })}
+                    intensity={swash.k ?? 1}
+                    onIntensity={(v) => setSwash({ ...swash, k: Math.max(0.05, v) })}
+                  />
+                ))}
+            </div>
+          )}
 
           {bubble === 'projects' && (
             <div className="bubble projects-bubble">
@@ -3016,6 +3052,17 @@ export function App() {
 
           {bubble === 'export' && (
             <div className="bubble export-bubble">
+              <button
+                className="row"
+                onClick={() => {
+                  setBubble(null);
+                  setRendu(true);
+                }}
+              >
+                <Icon name="eye" />
+                <span>Aperçu plein écran</span>
+                <small>le rendu final, sans les outils</small>
+              </button>
               <div className="b-title">Exporter</div>
               <div className="seg">
                 {(['png', 'pdf'] as const).map((k) => (
@@ -3058,6 +3105,8 @@ export function App() {
               setTheme={setTheme}
               lefty={lefty}
               setLefty={setLefty}
+              guides={guidesOn}
+              setGuides={setGuidesOn}
               onClose={() => setBubble(null)}
             />
           )}

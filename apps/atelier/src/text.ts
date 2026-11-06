@@ -37,6 +37,8 @@ export interface TextStyle {
 export interface Mold {
   pts: [number, number][];
   r: number;
+  /** Force : la part du geste que le contour suit (absente : 1). */
+  k?: number;
   /** Geste en cours : le contour n'est refondu qu'au lâcher. */
   live?: boolean;
   /** Régularisation (sans geste) : force du lissage, en corps. */
@@ -65,7 +67,7 @@ function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number, pris
       for (const q of r) {
         const d2 = ((q.x - a.x) ** 2 + (q.y - a.y) ** 2) / (R * R);
         if (d2 >= 1) continue;
-        const f = (1 - d2) ** 2;
+        const f = (1 - d2) ** 2 * (m.k ?? 1);
         q.x += dx * f;
         q.y += dy * f;
       }

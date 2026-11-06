@@ -43,6 +43,8 @@ export function PrefsPanel(p: {
   setTheme: (t: Theme) => void;
   lefty: boolean;
   setLefty: (v: boolean) => void;
+  guides: { on: boolean; color: string };
+  setGuides: (v: { on: boolean; color: string }) => void;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('display');
@@ -131,6 +133,18 @@ export function PrefsPanel(p: {
                 {n}
               </button>
             ))}
+          </div>
+          <div className="pf-group">Repères</div>
+          <Toggle label="Repères toujours visibles" hint="Sinon, ils n'apparaissent que pendant un déplacement" on={p.guides.on} set={(on) => p.setGuides({ ...p.guides, on })} />
+          <div className="pf-row">
+            <span className="pf-txt">
+              <b>Couleur des repères</b>
+            </span>
+            <div className="guides-colors">
+              {['#7a5cff', '#00b3c7', '#ff3b6b', '#1d1b22', '#ffffff'].map((c) => (
+                <button key={c} className={p.guides.color === c ? 'on' : ''} style={{ background: c }} onClick={() => p.setGuides({ ...p.guides, color: c })} aria-label={`Couleur des repères ${c}`} />
+              ))}
+            </div>
           </div>
           <div className="pf-group">Aide</div>
           <Toggle label="Astuces" hint="Textes d'aide, sous-titres des menus et bandeau d'état" on={p.tips} set={p.setTips} />

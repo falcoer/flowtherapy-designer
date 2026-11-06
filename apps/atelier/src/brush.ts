@@ -168,18 +168,23 @@ function aquarelle(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
   sx.fillStyle = sx.createPattern(paperGrain(), 'repeat')!;
   sx.fillRect(0, 0, t.pw, t.ph);
 
+  // peu d'intensité : plus d'eau, le pigment s'étale et se concentre sur les bords (comme la dilution des tampons)
+  const water = Math.max(0, Math.min(1, 1 - s.opacity));
+  const R = s.size * t.pxPerMin;
   // liseré : silhouette moins sa version floutée
   const { c: edge, ctx: ex } = buffer('b', t.pw, t.ph);
   ex.drawImage(sil, 0, 0);
   ex.globalCompositeOperation = 'destination-out';
-  ex.filter = `blur(${Math.max(1, s.size * t.pxPerMin * 0.18)}px)`;
+  ex.filter = `blur(${Math.max(1, R * (0.18 + 0.22 * water))}px)`;
   ex.drawImage(sil, 0, 0);
 
   dst.save();
   dst.globalCompositeOperation = 'multiply';
+  if (water > 0.05) dst.filter = `blur(${R * 0.12 * water}px)`;
   dst.globalAlpha = 0.42 * s.opacity;
   dst.drawImage(sil, 0, 0);
-  dst.globalAlpha = 0.75 * s.opacity;
+  dst.filter = 'none';
+  dst.globalAlpha = 0.75 * Math.min(1, s.opacity + 0.3 * water);
   dst.drawImage(edge, 0, 0);
   dst.restore();
 }

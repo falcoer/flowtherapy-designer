@@ -12,6 +12,8 @@ export interface SwashTool {
   end: SwashEnd;
   /** Épaisseur choisie, en corps (null : celle d'un fût à la graisse du texte). */
   w: number | null;
+  /** Force du modelage, de 0 à 1 (absente : 1). */
+  k?: number;
 }
 
 const WEIGHTS = ['Extra-fin', 'Très fin', 'Fin', 'Normal', 'Medium', 'Demi-gras', 'Gras', 'Extra-gras', 'Noir'];
