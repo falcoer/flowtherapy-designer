@@ -136,6 +136,17 @@ export function TextBar({
               <span className="tb-label">Taille</span>
               <input type="range" min={0.06} max={1} step={0.01} value={swash.r} onChange={(e) => setSwash({ ...swash, r: Number(e.target.value) })} />
             </label>
+            <button
+              className="tb-btn tb-regular"
+              onClick={() => onChange({ molds: [...(t.molds ?? []), { pts: [], r: 0, smooth: 0.035 }] }, true)}
+              title="Régulariser : lisse le contour, retire les accrocs, égalise les pleins (à répéter pour lisser plus)"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 16c2-1 2.5-3 4-3s2 2.5 3.5 2.5S12 12 13.5 12 15 14 16.5 14" strokeDasharray="2 2" />
+                <path d="M3 9c4-3 10-3 18 0" />
+                <path d="M18 3l.7 1.6 1.6.7-1.6.7L18 7.6l-.7-1.6-1.6-.7 1.6-.7z" fill="currentColor" stroke="none" />
+              </svg>
+            </button>
             {!!(t.swashes?.length || t.molds?.length) && (
               <button className="tb-btn tb-clear" onClick={() => onChange({ swashes: [], molds: [] }, true)} title="Retirer tous les prolongements et modelages">
                 <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">

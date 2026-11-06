@@ -37,10 +37,13 @@ export interface Mold {
   r: number;
   /** Geste en cours : le contour n'est refondu qu'au lâcher. */
   live?: boolean;
+  /** Régularisation (sans geste) : force du lissage, en corps. */
+  smooth?: number;
 }
 
 /** Applique un modelage aux contours (en pixels), en gardant des points assez serrés. */
 function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number): Ring[] {
+  if (m.smooth) return regularize(rings, m.smooth * size);
   const R = Math.max(2, m.r * size);
   const pts = m.pts.map(([x, y]) => ({ x: X0 + x * size, y: Y0 + y * size }));
   let out = rings.map((r) => r.map((p) => ({ x: p.x, y: p.y })));
@@ -66,6 +69,97 @@ function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number): Rin
  * Refonte du contour : on remplit le tracé modelé puis on relève à nouveau son bord.
  * Les replis, les traits qui se chevauchent ou se tassent fusionnent en une forme nette.
  */
+/** Le tracé rempli, en alpha, dans un canevas juste assez grand (plus une marge). */
+function rasterRings(rings: Ring[], margin: number) {
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const r of rings)
+    for (const p of r) {
+      x0 = Math.min(x0, p.x);
+      y0 = Math.min(y0, p.y);
+      x1 = Math.max(x1, p.x);
+      y1 = Math.max(y1, p.y);
+    }
+  if (!isFinite(x0)) return null;
+  const ox = Math.floor(x0) - margin;
+  const oy = Math.floor(y0) - margin;
+  const W = Math.ceil(x1) - ox + margin + 1;
+  const H = Math.ceil(y1) - oy + margin + 1;
+  if (W * H > 6e7) return null;
+  const cv = document.createElement('canvas');
+  cv.width = W;
+  cv.height = H;
+  const ctx = cv.getContext('2d', { willReadFrequently: true })!;
+  const path = new Path2D();
+  for (const r of rings) {
+    r.forEach((p, i) => (i ? path.lineTo(p.x - ox, p.y - oy) : path.moveTo(p.x - ox, p.y - oy)));
+    path.closePath();
+  }
+  ctx.fillStyle = '#000';
+  ctx.fill(path, 'nonzero');
+  return { data: ctx.getImageData(0, 0, W, H).data, W, H, ox, oy };
+}
+
+/**
+ * Régulariser : le contour est lissé comme une encre qui se pose. Les petits accrocs et les
+ * miettes disparaissent, les pleins s'égalisent (flou puis seuil), puis les bords ondulés se
+ * redressent dans leur propre sens (lissage qui ne fait pas maigrir la lettre).
+ */
+function regularize(rings: Ring[], radius: number): Ring[] {
+  const r = Math.max(1, Math.round(radius));
+  const ras = rasterRings(rings, r * 3 + 3);
+  if (!ras) return rings;
+  const { data, W, H, ox, oy } = ras;
+  let a = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) a[i] = data[i * 4 + 3]! / 255;
+  // flou en boîte, trois passes dans chaque sens : proche d'un flou gaussien
+  const tmp = new Float32Array(W * H);
+  const pass = (src: Float32Array, dst: Float32Array, horiz: boolean) => {
+    const n = horiz ? W : H;
+    const m = horiz ? H : W;
+    const at = (line: number, k: number) => (horiz ? line * W + k : k * W + line);
+    for (let line = 0; line < m; line++) {
+      let acc = 0;
+      for (let k = -r; k <= r; k++) acc += src[at(line, Math.max(0, Math.min(n - 1, k)))]!;
+      for (let k = 0; k < n; k++) {
+        dst[at(line, k)] = acc / (2 * r + 1);
+        acc += src[at(line, Math.min(n - 1, k + r + 1))]! - src[at(line, Math.max(0, k - r))]!;
+      }
+    }
+  };
+  for (let i = 0; i < 3; i++) {
+    pass(a, tmp, true);
+    pass(tmp, a, false);
+  }
+  const out = new Uint8ClampedArray(W * H * 4);
+  for (let i = 0; i < W * H; i++) out[i * 4 + 3] = Math.round(a[i]! * 255);
+  a = new Float32Array(0);
+  const minArea = (r * 1.5) ** 2;
+  return contours(out, W, H, 128)
+    .filter((ring) => Math.abs(ringArea(ring)) > minArea)
+    .map((ring) =>
+      simplifyRing(
+        taubin(
+          ring.map((p) => ({ x: p.x + ox, y: p.y + oy })),
+          6,
+        ),
+        0.2,
+      ),
+    );
+}
+const ringArea = (r: Ring) => r.reduce((s, p, i) => s + p.x * r[(i + 1) % r.length]!.y - r[(i + 1) % r.length]!.x * p.y, 0) / 2;
+/** Lissage de Taubin : les ondulations s'effacent sans que la forme rétrécisse. */
+function taubin(r: Ring, n: number): Ring {
+  let p = r;
+  const step = (q: Ring, k: number) =>
+    q.map((c, i) => {
+      const a = q[(i - 1 + q.length) % q.length]!;
+      const b = q[(i + 1) % q.length]!;
+      return { x: c.x + k * ((a.x + b.x) / 2 - c.x), y: c.y + k * ((a.y + b.y) / 2 - c.y) };
+    });
+  for (let i = 0; i < n; i++) p = step(step(p, 0.5), -0.53);
+  return p;
+}
+
 function refuse(rings: Ring[]): Ring[] {
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
   for (const r of rings)
