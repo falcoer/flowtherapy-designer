@@ -197,81 +197,88 @@ export function ParallaxView({
   const heightRef = useRef(false);
   heightRef.current = heightDrag;
 
-  // le document se construit une fois à l'ouverture
-  useEffect(() => {
+  /** Les plaques du document : à l'ouverture, puis à chaque changement de contenu (ajout, retouche, peinture). */
+  const docRef = useRef(doc);
+  docRef.current = doc;
+  const build = (first: boolean) => {
+    const doc = docRef.current;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const k = Math.min((vw * 0.72) / f.width, (vh * 0.7) / f.height);
     const r = k * Math.min(2, window.devicePixelRatio || 1);
-    setSize([f.width * k, f.height * k]);
-    const id = window.setTimeout(() => {
-      if (useGl && glCanvas.current) {
-        const plates = buildPlates(doc, f, r);
-        let g: Gl3d;
+    if (first) setSize([f.width * k, f.height * k]);
+    if (useGl && glCanvas.current) {
+      const plates = buildPlates(doc, f, r);
+      let g = gl.current;
+      if (!g) {
         try {
           g = new Gl3d(glCanvas.current);
         } catch {
           return;
         }
         gl.current = g;
-        const L = lampOf(doc);
-        g.light = { x: L.x, y: L.y, z: L.z, color: hexRGB(L.color) };
-        g.setPlates(
-          [f.width, f.height],
-          plates.map((p, i) => ({ img: p.c, x: p.x / r, y: p.y / r, w: p.c.width / r, h: p.c.height / r, z: p.h, t: i && p.l ? thicknessOf(p.l) : 0, page: !i, id: p.l?.id })),
-        );
-        for (const p of plates) if (p.l) shown.current.z.set(p.l.id, p.h);
-        placed.current = plates.map((p, i) => ({ p, i, el: p.c, slices: [] }));
-        geo.current = { r, k, put: () => {} };
-        setBusy(false);
-        if (!start) requestAnimationFrame(() => setTilt([-14, 10]));
-        return;
       }
-      const el = stage.current;
-      if (!el) return;
-      const plates = buildPlates(doc, f, r);
-      const shadows = buildShadows(doc, f, r, plates);
-      el.replaceChildren();
-      const put = (c: HTMLCanvasElement, x: number, y: number, z: number, cls: string, scale = 1) => {
-        c.className = cls;
-        c.style.left = `${(x / r) * k}px`;
-        c.style.top = `${(y / r) * k}px`;
-        c.style.width = `${(c.width / r / scale) * k}px`;
-        c.style.height = `${(c.height / r / scale) * k}px`;
-        c.style.setProperty('--z', String(z));
-        el.appendChild(c);
-      };
-      geo.current = { r, k, put };
-      placed.current = [];
-      plates.forEach((p, i) => {
-        const slices: HTMLCanvasElement[] = [];
-        // la tranche : des copies assombries empilées sous la plaque, comme un carton découpé
-        if (i && p.l) {
-          const t = thicknessOf(p.l);
-          const n = SLICES;
-          for (let j = 0; j < n; j++) {
-            const c = document.createElement('canvas');
-            c.width = p.c.width;
-            c.height = p.c.height;
-            const x = c.getContext('2d')!;
-            x.filter = `brightness(${0.42 + (0.4 * j) / n})`;
-            x.drawImage(p.c, 0, 0);
-            put(c, p.x, p.y, Math.max(0.0004, p.h - t + (t * j) / n) + i * 0.0015, 'px-plate px-slice');
-            slices.push(c);
-          }
-        }
-        put(p.c, p.x, p.y, p.h + i * 0.0015, i ? 'px-plate' : 'px-plate px-page');
-        placed.current.push({ p, i, el: p.c, slices });
-      });
-      shadowEls.current = [];
-      for (const s of shadows) {
-        put(s.c, s.x, s.y, plates[s.on]!.h + s.on * 0.0015 + 0.0008, 'px-plate px-shadow', 0.5);
-        shadowEls.current.push(s.c);
-      }
+      const L = lampOf(doc);
+      g.light = { x: L.x, y: L.y, z: L.z, color: hexRGB(L.color) };
+      g.setPlates(
+        [f.width, f.height],
+        plates.map((p, i) => ({ img: p.c, x: p.x / r, y: p.y / r, w: p.c.width / r, h: p.c.height / r, z: p.h, t: i && p.l ? thicknessOf(p.l) : 0, page: !i, id: p.l?.id })),
+      );
+      for (const p of plates) if (p.l && !shown.current.z.has(p.l.id)) shown.current.z.set(p.l.id, p.h);
+      placed.current = plates.map((p, i) => ({ p, i, el: p.c, slices: [] }));
+      geo.current = { r, k, put: () => {} };
       setBusy(false);
-      // une légère inclinaison d'entrée montre tout de suite l'épaisseur
-      if (!start) requestAnimationFrame(() => setTilt([-14, 10]));
-    }, 30);
+      if (first && !start) requestAnimationFrame(() => setTilt([-14, 10]));
+      kick.current();
+      return;
+    }
+    const el = stage.current;
+    if (!el) return;
+    const plates = buildPlates(doc, f, r);
+    const shadows = buildShadows(doc, f, r, plates);
+    el.replaceChildren();
+    const put = (c: HTMLCanvasElement, x: number, y: number, z: number, cls: string, scale = 1) => {
+      c.className = cls;
+      c.style.left = `${(x / r) * k}px`;
+      c.style.top = `${(y / r) * k}px`;
+      c.style.width = `${(c.width / r / scale) * k}px`;
+      c.style.height = `${(c.height / r / scale) * k}px`;
+      c.style.setProperty('--z', String(z));
+      el.appendChild(c);
+    };
+    geo.current = { r, k, put };
+    placed.current = [];
+    plates.forEach((p, i) => {
+      const slices: HTMLCanvasElement[] = [];
+      // la tranche : des copies assombries empilées sous la plaque, comme un carton découpé
+      if (i && p.l) {
+        const t = thicknessOf(p.l);
+        const n = SLICES;
+        for (let j = 0; j < n; j++) {
+          const c = document.createElement('canvas');
+          c.width = p.c.width;
+          c.height = p.c.height;
+          const x = c.getContext('2d')!;
+          x.filter = `brightness(${0.42 + (0.4 * j) / n})`;
+          x.drawImage(p.c, 0, 0);
+          put(c, p.x, p.y, Math.max(0.0004, p.h - t + (t * j) / n) + i * 0.0015, 'px-plate px-slice');
+          slices.push(c);
+        }
+      }
+      put(p.c, p.x, p.y, p.h + i * 0.0015, i ? 'px-plate' : 'px-plate px-page');
+      placed.current.push({ p, i, el: p.c, slices });
+    });
+    shadowEls.current = [];
+    for (const s of shadows) {
+      put(s.c, s.x, s.y, plates[s.on]!.h + s.on * 0.0015 + 0.0008, 'px-plate px-shadow', 0.5);
+      shadowEls.current.push(s.c);
+    }
+    setBusy(false);
+    // une légère inclinaison d'entrée montre tout de suite l'épaisseur
+    if (first && !start) requestAnimationFrame(() => setTilt([-14, 10]));
+  };
+  useEffect(() => {
+    const id = window.setTimeout(() => build(true), 30);
     return () => {
       clearTimeout(id);
       gl.current?.dispose();
@@ -279,6 +286,19 @@ export function ParallaxView({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // le contenu change pendant la vue (objet ajouté, retouché, peint) : on refait les plaques ;
+  // la hauteur seule ne compte pas, elle se règle en direct
+  const contentKey = JSON.stringify([doc.layers.map(({ height: _h, inner: _i, ...rest }) => rest), doc.guides, doc.lamp, doc.light]);
+  const builtKey = useRef(contentKey);
+  useEffect(() => {
+    if (busy || builtKey.current === contentKey) return;
+    const id = window.setTimeout(() => {
+      builtKey.current = contentKey;
+      build(false);
+    }, 250);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentKey, busy]);
 
   // WebGL : le canevas suit la taille de la vue ; l'image rejoint en douceur la vue demandée
   useEffect(() => {
