@@ -632,7 +632,9 @@ function drawSwash(ctx: CanvasRenderingContext2D, s: Swash, X0: number, Y0: numb
             ? 1 - 0.5 * smooth(t)
             : 1;
     // plume : plein quand le trait croise le bec, délié quand il le suit
-    const nib = s.nib === undefined ? 1 : 0.14 + 0.86 * Math.abs(Math.sin(dir[i]! - s.nib));
+    const nib = s.nib === undefined ? 1 : 0.3 + 0.7 * Math.abs(Math.sin(dir[i]! - s.nib));
+    // un ornement garde toujours un délié visible, même au stylet effleuré
+    if (s.end === 'fine') return Math.max(2, s.w * size * (0.7 + 0.5 * pts[i]!.p) * f * nib, s.w * size * 0.25 * Math.min(1, f * 4));
     return s.w * size * (0.4 + 0.85 * pts[i]!.p) * f * nib;
   };
   ctx.lineCap = 'round';
