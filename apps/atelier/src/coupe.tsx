@@ -410,10 +410,10 @@ export function CoupePanel({
         </button>
       </div>
       <div className="cp-split">
-        {list}
         <div className="cp-main">
           <div className="cp-scroll">
-            <div className="cp-view" ref={view}>
+            <div className={`cp-view ${list ? 'with-list' : ''}`} ref={view}>
+              {list}
               <div className="plies">
                 <div className="plies-3d">
                   {plies.map((p, k) => (

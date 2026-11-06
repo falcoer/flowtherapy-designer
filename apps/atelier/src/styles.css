@@ -559,23 +559,27 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .btn-primary:disabled { opacity: 0.5; }
 .tb-mode { display: flex; align-items: center; gap: 6px; padding: 0 12px; flex: none; width: auto; }
 .tb-mode small { font-size: 12px; font-weight: 600; }
-/* volet Objets : la liste des objets en haut, puis l'aperçu légendé et le détail de la couche choisie */
-.coupe.with-list { width: min(620px, calc(100vw - 24px)); }
+/* volet Objets : sur une rangée, la liste des objets, l'aperçu et sa légende ; dessous, le détail de la couche choisie */
+.coupe.with-list { width: min(720px, calc(100vw - 24px)); }
+.coupe.with-list .cp-head { padding-bottom: 4px; }
 .cp-split { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .cp-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.cp-main .cp-scroll { flex: 1; min-height: 0; }
-.cp-layers { flex: none; padding: 0 10px 8px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
-.cp-layers .layer-list { flex-direction: row; gap: 4px; overflow-x: auto; scrollbar-width: thin; }
-.cp-layers .layer { flex: none; gap: 8px; padding: 4px 8px 4px 4px; max-width: 170px; }
-.cp-layers .layer.on { max-width: none; }
-.cp-layers .thumb { width: 34px; height: 34px; }
+.cp-main .cp-scroll { flex: 1; min-height: 0; padding-top: 2px; }
+.cp-layers { min-width: 0; overflow-y: auto; padding-right: 2px; }
+.cp-split > .cp-layers { padding: 0 10px 10px; }
+.cp-layers .layer-list { gap: 2px; }
+.cp-layers .layer { flex-wrap: wrap; gap: 6px; padding: 4px; }
+.cp-layers .thumb { width: 32px; height: 32px; }
 .cp-layers .layer-name { font-size: 13px; }
 .cp-layers .layer:not(.on) .height, .cp-layers .layer:not(.on) .layer-actions, .cp-layers .layer-main small { display: none; }
-.cp-layers .layer.on .layer-main { min-width: 120px; }
+.cp-layers .layer-actions { width: 100%; justify-content: space-between; }
+.cp-layers .layer-actions button { width: 28px; height: 26px; }
 .cp-layers > .row { margin-top: 6px; font-size: 12px; }
-.cp-split > .cp-layers:only-child { border-bottom: 0; }
-.cp-view { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 168px; gap: 34px; flex: none; }
-.cp-view .plies { height: 250px; }
+.cp-view { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: 30px; flex: none; height: 240px; }
+.cp-view.with-list { grid-template-columns: 180px minmax(0, 1fr) 150px; column-gap: 8px; }
+.cp-view.with-list .cp-tags { margin-left: 22px; }
+.cp-view > * { min-height: 0; }
+.cp-view .plies { height: 100%; }
 .cp-view .ply { width: 150px; height: 114px; cursor: pointer; }
 .ply.on { outline: 2px solid var(--accent); }
 .cp-tags { display: flex; flex-direction: column; justify-content: space-around; gap: 4px; padding: 6px 0; }
@@ -583,7 +587,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .cp-tag.on { border-color: var(--accent); background: var(--accent-soft); }
 .cp-tag .slab { width: 22px; height: 12px; }
 .cp-tag .tg-t { display: flex; flex-direction: column; min-width: 0; }
-.cp-tag b { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+.cp-tag b { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cp-tag small { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cp-leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
 .cp-leaders path { fill: none; stroke: var(--muted); stroke-width: 0.8; opacity: 0.7; }
@@ -591,8 +595,9 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .cp-leaders g.on path, .cp-leaders g.on circle { stroke: var(--accent); opacity: 1; stroke-width: 1.2; }
 .cp-leaders g.on circle { fill: var(--accent); }
 @media (max-width: 720px) {
-  .cp-view { grid-template-columns: minmax(0, 1fr) 132px; gap: 22px; }
-  .cp-view .plies { height: 190px; }
+  .cp-view { grid-template-columns: minmax(0, 1fr) 128px; gap: 20px; height: 200px; }
+  .cp-view.with-list { grid-template-columns: 140px minmax(0, 1fr) 116px; }
+  .cp-view.with-list .cp-tags { margin-left: 14px; }
   .cp-view .ply { width: 104px; height: 80px; }
   .cp-tag { padding: 4px 6px; }
   .cp-tag small { display: none; }
