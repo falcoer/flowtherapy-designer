@@ -21,7 +21,7 @@ interface Props {
   /** Choix de la forme de pointe, sous la roue (absent : pas de choix, comme pour les tampons). */
   onTip?: (t: Tip) => void;
   stamp?: string;
-  /** Pendant le réglage de la taille (et au lâcher) : montrer l'empreinte en vraie grandeur sur la page. */
+  /** Pendant un réglage de la pointe (taille, rotation, inclinaison) et au lâcher : montrer l'empreinte en vraie grandeur sur la page. */
   onSizing?: (on: boolean) => void;
 }
 
@@ -103,7 +103,7 @@ export function BrushWheel(p: Props) {
         if (moved < 5) return;
         const radial = Math.abs((x - d.x) * d.x + (y - d.y) * d.y) / (Math.hypot(d.x, d.y) || 1);
         d.lock = p.onRotation && radial < moved * 0.6 ? 'rot' : 'size';
-        if (d.lock === 'size') p.onSizing?.(true);
+        p.onSizing?.(true);
       }
       if (d.lock === 'size') {
         const v = clamp((Math.hypot(x, y) - MINF) / (MAXF - MINF));
@@ -127,7 +127,7 @@ export function BrushWheel(p: Props) {
     const tiltAt = [tx * MAXF * 0.9, ty * MAXF * 0.9];
     let zone: 'ring' | 'edge' | 'tilt' | null = null;
     if (p.onIntensity && r >= RING - 12 && r <= C) zone = 'ring';
-    else if (p.onTilt && Math.hypot(x - tiltAt[0]!, y - tiltAt[1]!) < 11) zone = 'tilt';
+    else if (p.onTilt && Math.hypot(x - tiltAt[0]!, y - tiltAt[1]!) < 15) zone = 'tilt';
     else if (r < RING - 12) zone = 'edge';
     if (!zone) return;
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
@@ -145,6 +145,7 @@ export function BrushWheel(p: Props) {
     }
     lastTap.current = { t: now, zone };
     drag.current = { zone, x, y, a0: angle(x, y), rot0: rot };
+    if (zone === 'tilt') p.onSizing?.(true);
     // sur l'anneau, le toucher règle tout de suite ; ailleurs, on attend le sens du geste
     if (zone !== 'edge') apply(e);
   };
@@ -165,12 +166,12 @@ export function BrushWheel(p: Props) {
         onPointerDown={down}
         onPointerMove={(e) => e.buttons && apply(e)}
         onPointerUp={() => {
-          if (drag.current?.lock === 'size') p.onSizing?.(false);
+          if (drag.current?.lock || drag.current?.zone === 'tilt') p.onSizing?.(false);
           drag.current = null;
           setActive(null);
         }}
         onPointerCancel={() => {
-          if (drag.current?.lock === 'size') p.onSizing?.(false);
+          if (drag.current?.lock || drag.current?.zone === 'tilt') p.onSizing?.(false);
           drag.current = null;
           setActive(null);
         }}
@@ -213,7 +214,12 @@ export function BrushWheel(p: Props) {
         {p.onTilt && (
           <>
             <circle cx={C} cy={C} r={MAXF * 0.9} className="bw-guide faint dashed" />
-            <circle cx={C + tx * MAXF * 0.9} cy={C + ty * MAXF * 0.9} r={5} className="bw-tilt" />
+            {/* pastille d'inclinaison : à pousser hors du centre */}
+            <g transform={`translate(${C + tx * MAXF * 0.9} ${C + ty * MAXF * 0.9})`} className="bw-tilt-g">
+              <circle r={8} className="bw-tilt" />
+              <path d="M-12 0h-3M12 0h3M0 -12v-3M0 12v3" className="bw-tilt-cross" />
+              <circle r={2} className="bw-tilt-dot" />
+            </g>
           </>
         )}
         <text x={C} y={S - 18} className="bw-label">

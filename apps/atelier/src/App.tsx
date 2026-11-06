@@ -1584,7 +1584,11 @@ export function App() {
     el.style.display = 'block';
     el.style.width = `${D}px`;
     el.style.height = `${H}px`;
-    el.style.transform = `translate(${at.x - D / 2}px, ${at.y - H / 2}px) rotate(${ang}rad)`;
+    // tampon incliné : l'empreinte s'écrase vers la direction choisie, comme sur la roue
+    const k = tool === 'stamp' && !stampSow ? Math.min(1, Math.hypot(stampTilt[0], stampTilt[1])) : 0;
+    const dir = Math.atan2(stampTilt[1], stampTilt[0]);
+    const persp = k > 0.02 ? ` rotate(${dir}rad) scaleX(${1 - k * 0.35}) rotate(${-dir}rad)` : '';
+    el.style.transform = `translate(${at.x - D / 2}px, ${at.y - H / 2}px)${persp} rotate(${ang}rad)`;
   });
   const showHover = (e: React.PointerEvent) => {
     const el = hoverRef.current;

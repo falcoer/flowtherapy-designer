@@ -790,3 +790,9 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .atelier .side-params.two .vslider { height: 76px; }
 .atelier .height-bar .vslider { height: min(42dvh, 360px); }
 @media (max-width: 760px) { .atelier .height-bar .vslider { height: min(30dvh, 260px); } }
+.brush-wheel .bw-tilt { fill: color-mix(in srgb, var(--chrome-solid) 70%, transparent); stroke: var(--accent); stroke-width: 2; }
+.brush-wheel .bw-tilt-cross { stroke: var(--accent); stroke-width: 1.4; stroke-linecap: round; }
+.brush-wheel .bw-tilt-dot { fill: var(--accent); }
+/* tablette : une roue plus grande, au doigt */
+@media (pointer: coarse) and (min-width: 600px) { .brush-wheel > svg { width: 236px; height: 236px; } .bw-tips button { width: 44px; height: 38px; } }
+.brush-wheel { width: auto; }
