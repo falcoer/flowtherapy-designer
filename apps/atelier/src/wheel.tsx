@@ -88,7 +88,7 @@ function stipple(tip: Tip, r: number, density: number) {
   return out;
 }
 
-type Zone = 'size' | 'ring' | 'rot' | 'tilt';
+type Zone = 'size' | 'ring' | 'rot' | 'tilt' | 'edge';
 
 /**
  * Roue du pinceau : une seule palette pour le modelage, le dessin et les tampons.
@@ -97,7 +97,7 @@ type Zone = 'size' | 'ring' | 'rot' | 'tilt';
  */
 export function BrushWheel(p: Props) {
   const ref = useRef<SVGSVGElement>(null);
-  const drag = useRef<{ zone: Zone; a0: number; rot0: number; r0: number; v0: number } | null>(null);
+  const drag = useRef<{ zone: Zone; a0: number; rot0: number; r0: number; v0: number; x0: number; y0: number } | null>(null);
   // roue posée à gauche : le pinceau à droite (visible), la perspective à gauche ; l'inverse pour un gaucher
   const left = (p.side ?? 'left') === 'left';
   const TX = left ? C - BX : C + BX;
@@ -107,13 +107,17 @@ export function BrushWheel(p: Props) {
   // écartée sur le côté ; elle revient au survol ou au toucher, puis repart
   const [out, setOut] = useState(true);
   const away = useRef<number | null>(null);
+  // rangée d'un glissement : elle reste sur le côté jusqu'au prochain survol ou toucher
+  const stowed = useRef(false);
   const comeBack = () => {
+    stowed.current = false;
     if (away.current) clearTimeout(away.current);
     away.current = null;
     setOut(true);
   };
   const leaveSoon = () => {
     if (away.current) clearTimeout(away.current);
+    if (stowed.current) return;
     if (!p.hideAfter) return setOut(true);
     const ms = p.hideAfter;
     away.current = window.setTimeout(() => {
@@ -148,6 +152,25 @@ export function BrushWheel(p: Props) {
     const d = drag.current;
     if (!d) return;
     const [x, y] = local(e);
+    if (d.zone === 'edge') {
+      // bord extérieur : un glissement vers le côté range la roue ; sinon, c'est la rotation
+      const [dx, dy] = [x - d.x0, y - d.y0];
+      const toward = left ? -dx : dx;
+      if (toward > 36 && toward > Math.abs(dy) * 1.5) {
+        drag.current = null;
+        setActive(null);
+        p.onSizing?.(false);
+        if (away.current) clearTimeout(away.current);
+        away.current = null;
+        stowed.current = true;
+        setOut(false);
+        return;
+      }
+      if (Math.hypot(dx, dy) < 10 || (toward > 0 && toward > Math.abs(dy) * 1.5)) return;
+      if (!p.onRotation) return;
+      d.zone = 'rot';
+      p.onSizing?.(true);
+    }
     if (d.zone === 'ring' && p.onIntensity) {
       const v = Math.round(gaugeT(angle(x, y)) * 100) / 100;
       p.onIntensity(v);
@@ -184,7 +207,7 @@ export function BrushWheel(p: Props) {
     else if (Math.hypot(x - TX, y - TY) <= TR) zone = p.onTilt ? 'tilt' : null;
     else if (r < RI) zone = 'size';
     else if (r <= RO) zone = p.onIntensity ? 'ring' : null;
-    else if (r <= RA + 18) zone = p.onRotation ? 'rot' : null;
+    else if (r <= RA + 18) zone = 'edge';
     if (!zone) return;
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     const now = performance.now();
@@ -200,8 +223,8 @@ export function BrushWheel(p: Props) {
       return;
     }
     lastTap.current = { t: now, zone };
-    drag.current = { zone, a0: angle(x, y), rot0: rot, r0: r, v0: p.size };
-    if (zone !== 'ring') p.onSizing?.(true);
+    drag.current = { zone, a0: angle(x, y), rot0: rot, r0: r, v0: p.size, x0: x, y0: y };
+    if (zone !== 'ring' && zone !== 'edge') p.onSizing?.(true);
     // la rotation et la taille se règlent en glissant ; la jauge et la perspective, dès le toucher
     if (zone === 'ring' || zone === 'tilt') apply(e);
   };
@@ -238,7 +261,11 @@ export function BrushWheel(p: Props) {
     <div
       className={`brush-wheel side-${left ? 'left' : 'right'} ${out ? '' : 'away'}`}
       onPointerEnter={(e) => e.pointerType !== 'touch' && comeBack()}
-      onPointerLeave={(e) => e.pointerType !== 'touch' && !drag.current && leaveSoon()}
+      onPointerLeave={(e) => {
+        // la roue file sous la souris en se rangeant : ce départ-là ne compte pas
+        if (stowed.current) return void (e.pointerType !== 'touch' && (stowed.current = false));
+        if (e.pointerType !== 'touch' && !drag.current) leaveSoon();
+      }}
       onPointerDownCapture={comeBack}
     >
       <svg ref={ref} className={active ? 'live' : ''} viewBox={`0 0 ${S} ${S}`} onPointerDown={down} onPointerMove={(e) => e.buttons && apply(e)} onPointerUp={up} onPointerCancel={up}>
