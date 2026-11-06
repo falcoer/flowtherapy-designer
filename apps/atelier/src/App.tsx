@@ -1,6 +1,6 @@
 import { FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format } from '@ftd/core';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { paintStroke, previewStamps } from './brush';
+import { LEAN, paintStroke, previewStamps } from './brush';
 import { STAMPS, stampOf, stampSvg } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
@@ -103,6 +103,8 @@ export const BORDER_TYPES: Array<[BorderStyle | null, string, string]> = [
 ];
 /** Pinceaux qui acceptent une forme de brosse. */
 const tipOn = (k: BrushKind) => k === 'aquarelle' || k === 'acrylic' || k === 'roller';
+/** Pinceaux qui suivent l'inclinaison (la ramure et la brûlure poussent d'elles-mêmes). */
+const leanOn = (k: BrushKind) => k !== 'branch' && k !== 'burn';
 /** Les trois façons de modeler une forme. */
 const MOLD_MODES = [
   { key: 'mold', label: 'Modeler', hint: 'de l’intérieur on tire le contour, de l’extérieur on le repousse', icon: <Icon name="mold" /> },
@@ -605,6 +607,8 @@ export function App() {
   /** Forme de la brosse et son angle (radians), auquel s'ajoute la rotation du crayon. */
   const [brushTip, setBrushTip] = useState<'round' | 'flat' | 'triangle'>('round');
   const [brushRot, setBrushRot] = useState(0);
+  /** Inclinaison réglée à la main sur la roue du pinceau : la touche s'allonge dans cette direction, comme un crayon couché. */
+  const [brushTilt, setBrushTilt] = useState<[number, number]>([0, 0]);
   /** Ramures : nombre de ramifications et convergence. */
   const [branches, setBranches] = useState(6);
   const [converge, setConverge] = useState(0.3);
@@ -1577,7 +1581,7 @@ export function App() {
                   opacity,
                   seed: Math.floor(Math.random() * 1e9),
                   ...(tipOn(brushKind) ? { tip: brushTip } : {}),
-                  pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, target) } : {}) }],
+                  pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, target) } : {}), ...(leanOn(brushKind) ? brushLean(e, target) : {}) }],
                 },
     };
     // ramures : tant que la pointe reste posée, les ramifications poussent
@@ -1625,6 +1629,16 @@ export function App() {
   };
   /** Angle de la brosse dans le repère de la couche : le curseur, plus la rotation du crayon. */
   const tipAngle = (e: PenLike, l: Layer) => brushRot + penTwist(e) - view.rot - (l.rot ?? 0);
+  /** Pinceau penché (stylet couché, ou inclinaison de la roue) : la touche s'allonge dans le sens où il penche. */
+  const brushLean = (e: PenLike, l: Layer): { k?: number; d?: number } => {
+    const tx = e.tiltX ?? 0;
+    const ty = e.tiltY ?? 0;
+    const tilt = Math.hypot(tx, ty);
+    if (e.pointerType === 'pen' && penTilt && tilt > 25) return { k: Math.min(0.9, ((tilt - 25) / 45) * 0.9), d: Math.atan2(ty, tx) - view.rot - (l.rot ?? 0) };
+    const m = Math.hypot(brushTilt[0], brushTilt[1]);
+    if (m > 0.02) return { k: Math.min(0.9, m * 0.9), d: Math.atan2(brushTilt[1], brushTilt[0]) - view.rot - (l.rot ?? 0) };
+    return {};
+  };
   /** Rotation et inclinaison du tampon, dans le repère de la couche. */
   const stampAngle = (e: PenLike, l: Layer) => {
     const out: { r?: number; k?: number; d?: number } = { r: stampScreenAngle(e) - view.rot - (l.rot ?? 0) };
@@ -1687,7 +1701,10 @@ export function App() {
     // tampon incliné : l'empreinte s'écrase vers la direction choisie, comme sur la roue
     const k = tool === 'stamp' && !stampSow ? Math.min(1, Math.hypot(stampTilt[0], stampTilt[1])) : 0;
     const dir = Math.atan2(stampTilt[1], stampTilt[0]);
-    const persp = k > 0.02 ? ` rotate(${dir}rad) scaleX(${1 - k * 0.35}) rotate(${-dir}rad)` : '';
+    // pinceau penché : la touche s'allonge dans le sens choisi
+    const kb = tool === 'paint' && leanOn(brushKind) ? Math.min(0.9, Math.hypot(brushTilt[0], brushTilt[1]) * 0.9) : 0;
+    const db = Math.atan2(brushTilt[1], brushTilt[0]);
+    const persp = k > 0.02 ? ` rotate(${dir}rad) scaleX(${1 - k * 0.35}) rotate(${-dir}rad)` : kb > 0.02 ? ` rotate(${db}rad) scaleX(${1 + kb * LEAN}) rotate(${-db}rad)` : '';
     el.style.transform = `translate(${at.x - D / 2}px, ${at.y - H / 2}px)${persp} rotate(${ang}rad)`;
   });
   const showHover = (e: React.PointerEvent) => {
@@ -1720,7 +1737,11 @@ export function App() {
     el.style.width = `${D}px`;
     el.style.height = `${tip === 'flat' ? Math.max(3, D * 0.3) : D}px`;
     const ang = tool === 'stamp' ? stampScreenAngle(e) : molding && tip !== 'round' ? (swash.rot ?? 0) : tip !== 'round' ? brushRot + penTwist(e) : view.rot;
-    el.style.transform = `translate(${e.clientX - D / 2}px, ${e.clientY - (tip === 'flat' ? Math.max(3, D * 0.3) : D) / 2}px) rotate(${ang}rad)`;
+    // pinceau penché à la main : le repère s'allonge comme la touche
+    const kb = tool === 'paint' && !shaping && leanOn(brushKind) ? Math.min(0.9, Math.hypot(brushTilt[0], brushTilt[1]) * 0.9) : 0;
+    const db = Math.atan2(brushTilt[1], brushTilt[0]);
+    const lean = kb > 0.02 ? ` rotate(${db}rad) scaleX(${1 + kb * LEAN}) rotate(${-db}rad)` : '';
+    el.style.transform = `translate(${e.clientX - D / 2}px, ${e.clientY - (tip === 'flat' ? Math.max(3, D * 0.3) : D) / 2}px)${lean} rotate(${ang}rad)`;
   };
   const hideHover = () => {
     penHover.current = null;
@@ -1864,7 +1885,12 @@ export function App() {
         // un tampon traîné imprime une suite d'empreintes, espacées de leur taille
         // essuyé : le geste est suivi finement, l'encre s'étire derrière l'empreinte
         if (stamping ? dist < L.stroke.size * (L.stroke.sow ? 0.12 : L.stroke.wipe ? 0.05 : 2.2) : dist * Math.min(f.width, f.height) * scale < 1.5) continue;
-        L.stroke.pts.push({ ...loc, p: pr, ...(stamping && !L.stroke.wipe ? stampAngle(ev, l) : L.stroke.tip ? { r: tipAngle(ev, l) } : {}) });
+        L.stroke.pts.push({
+          ...loc,
+          p: pr,
+          ...(stamping && !L.stroke.wipe ? stampAngle(ev, l) : L.stroke.tip ? { r: tipAngle(ev, l) } : {}),
+          ...(!stamping && !branching && L.stroke.brush !== 'burn' ? brushLean(ev, l) : {}),
+        });
       }
       const tg = paintTarget(l, f, scale * dpr);
       if (stamping || branching) {
@@ -3250,6 +3276,7 @@ export function App() {
                     onIntensity={(v) => setOpacity(Math.max(0.05, v))}
                     onSizing={(on) => setSizing(on ? 'on' : 'after')}
                     {...(tipOn(brushKind) ? { tip: brushTip, ...(brushTip !== 'round' ? { rotation: brushRot, onRotation: setBrushRot } : {}) } : {})}
+                    {...(leanOn(brushKind) ? { tilt: brushTilt, onTilt: (x: number, y: number) => setBrushTilt([x, y]) } : {})}
                     pick={tipOn(brushKind) ? tipPick(brushTip, setBrushTip) : { face: <Icon name="tip-round" />, title: 'Pointe ronde (seule possible pour ce pinceau)' }}
                   />
                 ),
@@ -3271,25 +3298,14 @@ export function App() {
                     pick={{
                       face: <span className="bw-stamp-face" dangerouslySetInnerHTML={{ __html: stampSvg(stampOf(stampId)) }} />,
                       title: `Tampon : ${stampOf(stampId).name}`,
-                      next: () => setStampId(STAMPS[(STAMPS.findIndex((x) => x.id === stampId) + 1) % STAMPS.length]!.id),
-                      choices: (close) => (
-                        <div className="stamp-grid">
-                          {STAMPS.map((x) => (
-                            <button
-                              key={x.id}
-                              className={stampId === x.id ? 'on' : ''}
-                              onClick={() => {
-                                setStampId(x.id);
-                                close();
-                              }}
-                              title={x.name}
-                            >
-                              <span className="stamp-ico" dangerouslySetInnerHTML={{ __html: stampSvg(x, guideColor(doc.guides[guide], 0.5)) }} />
-                              <small>{x.name}</small>
-                            </button>
-                          ))}
-                        </div>
-                      ),
+                      // les tampons défilent dans l'éventail, comme les autres choix de la roue
+                      options: STAMPS.map((x) => ({
+                        key: x.id,
+                        icon: <span className="fan-stamp" dangerouslySetInnerHTML={{ __html: stampSvg(x, guideColor(doc.guides[guide], 0.5)) }} />,
+                        label: x.name,
+                        on: stampId === x.id,
+                      })),
+                      onOption: setStampId,
                     }}
                     stamp={`data:image/svg+xml,${encodeURIComponent(stampSvg(stampOf(stampId), guideColor(doc.guides[guide], 0.5)))}`}
                   />

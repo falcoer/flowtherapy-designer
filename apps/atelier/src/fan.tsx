@@ -1,6 +1,7 @@
 /**
- * Éventail : pour un choix court (jusqu'à 8), une barre qui se déploie depuis le bouton de sélection,
- * chaque élément arrivant l'un après l'autre. Un toucher sur un élément le choisit et referme.
+ * Éventail : une barre qui se déploie depuis le bouton de sélection, chaque élément arrivant l'un
+ * après l'autre. Un toucher sur un élément le choisit et referme. Au-delà de 8 éléments, la barre
+ * défile (doigt, molette ou trackpad) et s'ouvre sur l'élément choisi.
  */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
@@ -14,15 +15,32 @@ export interface FanItem {
 
 /** La barre seule ; `dir` : côté vers lequel elle s'ouvre. */
 export function Fan({ items, onPick, dir, style }: { items: FanItem[]; onPick: (key: string) => void; dir: 'left' | 'right'; style?: CSSProperties }) {
+  const scroll = items.length > 8;
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!scroll || !el) return;
+    // ouvre sur l'élément choisi
+    const on = el.querySelector<HTMLElement>('.fan-item.on');
+    if (on) el.scrollLeft = on.offsetLeft - el.clientWidth / 2 + on.offsetWidth / 2;
+    // la molette verticale fait défiler la barre
+    const wheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+    el.addEventListener('wheel', wheel, { passive: false });
+    return () => el.removeEventListener('wheel', wheel);
+  }, [scroll]);
   return (
-    <div className={`fan fan-${dir}`} style={style} role="menu" onPointerDown={(e) => e.stopPropagation()}>
+    <div ref={ref} className={`fan fan-${dir} ${scroll ? 'fan-scroll' : ''}`} style={style} role="menu" onPointerDown={(e) => e.stopPropagation()}>
       {items.map((it, i) => (
         <button
           key={it.key}
           role="menuitemradio"
           aria-checked={!!it.on}
           className={`fan-item ${it.on ? 'on' : ''}`}
-          style={{ '--i': i } as CSSProperties}
+          style={{ '--i': Math.min(i, 10) } as CSSProperties}
           title={it.hint ? `${it.label} : ${it.hint}` : it.label}
           onClick={() => onPick(it.key)}
         >
