@@ -1,15 +1,16 @@
 /**
  * Vue 3D : chaque couche devient une plaque posée à sa hauteur au-dessus de la feuille.
  * On fait pivoter le document (souris, doigt, inclinaison de la tablette) et les couches glissent
- * les unes sur les autres. Le navigateur fait la perspective (CSS 3D) ; au passage à WebGL, les
- * plaques et leurs hauteurs se reprennent telles quelles.
+ * les unes sur les autres. Rendu WebGL 2 (gl3d.ts : vraie épaisseur, lumière de la lampe, ombres
+ * portées) ; sans WebGL 2, le navigateur fait la perspective en CSS 3D.
  */
 import type { Format } from '@ftd/core';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Doc, Layer } from './model';
-import { opacityOf } from './fx';
-import { drawLampTint, drawLayers, forgetPaint, levelOf, renderOrder, shadowVector } from './scene';
+import { hexRGB, opacityOf } from './fx';
+import { drawLampTint, drawLayers, forgetPaint, lampOf, levelOf, renderOrder, shadowVector } from './scene';
+import { Gl3d, hasWebGL2, type GlView } from './gl3d';
 import { layerBox } from './model';
 
 interface Plate {
@@ -185,6 +186,16 @@ export function ParallaxView({
   const drag = useRef<{ x: number; y: number; t: [number, number] } | null>(null);
   const lastTap = useRef(0);
   const [dragging, setDragging] = useState(false);
+  // WebGL 2 si l'appareil le permet ; sinon les plaques CSS
+  const [useGl] = useState(hasWebGL2);
+  const glCanvas = useRef<HTMLCanvasElement>(null);
+  const gl = useRef<Gl3d | null>(null);
+  /** Vue affichée (elle rejoint en douceur la vue demandée) et vue demandée. */
+  const shown = useRef<GlView & { z: Map<string, number> }>({ tilt: [0, 0], zoom: 1, lift: 0, z: new Map() });
+  const wanted = useRef<GlView & { z: Map<string, number>; t: Map<string, number> }>({ tilt: [0, 0], zoom: 1, lift: 0, z: new Map(), t: new Map() });
+  const kick = useRef<() => void>(() => {});
+  const heightRef = useRef(false);
+  heightRef.current = heightDrag;
 
   // le document se construit une fois à l'ouverture
   useEffect(() => {
@@ -194,6 +205,28 @@ export function ParallaxView({
     const r = k * Math.min(2, window.devicePixelRatio || 1);
     setSize([f.width * k, f.height * k]);
     const id = window.setTimeout(() => {
+      if (useGl && glCanvas.current) {
+        const plates = buildPlates(doc, f, r);
+        let g: Gl3d;
+        try {
+          g = new Gl3d(glCanvas.current);
+        } catch {
+          return;
+        }
+        gl.current = g;
+        const L = lampOf(doc);
+        g.light = { x: L.x, y: L.y, z: L.z, color: hexRGB(L.color) };
+        g.setPlates(
+          [f.width, f.height],
+          plates.map((p, i) => ({ img: p.c, x: p.x / r, y: p.y / r, w: p.c.width / r, h: p.c.height / r, z: p.h, t: i && p.l ? thicknessOf(p.l) : 0, page: !i, id: p.l?.id })),
+        );
+        for (const p of plates) if (p.l) shown.current.z.set(p.l.id, p.h);
+        placed.current = plates.map((p, i) => ({ p, i, el: p.c, slices: [] }));
+        geo.current = { r, k, put: () => {} };
+        setBusy(false);
+        if (!start) requestAnimationFrame(() => setTilt([-14, 10]));
+        return;
+      }
       const el = stage.current;
       if (!el) return;
       const plates = buildPlates(doc, f, r);
@@ -239,13 +272,86 @@ export function ParallaxView({
       // une légère inclinaison d'entrée montre tout de suite l'épaisseur
       if (!start) requestAnimationFrame(() => setTilt([-14, 10]));
     }, 30);
-    return () => clearTimeout(id);
+    return () => {
+      clearTimeout(id);
+      gl.current?.dispose();
+      gl.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // WebGL : le canevas suit la taille de la vue ; l'image rejoint en douceur la vue demandée
+  useEffect(() => {
+    if (!useGl) return;
+    const c = glCanvas.current;
+    if (!c) return;
+    let raf = 0;
+    const frame = () => {
+      raf = 0;
+      const g = gl.current;
+      if (!g) return;
+      const S = shown.current;
+      const T = wanted.current;
+      let moving = false;
+      const step = (a: number, b: number, k: number) => {
+        if (Math.abs(b - a) < 1e-3) return b;
+        moving = true;
+        return a + (b - a) * k;
+      };
+      const k = drag.current ? 0.55 : 0.14;
+      S.tilt = [step(S.tilt[0], T.tilt[0], k), step(S.tilt[1], T.tilt[1], k)];
+      S.zoom = step(S.zoom, T.zoom, 0.2);
+      S.lift = S.lift ? step(S.lift, T.lift, 0.2) : T.lift;
+      for (const [id, z] of T.z) {
+        const v = step(S.z.get(id) ?? z, z, heightRef.current ? 0.5 : 0.15);
+        S.z.set(id, v);
+        g.setLevel(id, v, T.t.get(id) ?? 0);
+      }
+      g.render({ tilt: S.tilt, zoom: S.zoom, lift: S.lift, selected: T.selected });
+      if (moving) raf = requestAnimationFrame(frame);
+    };
+    kick.current = () => {
+      if (!raf) raf = requestAnimationFrame(frame);
+    };
+    const fit = () => {
+      const b = c.getBoundingClientRect();
+      const d = Math.min(2, window.devicePixelRatio || 1);
+      c.width = Math.max(1, Math.round(b.width * d));
+      c.height = Math.max(1, Math.round(b.height * d));
+      kick.current();
+    };
+    const ro = new ResizeObserver(fit);
+    ro.observe(c);
+    fit();
+    return () => {
+      ro.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // la vue demandée suit l'inclinaison, le zoom et l'écartement
+  useEffect(() => {
+    const T = wanted.current;
+    T.tilt = tilt;
+    T.zoom = zoom;
+    T.lift = Math.min(f.width, f.height) * 0.12 * spread;
+    kick.current();
+  }, [tilt, zoom, spread, busy, f]);
 
   // les hauteurs suivent le document (réglage en direct) ; les ombres se refont au repos
   useEffect(() => {
     if (busy) return;
+    if (gl.current) {
+      const T = wanted.current;
+      for (const l of doc.layers) {
+        if (l.kind === 'surface') continue;
+        T.z.set(l.id, Math.max(0, levelOf(l)));
+        T.t.set(l.id, thicknessOf(l));
+      }
+      T.selected = selected ?? null;
+      kick.current();
+      return;
+    }
     const byId = new Map(doc.layers.map((l) => [l.id, l]));
     for (const P of placed.current) {
       if (!P.p.l) continue;
@@ -278,6 +384,13 @@ export function ParallaxView({
    * la première dont le pixel touché est plein l'emporte.
    */
   const pickAt = (cx: number, cy: number): string | null => {
+    const g3 = gl.current;
+    const cv = glCanvas.current;
+    if (g3 && cv) {
+      const b = cv.getBoundingClientRect();
+      const S = shown.current;
+      return g3.pickAt(((cx - b.left) / b.width) * cv.width, ((cy - b.top) / b.height) * cv.height, { tilt: S.tilt, zoom: S.zoom, lift: S.lift });
+    }
     const host = stage.current?.parentElement;
     const g = geo.current;
     if (!host || !g) return null;
@@ -405,6 +518,7 @@ export function ParallaxView({
         } else setZoom((z) => Math.max(0.4, Math.min(3, z * Math.exp(-e.deltaY * 0.0015))));
       }}
     >
+      {useGl && <canvas ref={glCanvas} className="px-gl" />}
       <div
         ref={stage}
         className="px-stage"
