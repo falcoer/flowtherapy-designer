@@ -237,10 +237,12 @@ export function ParallaxView({ doc, f, onClose, start }: { doc: Doc; f: Format; 
   };
 
   const minPx = Math.min(size[0], size[1]);
-  // posée sur la page entière, hors des cadres de l'atelier
-  return createPortal(
+  // ouverte d'un geste : dans l'atelier, sous ses barres et panneaux (l'édition reste là) ;
+  // depuis le menu : posée sur la page entière
+  const inline = !!start;
+  const view = (
     <div
-      className={`px3d ${dragging || gyro ? 'dragging' : ''}`}
+      className={`px3d ${inline ? 'px-inline' : ''} ${dragging || gyro ? 'dragging' : ''}`}
       onPointerDown={(e) => {
         if ((e.target as Element).closest('.px-bar')) return;
         const now = performance.now();
@@ -292,26 +294,28 @@ export function ParallaxView({ doc, f, onClose, start }: { doc: Doc; f: Format; 
         }
       />
       {busy && <div className="px-busy">Mise en volume…</div>}
-      <div className="px-bar">
-        <label className="px-spread" title="Écartement des couches : leur hauteur réelle, exagérée pour mieux voir">
-          <span>Écartement</span>
-          <input type="range" min={0} max={6} step={0.1} value={spread} onChange={(e) => setSpread(Number(e.target.value))} />
-        </label>
-        {'DeviceOrientationEvent' in window && (
-          <button className={`chip ${gyro ? 'on' : ''}`} onClick={askGyro} title="Pencher la tablette pour faire tourner le document">
-            Inclinaison
+      {!inline && (
+        <div className="px-bar">
+          <label className="px-spread" title="Écartement des couches : leur hauteur réelle, exagérée pour mieux voir">
+            <span>Écartement</span>
+            <input type="range" min={0} max={6} step={0.1} value={spread} onChange={(e) => setSpread(Number(e.target.value))} />
+          </label>
+          {'DeviceOrientationEvent' in window && (
+            <button className={`chip ${gyro ? 'on' : ''}`} onClick={askGyro} title="Pencher la tablette pour faire tourner le document">
+              Inclinaison
+            </button>
+          )}
+          <button className="chip" onClick={() => (setTilt([0, 0]), setZoom(1))} title="Revenir de face (ou toucher deux fois)">
+            De face
           </button>
-        )}
-        <button className="chip" onClick={() => (setTilt([0, 0]), setZoom(1))} title="Revenir de face (ou toucher deux fois)">
-          De face
-        </button>
-        <button className="chip" onClick={onClose}>
-          Retour
-        </button>
-      </div>
-    </div>,
-    document.body,
+          <button className="chip" onClick={onClose}>
+            Retour
+          </button>
+        </div>
+      )}
+    </div>
   );
+  return inline ? view : createPortal(view, document.body);
 }
 
 /**

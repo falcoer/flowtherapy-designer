@@ -921,3 +921,5 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .hpeek .hp-shadow { filter: brightness(0) blur(2px); opacity: 0.3; }
 .cp-h .cp-sculpt { margin-left: auto; height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12px; }
 .cp-h .cp-sculpt + .cp-add { margin-left: 0; }
+/* Vue 3D ouverte d'un geste : dans l'atelier, sous les barres et panneaux, l'édition reste en place */
+.px3d.px-inline { position: absolute; z-index: 3; background: var(--ground); }
