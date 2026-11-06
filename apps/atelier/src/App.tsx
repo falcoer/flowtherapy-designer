@@ -3764,7 +3764,7 @@ export function App() {
           </button>
         </div>
       )}
-      {view3d && <ParallaxView doc={doc} f={f} start={view3d.start} onClose={() => setView3d(false)} />}
+      {view3d && <ParallaxView doc={doc} f={f} start={view3d.start} onClose={() => setView3d(false)} selected={selected} onSelect={setSelected} onLevel={setLevel} />}
       {snapshot && (
         <div className="snapshot" onClick={() => setSnapshot(null)}>
           <img src={snapshot} alt="Rendu final" />

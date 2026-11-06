@@ -923,3 +923,9 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .cp-h .cp-sculpt + .cp-add { margin-left: 0; }
 /* Vue 3D ouverte d'un geste : dans l'atelier, sous les barres et panneaux, l'édition reste en place */
 .px3d.px-inline { position: absolute; z-index: 3; background: var(--ground); }
+/* Vue 3D : l'objet choisi et sa hauteur */
+.px-plate.px-sel { filter: drop-shadow(0 0 2px var(--accent)) drop-shadow(0 0 1px var(--accent)); }
+.px-height { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 10px; border-radius: 22px; background: var(--chrome-solid); box-shadow: var(--shadow); cursor: default; }
+.px-height input { writing-mode: vertical-lr; direction: rtl; height: min(46dvh, 380px); width: 32px; accent-color: var(--accent); }
+.px-hname { max-width: 90px; font-size: 11px; font-weight: 600; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.px-hlabel { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }

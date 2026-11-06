@@ -142,8 +142,37 @@ function thicknessOf(l: Layer): number {
   return 0.035 + (l.volume ? l.volume.amount * 0.07 : 0) + (l.bevel ?? 0) * 0.025;
 }
 
-export function ParallaxView({ doc, f, onClose, start }: { doc: Doc; f: Format; onClose: () => void; start?: [number, number] }) {
+/** Une plaque posée dans la vue : son image, ses tranches, et de quoi la retrouver sous le doigt. */
+interface Placed {
+  p: Plate;
+  i: number;
+  el: HTMLCanvasElement;
+  slices: HTMLCanvasElement[];
+}
+
+export function ParallaxView({
+  doc,
+  f,
+  onClose,
+  start,
+  selected,
+  onSelect,
+  onLevel,
+}: {
+  doc: Doc;
+  f: Format;
+  onClose: () => void;
+  start?: [number, number];
+  /** Objet choisi : il se règle en hauteur sans quitter la vue. */
+  selected?: string | null;
+  onSelect?: (id: string | null) => void;
+  onLevel?: (l: Layer, v: number) => void;
+}) {
   const stage = useRef<HTMLDivElement>(null);
+  const placed = useRef<Placed[]>([]);
+  const shadowEls = useRef<HTMLCanvasElement[]>([]);
+  const geo = useRef<{ r: number; k: number; put: (c: HTMLCanvasElement, x: number, y: number, z: number, cls: string, scale?: number) => void } | null>(null);
+  const [heightDrag, setHeightDrag] = useState(false);
   const [tilt, setTilt] = useState<[number, number]>(start ?? [0, 0]);
   // ouverte d'un geste (molette, trois doigts) : revenir de face la referme
   const peek = useRef(!!start);
@@ -179,7 +208,10 @@ export function ParallaxView({ doc, f, onClose, start }: { doc: Doc; f: Format; 
         c.style.setProperty('--z', String(z));
         el.appendChild(c);
       };
+      geo.current = { r, k, put };
+      placed.current = [];
       plates.forEach((p, i) => {
+        const slices: HTMLCanvasElement[] = [];
         // la tranche : des copies assombries empilées sous la plaque, comme un carton découpé
         if (i && p.l) {
           const t = thicknessOf(p.l);
@@ -192,11 +224,17 @@ export function ParallaxView({ doc, f, onClose, start }: { doc: Doc; f: Format; 
             x.filter = `brightness(${0.42 + (0.4 * j) / n})`;
             x.drawImage(p.c, 0, 0);
             put(c, p.x, p.y, Math.max(0.0004, p.h - t + (t * j) / n) + i * 0.0015, 'px-plate px-slice');
+            slices.push(c);
           }
         }
         put(p.c, p.x, p.y, p.h + i * 0.0015, i ? 'px-plate' : 'px-plate px-page');
+        placed.current.push({ p, i, el: p.c, slices });
       });
-      for (const s of shadows) put(s.c, s.x, s.y, plates[s.on]!.h + s.on * 0.0015 + 0.0008, 'px-plate px-shadow', 0.5);
+      shadowEls.current = [];
+      for (const s of shadows) {
+        put(s.c, s.x, s.y, plates[s.on]!.h + s.on * 0.0015 + 0.0008, 'px-plate px-shadow', 0.5);
+        shadowEls.current.push(s.c);
+      }
       setBusy(false);
       // une légère inclinaison d'entrée montre tout de suite l'épaisseur
       if (!start) requestAnimationFrame(() => setTilt([-14, 10]));
@@ -204,6 +242,83 @@ export function ParallaxView({ doc, f, onClose, start }: { doc: Doc; f: Format; 
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // les hauteurs suivent le document (réglage en direct) ; les ombres se refont au repos
+  useEffect(() => {
+    if (busy) return;
+    const byId = new Map(doc.layers.map((l) => [l.id, l]));
+    for (const P of placed.current) {
+      if (!P.p.l) continue;
+      const l = byId.get(P.p.l.id);
+      if (!l) continue;
+      P.p.l = l;
+      P.p.h = Math.max(0, levelOf(l));
+      P.el.style.setProperty('--z', String(P.p.h + P.i * 0.0015));
+      const t = thicknessOf(l);
+      P.slices.forEach((c, j) => c.style.setProperty('--z', String(Math.max(0.0004, P.p.h - t + (t * j) / P.slices.length) + P.i * 0.0015)));
+      P.el.classList.toggle('px-sel', l.id === selected);
+    }
+    const id = window.setTimeout(() => {
+      const g = geo.current;
+      if (!g || heightDrag) return;
+      for (const c of shadowEls.current) c.remove();
+      shadowEls.current = [];
+      const plates = placed.current.map((P) => P.p);
+      for (const s of buildShadows(doc, f, g.r, plates)) {
+        g.put(s.c, s.x, s.y, plates[s.on]!.h + s.on * 0.0015 + 0.0008, 'px-plate px-shadow', 0.5);
+        shadowEls.current.push(s.c);
+      }
+    }, 350);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc.layers, selected, busy, heightDrag]);
+
+  /**
+   * L'objet sous le doigt : le rayon de l'œil traverse les plaques de la plus haute à la plus basse ;
+   * la première dont le pixel touché est plein l'emporte.
+   */
+  const pickAt = (cx: number, cy: number): string | null => {
+    const host = stage.current?.parentElement;
+    const g = geo.current;
+    if (!host || !g) return null;
+    const box = host.getBoundingClientRect();
+    const P = 1800;
+    const [sx, sy] = [cx - (box.left + box.width / 2), cy - (box.top + box.height / 2)];
+    const [ax, ay] = [(tilt[1] * Math.PI) / 180, (tilt[0] * Math.PI) / 180];
+    // M = échelle · rotateX · rotateY (repère CSS : y vers le bas, z vers l'œil)
+    const M = (x: number, y: number, z: number): [number, number, number] => {
+      const [x1, z1] = [x * Math.cos(ay) + z * Math.sin(ay), -x * Math.sin(ay) + z * Math.cos(ay)];
+      const [y2, z2] = [y * Math.cos(ax) - z1 * Math.sin(ax), y * Math.sin(ax) + z1 * Math.cos(ax)];
+      return [x1 * zoom, y2 * zoom, z2 * zoom];
+    };
+    const Minv = (x: number, y: number, z: number): [number, number, number] => {
+      [x, y, z] = [x / zoom, y / zoom, z / zoom];
+      const [y1, z1] = [y * Math.cos(ax) + z * Math.sin(ax), -y * Math.sin(ax) + z * Math.cos(ax)];
+      return [x * Math.cos(ay) - z1 * Math.sin(ay), y1, x * Math.sin(ay) + z1 * Math.cos(ay)];
+    };
+    const lift = Math.min(size[0], size[1]) * 0.12 * spread;
+    const n = M(0, 0, 1);
+    const order = [...placed.current].filter((x) => x.p.l).sort((a, b) => b.p.h + b.i * 0.0015 - (a.p.h + a.i * 0.0015));
+    for (const Q of order) {
+      const z0 = (Q.p.h + Q.i * 0.0015) * lift;
+      const o = M(0, 0, z0);
+      // rayon : de l'œil (0, 0, P) vers le point de l'écran (sx, sy, 0)
+      const d: [number, number, number] = [sx, sy, -P];
+      const den = n[0] * d[0] + n[1] * d[1] + n[2] * d[2];
+      if (Math.abs(den) < 1e-9) continue;
+      const tt = (n[0] * o[0] + n[1] * o[1] + n[2] * (o[2] - P)) / den;
+      const w = [d[0] * tt, d[1] * tt, P + d[2] * tt] as const;
+      const [u, v] = Minv(w[0], w[1], w[2]);
+      // repère de la plaque : pixels de rendu depuis son coin
+      const px = ((u + size[0] / 2) / g.k) * g.r - Q.p.x;
+      const py = ((v + size[1] / 2) / g.k) * g.r - Q.p.y;
+      if (px < 0 || py < 0 || px >= Q.el.width || py >= Q.el.height) continue;
+      const a = Q.el.getContext('2d')!.getImageData(Math.floor(px), Math.floor(py), 1, 1).data[3]!;
+      if (a > 24) return Q.p.l!.id;
+    }
+    return null;
+  };
+  const tapAt = useRef<{ x: number; y: number } | null>(null);
 
   // tablette : on penche l'appareil, le document suit
   useEffect(() => {
@@ -237,6 +352,7 @@ export function ParallaxView({ doc, f, onClose, start }: { doc: Doc; f: Format; 
   };
 
   const minPx = Math.min(size[0], size[1]);
+  const selLayer = selected ? doc.layers.find((l) => l.id === selected && l.kind !== 'surface') : undefined;
   // ouverte d'un geste : dans l'atelier, sous ses barres et panneaux (l'édition reste là) ;
   // depuis le menu : posée sur la page entière
   const inline = !!start;
@@ -253,6 +369,7 @@ export function ParallaxView({ doc, f, onClose, start }: { doc: Doc; f: Format; 
           return;
         }
         lastTap.current = now;
+        tapAt.current = { x: e.clientX, y: e.clientY };
         (e.currentTarget as Element).setPointerCapture(e.pointerId);
         drag.current = { x: e.clientX, y: e.clientY, t: tilt };
         setDragging(true);
@@ -263,9 +380,16 @@ export function ParallaxView({ doc, f, onClose, start }: { doc: Doc; f: Format; 
         const clamp = (v: number) => Math.max(-70, Math.min(70, v));
         setTilt([clamp(d.t[0] + (e.clientX - d.x) * 0.3), clamp(d.t[1] - (e.clientY - d.y) * 0.3)]);
       }}
-      onPointerUp={() => {
+      onPointerUp={(e) => {
         drag.current = null;
         setDragging(false);
+        const t0 = tapAt.current;
+        tapAt.current = null;
+        if (t0 && onSelect && Math.hypot(e.clientX - t0.x, e.clientY - t0.y) < 6) {
+          // un toucher : choisir l'objet (ou rien) ; un glisser : tourner
+          onSelect(pickAt(e.clientX, e.clientY));
+          return;
+        }
         if (peek.current && Math.abs(tilt[0]) < 3 && Math.abs(tilt[1]) < 3) onClose();
       }}
       onPointerCancel={() => ((drag.current = null), setDragging(false))}
@@ -294,6 +418,26 @@ export function ParallaxView({ doc, f, onClose, start }: { doc: Doc; f: Format; 
         }
       />
       {busy && <div className="px-busy">Mise en volume…</div>}
+      {!inline && selLayer && onLevel && (
+        <div className="px-height" onPointerDown={(e) => e.stopPropagation()}>
+          <span className="px-hname">{selLayer.name}</span>
+          <input
+            type="range"
+            min={-1}
+            max={1}
+            step={0.01}
+            value={selLayer.height - (selLayer.inner ?? 0)}
+            onPointerDown={() => setHeightDrag(true)}
+            onPointerUp={() => setHeightDrag(false)}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              onLevel(selLayer, Math.abs(v) < 0.03 ? 0 : Math.round(v * 100) / 100);
+            }}
+            aria-label="Hauteur"
+          />
+          <span className="px-hlabel">Hauteur {Math.round((selLayer.height - (selLayer.inner ?? 0)) * 100)}</span>
+        </div>
+      )}
       {!inline && (
         <div className="px-bar">
           <label className="px-spread" title="Écartement des couches : leur hauteur réelle, exagérée pour mieux voir">
