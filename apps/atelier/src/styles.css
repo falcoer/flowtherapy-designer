@@ -740,3 +740,13 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 @media (max-width: 560px) {
   .bar-center { top: calc(52px + env(safe-area-inset-top, 0px) + 6px); bottom: auto; height: 44px; padding: 0 4px; border-radius: 22px; background: var(--chrome); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: var(--shadow); z-index: 11; }
 }
+/* inclinaison : plateau commun aux tampons et au texte */
+.tilt-pad { position: relative; flex: none; touch-action: none; cursor: grab; border-radius: 50%; background: var(--chrome-solid); }
+.tilt-pad svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.tilt-pad .tp-ring { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.tilt-pad .tp-axis { fill: none; stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
+.tilt-pad .tp-card { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.2; stroke-linejoin: round; }
+.tilt-pad .tp-dot { fill: var(--accent); }
+.tilt-pad .tp-val { position: absolute; left: 50%; bottom: -15px; transform: translateX(-50%); font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.side-params .tilt-pad { margin-bottom: 14px; }
+.cp-row.tilt-row { grid-template-columns: 82px 1fr; padding-bottom: 14px; }

@@ -403,6 +403,13 @@ export function ensureFont(id: string): Promise<void> {
 export const isFontReady = (id: string) => ready.has(id);
 
 /** Ce que la police sait faire en vrai : plage de graisse, italique dessiné. */
+/** L'italique compte pour cette inclinaison, en degrés. */
+export const ITALIC_DEG = 12;
+/** Inclinaison totale du texte, en degrés (positif : penche à droite). */
+export const leanOf = (t: { italic: boolean; slant?: number }) => (t.slant ?? 0) + (t.italic ? ITALIC_DEG : 0);
+/** Une seule commande : à partir de 8° vers la droite, la police passe en italique (dessinée si elle existe), le reste est penché. */
+export const withLean = (deg: number) => (deg >= 8 ? { italic: true, slant: deg - ITALIC_DEG } : { italic: false, slant: deg });
+
 function abilities(id: string, italic: boolean) {
   const fi = fontOf(id);
   const files = fi.files.filter((x) => x.style === (italic && fi.files.some((y) => y.style === 'italic') ? 'italic' : 'normal'));
@@ -546,7 +553,7 @@ function render(t: TextStyle, key: string): Base {
       [sx0, sy0, sx1, sy1] = [Math.min(sx0, x - r), Math.min(sy0, y - r), Math.max(sx1, x + r), Math.max(sy1, y + r)];
     }
   // penché (italique simulé et inclinaison) : le haut des lignes se décale d'autant
-  const skew = Math.tan(((t.slant ?? 0) * Math.PI) / 180) + (t.italic && !ab.realItalic ? 0.2 : 0);
+  const skew = Math.tan(((t.slant ?? 0) * Math.PI) / 180) + (t.italic && !ab.realItalic ? Math.tan((ITALIC_DEG * Math.PI) / 180) : 0);
   const lean = Math.abs(skew) * lines.length * lead;
   const emW = Math.max(widest / size + 1.3 + lean, sx1 + 0.5) - Math.min(0, sx0 - 0.5);
   const emH = Math.max(lines.length * lead + 1, sy1 + 0.5) - Math.min(0, sy0 - 0.5);

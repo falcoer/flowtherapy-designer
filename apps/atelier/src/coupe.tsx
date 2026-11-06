@@ -5,8 +5,9 @@ import { FX, fxGuides, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId 
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { GEN_DEFAULTS, type Doc, type Layer } from './model';
-import { fontFamily, fontList, fontOf, WARPS, type TextStyle, type WarpKind } from './text';
+import { fontFamily, fontList, fontOf, leanOf, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { TextContent, TextWarp, WarpGlyph } from './textbar';
+import { TiltPad } from './tilt';
 
 /**
  * Coupe de l'objet : ses couches lues comme l'objet posé, du dessus au dessous.
@@ -675,13 +676,11 @@ function Attrs({
     body = (
       <>
         <Range label="Graisse" display={`${t.weight}`} value={(t.weight - 100) / 800} onChange={(v) => patchText({ weight: 100 + Math.round(v * 80) * 10 }, false)} />
-        <Range label="Inclinaison" min={-1} display={`${Math.round(t.slant ?? 0)}°`} value={(t.slant ?? 0) / 30} onChange={(v) => patchText({ slant: Math.abs(v) < 0.04 ? 0 : Math.round(v * 30) }, false)} />
+        <div className="cp-row tilt-row">
+          <span>Inclinaison</span>
+          <TiltPad label="Inclinaison" axis="x" size={52} x={leanOf(t) / 30} display={`${leanOf(t)}°${t.italic ? ' · italique' : ''}`} onChange={(x) => patchText(withLean(Math.round(x * 30)), false)} />
+        </div>
         <Range label="Espacement" display={`${Math.round((t.tracking ?? 0) * 100)}`} min={-0.2} value={(t.tracking ?? 0) / 0.5} onChange={(v) => patchText({ tracking: Math.round(v * 50) / 100 }, false)} />
-        <label className="cp-row">
-          <span>Italique</span>
-          <input type="checkbox" checked={!!t.italic} onChange={(e) => patchText({ italic: e.target.checked }, true)} />
-          <output>{t.italic ? 'oui' : 'non'}</output>
-        </label>
       </>
     );
   } else if (item.key === 'shape') {

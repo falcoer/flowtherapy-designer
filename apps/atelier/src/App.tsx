@@ -5,6 +5,7 @@ import { STAMPS, stampOf, stampSvg } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { PrefsPanel, type Theme } from './prefs';
+import { TiltPad } from './tilt';
 import { currentPx, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
 import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
 import { QuickText, TextBar, type SwashTool } from './textbar';
@@ -429,6 +430,8 @@ export function App() {
   const [stampFilled, setStampFilled] = useState(false);
   /** Rotation du tampon (radians), fixée au curseur : Safari ne transmet pas la rotation du crayon. */
   const [stampRot, setStampRot] = useState(0);
+  /** Inclinaison réglée à la main (sans stylet) : le tampon se met en perspective dans cette direction. */
+  const [stampTilt, setStampTilt] = useState<[number, number]>([0, 0]);
   /** Réglage global : l'inclinaison du stylet met les empreintes en perspective. */
   const [penTilt, setPenTiltState] = useState(() => {
     try {
@@ -1528,6 +1531,9 @@ export function App() {
     if (e.pointerType === 'pen' && penTilt && tilt > 25) {
       out.k = Math.min(0.9, ((tilt - 25) / 45) * 0.9);
       out.d = Math.atan2(ty, tx) - view.rot - (l.rot ?? 0);
+    } else if (Math.hypot(stampTilt[0], stampTilt[1]) > 0.02) {
+      out.k = Math.min(0.9, Math.hypot(stampTilt[0], stampTilt[1]) * 0.9);
+      out.d = Math.atan2(stampTilt[1], stampTilt[0]) - view.rot - (l.rot ?? 0);
     }
     return out;
   };
@@ -2881,6 +2887,7 @@ export function App() {
                     </div>
                   )}
                   <Dial label="Rotation" value={stampRot} onChange={setStampRot} />
+                  {!stampSow && <TiltPad label="Inclinaison" x={stampTilt[0]} y={stampTilt[1]} display={`${Math.round(Math.hypot(stampTilt[0], stampTilt[1]) * 100)}%`} onChange={(x, y) => setStampTilt([x, y])} />}
                   <button
                     className="btn small"
                     onClick={() => setStampSow(!stampSow)}
@@ -2897,7 +2904,7 @@ export function App() {
                     <>
                       <VSlider label="Densité" value={sowDensity} onChange={(v) => setSowDensity(Math.round(v * 100) / 100)} />
                       <VSlider label="Écart" value={sowSpread} onChange={(v) => setSowSpread(Math.round(v * 100) / 100)} />
-                      <VSlider label="Perspective" value={sowPersp} onChange={(v) => setSowPersp(Math.round(v * 100) / 100)} />
+                      <VSlider label="Inclinaison au hasard" value={sowPersp} onChange={(v) => setSowPersp(Math.round(v * 100) / 100)} />
                     </>
                   )}
                 </>

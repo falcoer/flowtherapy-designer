@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Layer } from './model';
-import { ensureFont, fontFamily, fontList, fontOf, loadFonts, swashWidth, WARPS, type SwashEnd, type TextStyle, type WarpKind } from './text';
+import { ensureFont, fontFamily, fontList, fontOf, ITALIC_DEG, leanOf, loadFonts, withLean, swashWidth, WARPS, type SwashEnd, type TextStyle, type WarpKind } from './text';
 
 /** Outil Prolonger : on dessine depuis une lettre, le trait devient une partie des lettres. */
 export interface SwashTool {
@@ -111,7 +111,7 @@ export function TextBar({
       )}
       {!toolsOnly && (
         <div className="tb-row">
-          <button className={`tb-btn tb-italic ${t.italic ? 'on' : ''}`} onClick={() => change({ italic: !t.italic }, 'italic')} title="Italique">
+          <button className={`tb-btn tb-italic ${t.italic ? 'on' : ''}`} onClick={() => change(withLean(leanOf(t) ? 0 : ITALIC_DEG), 'italic')} title="Italique (toute l'inclinaison se règle dans le style)">
             I
           </button>
           <div className="seg tb-align">
