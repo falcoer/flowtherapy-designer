@@ -644,6 +644,8 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .text-bubble { display: flex; flex-direction: column; gap: 6px; }
 .text-bubble .tb-area { width: 100%; resize: vertical; min-height: 0; }
 .text-bubble .tb-align { align-self: flex-start; }
-.text-warp { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; margin-top: 2px; border-top: 1px solid var(--line); }
+.text-warp { display: flex; flex-direction: column; gap: 6px; }
 .text-warp .cp-sub { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .text-warp .tb-warps { align-self: flex-start; }
+.cp-item .sw-glyph { display: inline-grid; place-items: center; background: var(--chrome-solid); color: var(--ink); border: 1px solid var(--line); }
+.cp-item .sw-glyph svg { width: 14px; height: 12px; }

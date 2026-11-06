@@ -5,8 +5,8 @@ import { FX, fxGuides, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId 
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { GEN_DEFAULTS, type Doc, type Layer } from './model';
-import { fontFamily, fontList, fontOf, type TextStyle } from './text';
-import { TextContent, TextWarp } from './textbar';
+import { fontFamily, fontList, fontOf, WARPS, type TextStyle, type WarpKind } from './text';
+import { TextContent, TextWarp, WarpGlyph } from './textbar';
 
 /**
  * Coupe de l'objet : ses couches lues comme l'objet posé, du dessus au dessous.
@@ -24,6 +24,8 @@ interface Item {
   removable: boolean;
   /** Une police : la pastille et le nom s'affichent dans cette police. */
   font?: string;
+  /** Pastille dessinée (contenu, déformation du texte). */
+  glyph?: 'content' | WarpKind | 'none';
 }
 
 const groupOf = (x: Fx) => fxOf(x.id)?.group;
@@ -108,10 +110,18 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
       removable: false,
     });
   }
+  if (l.kind === 'text' && l.text) {
+    const first = l.text.content.split('\n')[0].trim();
+    out.push({ sec: 'image', key: 'content', name: first.length > 14 ? `${first.slice(0, 13)}…` : first || 'Contenu', bg: '', removable: false, glyph: 'content' });
+  }
   if (l.kind === 'text' && l.text) out.push({ sec: 'image', key: 'text', name: fontOf(l.text.font).family, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: false, font: l.text.font });
   if (l.kind === 'photo') {
     if (l.look?.style) out.push({ sec: 'image', key: 'look', name: lookOf(l.look.style)!.name, bg: 'linear-gradient(135deg,#2b3a8c,#9b4f9e,#ee6b5b)', removable: true });
   } else out.push({ sec: 'image', key: 'paint', name: doc.guides[l.guide]?.name ?? 'Couleur', bg: g(l.guide), removable: false });
+  if (l.kind === 'text' && l.text) {
+    const w = l.text.warp?.kind ?? 'none';
+    out.push({ sec: 'image', key: 'warp', name: w === 'none' ? 'Déformation' : WARPS.find((x) => x.id === w)!.name, bg: '', removable: false, glyph: w });
+  }
   for (const { x, i } of fxIn(l, 'effet')) out.push({ sec: 'transform', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'radial-gradient(circle,#1c1b3a 30%,#e3a83c 34%) 0 0/6px 6px', removable: true });
   if (l.material) out.push({ sec: 'support', key: 'material', name: fxOf(l.material.id)!.name, bg: 'repeating-linear-gradient(45deg,#c79a63 0 3px,#b0814d 3px 6px)', removable: true });
   return out;
@@ -306,7 +316,17 @@ export function CoupePanel({
             mine.map((it) => (
               <span key={it.key} className={`cp-item ${focus === it.key ? 'on' : ''}`}>
                 <button className="cp-nm" onClick={() => setFocus(focus === it.key ? null : it.key)}>
-                  {it.font ? (
+                  {it.glyph ? (
+                    <span className="sw sw-glyph">
+                      {it.glyph === 'content' ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                          <path d="M5 6h10M10 6v12M15 14h5M15 18h4" />
+                        </svg>
+                      ) : (
+                        <WarpGlyph k={it.glyph} />
+                      )}
+                    </span>
+                  ) : it.font ? (
                     <span className="sw sw-font" style={{ fontFamily: `${fontFamily(it.font)}, Inter, sans-serif` }}>
                       Aa
                     </span>
@@ -455,15 +475,6 @@ export function CoupePanel({
         </div>
         {only && byKey(only) ? (
           <div className="cp-pane">
-            {only === 'image' && l.kind === 'text' && l.text && patchText && (
-              <section className="cp-attrs text-content">
-                <div className="cp-attrs-h">
-                  <b>Contenu</b>
-                  <small>texte et alignement</small>
-                </div>
-                <TextContent key={l.id} text={l.text} onChange={patchText} />
-              </section>
-            )}
             {card(byKey(only)!)}
             {focused && focused.sec === only && <Attrs layer={l} doc={doc} item={focused} patch={patch} patchText={patchText} />}
           </div>
@@ -587,7 +598,9 @@ function Attrs({ layer: l, doc, item, patch, patchText }: { layer: Layer; doc: D
         )}
       </>
     );
-  } else if (item.key === 'text' && l.text && patchText) {
+  } else if (item.key === 'content' && l.text && patchText) body = <TextContent key={l.id} text={l.text} onChange={patchText} />;
+  else if (item.key === 'warp' && l.text && patchText) body = <TextWarp text={l.text} onChange={patchText} />;
+  else if (item.key === 'text' && l.text && patchText) {
     const t = l.text;
     body = (
       <>
@@ -599,7 +612,6 @@ function Attrs({ layer: l, doc, item, patch, patchText }: { layer: Layer; doc: D
           <input type="checkbox" checked={!!t.italic} onChange={(e) => patchText({ italic: e.target.checked }, true)} />
           <output>{t.italic ? 'oui' : 'non'}</output>
         </label>
-        <TextWarp text={t} onChange={patchText} />
       </>
     );
   } else if (item.key === 'shape') {
@@ -647,7 +659,7 @@ function Attrs({ layer: l, doc, item, patch, patchText }: { layer: Layer; doc: D
   return (
     <section className="cp-attrs">
       <div className="cp-attrs-h">
-        <b>{item.key === 'shape' ? 'Paramètres de la forme' : item.key === 'text' ? 'Lettres' : item.name}</b>
+        <b>{item.key === 'shape' ? 'Paramètres de la forme' : item.key === 'text' ? 'Style' : item.key === 'content' ? 'Contenu' : item.key === 'warp' ? 'Déformation' : item.name}</b>
         <small>{secName}</small>
       </div>
       {body}

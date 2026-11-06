@@ -235,7 +235,7 @@ export function TextBar({
 }
 
 /** L'enveloppe dessinée : le haut et le bas du bloc de lettres. */
-function WarpGlyph({ k }: { k: WarpKind | 'none' }) {
+export function WarpGlyph({ k }: { k: WarpKind | 'none' }) {
   const top = { none: 'M2 4H20', arc: 'M2 7Q11 -1 20 7', wave: 'M2 6C6 0 9 0 11 5S16 10 20 4', bulge: 'M2 6Q11 -2 20 6', persp: 'M2 6L20 1' }[k];
   const bot = { none: 'M2 14H20', arc: 'M2 16Q11 8 20 16', wave: 'M2 15C6 9 9 9 11 14S16 19 20 13', bulge: 'M2 13Q11 21 20 13', persp: 'M2 12L20 17' }[k];
   return (
@@ -388,7 +388,6 @@ export function TextWarp({ text: t, onChange }: { text: TextStyle; onChange: (ne
   const first = useRef(true);
   return (
     <div className="text-warp">
-      <span className="cp-sub">Déformation</span>
       <div className="seg tb-warps">
         {WARPS.map((w) => (
           <button key={w.id} className={(t.warp?.kind ?? 'none') === w.id ? 'on' : ''} onClick={() => onChange({ warp: w.id === 'none' ? undefined : { kind: w.id, amount: t.warp?.amount || 0.5 } }, true)} title={w.name}>
