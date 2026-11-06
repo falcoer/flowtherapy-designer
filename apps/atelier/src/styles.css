@@ -636,7 +636,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .cp-view.with-list { column-gap: 0; }
 .cp-view > .cp-layers { padding-right: 0; }
 .cp-view > .cp-layers .layer.on { border-radius: 12px 0 0 12px; background: var(--accent-soft); }
-.cp-view > .cp-tags { background: var(--accent-soft); border-radius: 14px; padding: 8px 0 8px 8px; }
+.cp-view > .cp-tags { background: var(--accent-soft); border-radius: 0; padding: 8px 0 8px 8px; }
 .cp-view > .cp-tags .cp-tag { margin-right: 8px; background: transparent; border-color: transparent; }
 .cp-view > .cp-tags .cp-tag.on { margin-right: 0; border-radius: 10px 0 0 10px; background: var(--chrome-solid); border-color: transparent; position: relative; z-index: 2; margin-right: -1px; }
 .cp-view > .cp-pane { background: var(--chrome-solid); border-radius: 0 14px 14px 14px; padding: 8px 30px 8px 8px; position: relative; z-index: 1; box-shadow: 0 0 0 1px var(--line); }
