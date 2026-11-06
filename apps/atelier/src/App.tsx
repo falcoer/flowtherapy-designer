@@ -1118,7 +1118,7 @@ export function App() {
     }
     // contours détectés dans l'image sélectionnée : pointillés en couleur complémentaire
     // masqués pendant un déplacement ou un geste de vue : seulement pour découper
-    if (tool === 'cut' && magnet && !subjectOn && sel && (L.kind === null || L.kind === 'cut')) {
+    if (tool === 'cut' && magnet && !subject.current && sel && (L.kind === null || L.kind === 'cut')) {
       const m = edgesFor(sel);
       if (m) {
         const b = layerBox(sel, f);
@@ -1638,9 +1638,8 @@ export function App() {
       setSelected(l?.id ?? null);
       return;
     }
-    if (t === 'cut' && subjectOn) {
-      // Sujet : toucher ou glisser sur l'image choisie ; toucher une autre image la choisit
-      // Sujet : un contour fermé délimite la zone où chercher le sujet ; un toucher ou un trait l'ajuste
+    if (t === 'cut' && subjectOn && subject.current) {
+      // sujet en cours d'ajustement : un toucher ou un trait ajoute ou retire, un nouveau contour refait la zone
       live.current = { kind: 'subject', lasso: [p] };
       redraw();
       return;
@@ -2387,6 +2386,22 @@ export function App() {
         redraw();
       });
   };
+  /** Contour fermé (coordonnées de la couche) : le sujet est cherché dans cette zone, sur une analyse recadrée. */
+  const subjectZone = (l: Layer, line: Pt[]) => {
+    const zone = simplifyRing(line, 0.002);
+    const us = zone.map((q) => q.x);
+    const vs = zone.map((q) => q.y);
+    const [mu, mv] = [(Math.max(...us) - Math.min(...us)) * 0.12, (Math.max(...vs) - Math.min(...vs)) * 0.12];
+    const crop = {
+      u0: Math.max(0, Math.min(...us) - mu),
+      v0: Math.max(0, Math.min(...vs) - mv),
+      u1: Math.min(1, Math.max(...us) + mu),
+      v1: Math.min(1, Math.max(...vs) + mv),
+    };
+    if (crop.u1 - crop.u0 < 0.01 || crop.v1 - crop.v0 < 0.01) return redraw();
+    const few = zone.length > 64 ? zone.filter((_, i) => i % Math.ceil(zone.length / 64) === 0) : zone;
+    startSubject(l, crop, zone, [{ mode: 'zone', pts: few }]);
+  };
   /**
    * Fin d'un geste en mode Sujet. Un contour fermé est une zone : le sujet y est cherché
    * (analyse recadrée sur la zone). Un toucher ou un trait ajoute ce qui manque, ou retire
@@ -2411,21 +2426,7 @@ export function App() {
     const line = simplify(pts, 2 / scale).map((q) => toLocal(sel, q.x, q.y));
     const few = (r: Pt[]) => (r.length > 64 ? r.filter((_, i) => i % Math.ceil(r.length / 64) === 0) : r);
     const closed = !tap && Math.min(w, h) * scale > 30 && Math.hypot(pts[0]!.x - pts[pts.length - 1]!.x, pts[0]!.y - pts[pts.length - 1]!.y) < 0.35 * Math.hypot(w, h);
-    if (closed) {
-      const zone = simplifyRing(line, 0.002);
-      const us = zone.map((q) => q.x);
-      const vs = zone.map((q) => q.y);
-      const [mu, mv] = [(Math.max(...us) - Math.min(...us)) * 0.12, (Math.max(...vs) - Math.min(...vs)) * 0.12];
-      const crop = {
-        u0: Math.max(0, Math.min(...us) - mu),
-        v0: Math.max(0, Math.min(...vs) - mv),
-        u1: Math.min(1, Math.max(...us) + mu),
-        v1: Math.min(1, Math.max(...vs) + mv),
-      };
-      if (crop.u1 - crop.u0 < 0.01 || crop.v1 - crop.v0 < 0.01) return redraw();
-      startSubject(sel, crop, zone, [{ mode: 'zone', pts: few(zone) }]);
-      return;
-    }
+    if (closed) return subjectZone(sel, line);
     const stroke: SubjectStroke = { mode: subjectErase ? 'remove' : 'add', pts: few(line) };
     const S = subject.current;
     if (!S || S.layer !== sel.id) {
@@ -2461,7 +2462,6 @@ export function App() {
     }
     detach(l, S.geom, rest, 'sujet');
     subject.current = null;
-    setSubjectOn(false);
     setSubjectErase(false);
   };
 
@@ -2612,6 +2612,11 @@ export function App() {
       const pa = geomArea(piece) * b.w * b.h;
       // une couche à peine effleurée n'est découpée que si elle est choisie
       if (pa < lassoArea * 1e-4 || (l !== sel && pa < lassoArea * 0.03)) continue;
+      // option Sujet : le tracé n'est qu'une zone, la découpe collera au sujet trouvé dedans
+      if (subjectOn) {
+        if (l.id !== selected) setSelected(l.id);
+        return subjectZone(l, local);
+      }
       const rest = subtract(shape, [local]);
       if (geomArea(rest) * b.w * b.h < lassoArea * 1e-4) {
         setToast(`Le tracé englobe toute « ${l.name} »`);
@@ -3509,17 +3514,24 @@ export function App() {
               {tool === 'cut' && (
                 <>
                   <button
+                    className="btn small"
+                    onClick={() => setBlade(blade === 'scissors' ? 'scalpel' : 'scissors')}
+                    title={blade === 'scalpel' ? 'Scalpel : le morceau reste en place, lié à son objet (toucher pour les ciseaux)' : 'Ciseaux : le morceau se détache (toucher pour le scalpel)'}
+                  >
+                    <Icon name={blade} />
+                  </button>
+                  <button
                     className={`btn small ${subjectOn ? 'on' : ''}`}
                     onClick={() => {
                       setSubjectOn(!subjectOn);
                       setSubjectErase(false);
                       subject.current = null;
                     }}
-                    title="Sujet : entoure une zone aux ciseaux, le sujet y est détouré tout seul (le modèle de 30 Mo se charge au premier usage)"
+                    title="Coller au sujet : après le tracé, la découpe se resserre sur le personnage ou l'objet entouré (le modèle de 30 Mo se charge au premier usage)"
                   >
                     <Icon name="subject" />
                   </button>
-                  {subjectOn && (
+                  {subjectOn && subject.current && (
                     <>
                       <button
                         className={`btn small ${subjectErase ? 'on' : ''}`}
@@ -3530,42 +3542,39 @@ export function App() {
                       </button>
                       <button
                         className="btn small"
-                        disabled={!subject.current?.strokes.some((x) => x.mode !== 'zone')}
                         onClick={() => {
                           const S = subject.current;
                           if (!S) return;
-                          if (S.strokes[S.strokes.length - 1]?.mode !== 'zone') S.strokes.pop();
-                          if (!S.strokes.length) [S.mask, S.img, S.geom] = [null, null, null];
-                          runSubject();
+                          // le dernier ajout, sinon on abandonne le sujet (la photo reste entière)
+                          if (S.strokes[S.strokes.length - 1]?.mode !== 'zone') {
+                            S.strokes.pop();
+                            runSubject();
+                          } else {
+                            subject.current = null;
+                            setSubjectErase(false);
+                          }
                           redraw();
                         }}
-                        title="Retirer le dernier trait"
+                        title="Annuler le dernier trait (ou abandonner le sujet)"
                       >
                         <Icon name="undo" />
                       </button>
                       <button
                         className="btn small primary"
-                        disabled={!subject.current?.geom?.length}
+                        disabled={!subject.current.geom?.length}
                         onClick={detachSubject}
-                        title={blade === 'scalpel' ? 'Détacher le sujet : il reste en place, lié à son image' : 'Détacher le sujet : il se pose sur son image'}
+                        title={blade === 'scalpel' ? 'Valider : le sujet est incisé, il reste en place, lié à son image' : 'Valider : le sujet est découpé et posé sur son image'}
                       >
                         <Icon name="subject-cut" />
                       </button>
                     </>
                   )}
-                  <button
-                    className="btn small"
-                    onClick={() => setBlade(blade === 'scissors' ? 'scalpel' : 'scissors')}
-                    title={blade === 'scalpel' ? 'Scalpel : le morceau reste en place, lié à son objet (toucher pour les ciseaux)' : 'Ciseaux : le morceau se détache (toucher pour le scalpel)'}
-                  >
-                    <Icon name={blade} />
-                  </button>
-                  {!subjectOn && (
+                  {!(subjectOn && subject.current) && (
                     <button className={`btn small ${magnet ? 'on' : ''}`} onClick={() => setMagnet(!magnet)} title="Lignes magnétiques : les ciseaux suivent les contours détectés">
                       <Icon name="magnet" />
                     </button>
                   )}
-                  {magnet && !subjectOn && (
+                  {magnet && !(subjectOn && subject.current) && (
                     <>
                       <button className={`btn small mode-btn ${modePick ? 'on' : ''}`} onClick={() => setModePick(!modePick)} title={`Mode de détection : ${EDGE_MODES.find((x) => x[0] === edgeMode)![1]}`}>
                         <Icon name={`edge-${edgeMode}`} />
@@ -4072,16 +4081,15 @@ export function App() {
           {tool === 'edge' && (!sel || sel.kind === 'surface') && <div className="status">Sélectionne une photo ou une forme pour régler ses bords</div>}
           {tool === 'material' && !sel && <div className="status">Sélectionne une photo ou une forme pour choisir sa matière</div>}
           {(tool === 'transform' || tool === 'coat' || tool === 'filter') && !sel && <div className="status">Sélectionne une photo ou une forme pour la modifier</div>}
-          {!sel && tool === 'cut' && subjectOn && <div className="status">Touche une photo : son sujet sera détouré</div>}
-          {!sel && tool === 'cut' && magnet && !subjectOn && <div className="status">Sélectionne une image : ses contours guideront les ciseaux</div>}
+          {!sel && tool === 'cut' && magnet && <div className="status">Sélectionne une image : ses contours guideront les ciseaux</div>}
           {sel && (
             <div className="status">
               {tool === 'paint' && `Peinture dans « ${sel.name} »`}
               {tool === 'stamp' && `Tampon « ${stampOf(stampId).name} » dans « ${sel.name} » : touche pour imprimer, ${stampSow ? 'glisse pour semer' : 'glisse pour essuyer'}`}
-              {tool === 'cut' && subjectOn && subjectStatus(sel)}
+              {tool === 'cut' && subjectOn && subject.current && subjectStatus(sel)}
               {tool === 'cut' &&
-                !subjectOn &&
-                `Trace un contour : le morceau ${blade === 'scalpel' ? 'reste en place, lié à la couche touchée' : 'se détache de la couche touchée'}${magnet ? `, aimanté sur les contours de « ${sel.name} »` : ''}`}
+                !(subjectOn && subject.current) &&
+                `Trace un contour : le morceau ${blade === 'scalpel' ? 'reste en place, lié à la couche touchée' : 'se détache de la couche touchée'}${magnet ? `, aimanté sur les contours de « ${sel.name} »` : ''}${subjectOn ? ', puis resserré sur le sujet entouré' : ''}`}
               {tool === 'filter' &&
                 `« ${sel.name} » · ${sel.kind === 'photo' ? [lookOf(sel.look?.style)?.name ?? 'photo originale', fxOf(sel.look?.draw?.id)?.name].filter(Boolean).join(' + ') : 'les filtres sont réservés aux photos'}`}
               {(tool === 'transform' || tool === 'coat') &&
