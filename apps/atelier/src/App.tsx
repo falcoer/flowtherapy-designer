@@ -2854,7 +2854,7 @@ export function App() {
                 <FormatGlyph w={f.width} h={f.height} /> <span className="chip-label">{f.title}</span>
               </button>
               <button className={`btn ${bubble === 'anchor' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'anchor' ? null : 'anchor')} title="Aide au positionnement : repères, densité, marge">
-                <Icon name="anchor" />
+                <Icon name="layout" />
               </button>
             </div>
             <div className="bar-right">

@@ -277,6 +277,13 @@ export function volumeField(w: number, h: number, mask: Float32Array, D: Float32
       const [i, j] = [Math.round(x), Math.round(y)];
       return i >= 0 && j >= 0 && i < w && j < h && mask[j * w + i]! >= 0.5;
     };
+    const soft = (x: number, y: number) => {
+      // masque lu en bilinéaire : la position fine du bord
+      const [x0, y0] = [Math.floor(x), Math.floor(y)];
+      const [fx, fy] = [x - x0, y - y0];
+      const m = (a: number, b: number) => (a >= 0 && b >= 0 && a < w && b < h ? mask[b * w + a]! : 0);
+      return (m(x0, y0) * (1 - fx) + m(x0 + 1, y0) * fx) * (1 - fy) + (m(x0, y0 + 1) * (1 - fx) + m(x0 + 1, y0 + 1) * fx) * fy;
+    };
     const step = 1;
     for (let j = 0; j < h; j++)
       for (let i = 0; i < w; i++) {
@@ -286,6 +293,10 @@ export function volumeField(w: number, h: number, mask: Float32Array, D: Float32
         while (inside(i - px * (l + step), j - py * (l + step))) l += step;
         let r = 0;
         while (inside(i + px * (r + step), j + py * (r + step))) r += step;
+        // le bord doux du masque donne la fraction de pixel au-delà : plus de marches (stries)
+        // bord continu : dernier pixel dedans + couverture des deux pixels du bord
+        l += soft(i - px * l, j - py * l) + soft(i - px * (l + step), j - py * (l + step)) - 0.5;
+        r += soft(i + px * r, j + py * r) + soft(i + px * (r + step), j + py * (r + step)) - 0.5;
         const half = (l + r + 1) / 2;
         const t = (r - l) / 2 / half;
         out[n] = a * half * Math.sqrt(Math.max(0, 1 - t * t));

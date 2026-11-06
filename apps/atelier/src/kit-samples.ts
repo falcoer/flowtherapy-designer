@@ -256,4 +256,165 @@ export const KITS: Record<string, { name: string; svg: string }> = {
   </g>
 </svg>`,
   },
+  stage: {
+    name: 'Scène',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 220">
+  <g data-name="Plancher" fill="#5a3d2b" data-volume="cushion" data-amount="0.3"><rect x="10" y="150" width="380" height="40"/></g>
+  <g data-name="Jupe" fill="#26262c" data-volume="cushion" data-amount="0.2"><rect x="10" y="186" width="380" height="32"/></g>
+  <g data-name="Rideaux" fill="#a3202e" data-volume="cylinder" data-amount="0.5" data-axis="0" data-lift="0.01"><path d="M10 10 L80 10 Q60 80 75 150 L10 150 Z"/><path d="M390 10 L320 10 Q340 80 325 150 L390 150 Z"/></g>
+  <g data-name="Lambrequin" fill="#8a1a26" data-volume="cylinder" data-amount="0.5" data-axis="90" data-lift="0.02"><path d="M10 0 L390 0 L390 22 Q350 36 300 24 Q250 36 200 24 Q150 36 100 24 Q50 36 10 22 Z"/></g>
+</svg>`,
+  },
+  spotlight: {
+    name: 'Projecteur',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 245">
+  <g data-name="Pied" fill="#3a3a42" data-volume="cylinder" data-amount="0.6" data-axis="0"><rect x="92" y="150" width="16" height="84"/><ellipse cx="100" cy="234" rx="50" ry="9"/></g>
+  <g data-name="Lyre" fill="#26262c" data-volume="cushion" data-amount="0.4" data-lift="0.01"><path d="M38 60 L52 60 L52 150 L148 150 L148 60 L162 60 L162 164 L38 164 Z"/></g>
+  <g data-name="Corps" fill="#2b2b33" data-volume="dome" data-amount="0.3" data-lift="0.02"><circle cx="100" cy="95" r="56"/></g>
+  <g data-name="Lentille" fill="#fff2a8" data-volume="dome" data-amount="0.6" data-lift="0.04"><circle cx="100" cy="95" r="36"/></g>
+</svg>`,
+  },
+  mic: {
+    name: 'Micro',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 245">
+  <g data-name="Corps" fill="#26262c" data-volume="cylinder" data-amount="0.6" data-axis="0" data-lift="0.01"><path d="M30 108 L90 108 L74 244 L46 244 Z"/></g>
+  <g data-name="Grille" fill="#b9bcc4" data-volume="dome" data-amount="0.6" data-lift="0.02"><path d="M20 55 A40 40 0 0 1 100 55 L100 95 Q100 110 60 110 Q20 110 20 95 Z"/></g>
+  <g data-name="Bague" fill="#3a3a42" data-volume="cylinder" data-amount="0.6" data-axis="90" data-lift="0.03"><rect x="22" y="100" width="76" height="14" rx="4"/></g>
+</svg>`,
+  },
+  vinyl: {
+    name: 'Vinyle',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240">
+  <g data-name="Disque" fill="#1d1d22" data-volume="cushion" data-amount="0.2"><circle cx="120" cy="120" r="116"/></g>
+  <g data-name="Étiquette" fill="#e0443c" data-volume="cushion" data-amount="0.2" data-lift="0.01"><circle cx="120" cy="120" r="40"/></g>
+  <g data-name="Trou" fill="#f4f1ea" data-lift="0.02"><circle cx="120" cy="120" r="6"/></g>
+</svg>`,
+  },
+  speaker: {
+    name: 'Enceinte',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 280">
+  <g data-name="Caisson" fill="#2b2b33" data-volume="cushion" data-amount="0.3"><rect x="10" y="10" width="160" height="260" rx="10"/></g>
+  <g data-name="Haut-parleurs" fill="#3a3a42" data-volume="cone" data-amount="0.35" data-lift="0.02"><circle cx="90" cy="62" r="26"/><circle cx="90" cy="178" r="64"/></g>
+  <g data-name="Dômes" fill="#8a8f99" data-volume="dome" data-amount="0.7" data-lift="0.04"><circle cx="90" cy="62" r="9"/><circle cx="90" cy="178" r="20"/></g>
+</svg>`,
+  },
+  telecaster: {
+    name: 'Telecaster',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 440">
+  <g data-name="Corps" fill="#e8c56a" data-volume="dome" data-amount="0.3"><path d="M58 288 L88 280 L108 290 L112 300 Q138 312 142 345 L142 400 Q140 432 105 432 L60 432 Q20 432 18 400 L18 340 Q20 300 40 296 Z"/></g>
+  <g data-name="Plaque" fill="#f4f1ea" data-volume="cushion" data-amount="0.3" data-lift="0.01"><path d="M48 312 L95 302 L100 382 L60 396 Z"/></g>
+  <g data-name="Manche" fill="#e3b77a" data-volume="cylinder" data-amount="0.4" data-axis="0" data-lift="0.02"><rect x="70" y="38" width="20" height="262"/><path d="M70 40 L66 0 L100 0 L104 12 L90 40 Z"/></g>
+  <g data-name="Micros" fill="#26262c" data-volume="cushion" data-amount="0.6" data-lift="0.03"><rect x="60" y="332" width="40" height="10" rx="2"/><rect x="62" y="388" width="36" height="9" rx="2"/></g>
+  <g data-name="Chevalet" fill="#b9bcc4" data-volume="cylinder" data-amount="0.6" data-axis="90" data-lift="0.03"><rect x="54" y="402" width="52" height="12" rx="2"/></g>
+</svg>`,
+  },
+  stratocaster: {
+    name: 'Stratocaster',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 440">
+  <g data-name="Corps" fill="#3f8fd0" data-volume="dome" data-amount="0.3"><path d="M80 290 C60 290 52 270 40 262 C30 258 28 280 32 300 C36 320 20 330 18 360 C14 410 50 432 80 432 C110 432 146 410 142 360 C140 330 124 320 128 300 C130 285 125 255 115 262 C105 270 100 290 80 290 Z"/></g>
+  <g data-name="Plaque" fill="#f4f1ea" data-volume="cushion" data-amount="0.3" data-lift="0.01"><path d="M44 300 Q70 296 100 300 L118 330 L112 400 L60 404 L40 360 Z"/></g>
+  <g data-name="Manche" fill="#e3b77a" data-volume="cylinder" data-amount="0.4" data-axis="0" data-lift="0.02"><rect x="70" y="38" width="20" height="262"/><path d="M70 40 L64 2 Q74 -2 84 6 L104 30 L90 40 Z"/></g>
+  <g data-name="Micros" fill="#26262c" data-volume="cushion" data-amount="0.6" data-lift="0.03"><rect x="60" y="318" width="40" height="9" rx="2"/><rect x="60" y="348" width="40" height="9" rx="2"/><rect x="60" y="378" width="40" height="9" rx="2"/></g>
+  <g data-name="Chevalet" fill="#b9bcc4" data-volume="cylinder" data-amount="0.6" data-axis="90" data-lift="0.03"><rect x="56" y="402" width="48" height="11" rx="2"/></g>
+</svg>`,
+  },
+  lespaul: {
+    name: 'Les Paul',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 440">
+  <g data-name="Corps" fill="#b5652a" data-volume="dome" data-amount="0.3"><path d="M80 280 C50 280 30 300 30 330 C30 350 20 360 20 385 C20 420 50 434 80 434 C112 434 142 420 142 385 C142 360 132 352 132 335 C132 322 122 316 112 300 C106 288 96 280 80 280 Z"/></g>
+  <g data-name="Manche" fill="#e3b77a" data-volume="cylinder" data-amount="0.4" data-axis="0" data-lift="0.02"><rect x="70" y="38" width="20" height="262"/><path d="M68 40 L62 4 Q80 -2 98 4 L92 40 Z"/></g>
+  <g data-name="Micros" fill="#26262c" data-volume="cushion" data-amount="0.6" data-lift="0.03"><rect x="58" y="322" width="44" height="12" rx="3"/><rect x="58" y="368" width="44" height="12" rx="3"/></g>
+  <g data-name="Chevalet" fill="#b9bcc4" data-volume="cylinder" data-amount="0.6" data-axis="90" data-lift="0.03"><rect x="56" y="396" width="48" height="10" rx="2"/><rect x="60" y="410" width="40" height="8" rx="2"/></g>
+</svg>`,
+  },
+  bass: {
+    name: 'Basse',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 480">
+  <g data-name="Corps" fill="#2b2b33" data-volume="dome" data-amount="0.3"><path d="M80 330 C60 330 52 310 40 302 C30 298 28 320 32 340 C36 360 20 370 18 400 C14 450 50 472 80 472 C110 472 146 450 142 400 C140 370 124 360 128 340 C130 325 125 295 115 302 C105 310 100 330 80 330 Z"/></g>
+  <g data-name="Plaque" fill="#f4f1ea" data-volume="cushion" data-amount="0.3" data-lift="0.01"><path d="M44 340 Q70 336 100 340 L118 370 L112 440 L60 444 L40 400 Z"/></g>
+  <g data-name="Manche" fill="#e3b77a" data-volume="cylinder" data-amount="0.4" data-axis="0" data-lift="0.02"><rect x="70" y="38" width="20" height="302"/><path d="M70 40 L62 2 Q76 -2 90 4 L100 40 Z"/></g>
+  <g data-name="Micros" fill="#26262c" data-volume="cushion" data-amount="0.6" data-lift="0.03"><rect x="56" y="372" width="48" height="12" rx="3"/><rect x="60" y="410" width="40" height="11" rx="3"/></g>
+  <g data-name="Chevalet" fill="#b9bcc4" data-volume="cylinder" data-amount="0.6" data-axis="90" data-lift="0.03"><rect x="54" y="446" width="52" height="12" rx="2"/></g>
+</svg>`,
+  },
+  doublebass: {
+    name: 'Contrebasse',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 500">
+  <g data-name="Caisse" fill="#8a4b22" data-volume="dome" data-amount="0.3"><path d="M110 170 C70 170 50 190 55 225 C58 245 40 255 40 290 C38 330 30 360 30 400 C30 460 70 490 110 490 C150 490 190 460 190 400 C190 360 182 330 180 290 C180 255 162 245 165 225 C170 190 150 170 110 170 Z"/></g>
+  <g data-name="Ouïes" fill="#2b1a0f" data-lift="0.01"><ellipse cx="78" cy="330" rx="5" ry="32"/><ellipse cx="142" cy="330" rx="5" ry="32"/></g>
+  <g data-name="Manche" fill="#5a3418" data-volume="dome" data-amount="0.5" data-lift="0.02"><circle cx="110" cy="26" r="16"/><rect x="102" y="26" width="16" height="40"/></g>
+  <g data-name="Touche" fill="#1d1d22" data-volume="cylinder" data-amount="0.5" data-axis="0" data-lift="0.03"><rect x="102" y="60" width="16" height="340" rx="3"/></g>
+  <g data-name="Cordier" fill="#1d1d22" data-volume="cushion" data-amount="0.5" data-lift="0.03"><path d="M98 400 L122 400 L117 462 L103 462 Z"/></g>
+  <g data-name="Pique" fill="#8a8f99" data-lift="0.01"><rect x="107" y="486" width="6" height="14"/></g>
+</svg>`,
+  },
+  drums: {
+    name: 'Batterie',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 262">
+  <g data-name="Pieds" fill="#8a8f99" data-volume="cylinder" data-amount="0.6" data-axis="0"><rect x="48" y="60" width="4" height="150"/><rect x="318" y="40" width="4" height="170"/></g>
+  <g data-name="Grosse caisse" fill="#c0392b" data-volume="dome" data-amount="0.25" data-lift="0.01"><circle cx="180" cy="176" r="82"/></g>
+  <g data-name="Peau" fill="#f4f1ea" data-volume="cushion" data-amount="0.2" data-lift="0.02"><circle cx="180" cy="176" r="66"/></g>
+  <g data-name="Toms" fill="#c0392b" data-volume="cylinder" data-amount="0.5" data-axis="90" data-lift="0.03"><rect x="85" y="58" width="70" height="50" rx="10"/><rect x="205" y="58" width="70" height="50" rx="10"/><rect x="20" y="150" width="80" height="40" rx="6"/><rect x="270" y="140" width="70" height="74" rx="8"/></g>
+  <g data-name="Cymbales" fill="#e3b341" data-volume="cone" data-amount="0.2" data-lift="0.05"><ellipse cx="50" cy="60" rx="50" ry="8"/><ellipse cx="320" cy="40" rx="50" ry="8"/></g>
+</svg>`,
+  },
+  cymbal: {
+    name: 'Cymbale',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 130">
+  <g data-name="Tige" fill="#8a8f99" data-volume="cylinder" data-amount="0.6" data-axis="0"><rect x="117" y="48" width="6" height="82"/></g>
+  <g data-name="Cymbale" fill="#e3b341" data-volume="cone" data-amount="0.3" data-lift="0.01"><ellipse cx="120" cy="50" rx="115" ry="22"/></g>
+  <g data-name="Cloche" fill="#d4a32e" data-volume="dome" data-amount="0.6" data-lift="0.03"><ellipse cx="120" cy="42" rx="26" ry="12"/></g>
+</svg>`,
+  },
+  piano: {
+    name: 'Piano',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 252">
+  <g data-name="Pieds" fill="#2b1a0f" data-volume="cylinder" data-amount="0.6" data-axis="0"><rect x="30" y="170" width="20" height="80"/><rect x="310" y="170" width="20" height="80"/></g>
+  <g data-name="Caisse" fill="#2b1a0f" data-volume="cushion" data-amount="0.3" data-lift="0.01"><rect x="20" y="10" width="320" height="170" rx="6"/></g>
+  <g data-name="Pupitre" fill="#3a2414" data-volume="cushion" data-amount="0.4" data-lift="0.02"><rect x="100" y="40" width="160" height="40" rx="3"/></g>
+  <g data-name="Touches blanches" fill="#f4f1ea" data-volume="cushion" data-amount="0.2" data-lift="0.02"><rect x="30" y="120" width="300" height="50" rx="2"/></g>
+  <g data-name="Touches noires" fill="#1d1d22" data-volume="cushion" data-amount="0.5" data-lift="0.04"><rect x="39.7143" y="120" width="9.14286" height="30" rx="1"/><rect x="54" y="120" width="9.14286" height="30" rx="1"/><rect x="82.5714" y="120" width="9.14286" height="30" rx="1"/><rect x="96.8571" y="120" width="9.14286" height="30" rx="1"/><rect x="111.143" y="120" width="9.14286" height="30" rx="1"/><rect x="139.714" y="120" width="9.14286" height="30" rx="1"/><rect x="154" y="120" width="9.14286" height="30" rx="1"/><rect x="182.571" y="120" width="9.14286" height="30" rx="1"/><rect x="196.857" y="120" width="9.14286" height="30" rx="1"/><rect x="211.143" y="120" width="9.14286" height="30" rx="1"/><rect x="239.714" y="120" width="9.14286" height="30" rx="1"/><rect x="254" y="120" width="9.14286" height="30" rx="1"/><rect x="282.571" y="120" width="9.14286" height="30" rx="1"/><rect x="296.857" y="120" width="9.14286" height="30" rx="1"/><rect x="311.143" y="120" width="9.14286" height="30" rx="1"/></g>
+</svg>`,
+  },
+  synth: {
+    name: 'Synthé',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 160">
+  <g data-name="Boîtier" fill="#3a3a42" data-volume="cushion" data-amount="0.3"><rect x="0" y="20" width="400" height="130" rx="10"/></g>
+  <g data-name="Panneau" fill="#26262c" data-volume="cushion" data-amount="0.2" data-lift="0.01"><rect x="10" y="30" width="380" height="45" rx="4"/></g>
+  <g data-name="Boutons" fill="#e3b341" data-volume="dome" data-amount="0.7" data-lift="0.03"><circle cx="40" cy="52" r="9"/><circle cx="80" cy="52" r="9"/><circle cx="120" cy="52" r="9"/><circle cx="160" cy="52" r="9"/><circle cx="200" cy="52" r="9"/><circle cx="240" cy="52" r="9"/><circle cx="280" cy="52" r="9"/><circle cx="320" cy="52" r="9"/><circle cx="360" cy="52" r="9"/></g>
+  <g data-name="Touches blanches" fill="#f4f1ea" data-volume="cushion" data-amount="0.2" data-lift="0.02"><rect x="20" y="85" width="360" height="55" rx="2"/></g>
+  <g data-name="Touches noires" fill="#1d1d22" data-volume="cushion" data-amount="0.5" data-lift="0.04"><rect x="28.4414" y="85" width="7.94483" height="33" rx="1"/><rect x="40.8552" y="85" width="7.94483" height="33" rx="1"/><rect x="65.6828" y="85" width="7.94483" height="33" rx="1"/><rect x="78.0966" y="85" width="7.94483" height="33" rx="1"/><rect x="90.5103" y="85" width="7.94483" height="33" rx="1"/><rect x="115.338" y="85" width="7.94483" height="33" rx="1"/><rect x="127.752" y="85" width="7.94483" height="33" rx="1"/><rect x="152.579" y="85" width="7.94483" height="33" rx="1"/><rect x="164.993" y="85" width="7.94483" height="33" rx="1"/><rect x="177.407" y="85" width="7.94483" height="33" rx="1"/><rect x="202.234" y="85" width="7.94483" height="33" rx="1"/><rect x="214.648" y="85" width="7.94483" height="33" rx="1"/><rect x="239.476" y="85" width="7.94483" height="33" rx="1"/><rect x="251.89" y="85" width="7.94483" height="33" rx="1"/><rect x="264.303" y="85" width="7.94483" height="33" rx="1"/><rect x="289.131" y="85" width="7.94483" height="33" rx="1"/><rect x="301.545" y="85" width="7.94483" height="33" rx="1"/><rect x="326.372" y="85" width="7.94483" height="33" rx="1"/><rect x="338.786" y="85" width="7.94483" height="33" rx="1"/><rect x="351.2" y="85" width="7.94483" height="33" rx="1"/></g>
+</svg>`,
+  },
+  ticket: {
+    name: 'Billet',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 150">
+  <g data-name="Billet" fill="#f2c14e" data-volume="cushion" data-amount="0.3"><path d="M0 10 Q0 0 10 0 L240 0 L240 150 L10 150 Q0 150 0 140 L0 95 A20 20 0 0 0 0 55 Z"/></g>
+  <g data-name="Talon" fill="#e0443c" data-volume="cushion" data-amount="0.3" data-lift="0.01"><path d="M244 0 L310 0 Q320 0 320 10 L320 55 A20 20 0 0 0 320 95 L320 140 Q320 150 310 150 L244 150 Z"/></g>
+</svg>`,
+  },
+  banner: {
+    name: 'Ruban',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 140">
+  <g data-name="Pans" fill="#a3202e" data-volume="cylinder" data-amount="0.4" data-axis="90"><path d="M10 50 L80 50 L80 110 L10 110 L35 80 Z"/><path d="M390 50 L320 50 L320 110 L390 110 L365 80 Z"/></g>
+  <g data-name="Plis" fill="#6b1219" data-lift="0.01"><path d="M60 80 L80 80 L80 110 Z"/><path d="M340 80 L320 80 L320 110 Z"/></g>
+  <g data-name="Centre" fill="#e0443c" data-volume="cylinder" data-amount="0.4" data-axis="90" data-lift="0.02"><rect x="60" y="20" width="280" height="60"/></g>
+</svg>`,
+  },
+  balloon: {
+    name: 'Ballon',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 300">
+  <g data-name="Ficelle" fill="#8a8f99"><path d="M79 176 Q70 220 84 260 Q90 280 80 300 L83 300 Q93 280 87 260 Q73 220 82 176 Z"/></g>
+  <g data-name="Ballon" fill="#e0443c" data-volume="dome" data-amount="0.6" data-lift="0.02"><ellipse cx="80" cy="85" rx="70" ry="82"/></g>
+  <g data-name="Nœud" fill="#a3202e" data-volume="dome" data-amount="0.5" data-lift="0.03"><polygon points="70,180 90,180 80,164"/></g>
+</svg>`,
+  },
+  pennant: {
+    name: 'Fanion',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 160">
+  <g data-name="Mât" fill="#7a5230" data-volume="cylinder" data-amount="0.6" data-axis="0"><rect x="8" y="0" width="12" height="160" rx="3"/></g>
+  <g data-name="Fanion" fill="#3f8fd0" data-volume="cushion" data-amount="0.3" data-lift="0.01"><polygon points="20,10 290,80 20,150"/></g>
+  <g data-name="Bande" fill="#f4f1ea" data-volume="cushion" data-amount="0.2" data-lift="0.02"><polygon points="20,62 180,66 180,94 20,98"/></g>
+</svg>`,
+  },
 };
