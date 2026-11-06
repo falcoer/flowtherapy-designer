@@ -2377,6 +2377,14 @@ export function App() {
           const zone = S.zone;
           S.geom = zone ? g.filter((poly) => geomArea(intersect(ringsOfGeom([poly]), [zone])) > 0) : g;
         } else S.geom = null;
+        // après le tracé, la lame déjà choisie coupe tout de suite (Annuler, en haut, revient en arrière)
+        if (S.zone && S.strokes.length === 1) {
+          if (S.geom?.length) detachSubject(blade);
+          else {
+            subject.current = null;
+            setToast('Aucun sujet trouvé dans ce tracé : rien n’est coupé');
+          }
+        }
       })
       .catch((e) => {
         if (subject.current !== S) return;
@@ -3534,45 +3542,16 @@ export function App() {
                     <Icon name="subject" />
                   </button>
                   {subjectOn && subject.current && (
-                    <>
-                      <button
-                        className={`btn small ${subjectErase ? 'on' : ''}`}
-                        onClick={() => setSubjectErase(!subjectErase)}
-                        title={subjectErase ? 'Retirer : glisse sur ce qui déborde (toucher pour ajouter)' : 'Ajouter : touche ou glisse sur ce qui manque (toucher pour retirer)'}
-                      >
-                        <Icon name={subjectErase ? 'subject-remove' : 'subject-add'} />
-                      </button>
-                      <button
-                        className="btn small"
-                        onClick={() => {
-                          const S = subject.current;
-                          if (!S) return;
-                          // le dernier ajout, sinon on abandonne le sujet (la photo reste entière)
-                          if (S.strokes[S.strokes.length - 1]?.mode !== 'zone') {
-                            S.strokes.pop();
-                            runSubject();
-                          } else {
-                            subject.current = null;
-                            setSubjectErase(false);
-                          }
-                          redraw();
-                        }}
-                        title="Annuler le dernier trait (ou abandonner le sujet)"
-                      >
-                        <Icon name="undo" />
-                      </button>
-                      {(['scissors', 'scalpel'] as const).map((how) => (
-                        <button
-                          key={how}
-                          className="btn small primary"
-                          disabled={!subject.current?.geom?.length}
-                          onClick={() => detachSubject(how)}
-                          title={how === 'scalpel' ? 'Couper au scalpel : le sujet reste en place, lié à son image' : 'Couper aux ciseaux : le sujet se détache, posé sur son image'}
-                        >
-                          <Icon name={how} />
-                        </button>
-                      ))}
-                    </>
+                    <button
+                      className="btn small"
+                      onClick={() => {
+                        subject.current = null;
+                        redraw();
+                      }}
+                      title="Abandonner : la photo reste entière"
+                    >
+                      <Icon name="undo" />
+                    </button>
                   )}
                   {!(subjectOn && subject.current) && (
                     <button className={`btn small ${magnet ? 'on' : ''}`} onClick={() => setMagnet(!magnet)} title="Lignes magnétiques : les ciseaux suivent les contours détectés">
