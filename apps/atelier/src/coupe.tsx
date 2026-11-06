@@ -267,7 +267,16 @@ export function CoupePanel({
   const [adding, setAdding] = useState<Section | null>(null);
   // une couche touchée dans l'aperçu : on ne montre que son panneau
   const [only, setOnly] = useState<Section | null>(null);
-  useEffect(() => setOnly(null), [l.id]);
+  // sur téléphone, l'aperçu n'a pas la place : une section est toujours ouverte
+  const narrow = () => window.matchMedia('(max-width: 540px)').matches;
+  useEffect(() => {
+    if (!narrow()) return setOnly(null);
+    const first = sections[0]?.sec ?? null;
+    setOnly(first);
+    const it = first ? items.find((x) => x.sec === first) : undefined;
+    setFocus((f) => (f && items.some((x) => x.key === f) ? f : it ? it.key : null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [l.id]);
   useEffect(() => {
     if (openOn && (openOn.sec || l.kind === 'shape')) setOnly(openOn.sec ?? 'image');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -451,9 +460,14 @@ export function CoupePanel({
       setLeaders(out);
     };
     draw();
+    // l'aperçu glisse : on retrace les rappels une fois arrivé
+    const late = setTimeout(draw, 340);
     const ro = new ResizeObserver(draw);
     if (view.current) ro.observe(view.current);
-    return () => ro.disconnect();
+    return () => {
+      clearTimeout(late);
+      ro.disconnect();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plies, items.length, l.kind, only]);
   const byKey = (k: Section) => sections.find((s) => s.sec === k);
@@ -463,7 +477,7 @@ export function CoupePanel({
       <button className="cp-close" onClick={onClose} aria-label="Fermer">
         ×
       </button>
-      <div className="cp-view with-list" ref={view}>
+      <div className={`cp-view with-list ${only ? 'open' : ''}`} ref={view}>
         {list}
         <div className="cp-tags">
           {sections.map((s) => {
@@ -475,7 +489,7 @@ export function CoupePanel({
                   tagEls.current[s.sec] = el;
                 }}
                 className={`cp-tag ${only === s.sec ? 'on' : ''}`}
-                onClick={() => pick(only === s.sec ? null : s.sec)}
+                onClick={() => pick(only === s.sec && !narrow() ? null : s.sec)}
               >
                 <span className={`slab ${s.slab}`} />
                 <span className="tg-t">
@@ -486,31 +500,33 @@ export function CoupePanel({
             );
           })}
         </div>
-        {only && byKey(only) ? (
-          <div className="cp-pane">
-            {card(byKey(only)!)}
-            {focused && focused.sec === only && <Attrs layer={l} doc={doc} item={focused} patch={patch} patchText={patchText} unmold={unmold} onMold={onMold} />}
+        {/* les réglages s'ouvrent entre les sections et l'aperçu, qui glisse à droite */}
+        <div className="cp-pane">
+          {only && byKey(only) && (
+            <>
+              {card(byKey(only)!)}
+              {focused && focused.sec === only && <Attrs layer={l} doc={doc} item={focused} patch={patch} patchText={patchText} unmold={unmold} onMold={onMold} />}
+            </>
+          )}
+        </div>
+        <div className="plies">
+          <div className="plies-3d">
+            {plies.map((p, k) => (
+              <button
+                key={p.id}
+                ref={(el) => {
+                  plyEls.current[p.id] = el;
+                }}
+                className="ply"
+                style={{ transform: `translate(-50%, -50%) translateZ(${k * Math.min(30, 120 / Math.max(1, plies.length - 1))}px)` }}
+                onClick={() => pick(p.id === 'result' ? 'edge' : p.sec)}
+                title={p.name}
+              >
+                <img src={p.src} alt="" />
+              </button>
+            ))}
           </div>
-        ) : (
-          <div className="plies">
-            <div className="plies-3d">
-              {plies.map((p, k) => (
-                <button
-                  key={p.id}
-                  ref={(el) => {
-                    plyEls.current[p.id] = el;
-                  }}
-                  className="ply"
-                  style={{ transform: `translate(-50%, -50%) translateZ(${k * Math.min(30, 120 / Math.max(1, plies.length - 1))}px)` }}
-                  onClick={() => pick(p.id === 'result' ? 'edge' : p.sec)}
-                  title={p.name}
-                >
-                  <img src={p.src} alt="" />
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        </div>
         {!only && (
           <svg className="cp-leaders" aria-hidden>
             {leaders.map((g) => (

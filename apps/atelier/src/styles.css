@@ -706,3 +706,37 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .hand-left .height-bar { left: auto; right: max(8px, env(safe-area-inset-right, 0px)); top: 64px; }
 /* bulles ouvertes à droite : elles laissent la barre des outils visible */
 .hand-right .bubble:not(.format-bubble):not(.anchor-bubble):not(.projects-bubble) { left: auto; right: calc(max(8px, env(safe-area-inset-right, 0px)) + 58px); }
+/* éditeur d'objet : bandeau pleine largeur en bas ; les réglages s'ouvrent entre les sections et l'aperçu, qui glisse à droite */
+.coupe.with-list { left: 0; right: 0; bottom: 0; width: auto; max-height: calc(100dvh - 76px); border-radius: 18px 18px 0 0; padding: 10px max(10px, env(safe-area-inset-right, 0px)) max(10px, env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px)); }
+.cp-view { grid-template-columns: 250px 150px minmax(0, 0fr) minmax(0, 1fr); height: min(330px, 42dvh); transition: grid-template-columns 0.32s cubic-bezier(0.3, 0.7, 0.2, 1); }
+.cp-view.open { grid-template-columns: 250px 150px minmax(0, 1fr) minmax(0, 0.4fr); }
+.cp-view > .cp-pane { padding-right: 8px; transition: padding 0.32s, opacity 0.2s; }
+.cp-view:not(.open) > .cp-pane { padding: 0; opacity: 0; box-shadow: none; pointer-events: none; }
+.cp-view > .plies { margin-left: 22px; transition: margin 0.32s; }
+.cp-view.open > .plies { margin-left: 10px; }
+.cp-view .ply { transition: width 0.32s, height 0.32s; }
+.cp-view.open .ply { width: 140px; height: 105px; }
+@media (max-width: 760px) {
+  .cp-view { grid-template-columns: 170px 116px minmax(0, 0fr) minmax(0, 1fr); height: min(280px, 42dvh); }
+  .cp-view.open { grid-template-columns: 170px 116px minmax(0, 1fr) minmax(0, 0.35fr); }
+  .cp-view.open .ply { width: 96px; height: 72px; }
+}
+/* téléphone : vignettes des objets à gauche, sections, puis les réglages à la place de l'aperçu */
+@media (max-width: 540px) {
+  .cp-view, .cp-view.open { grid-template-columns: 60px 88px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: min(360px, 46dvh); row-gap: 0; }
+  .cp-view > .cp-layers, .cp-view > .cp-tags, .cp-view > .cp-pane { grid-column: auto; grid-row: auto; height: auto; max-height: none; margin-left: 0; }
+  .cp-view > .plies, .cp-view > .cp-leaders { display: none; }
+  .cp-view > .cp-pane { padding-right: 30px; }
+  .cp-layers .layer { padding: 4px; justify-content: center; }
+  .cp-layers .layer-main { display: none; }
+  .cp-layers .thumb { width: 46px; height: 46px; }
+  .cp-view > .cp-tags { padding: 6px 0 6px 4px; justify-content: flex-start; }
+  .cp-view > .cp-tags .cp-tag { margin-right: 4px; gap: 5px; padding: 6px 4px; }
+  .cp-tag .slab { width: 14px; height: 10px; flex: none; }
+}
+/* bulles : jamais plus larges que l'écran moins la barre d'outils */
+.atelier .bubble:not(.format-bubble):not(.anchor-bubble):not(.projects-bubble) { width: min(340px, calc(100vw - 78px)); max-height: min(70dvh, calc(100dvh - 140px)); }
+/* téléphone : annuler, rétablir, dupliquer et corbeille dans une pastille sous la barre */
+@media (max-width: 560px) {
+  .bar-center { top: calc(52px + env(safe-area-inset-top, 0px) + 6px); bottom: auto; height: 44px; padding: 0 4px; border-radius: 22px; background: var(--chrome); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: var(--shadow); z-index: 11; }
+}
