@@ -1,5 +1,5 @@
 import type { Format } from '@ftd/core';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { BORDER_TYPES, fxPreview, GLOW_TYPES, swatch } from './App';
 import { FX, fxGuides, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
@@ -233,36 +233,25 @@ export function CoupePanel({
   // une couche touchée dans l'aperçu : on ne montre que son panneau
   const [only, setOnly] = useState<Section | null>(null);
   useEffect(() => setOnly(null), [l.id]);
+  useEffect(() => {
+    if (openOn) setOnly(openOn.key === 'shape' ? 'image' : null);
+  }, [openOn]);
+  // traits de rappel : du bouton de légende à la couche qu'il édite, dans l'aperçu
+  const view = useRef<HTMLDivElement>(null);
+  const plyEls = useRef<Record<string, HTMLElement | null>>({});
+  const tagEls = useRef<Record<string, HTMLElement | null>>({});
+  const [leaders, setLeaders] = useState<Array<{ sec: Section; d: string; x: number; y: number }>>([]);
   const [tick, bump] = useState(0);
   const items = itemsOf(l, doc);
   const reload = () => bump((n) => n + 1);
 
   // aperçu éclaté, recalculé un instant après le dernier réglage (le geste reste fluide)
   const [plies, setPlies] = useState<Array<{ id: string; name: string; sec: Section; src: string }>>([]);
-  // aperçu optionnel : choix gardé d'une ouverture à l'autre
-  const [exploded, setExploded] = useState(() => {
-    try {
-      return localStorage.getItem('ftd-atelier-plies') !== 'off';
-    } catch {
-      return true;
-    }
-  });
-  const toggleExploded = () => {
-    setExploded((v) => {
-      try {
-        localStorage.setItem('ftd-atelier-plies', v ? 'off' : 'on');
-      } catch {
-        /* stockage indisponible */
-      }
-      return !v;
-    });
-  };
   useEffect(() => {
-    if (!exploded) return;
     const t = setTimeout(() => setPlies(pliesOf(l).map((p) => ({ ...p, src: fxPreview(l, doc, f, l.fx, `ply-${p.id}`, reload, p.patch) }))), 140);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [l, doc.guides, doc.light, doc.lamp, f, tick, exploded]);
+  }, [l, doc.guides, doc.light, doc.lamp, f, tick]);
 
   // vignettes des choix de la section ouverte : l'objet avec ce choix appliqué
   const choices = adding ? choicesOf(l, adding) : [];
@@ -361,6 +350,46 @@ export function CoupePanel({
       </div>
     );
   };
+  /** La couche de l'aperçu que chaque section édite (les bords : l'objet fini). */
+  const plyOf = (sec: Section) => {
+    const has = (id: string) => plies.some((p) => p.id === id);
+    if (sec === 'edge') return 'result';
+    if (sec === 'coat') return has('coat') ? 'coat' : 'result';
+    if (sec === 'transform') return has('transform') ? 'transform' : 'image';
+    return sec;
+  };
+  const pick = (sec: Section | null) => {
+    setAdding(null);
+    setOnly(sec);
+    // le premier élément de la section s'ouvre : ses curseurs sont tout de suite là
+    const first = sec ? items.find((x) => x.sec === sec) : undefined;
+    setFocus(first ? first.key : null);
+  };
+  useLayoutEffect(() => {
+    const draw = () => {
+      const box = view.current?.getBoundingClientRect();
+      if (!box) return;
+      const out: Array<{ sec: Section; d: string; x: number; y: number }> = [];
+      for (const s of sections) {
+        const tag = tagEls.current[s.sec]?.getBoundingClientRect();
+        const ply = plyEls.current[plyOf(s.sec)]?.getBoundingClientRect();
+        if (!tag || !ply) continue;
+        const bx = tag.left - box.left - 3;
+        const by = tag.top - box.top + tag.height / 2;
+        // le point d'attache : sur le bord droit de la couche, à sa hauteur
+        const x = ply.right - box.left - ply.width * 0.2;
+        const y = ply.top - box.top + ply.height * 0.42;
+        const ex = bx - 14;
+        out.push({ sec: s.sec, d: `M${bx} ${by}H${ex}L${x} ${y}`, x, y });
+      }
+      setLeaders(out);
+    };
+    draw();
+    const ro = new ResizeObserver(draw);
+    if (view.current) ro.observe(view.current);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plies, items.length, l.kind]);
   const byKey = (k: Section) => sections.find((s) => s.sec === k);
   const focused = items.find((x) => x.key === focus);
   return (
@@ -373,9 +402,6 @@ export function CoupePanel({
             {items.filter((x) => x.removable).length > 1 ? 's' : ''}
           </small>
         </div>
-        <button className={`cp-bench cp-toggle ${exploded ? 'on' : ''}`} onClick={toggleExploded} aria-pressed={exploded} title="Afficher ou masquer l'aperçu éclaté des couches de l'objet">
-          Aperçu
-        </button>
         <button className="cp-bench" disabled title="Établi : préparer l'objet en plein écran et l'enregistrer dans la bibliothèque (bientôt)">
           Établi
         </button>
@@ -387,60 +413,58 @@ export function CoupePanel({
         {list}
         <div className="cp-main">
           <div className="cp-scroll">
-            {exploded && (
+            <div className="cp-view" ref={view}>
               <div className="plies">
                 <div className="plies-3d">
                   {plies.map((p, k) => (
                     <button
                       key={p.id}
-                      className={`ply ${only && only === p.sec && p.id !== 'result' ? 'on' : ''}`}
-                      style={{ transform: `translate(-50%, -50%) translateZ(${k * Math.min(30, 120 / Math.max(1, plies.length - 1))}px)` }}
-                      onClick={() => {
-                        setAdding(null);
-                        setOnly(p.id === 'result' || only === p.sec ? null : p.sec);
+                      ref={(el) => {
+                        plyEls.current[p.id] = el;
                       }}
-                      title={p.id === 'result' ? 'Tout montrer' : `Ne montrer que : ${p.name}`}
+                      className={`ply ${only && plyOf(only) === p.id ? 'on' : ''}`}
+                      style={{ transform: `translate(-50%, -50%) translateZ(${k * Math.min(30, 120 / Math.max(1, plies.length - 1))}px)` }}
+                      onClick={() => pick(p.id === 'result' ? 'edge' : p.sec)}
+                      title={p.name}
                     >
                       <img src={p.src} alt="" />
                     </button>
                   ))}
                 </div>
-                <ol className="ply-names">
-                  {[...plies].reverse().map((p) => (
-                    <li key={p.id}>
-                      <button className={only && only === p.sec && p.id !== 'result' ? 'on' : ''} onClick={() => setOnly(p.id === 'result' || only === p.sec ? null : p.sec)}>
-                        {p.name}
-                      </button>
-                    </li>
-                  ))}
-                </ol>
               </div>
-            )}
-            {only ? (
-              <>
-                {byKey(only) && card(byKey(only)!)}
-                <button className="cp-all" onClick={() => setOnly(null)}>
-                  Toutes les couches
-                </button>
-              </>
-            ) : (
-              <>
-                {/* les bords font le tour de l'objet : une rangée en haut de la coupe */}
-                {byKey('edge') && <div className="cp-edge">{card(byKey('edge')!)}</div>}
-                <div className="cp-stack">
-                  <span className="side-tag">dessus</span>
-                  {byKey('coat') && card(byKey('coat')!)}
-                  <div className={byKey('image') ? 'cp-pair' : ''}>
-                    {byKey('image') && card(byKey('image')!)}
-                    {card(byKey('transform')!)}
-                  </div>
-                  {card(byKey('support')!)}
-                  <span className="side-tag">dessous</span>
-                </div>
-              </>
-            )}
+              <div className="cp-tags">
+                {[...sections].map((s) => {
+                  const mine = items.filter((x) => x.sec === s.sec);
+                  return (
+                    <button
+                      key={s.sec}
+                      ref={(el) => {
+                        tagEls.current[s.sec] = el;
+                      }}
+                      className={`cp-tag ${only === s.sec ? 'on' : ''}`}
+                      onClick={() => pick(only === s.sec ? null : s.sec)}
+                    >
+                      <span className={`slab ${s.slab}`} />
+                      <span className="tg-t">
+                        <b>{secLabel(s.sec, l)}</b>
+                        <small>{mine.length ? mine.map((x) => x.name).join(', ') : s.empty}</small>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <svg className="cp-leaders" aria-hidden>
+                {leaders.map((g) => (
+                  <g key={g.sec} className={only === g.sec ? 'on' : ''}>
+                    <path d={g.d} />
+                    <circle cx={g.x} cy={g.y} r="2.6" />
+                  </g>
+                ))}
+              </svg>
+            </div>
+            {only && byKey(only) && card(byKey(only)!)}
           </div>
-          {focused && <Attrs layer={l} doc={doc} item={focused} patch={patch} />}
+          {focused && only === focused.sec && <Attrs layer={l} doc={doc} item={focused} patch={patch} />}
         </div>
       </div>
     </aside>
