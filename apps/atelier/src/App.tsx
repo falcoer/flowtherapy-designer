@@ -8,7 +8,7 @@ import { PrefsPanel, type Theme } from './prefs';
 import { BrushWheel } from './wheel';
 import { ParallaxView } from './parallax';
 import { kitFromSvg, nearestGuide, type Kit } from './kits';
-import { KIT_SAMPLES } from './kit-samples';
+import { KITS } from './kit-samples';
 import { blankBump, bumpHeights, dab, encodeBump, smoothBump } from './bump';
 import { currentPx, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
 import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
@@ -34,6 +34,7 @@ import {
   type Guide,
   type Lamp,
   type Layer,
+  type Volume,
   type Pt,
   type BorderStyle,
   type GlowStyle,
@@ -2289,6 +2290,12 @@ export function App() {
   };
 
   // --- ajout de couches ---
+  /** Volume léger posé d'office sur une forme : il se change ou se retire dans Forme. */
+  const defaultVolume = (sh: string): Volume => {
+    const dome = ['circle', 'oval', 'drop', 'blob', 'moon', 'semicircle', 'arch'];
+    const cone = ['star', 'diamond', 'leaf'];
+    return { kind: dome.includes(sh) ? 'dome' : cone.includes(sh) ? 'cone' : 'cushion', amount: cone.includes(sh) ? 0.3 : 0.4 };
+  };
   /** Objet en pièces : une couche par pièce, toutes dans la même boîte, solidaires. */
   const addKit = (kit: Kit) => {
     const a = anchorFor(doc.frame, f, f.width / 2, f.height / 2);
@@ -2355,6 +2362,7 @@ export function App() {
       cut: opts.cut,
       ref: opts.ref,
       height: 0,
+      ...(kind === 'shape' && opts.shape ? { volume: defaultVolume(opts.shape) } : {}),
       visible: true,
       strokes: [],
     };
@@ -3481,8 +3489,8 @@ export function App() {
                         {list.map(([sh, name]) => (
                           <button
                             key={sh}
-                            onClick={() => addLayer('shape', sh === 'polystar' ? { shape: 'star', name: 'Étoile' } : { shape: sh as ShapeKind, name })}
-                            title={sh === 'polystar' ? 'Polygone ou étoile : côtés et creux se règlent ensuite' : name}
+                            onClick={() => (KITS[sh] ? addKit(kitFromSvg(KITS[sh].svg, name)) : addLayer('shape', sh === 'polystar' ? { shape: 'star', name: 'Étoile' } : { shape: sh as ShapeKind, name }))}
+                            title={sh === 'polystar' ? 'Polygone ou étoile : côtés et creux se règlent ensuite' : KITS[sh] ? `${name} : en pièces à colorer séparément` : name}
                           >
                             {sh === 'polystar' ? <PolyStarGlyph /> : <ShapeGlyph shape={sh as ShapeKind} />}
                             {name}
@@ -3492,14 +3500,8 @@ export function App() {
                     </div>
                   ))}
                   <div className="forms-fam">
-                    <div className="b-title">Objets en pièces</div>
+                    <div className="b-title">Vos dessins</div>
                     <div className="add-grid forms-grid kits-grid">
-                      {KIT_SAMPLES.map((k) => (
-                        <button key={k.id} onClick={() => addKit(kitFromSvg(k.svg, k.name))} title={`${k.name} : déjà découpée en pièces à colorer séparément`}>
-                          <img alt="" src={`data:image/svg+xml,${encodeURIComponent(k.svg)}`} />
-                          {k.name}
-                        </button>
-                      ))}
                       <label className="file" title="Un dessin SVG : chaque groupe devient une pièce nommée (data-volume, data-lift facultatifs)">
                         <Icon name="import" />
                         Importer un SVG
