@@ -12,8 +12,12 @@ import { contours } from './text';
  * le navigateur, dans un worker : rien n'est envoyé au serveur.
  */
 
-/** Modèle Magic Touch v2 (int8, 30 Mo, Apache 2.0), gardé dans le cache du navigateur après le premier usage. */
-export const SUBJECT_MODEL = 'https://storage.googleapis.com/mediapipe-models/interactive_segmenter_v2/magic_touch/int8/1/interactive_segmentation.task';
+/**
+ * Modèle Magic Touch v2 (int8, 30 Mo, Apache 2.0), gardé dans le cache du navigateur après le premier usage.
+ * VITE_SUBJECT_MODEL le remplace (par exemple servi par le VPS, ou en morceaux « a|b|c » pour la démo).
+ */
+export const SUBJECT_MODEL: string =
+  import.meta.env.VITE_SUBJECT_MODEL || 'https://storage.googleapis.com/mediapipe-models/interactive_segmenter_v2/magic_touch/int8/1/interactive_segmentation.task';
 
 /** Côté le plus long de l'image analysée, en pixels. */
 export const SUBJECT_SIZE = 1024;
@@ -80,7 +84,7 @@ export async function setSubjectImage(src: HTMLCanvasElement): Promise<void> {
       bitmap,
       wasmLoaderPath: abs(wasmLoaderUrl),
       wasmBinaryPath: abs(wasmBinaryUrl),
-      model: SUBJECT_MODEL,
+      model: SUBJECT_MODEL.split('|').map(abs).join('|'),
     },
     [bitmap],
   );

@@ -25,16 +25,28 @@ const ctx = self as unknown as {
 };
 
 /** Le modèle (30 Mo) est gardé dans le cache du navigateur : téléchargé une seule fois. */
-async function modelBytes(url: string): Promise<Uint8Array> {
-  let res: Response | undefined;
+async function fileBytes(url: string): Promise<Uint8Array> {
   const cache = 'caches' in self ? await caches.open('ftd-models').catch(() => undefined) : undefined;
-  res = await cache?.match(url);
+  let res = await cache?.match(url);
   if (!res) {
     res = await fetch(url);
     if (!res.ok) throw new Error(`modèle introuvable (${res.status})`);
     await cache?.put(url, res.clone()).catch(() => undefined);
   }
   return new Uint8Array(await res.arrayBuffer());
+}
+
+/** Un modèle peut être découpé en morceaux (adresses séparées par « | ») là où les gros fichiers sont refusés. */
+async function modelBytes(urls: string): Promise<Uint8Array> {
+  const parts = await Promise.all(urls.split('|').map(fileBytes));
+  if (parts.length === 1) return parts[0]!;
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
 }
 
 function segmenter(m: Extract<In, { type: 'image' }>) {
