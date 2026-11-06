@@ -21,6 +21,8 @@ interface Item {
   name: string;
   bg: string;
   removable: boolean;
+  /** Une police : la pastille et le nom s'affichent dans cette police. */
+  font?: string;
 }
 
 const groupOf = (x: Fx) => fxOf(x.id)?.group;
@@ -105,7 +107,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
       removable: false,
     });
   }
-  if (l.kind === 'text' && l.text) out.push({ sec: 'image', key: 'text', name: fontOf(l.text.font).family, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: false });
+  if (l.kind === 'text' && l.text) out.push({ sec: 'image', key: 'text', name: fontOf(l.text.font).family, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: false, font: l.text.font });
   if (l.kind === 'photo') {
     if (l.look?.style) out.push({ sec: 'image', key: 'look', name: lookOf(l.look.style)!.name, bg: 'linear-gradient(135deg,#2b3a8c,#9b4f9e,#ee6b5b)', removable: true });
   } else out.push({ sec: 'image', key: 'paint', name: doc.guides[l.guide]?.name ?? 'Couleur', bg: g(l.guide), removable: false });
@@ -135,7 +137,7 @@ function removal(l: Layer, key: string): Partial<Layer> {
 }
 
 /** Ce qu'on peut ajouter dans chaque section, avec la retouche qui l'applique. */
-function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; patch: Partial<Layer>; focus: string }> {
+function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; patch: Partial<Layer>; focus: string; text?: Partial<TextStyle>; font?: string }> {
   const fxAdd = (g: FxGroup) =>
     FX.filter((d) => d.group === g && !(l.fx ?? []).some((x) => x.id === d.id)).map((d) => ({
       id: d.id,
@@ -166,6 +168,11 @@ function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; pa
     return MATERIALS()
       .filter((d) => d.id !== l.material?.id && !(d.transparent && l.kind === 'surface'))
       .map((d) => ({ id: d.id, name: d.name, patch: { material: newFx(d.id), ...(d.transparent ? { opacity: d.transparent } : {}) }, focus: 'material' }));
+  // texte : le catalogue des polices, chacune montrée avec le texte lui-même
+  if (l.kind === 'text' && l.text)
+    return fontList()
+      .filter((ft) => ft.id !== l.text!.font)
+      .map((ft) => ({ id: `font-${ft.id}`, name: ft.family, patch: {}, focus: 'text', text: { font: ft.id }, font: ft.id }));
   if (l.kind !== 'photo') return [];
   const look = l.look ?? { guides: [], mix: 1 };
   return [
@@ -266,7 +273,7 @@ export function CoupePanel({
   const edgeGroup = (id: string) => (id.startsWith('b-') || id === 'trim' ? 'Bord' : id.startsWith('g-') ? 'Lueur' : 'Relief');
   const thumbs = useMemo(() => {
     const out: Record<string, string> = {};
-    for (const c of choices) out[c.id] = fxPreview(l, doc, f, l.fx, `add-${c.id}`, reload, c.patch);
+    for (const c of choices) if (!c.font) out[c.id] = fxPreview(l, doc, f, l.fx, `add-${c.id}`, reload, c.patch);
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adding, l, doc.guides, doc.light, doc.lamp, f, tick]);
@@ -298,8 +305,16 @@ export function CoupePanel({
             mine.map((it) => (
               <span key={it.key} className={`cp-item ${focus === it.key ? 'on' : ''}`}>
                 <button className="cp-nm" onClick={() => setFocus(focus === it.key ? null : it.key)}>
-                  <span className="sw" style={{ background: it.bg }} />
-                  <span className="nm">{it.name}</span>
+                  {it.font ? (
+                    <span className="sw sw-font" style={{ fontFamily: `${fontFamily(it.font)}, Inter, sans-serif` }}>
+                      Aa
+                    </span>
+                  ) : (
+                    <span className="sw" style={{ background: it.bg }} />
+                  )}
+                  <span className="nm" style={it.font ? { fontFamily: `${fontFamily(it.font)}, Inter, sans-serif` } : undefined}>
+                    {it.name}
+                  </span>
                 </button>
                 {it.removable && (
                   <button
@@ -338,12 +353,21 @@ export function CoupePanel({
                         <button
                           key={c.id}
                           onClick={() => {
-                            patch(c.patch);
+                            if (c.text) patchText?.(c.text, true);
+                            else patch(c.patch);
                             setFocus(c.focus);
                             setAdding(null);
                           }}
                         >
-                          <span className="thumb">{thumbs[c.id] && <img src={thumbs[c.id]} alt="" />}</span>
+                          <span className="thumb">
+                            {c.font ? (
+                              <span className="font-thumb" style={{ fontFamily: `${fontFamily(c.font)}, Inter, sans-serif`, fontWeight: l.text?.weight, fontStyle: l.text?.italic ? 'italic' : 'normal' }}>
+                                {(l.text?.content || 'Aa').split('\n')[0]!.slice(0, 14)}
+                              </span>
+                            ) : (
+                              thumbs[c.id] && <img src={thumbs[c.id]} alt="" />
+                            )}
+                          </span>
                           <b>{c.name}</b>
                           {hintOf(c.id)[1] && <small>{hintOf(c.id)[1]}</small>}
                         </button>
@@ -366,8 +390,8 @@ export function CoupePanel({
     return sec;
   };
   const pick = (sec: Section | null) => {
-    // la section choisie prend la place de l'aperçu : ses choix et ses réglages ensemble
-    setAdding(sec && choicesOf(l, sec).length ? sec : null);
+    // la section choisie prend la place de l'aperçu ; son catalogue s'ouvre au stylo ou au +
+    setAdding(null);
     setOnly(sec);
     // le premier élément de la section s'ouvre : ses curseurs sont tout de suite là
     const first = sec ? items.find((x) => x.sec === sec) : undefined;
@@ -557,13 +581,6 @@ function Attrs({ layer: l, doc, item, patch, patchText }: { layer: Layer; doc: D
     const t = l.text;
     body = (
       <>
-        <div className="cp-fonts">
-          {fontList().map((ft) => (
-            <button key={ft.id} className={ft.id === t.font ? 'on' : ''} style={{ fontFamily: `${fontFamily(ft.id)}, Inter, sans-serif` }} onClick={() => patchText({ font: ft.id }, true)} title={ft.family}>
-              Aa<small>{ft.family}</small>
-            </button>
-          ))}
-        </div>
         <Range label="Graisse" display={`${t.weight}`} value={(t.weight - 100) / 800} onChange={(v) => patchText({ weight: 100 + Math.round(v * 80) * 10 }, false)} />
         <label className="cp-row">
           <span>Italique</span>

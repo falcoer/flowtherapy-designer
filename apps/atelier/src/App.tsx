@@ -1214,7 +1214,7 @@ export function App() {
     const sel = doc.layers.find((l) => l.id === selected);
 
     // Prolonger : le trait part d'une lettre et devient une partie du texte
-    if (swash.on && tool === 'move' && sel?.kind === 'text' && sel.text) {
+    if (swash.on && (tool === 'move' || isEdit(tool)) && sel?.kind === 'text' && sel.text) {
       const loc = toLocal(sel, p.x, p.y);
       const pr = pressure(e, null);
       update((d) => d);
@@ -1424,7 +1424,7 @@ export function App() {
     const el = hoverRef.current;
     if (!el) return;
     const sel = doc.layers.find((l) => l.id === selected);
-    const shaping = swash.on && tool === 'move' && sel?.kind === 'text' && !!sel.text;
+    const shaping = swash.on && (tool === 'move' || isEdit(tool)) && sel?.kind === 'text' && !!sel.text;
     const painting = tool === 'paint' || tool === 'stamp' || shaping;
     if (!painting || rendu || (e.pointerType !== 'pen' && e.pointerType !== 'mouse')) return hideHover();
     const m = Math.min(f.width, f.height) * scale;
@@ -2476,8 +2476,8 @@ export function App() {
             </button>
           </aside>
 
-          {tool === 'move' && sel?.kind === 'text' && sel.text && !bubble && (
-            <TextBar layer={sel} editing={textEditing} setEditing={setTextEditing} onChange={(next, h) => patchText(sel, next, h)} swash={swash} setSwash={setSwash} />
+          {(tool === 'move' || isEdit(tool)) && sel?.kind === 'text' && sel.text && !bubble && (
+            <TextBar layer={sel} editing={textEditing} setEditing={setTextEditing} onChange={(next, h) => patchText(sel, next, h)} swash={swash} setSwash={setSwash} toolsOnly={isEdit(tool)} />
           )}
 
           {isEdit(tool) && !sel && (

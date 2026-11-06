@@ -29,6 +29,7 @@ export function TextBar({
   onChange,
   swash,
   setSwash,
+  toolsOnly,
 }: {
   layer: Layer;
   editing: boolean;
@@ -36,6 +37,8 @@ export function TextBar({
   onChange: (next: Partial<TextStyle>, history: boolean) => void;
   swash: SwashTool;
   setSwash: (s: SwashTool) => void;
+  /** Mode attributs : seulement les outils du texte, en barre au-dessus de la page. */
+  toolsOnly?: boolean;
 }) {
   const t = layer.text!;
   const area = useRef<HTMLTextAreaElement>(null);
@@ -70,29 +73,33 @@ export function TextBar({
   const rows = Math.min(4, Math.max(1, t.content.split('\n').length));
 
   return (
-    <div className="text-bar" onPointerDown={(e) => e.stopPropagation()}>
-      <textarea
-        ref={area}
-        className="tb-area"
-        rows={rows}
-        value={t.content}
-        placeholder="Écris ici, au clavier ou au stylet"
-        spellCheck
-        style={{ fontFamily: `${fontFamily(t.font)}, Inter, sans-serif`, fontWeight: t.weight, fontStyle: t.italic ? 'italic' : 'normal', textAlign: t.align }}
-        onFocus={() => setEditing(true)}
-        onBlur={() => setEditing(false)}
-        onChange={(e) => change({ content: e.target.value }, 'content')}
-      />
-      <div className="tb-fonts" role="listbox" aria-label="Police">
-        {fontList().map((x) => (
-          <button key={x.id} role="option" aria-selected={x.id === t.font} className={x.id === t.font ? 'on' : ''} onClick={() => change({ font: x.id }, `font`)} title={x.family}>
-            <span className="tb-aa" style={{ fontFamily: `${fontFamily(x.id)}, Inter, sans-serif` }}>
-              Aa
-            </span>
-            <span className="tb-fname">{x.family}</span>
-          </button>
-        ))}
-      </div>
+    <div className={`text-bar ${toolsOnly ? 'tools-only' : ''}`} onPointerDown={(e) => e.stopPropagation()}>
+      {!toolsOnly && (
+        <textarea
+          ref={area}
+          className="tb-area"
+          rows={rows}
+          value={t.content}
+          placeholder="Écris ici, au clavier ou au stylet"
+          spellCheck
+          style={{ fontFamily: `${fontFamily(t.font)}, Inter, sans-serif`, fontWeight: t.weight, fontStyle: t.italic ? 'italic' : 'normal', textAlign: t.align }}
+          onFocus={() => setEditing(true)}
+          onBlur={() => setEditing(false)}
+          onChange={(e) => change({ content: e.target.value }, 'content')}
+        />
+      )}
+      {!toolsOnly && (
+        <div className="tb-fonts" role="listbox" aria-label="Police">
+          {fontList().map((x) => (
+            <button key={x.id} role="option" aria-selected={x.id === t.font} className={x.id === t.font ? 'on' : ''} onClick={() => change({ font: x.id }, `font`)} title={x.family}>
+              <span className="tb-aa" style={{ fontFamily: `${fontFamily(x.id)}, Inter, sans-serif` }}>
+                Aa
+              </span>
+              <span className="tb-fname">{x.family}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="tb-row">
         <button className={`tb-btn tb-italic ${t.italic ? 'on' : ''}`} onClick={() => change({ italic: !t.italic }, 'italic')} title="Italique">
           I

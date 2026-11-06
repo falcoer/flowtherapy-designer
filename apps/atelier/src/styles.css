@@ -615,3 +615,8 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
   .cp-view > .cp-tags { grid-column: 2; grid-row: 2; }
   .cp-view > .plies, .cp-view > .cp-pane { grid-column: 1; grid-row: 2; height: 220px; margin-left: 0; }
 }
+.font-thumb { display: grid; place-items: center; width: 100%; height: 100%; font-size: 16px; padding: 0 4px; line-height: 1; white-space: nowrap; overflow: hidden; color: var(--ink); }
+.sw.sw-font { display: grid; place-items: center; background: var(--chrome-solid); font-size: 13px; line-height: 1; color: var(--ink); }
+/* outils du texte en mode attributs : barre en haut de la page */
+.text-bar.tools-only { bottom: auto; top: 64px; width: auto; max-width: calc(100vw - 150px); gap: 6px; padding: 8px; }
+.text-bar.tools-only .tb-slider { min-width: 140px; }
