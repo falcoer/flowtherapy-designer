@@ -867,3 +867,28 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 /* objets en pièces : aperçu du dessin */
 .kits-grid img { width: 52px; height: 34px; object-fit: contain; }
 .kits-grid > .file { justify-content: center; color: var(--accent); }
+
+/* éventail : choix courts déployés depuis leur bouton */
+.fan-at { position: absolute; z-index: 6; left: calc(100% + 8px); height: 0; }
+.hand-left .side .fan-at { left: auto; right: calc(100% + 8px); }
+.bw-fan-at.right { margin-left: 32px; }
+.bw-fan-at.left { margin-right: 32px; }
+.fan { position: absolute; top: 0; display: flex; gap: 2px; padding: 4px; border-radius: 22px; background: var(--chrome-solid); border: 1px solid var(--line); box-shadow: var(--shadow); transform: translateY(-50%); flex-wrap: wrap; width: max-content; max-width: calc(100vw - 96px); animation: fan-open 0.24s cubic-bezier(0.3, 0.7, 0.2, 1) both; }
+.fan-right { left: 0; clip-path: inset(0 0 0 0 round 22px); }
+.fan-left { right: 0; flex-direction: row-reverse; }
+@keyframes fan-open { from { clip-path: inset(0 calc(100% - 44px) 0 0 round 22px); opacity: 0.4; } to { clip-path: inset(0 0 0 0 round 22px); opacity: 1; } }
+.fan-left { animation-name: fan-open-left; }
+@keyframes fan-open-left { from { clip-path: inset(0 0 0 calc(100% - 44px) round 22px); opacity: 0.4; } to { clip-path: inset(0 0 0 0 round 22px); opacity: 1; } }
+.fan-item { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 58px; padding: 6px 2px 5px; border-radius: 18px; animation: fan-item 0.26s cubic-bezier(0.3, 0.7, 0.2, 1) both; animation-delay: calc(var(--i) * 35ms); }
+.fan-left .fan-item { animation-name: fan-item-left; }
+@keyframes fan-item { from { opacity: 0; transform: translateX(-14px) scale(0.7); } }
+@keyframes fan-item-left { from { opacity: 0; transform: translateX(14px) scale(0.7); } }
+.fan-item:hover { background: var(--accent-soft); }
+.fan-item.on { background: var(--accent-soft); color: var(--accent); }
+.fan-ico { width: 32px; height: 32px; display: grid; place-items: center; }
+.fan-ico svg { width: 22px; height: 22px; }
+.fan-item small { font-size: 10px; line-height: 1.15; color: var(--muted); text-align: center; max-width: 56px; }
+.fan-item.on small { color: var(--accent); }
+@media (pointer: coarse) and (min-width: 600px) { .fan-item { width: 64px; } .fan-ico svg { width: 26px; height: 26px; } }
+@media (prefers-reduced-motion: reduce) { .fan, .fan-item { animation: none; } }
+.bw-fan-at.left { left: auto; }

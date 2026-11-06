@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fan, useOutside, type FanItem } from './fan';
 
 export type Tip = 'round' | 'flat' | 'triangle';
 
@@ -23,7 +24,7 @@ interface Props {
    * Choix du pinceau, en bas à gauche, à la même place dans tous les modes :
    * un toucher passe au suivant ; double toucher ou appui long ouvre le choix.
    */
-  pick?: { face: ReactNode; title: string; next?: () => void; choices?: (close: () => void) => ReactNode };
+  pick?: { face: ReactNode; title: string; next?: () => void; choices?: (close: () => void) => ReactNode; options?: FanItem[]; onOption?: (key: string) => void };
   /** Côté de l'écran où la roue est posée (et vers lequel elle s'écarte). */
   side?: 'left' | 'right';
   /** Après combien de temps sans y toucher la roue s'écarte (ms) ; absent : jamais. */
@@ -33,6 +34,9 @@ interface Props {
   /** Pendant un réglage de la pointe (taille, rotation, perspective) et au lâcher : montrer l'empreinte en vraie grandeur sur la page. */
   onSizing?: (on: boolean) => void;
 }
+
+/** Bas de la barre du haut, marge comprise. */
+const TOPBAR = 64;
 
 // repère : 0 en haut, sens horaire
 const S = 264;
@@ -329,8 +333,44 @@ export function BrushWheel(p: Props) {
           </g>
         )}
       </svg>
-      {p.pick && <Picker {...p.pick} at={[PX / S, PY / S]} />}
+      {p.pick && (p.pick.options ? <FanPicker {...p.pick} at={[PX / S, PY / S]} dir={left ? 'right' : 'left'} /> : <Picker {...p.pick} at={[PX / S, PY / S]} />)}
     </div>
+  );
+}
+
+/** Choix court : un toucher déploie l'éventail depuis le bouton, un autre le replie. */
+function FanPicker({ face, title, options, onOption, at: [px, py], dir }: NonNullable<Props['pick']> & { at: [number, number]; dir: 'left' | 'right' }) {
+  const [open, setOpen] = useState(false);
+  const btn = useRef<HTMLButtonElement>(null);
+  const fan = useRef<HTMLDivElement>(null);
+  useOutside(open, [btn, fan], () => setOpen(false));
+  return (
+    <>
+      <button
+        ref={btn}
+        className={`bw-pick ${open ? 'on' : ''}`}
+        style={{ left: `${px * 100}%`, top: `${py * 100}%` }}
+        title={`${title} (toucher : choisir)`}
+        aria-label={title}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        {face}
+      </button>
+      {open && (
+        <div ref={fan} className={`fan-at bw-fan-at ${dir}`} style={dir === 'right' ? { left: `${px * 100}%`, top: `${py * 100}%` } : { right: `${(1 - px) * 100}%`, top: `${py * 100}%` }}>
+          <Fan
+            items={options!}
+            dir={dir}
+            onPick={(k) => {
+              onOption?.(k);
+              setOpen(false);
+            }}
+          />
+        </div>
+      )}
+    </>
   );
 }
 
@@ -387,7 +427,14 @@ function Picker({ face, title, next, choices, at: [px, py] }: NonNullable<Props[
         {face}
       </button>
       {open && choices && (
-        <div className="bw-choices">
+        <div
+          className="bw-choices"
+          ref={(el) => {
+            // sous la barre du haut, comme les bulles palette et lumière
+            if (!el?.parentElement) return;
+            el.style.maxHeight = `${Math.max(160, el.parentElement.getBoundingClientRect().top - 10 - TOPBAR)}px`;
+          }}
+        >
           <div className="b-title">{title}</div>
           {choices(() => setOpen(false))}
         </div>

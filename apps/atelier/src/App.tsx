@@ -46,6 +46,7 @@ import { type Ring, geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, 
 import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, isMaterial, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
+import { FanButton } from './fan';
 import {
   drawLampTint,
   lampOf,
@@ -100,6 +101,34 @@ export const BORDER_TYPES: Array<[BorderStyle | null, string, string]> = [
 ];
 /** Pinceaux qui acceptent une forme de brosse. */
 const tipOn = (k: BrushKind) => k === 'aquarelle' || k === 'acrylic' || k === 'roller';
+/** Les trois façons de modeler une forme. */
+const MOLD_MODES = [
+  { key: 'mold', label: 'Modeler', hint: 'de l’intérieur on tire le contour, de l’extérieur on le repousse', icon: <Icon name="mold" /> },
+  {
+    key: 'orn',
+    label: 'Plume',
+    hint: 'un trait fin, plein et délié, ajouté au contour',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 20c1-5 3-9 8-13l5 5c-4 5-8 7-13 8z" />
+        <path d="M4 20l6-6" />
+        <circle cx="11.5" cy="12.5" r="1.3" />
+      </svg>
+    ),
+  },
+  {
+    key: 'relief',
+    label: 'Relief',
+    hint: 'sculpter la surface, bosses et creux éclairés par la lampe',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 18h20" />
+        <path d="M3 18c3 0 4-8 9-8s6 8 9 8" />
+        <path d="M9 12.5c1-1 2-1.4 3-1.4" opacity="0.6" />
+      </svg>
+    ),
+  },
+];
 const BRUSHES: Array<[BrushKind, string, string]> = [
   ['aquarelle', 'Aquarelle', 'lavis transparent'],
   ['acrylic', 'Acrylique pinceau', 'pâte couvrante striée'],
@@ -522,7 +551,6 @@ export function App() {
   /** Bulle ouverte de l'outil Bords. */
   const [epop, setEpop] = useState<string | null>(null);
   const [brushKind, setBrushKind] = useState<BrushKind>('aquarelle');
-  const [brushPick, setBrushPick] = useState(false);
   /** Barre latérale : réglages sur deux colonnes quand une seule ne tient pas dans la hauteur. */
   const sideRef = useRef<HTMLElement>(null);
   const paramsRef = useRef<HTMLDivElement>(null);
@@ -1301,7 +1329,6 @@ export function App() {
     setBubble((b) => (b === 'light' ? b : null));
     setModePick(false);
     setEpop(null);
-    setBrushPick(false);
     const touches = [...pointers.current.values()].filter((p) => p.type === 'touch');
     if (e.pointerType === 'touch' && touches.length >= 2) {
       // plusieurs doigts : on annule le geste à un doigt et on manipule la vue
@@ -1604,23 +1631,8 @@ export function App() {
       face: <Icon name={`tip-${cur}`} />,
       title: `Pointe : ${names[cur].toLowerCase()}`,
       next: () => set(all[(all.indexOf(cur) + 1) % all.length]!),
-      choices: (close: () => void) => (
-        <div className="bw-choice-row">
-          {all.map((t) => (
-            <button
-              key={t}
-              className={cur === t ? 'on' : ''}
-              onClick={() => {
-                set(t);
-                close();
-              }}
-            >
-              <Icon name={`tip-${t}`} />
-              <small>{names[t]}</small>
-            </button>
-          ))}
-        </div>
-      ),
+      options: all.map((t) => ({ key: t, icon: <Icon name={`tip-${t}`} />, label: names[t], on: cur === t })),
+      onOption: (k: string) => set(k as 'round' | 'flat' | 'triangle'),
     };
   };
   /** Empreinte en vraie grandeur au centre de l'écran, pendant le réglage de la taille sur la roue. */
@@ -3000,28 +3012,13 @@ export function App() {
             <div ref={paramsRef} className={`side-params ${sideTwo ? 'two' : ''} ${sideOdd ? 'odd' : ''}`}>
               {tool === 'paint' && (
                 <>
-                  <button className={`btn small ${brushPick ? 'on' : ''}`} onClick={() => setBrushPick(!brushPick)} title={`Pinceau : ${BRUSHES.find((x) => x[0] === brushKind)![1]}`}>
-                    <Icon name={`brush-${brushKind}`} />
-                  </button>
-                  {brushPick && (
-                    <div className="mode-pop wide">
-                      <div className="b-title">Pinceau</div>
-                      {BRUSHES.map(([k, t, hint]) => (
-                        <button
-                          key={k}
-                          className={`row ${brushKind === k ? 'on' : ''}`}
-                          onClick={() => {
-                            setBrushKind(k);
-                            setBrushPick(false);
-                          }}
-                        >
-                          <Icon name={`brush-${k}`} />
-                          <span>{t}</span>
-                          <small>{hint}</small>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <FanButton
+                    dir={lefty ? 'left' : 'right'}
+                    face={<Icon name={`brush-${brushKind}`} />}
+                    title={`Pinceau : ${BRUSHES.find((x) => x[0] === brushKind)![1]}`}
+                    items={BRUSHES.map(([k, t, hint]) => ({ key: k, icon: <Icon name={`brush-${k}`} />, label: t, hint, on: brushKind === k }))}
+                    onPick={(k) => setBrushKind(k as BrushKind)}
+                  />
                   <button
                     className="btn small"
                     disabled={!sel?.strokes.length}
@@ -3054,33 +3051,13 @@ export function App() {
               )}
               {tool === 'mold' && (
                 <>
-                  <button
-                    className="btn small"
-                    onClick={() => setSwash({ ...swash, mode: swash.mode === 'mold' ? 'orn' : swash.mode === 'orn' ? 'relief' : 'mold' })}
-                    title={
-                      swash.mode === 'orn'
-                        ? 'Plume : un trait fin, plein et délié, ajouté au contour (toucher pour passer au Relief)'
-                        : swash.mode === 'relief'
-                          ? 'Relief : sculpter la surface, bosses et creux éclairés par la lampe (toucher pour revenir à Modeler)'
-                          : 'Modeler : de l’intérieur on tire le contour, de l’extérieur on le repousse (toucher pour passer à la Plume)'
-                    }
-                  >
-                    {swash.mode === 'orn' ? (
-                      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 20c1-5 3-9 8-13l5 5c-4 5-8 7-13 8z" />
-                        <path d="M4 20l6-6" />
-                        <circle cx="11.5" cy="12.5" r="1.3" />
-                      </svg>
-                    ) : swash.mode === 'relief' ? (
-                      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M2 18h20" />
-                        <path d="M3 18c3 0 4-8 9-8s6 8 9 8" />
-                        <path d="M9 12.5c1-1 2-1.4 3-1.4" opacity="0.6" />
-                      </svg>
-                    ) : (
-                      <Icon name="mold" />
-                    )}
-                  </button>
+                  <FanButton
+                    dir={lefty ? 'left' : 'right'}
+                    face={MOLD_MODES.find((m) => m.key === (swash.mode ?? 'mold'))!.icon}
+                    title={`Mode : ${MOLD_MODES.find((m) => m.key === (swash.mode ?? 'mold'))!.label} (toucher pour changer)`}
+                    items={MOLD_MODES.map((m) => ({ ...m, on: (swash.mode ?? 'mold') === m.key }))}
+                    onPick={(k) => setSwash({ ...swash, mode: k as 'mold' | 'orn' | 'relief' })}
+                  />
                   {swash.mode === 'relief' ? (
                     <>
                       <button
