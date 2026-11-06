@@ -700,3 +700,4 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .hand-left .side:not(.tools-bar) .mode-pop { left: auto; right: calc(100% + 8px); }
 .hand-left .height-bar { right: auto; left: calc(max(8px, env(safe-area-inset-left, 0px)) + 58px); }
 .atelier .side:not(.tools-bar):not(:has(.side-params > *)) { display: none; }
+.lamp-panel { left: auto; right: calc(max(8px, env(safe-area-inset-right, 0px)) + 58px); }
