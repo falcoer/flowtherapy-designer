@@ -25,7 +25,9 @@ interface Item {
   /** Une police : la pastille et le nom s'affichent dans cette police. */
   font?: string;
   /** Pastille dessinée (contenu, déformation du texte). */
-  glyph?: 'content' | WarpKind | 'none';
+  glyph?: 'content' | 'molded' | WarpKind | 'none';
+  /** Attribut d'origine d'un objet modelé : grisé, il revient avec « Revenir ». */
+  locked?: boolean;
 }
 
 const groupOf = (x: Fx) => fxOf(x.id)?.group;
@@ -99,6 +101,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
     if ((l.bevel ?? 0) > 0.001) out.push({ sec: 'edge', key: 'bevel', name: 'Biseau', bg: 'linear-gradient(135deg,#fff,#8a849a)', removable: true });
     if (l.glow) out.push({ sec: 'edge', key: 'glow', name: GLOW_TYPES.find((x) => x[0] === l.glow!.style)![1], bg: `radial-gradient(circle, #fff 20%, ${swatch(doc.guides[l.glow.guide])} 60%)`, removable: true });
   }
+  if (l.molded) out.push({ sec: 'image', key: 'molded', name: 'Modelé', bg: '', removable: false, glyph: 'molded' });
   for (const { x, i } of fxIn(l, 'lumiere')) out.push({ sec: 'coat', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: true });
   if (l.kind === 'shape') {
     const gen = genOf(l);
@@ -124,6 +127,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
   }
   for (const { x, i } of fxIn(l, 'effet')) out.push({ sec: 'transform', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'radial-gradient(circle,#1c1b3a 30%,#e3a83c 34%) 0 0/6px 6px', removable: true });
   if (l.material) out.push({ sec: 'support', key: 'material', name: fxOf(l.material.id)!.name, bg: 'repeating-linear-gradient(45deg,#c79a63 0 3px,#b0814d 3px 6px)', removable: true });
+  if (l.molded) for (const it of out) if (['shape', 'content', 'text', 'warp'].includes(it.key)) it.locked = true;
   return out;
 }
 
@@ -180,6 +184,7 @@ function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; pa
       .filter((d) => d.id !== l.material?.id && !(d.transparent && l.kind === 'surface'))
       .map((d) => ({ id: d.id, name: d.name, patch: { material: newFx(d.id), ...(d.transparent ? { opacity: d.transparent } : {}) }, focus: 'material' }));
   // texte : le catalogue des polices, chacune montrée avec le texte lui-même
+  if (l.kind === 'text' && l.text && l.molded) return [];
   if (l.kind === 'text' && l.text)
     return fontList()
       .filter((ft) => ft.id !== l.text!.font)
@@ -227,6 +232,8 @@ function pliesOf(l: Layer): Array<{ id: string; name: string; sec: Section; patc
 export function CoupePanel({
   list,
   patchText,
+  unmold,
+  onMold,
   layer: l,
   doc,
   f,
@@ -239,6 +246,10 @@ export function CoupePanel({
   list?: React.ReactNode;
   /** Retouche du texte (police, graisse) : les lettres gardent leur place sur la page. */
   patchText?: (next: Partial<TextStyle>, history: boolean) => void;
+  /** Retire le modelage : la forme, le texte ou le cadre d'origine reviennent. */
+  unmold?: () => void;
+  /** Passe à l'outil Modeler. */
+  onMold?: () => void;
   layer: Layer;
   doc: Doc;
   f: Format;
@@ -314,11 +325,13 @@ export function CoupePanel({
         <div className="cp-items">
           {mine.length ? (
             mine.map((it) => (
-              <span key={it.key} className={`cp-item ${focus === it.key ? 'on' : ''}`}>
+              <span key={it.key} className={`cp-item ${focus === it.key ? 'on' : ''} ${it.locked ? 'locked' : ''}`}>
                 <button className="cp-nm" onClick={() => setFocus(focus === it.key ? null : it.key)}>
                   {it.glyph ? (
                     <span className="sw sw-glyph">
-                      {it.glyph === 'content' ? (
+                      {it.glyph === 'molded' ? (
+                        <Icon name="mold" />
+                      ) : it.glyph === 'content' ? (
                         <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                           <path d="M5 6h10M10 6v12M15 14h5M15 18h4" />
                         </svg>
@@ -476,7 +489,7 @@ export function CoupePanel({
         {only && byKey(only) ? (
           <div className="cp-pane">
             {card(byKey(only)!)}
-            {focused && focused.sec === only && <Attrs layer={l} doc={doc} item={focused} patch={patch} patchText={patchText} />}
+            {focused && focused.sec === only && <Attrs layer={l} doc={doc} item={focused} patch={patch} patchText={patchText} unmold={unmold} onMold={onMold} />}
           </div>
         ) : (
           <div className="plies">
@@ -540,7 +553,23 @@ function Range({ label, value, onChange, unit, min = 0, display }: { label: stri
 }
 
 /** Réglages de l'élément touché, en bas de la coupe. */
-function Attrs({ layer: l, doc, item, patch, patchText }: { layer: Layer; doc: Doc; item: Item; patch: (p: Partial<Layer>, history?: boolean) => void; patchText?: (next: Partial<TextStyle>, history: boolean) => void }) {
+function Attrs({
+  layer: l,
+  doc,
+  item,
+  patch,
+  patchText,
+  unmold,
+  onMold,
+}: {
+  layer: Layer;
+  doc: Doc;
+  item: Item;
+  patch: (p: Partial<Layer>, history?: boolean) => void;
+  patchText?: (next: Partial<TextStyle>, history: boolean) => void;
+  unmold?: () => void;
+  onMold?: () => void;
+}) {
   const live = (p: Partial<Layer>) => patch(p, false);
   let body: React.ReactNode = null;
   const fxRows = (x: Fx, set: (x: Fx, history?: boolean) => void, amountLabel = 'Intensité') => {
@@ -597,6 +626,31 @@ function Attrs({ layer: l, doc, item, patch, patchText }: { layer: Layer; doc: D
           </label>
         )}
       </>
+    );
+  } else if (item.key === 'molded' || item.locked) {
+    const back = l.kind === 'text' ? 'Revenir au texte' : l.kind === 'photo' ? 'Revenir au cadre' : 'Revenir à la forme';
+    body = (
+      <div className="cp-molded">
+        <p>
+          {l.kind === 'text'
+            ? 'Ce texte a été modelé : c’est maintenant une forme. Ses lettres, sa police et sa déformation sont gardées de côté.'
+            : l.kind === 'photo'
+              ? 'Le bord de cette photo a été modelé.'
+              : 'Cette forme a été modelée : son dessin d’origine est gardé de côté.'}
+        </p>
+        <div className="cp-molded-act">
+          {onMold && (
+            <button onClick={onMold}>
+              <Icon name="mold" /> Modeler encore
+            </button>
+          )}
+          {unmold && (
+            <button className="primary" onClick={unmold}>
+              {back}
+            </button>
+          )}
+        </div>
+      </div>
     );
   } else if (item.key === 'content' && l.text && patchText) body = <TextContent key={l.id} text={l.text} onChange={patchText} />;
   else if (item.key === 'warp' && l.text && patchText) body = <TextWarp text={l.text} onChange={patchText} />;
@@ -659,7 +713,19 @@ function Attrs({ layer: l, doc, item, patch, patchText }: { layer: Layer; doc: D
   return (
     <section className="cp-attrs">
       <div className="cp-attrs-h">
-        <b>{item.key === 'shape' ? 'Paramètres de la forme' : item.key === 'text' ? 'Style' : item.key === 'content' ? 'Contenu' : item.key === 'warp' ? 'Déformation' : item.name}</b>
+        <b>
+          {item.key === 'molded' || item.locked
+            ? 'Modelé'
+            : item.key === 'shape'
+              ? 'Paramètres de la forme'
+              : item.key === 'text'
+                ? 'Style'
+                : item.key === 'content'
+                  ? 'Contenu'
+                  : item.key === 'warp'
+                    ? 'Déformation'
+                    : item.name}
+        </b>
         <small>{secName}</small>
       </div>
       {body}

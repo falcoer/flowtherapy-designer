@@ -31,6 +31,7 @@ export function TextBar({
   setSwash,
   toolsOnly,
   onStyle,
+  onMold,
 }: {
   layer: Layer;
   editing: boolean;
@@ -42,6 +43,8 @@ export function TextBar({
   toolsOnly?: boolean;
   /** Ouvre le style du texte (police, graisse, inclinaison) dans le volet des attributs. */
   onStyle?: () => void;
+  /** Passe à l'outil Modeler (barre de gauche), commun à tous les objets. */
+  onMold?: () => void;
 }) {
   const t = layer.text!;
   const area = useRef<HTMLTextAreaElement>(null);
@@ -149,6 +152,7 @@ export function TextBar({
         <button
           className={`tb-btn tb-swash ${swash.on ? 'on' : ''}`}
           onClick={() => {
+            if (onMold) return onMold();
             setSwash({ ...swash, on: !swash.on });
             if (!swash.on) area.current?.blur();
           }}

@@ -4,6 +4,7 @@ import { paintStroke, previewStamps } from './brush';
 import { STAMPS, stampOf, stampSvg } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
+import { currentPx, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
 import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
 import { QuickText, TextBar, type SwashTool } from './textbar';
 import { PaletteEditor } from './colorpicker';
@@ -34,7 +35,7 @@ import {
   type ShapeKind,
   type Stroke,
 } from './model';
-import { geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRing, splitByCut, subtract } from './cut';
+import { type Ring, geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRing, splitByCut, subtract } from './cut';
 import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, isMaterial, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
@@ -61,7 +62,7 @@ import {
   tracePath,
 } from './scene';
 
-type Tool = 'cut' | 'paint' | 'stamp' | 'filter' | 'transform' | 'material' | 'coat' | 'edge' | 'move';
+type Tool = 'cut' | 'paint' | 'mold' | 'stamp' | 'filter' | 'transform' | 'material' | 'coat' | 'edge' | 'move';
 /** Les cinq sections du mode Modifier l'objet, dans l'ordre de la barre. */
 type EditTool = 'filter' | 'transform' | 'material' | 'coat' | 'edge';
 const EDIT_SECTIONS: Array<[EditTool, string, string]> = [
@@ -595,7 +596,10 @@ export function App() {
   const dotAt = useRef(0);
   // --- état des gestes en cours ---
   const live = useRef<{
-    kind: 'paint' | 'cut' | 'move' | 'resize' | 'rotate' | 'pivot' | 'view' | 'swash' | null;
+    kind: 'paint' | 'cut' | 'move' | 'resize' | 'rotate' | 'pivot' | 'view' | 'swash' | 'mold' | null;
+    /** Outil Modeler : découpe de départ et découpe d'origine, en pixels de travail. */
+    base?: Ring[];
+    pristine?: Ring[];
     /** Prolongement de lettre en cours de tracé. */
     sw?: Swash;
     /** Modelage du contour en cours. */
@@ -1214,6 +1218,32 @@ export function App() {
     const t: Tool = e.pointerType === 'touch' || isEdit(tool) ? 'move' : tool;
     const sel = doc.layers.find((l) => l.id === selected);
 
+    // Modeler : le contour de l'objet choisi (ou touché) suit la pointe
+    if (t === 'mold') {
+      const hit = layerAt(p.x, p.y);
+      const target = sel && sel.kind !== 'surface' ? sel : hit && hit.kind !== 'surface' ? hit : null;
+      if (!target) return setToast('Choisis d’abord un objet à modeler');
+      if (target.id !== selected) setSelected(target.id);
+      const loc = toLocal(target, p.x, p.y);
+      const [x, y] = localToPx(target, loc.x, loc.y);
+      const pr = pressure(e, null);
+      const U = unitPx(target);
+      update((d) => d);
+      live.current = {
+        kind: 'mold',
+        layer: target.id,
+        orig: target,
+        base: currentPx(target),
+        pristine: pristinePx(target),
+        mold:
+          swash.mode === 'orn'
+            ? { pts: [], r: 0, orn: { pts: [[x, y, pr]], w: (swash.w ?? (target.text ? swashWidth(target.text.weight) * 0.8 : 0.08)) * U, end: 'fine', nib: -Math.PI / 4 } }
+            : { pts: [[x, y]], r: swash.r * U },
+        last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
+      };
+      return;
+    }
+
     // Prolonger : le trait part d'une lettre et devient une partie du texte
     if (swash.on && (tool === 'move' || isEdit(tool)) && sel?.kind === 'text' && sel.text) {
       const loc = toLocal(sel, p.x, p.y);
@@ -1432,16 +1462,26 @@ export function App() {
     if (!el) return;
     const sel = doc.layers.find((l) => l.id === selected);
     const shaping = swash.on && (tool === 'move' || isEdit(tool)) && sel?.kind === 'text' && !!sel.text;
-    const painting = tool === 'paint' || tool === 'stamp' || shaping;
+    const molding = tool === 'mold';
+    const painting = tool === 'paint' || tool === 'stamp' || shaping || molding;
     if (!painting || rendu || (e.pointerType !== 'pen' && e.pointerType !== 'mouse')) return hideHover();
     const m = Math.min(f.width, f.height) * scale;
     // Modeler : le rond couvre la zone qui bouge ; Plume : l'épaisseur du trait
     const em = shaping ? (layerBox(sel!, f).w * scale) / Math.max(1e-6, textEm(sel!.text!)) : 0;
-    const d = shaping ? (swash.mode === 'orn' ? (swash.w ?? swashWidth(sel!.text!.weight) * 0.8) * em : swash.r * 2 * em) : tool === 'stamp' ? stampSize * 2 * m : size * 2 * m;
+    const mu = MOLD_UNIT * m;
+    const d = molding
+      ? (swash.mode === 'orn' ? (swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) : swash.r * 2) * mu
+      : shaping
+        ? swash.mode === 'orn'
+          ? (swash.w ?? swashWidth(sel!.text!.weight) * 0.8) * em
+          : swash.r * 2 * em
+        : tool === 'stamp'
+          ? stampSize * 2 * m
+          : size * 2 * m;
     el.style.display = 'block';
     const D = Math.max(6, d);
     // brosse plate ou triangle : la silhouette de la touche, tournée comme elle peindra
-    const tip = !shaping && tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
+    const tip = !shaping && !molding && tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
     el.dataset.tip = tip;
     el.style.width = `${D}px`;
     el.style.height = `${tip === 'flat' ? Math.max(3, D * 0.3) : D}px`;
@@ -1500,6 +1540,26 @@ export function App() {
     if (tap.current && moved > 6) tap.current.moved = true;
     if (hold.current && Math.hypot(e.clientX - hold.current.x, e.clientY - hold.current.y) > 8) stopHold();
     const p = toPage(e.clientX, e.clientY);
+    if (L.kind === 'mold' && L.mold && L.orig) {
+      const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
+      const U = unitPx(L.orig);
+      for (const ev of events) {
+        if (ev.pointerType === 'pen' && ev.buttons === 0) continue;
+        const q = toPage(ev.clientX, ev.clientY);
+        const pr = pressure(ev as unknown as React.PointerEvent, L.last!);
+        L.last = { x: ev.clientX, y: ev.clientY, t: performance.now(), p: pr };
+        const loc = toLocal(L.orig, q.x, q.y);
+        const [x, y] = localToPx(L.orig, loc.x, loc.y);
+        const orn = L.mold.orn;
+        const line = orn?.pts ?? L.mold.pts;
+        const prev = line[line.length - 1]!;
+        if (Math.hypot(x - prev[0], y - prev[1]) < U * (orn ? 0.02 : 0.012)) continue;
+        if (orn) orn.pts.push([x, y, pr]);
+        else L.mold.pts.push([x, y]);
+      }
+      if (!swashFrame.current) swashFrame.current = requestAnimationFrame(() => ((swashFrame.current = 0), applyMold(false)));
+      return;
+    }
     if (L.kind === 'swash' && (L.sw || L.mold) && L.orig?.text) {
       const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
       for (const ev of events) {
@@ -1727,6 +1787,13 @@ export function App() {
     }
     if (remaining > 0) return;
     tap.current = null;
+    if (L.kind === 'mold') {
+      if (swashFrame.current) cancelAnimationFrame(swashFrame.current);
+      swashFrame.current = 0;
+      applyMold(true);
+      live.current = { kind: null };
+      return;
+    }
     if (L.kind === 'swash') {
       if (swashFrame.current) cancelAnimationFrame(swashFrame.current);
       swashFrame.current = 0;
@@ -2061,6 +2128,8 @@ export function App() {
   /** Change la typographie d'un texte en gardant son corps : la boîte suit les lettres. */
   const patchText = (l: Layer, next: Partial<TextStyle>, history: boolean) => {
     if (!l.text) return;
+    // texte modelé : c'est une forme, ses lettres reviennent seulement avec « Revenir au texte »
+    if (l.molded) return setToast('Ce texte est modelé : « Revenir au texte » pour le modifier');
     const t = { ...l.text, ...next };
     // enveloppe et prolongements : les lettres restent où elles sont, la boîte s'adapte autour
     if ('warp' in next || 'swashes' in next || 'molds' in next) return patchLayer(l.id, placeText(l, t), history);
@@ -2094,6 +2163,30 @@ export function App() {
       setToastUndo(false);
     }
   }, [swash.on, swash.mode]);
+  /** Pose le modelage en cours sur la découpe (en direct pendant le geste). */
+  const applyMold = (final: boolean) => {
+    const L = live.current;
+    if (L.kind !== 'mold' || !L.orig || !L.mold || !L.base || !L.pristine) return;
+    const o = L.orig;
+    const n = (L.mold.orn ?? L.mold).pts.length;
+    if (final && n < 2) {
+      past.current.pop();
+      return void setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? o : x)) }));
+    }
+    const m = { ...L.mold, pts: [...L.mold.pts], ...(L.mold.orn ? { orn: { ...L.mold.orn, pts: [...L.mold.orn.pts] } } : {}), live: !final };
+    const patch = moldPatch(o, f, L.base, L.pristine, m);
+    setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...o, ...patch } : x)) }));
+  };
+  /** Lisser : seules les parties modelées s'adoucissent, le reste garde son dessin d'origine. */
+  const smoothMold = (l: Layer) => {
+    if (!l.molded) return;
+    patchLayer(l.id, moldPatch(l, f, currentPx(l), pristinePx(l), { pts: [], r: 0, smooth: 0.035 * unitPx(l) }), true);
+  };
+  const unmold = (l: Layer) => {
+    if (!l.molded) return;
+    patchLayer(l.id, unmoldPatch(l, f), true);
+    setToast(l.kind === 'text' ? 'Le texte retrouve ses lettres et tous ses attributs' : l.kind === 'photo' ? 'La photo retrouve son cadre' : 'La forme retrouve son dessin d’origine');
+  };
   /** Pose le prolongement en cours sur le texte (en direct pendant le tracé). */
   const applySwash = (final: boolean) => {
     const L = live.current;
@@ -2215,6 +2308,7 @@ export function App() {
       else if (e.key === 'e') setTool('edge');
       else if (e.key === 'm') setTool('material');
       else if (e.key === 'v') setTool('move');
+      else if (e.key === 'g') setTool('mold');
       else if (e.key === 'Escape') {
         setBubble(null);
         setRendu(false);
@@ -2485,6 +2579,9 @@ export function App() {
             <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre (B) : aquarelle, acrylique, pistolet, paillettes, poils">
               <Icon name="brush" />
             </button>
+            <button className={`btn small ${tool === 'mold' ? 'on' : ''}`} onClick={() => setTool('mold')} title="Modeler (G) : tirer ou repousser le contour de l'objet, à la plume ou au doigt de glaise">
+              <Icon name="mold" />
+            </button>
             <button className={`btn small ${tool === 'stamp' ? 'on' : ''}`} onClick={() => setTool('stamp')} title="Tampons (S) : motifs à la couleur courante, dilution et rotation">
               <Icon name="stamp" />
             </button>
@@ -2493,7 +2590,7 @@ export function App() {
             </button>
           </aside>
 
-          {(tool === 'move' || isEdit(tool)) && sel?.kind === 'text' && sel.text && !bubble && (
+          {(tool === 'move' || isEdit(tool)) && sel?.kind === 'text' && sel.text && !sel.molded && !bubble && (
             <TextBar
               layer={sel}
               editing={textEditing}
@@ -2502,10 +2599,11 @@ export function App() {
               swash={swash}
               setSwash={setSwash}
               toolsOnly={isEdit(tool)}
+              onMold={() => setTool('mold')}
               onStyle={() => setCoupeOpen((o) => ({ key: 'text', sec: 'image', n: (o?.n ?? 0) + 1 }))}
             />
           )}
-          {isEdit(tool) && quickText && sel?.id === quickText && sel.text && <QuickText layer={sel} onChange={(next, h) => patchText(sel, next, h)} onClose={() => setQuickText(null)} />}
+          {isEdit(tool) && quickText && sel?.id === quickText && sel.text && !sel.molded && <QuickText layer={sel} onChange={(next, h) => patchText(sel, next, h)} onClose={() => setQuickText(null)} />}
 
           {isEdit(tool) && !sel && (
             <aside className="coupe with-list" aria-label="Objets">
@@ -2529,6 +2627,8 @@ export function App() {
             <CoupePanel
               list={layersJsx}
               patchText={(next, h) => patchText(sel, next, h)}
+              unmold={() => unmold(sel)}
+              onMold={() => setTool('mold')}
               layer={sel}
               doc={doc}
               f={f}
@@ -2611,6 +2711,51 @@ export function App() {
                       </button>
                     </>
                   )}
+                </>
+              )}
+              {tool === 'mold' && (
+                <>
+                  <button
+                    className="btn small"
+                    onClick={() => setSwash({ ...swash, mode: swash.mode === 'orn' ? 'mold' : 'orn' })}
+                    title={
+                      swash.mode === 'orn'
+                        ? 'Plume : un trait fin, plein et délié, ajouté au contour (toucher pour revenir à Modeler)'
+                        : 'Modeler : de l’intérieur on tire le contour, de l’extérieur on le repousse (toucher pour passer à la Plume)'
+                    }
+                  >
+                    {swash.mode === 'orn' ? (
+                      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 20c1-5 3-9 8-13l5 5c-4 5-8 7-13 8z" />
+                        <path d="M4 20l6-6" />
+                        <circle cx="11.5" cy="12.5" r="1.3" />
+                      </svg>
+                    ) : (
+                      <Icon name="mold" />
+                    )}
+                  </button>
+                  {swash.mode === 'orn' ? (
+                    <VSlider label="Taille" value={((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) - 0.01) / 0.29} onChange={(v) => setSwash({ ...swash, w: 0.01 + v * 0.29 })} />
+                  ) : (
+                    <VSlider label="Taille" value={(swash.r - 0.06) / 0.94} onChange={(v) => setSwash({ ...swash, r: 0.06 + v * 0.94 })} />
+                  )}
+                  <button className="btn small" disabled={!sel?.molded} onClick={() => sel && smoothMold(sel)} title="Lisser : seules les parties modelées s’adoucissent (à répéter pour lisser plus)">
+                    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 16c2-1 2.5-3 4-3s2 2.5 3.5 2.5S12 12 13.5 12 15 14 16.5 14" strokeDasharray="2 2" />
+                      <path d="M3 9c4-3 10-3 18 0" />
+                    </svg>
+                  </button>
+                  <button
+                    className="btn small"
+                    disabled={!sel?.molded}
+                    onClick={() => sel && unmold(sel)}
+                    title={sel?.kind === 'text' ? 'Revenir au texte : retire le modelage, rend les lettres et tous leurs attributs' : 'Revenir à l’origine : retire tout le modelage'}
+                  >
+                    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 9h11a5 5 0 0 1 0 10H9" />
+                      <path d="M8 5 4 9l4 4" />
+                    </svg>
+                  </button>
                 </>
               )}
               {tool === 'stamp' && (

@@ -45,6 +45,9 @@ export interface Mold {
   orn?: Swash;
 }
 
+/** Modelage de n'importe quelle découpe : contours, points et rayons en pixels du même repère. */
+export const moldPx = (rings: Ring[], m: Mold, pristine: Ring[]): Ring[] => mold(rings, m, 0, 0, 1, pristine);
+
 /** Applique un modelage aux contours (en pixels), en gardant des points assez serrés. */
 function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number, pristine: Ring[]): Ring[] {
   if (m.smooth) return regularize(rings, m.smooth * size, pristine);
