@@ -35,6 +35,8 @@ export function PrefsPanel(p: {
   online: boolean | null;
   tips: boolean;
   setTips: (v: boolean) => void;
+  simple: boolean;
+  setSimple: (v: boolean) => void;
   penRoll: boolean;
   setPenRoll: (v: boolean) => void;
   penTilt: boolean;
@@ -170,6 +172,13 @@ export function PrefsPanel(p: {
               ))}
             </div>
           </div>
+          <div className="pf-group">Outils</div>
+          <Toggle
+            label="Mode simplifié"
+            hint="Les outils essentiels : Ajouter, Créateur de matériaux, Peindre, Tampons. Découper et Modeler se rangent ; les objets préparés arrivent tout réglés depuis Ajouter › Objets"
+            on={p.simple}
+            set={p.setSimple}
+          />
           <div className="pf-group">Aide</div>
           <Toggle label="Astuces" hint="Textes d'aide, sous-titres des menus et bandeau d'état" on={p.tips} set={p.setTips} />
           <div className="pf-group">Main</div>
