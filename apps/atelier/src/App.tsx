@@ -2254,6 +2254,87 @@ export function App() {
     setSnapshot(c.toDataURL('image/png'));
   };
 
+  // liste des objets, dans le volet du Créateur de matériaux : l'objet choisi l'est aussi sur la page
+  const layersJsx = (
+    <div className="cp-layers">
+      <div className="layer-list">
+        {(frozenOrder ? frozenOrder.map((id) => doc.layers.find((x) => x.id === id)).filter((x): x is Layer => !!x) : [...renderOrder(doc.layers)].reverse()).map((l, k, list) => (
+          <div key={l.id} className={`layer ${l.id === selected ? 'on' : ''} ${l.visible ? '' : 'hidden'}`} onClick={() => setSelected(l.id)}>
+            <LayerThumb layer={l} doc={doc} />
+            <div className="layer-main">
+              <span className="layer-name">
+                {l.link && (
+                  <span className="link-mark" title="Solidaire d'autres objets : gardez le doigt posé dessus pour le détacher">
+                    <Icon name="link" />
+                  </span>
+                )}
+                {l.name}
+              </span>
+              {l.kind !== 'surface' ? (
+                <label className="height" title="Hauteur : ombre et épaisseur" onClick={(e) => e.stopPropagation()}>
+                  <Icon name="height" />
+                  <span className="height-track">
+                    <input
+                      type="range"
+                      min={-1}
+                      max={1}
+                      step={0.01}
+                      value={l.height - (l.inner ?? 0)}
+                      // l'ordre de la liste reste figé tant que le curseur est tenu
+                      onPointerDown={() => setFrozenOrder([...renderOrder(doc.layers)].reverse().map((x) => x.id))}
+                      onPointerUp={() => setFrozenOrder(null)}
+                      onPointerCancel={() => setFrozenOrder(null)}
+                      onBlur={() => setFrozenOrder(null)}
+                      onChange={(e) => {
+                        // le neutre aimante le doigt
+                        const v = Number(e.target.value);
+                        patchLayer(l.id, heightPatch(Math.abs(v) < 0.06 ? 0 : v), false);
+                      }}
+                    />
+                  </span>
+                </label>
+              ) : (
+                <small>bords perdus, suit le format</small>
+              )}
+            </div>
+            <div className="layer-actions" onClick={(e) => e.stopPropagation()}>
+              <button onClick={() => patchLayer(l.id, { visible: !l.visible })} title={l.visible ? 'Masquer' : 'Afficher'}>
+                <Icon name={l.visible ? 'eye' : 'eyeoff'} />
+              </button>
+              {l.kind !== 'surface' && (
+                <>
+                  <button onClick={() => moveLayer(l.id, 1)} disabled={!list[k - 1] || levelOf(list[k - 1]!) !== levelOf(l)} title="Monter (entre couches de même hauteur ; sinon, règle la hauteur)">
+                    <Icon name="up" />
+                  </button>
+                  <button onClick={() => moveLayer(l.id, -1)} disabled={!list[k + 1] || levelOf(list[k + 1]!) !== levelOf(l)} title="Descendre (entre couches de même hauteur ; sinon, règle la hauteur)">
+                    <Icon name="down" />
+                  </button>
+                </>
+              )}
+              {/* le fond se cache (œil) mais ne se supprime pas */}
+              {l.kind !== 'surface' && (
+                <button
+                  onClick={() => {
+                    update((d) => ({ ...d, layers: d.layers.filter((x) => x.id !== l.id) }));
+                    if (selected === l.id) setSelected(null);
+                  }}
+                  title="Supprimer"
+                >
+                  <Icon name="trash" />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      {sel && sel.strokes.length > 0 && (
+        <button className="row" onClick={() => patchLayer(sel.id, { strokes: [] })}>
+          Effacer la peinture de « {sel.name} »
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div className={`atelier ${rendu ? 'rendu' : ''} ${tips ? '' : 'no-tips'}`}>
       <canvas
@@ -2310,9 +2391,6 @@ export function App() {
                 title="Exporter en PNG ou PDF, dans un ou plusieurs formats"
               >
                 <Icon name="export" />
-              </button>
-              <button className={`btn ${bubble === 'layers' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'layers' ? null : 'layers')} title="Couches">
-                <Icon name="layers" />
               </button>
               <button className={`btn ${bubble === 'light' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'light' ? null : 'light')} title="Lumière">
                 <Icon name="sun" />
@@ -2381,8 +2459,23 @@ export function App() {
             <TextBar layer={sel} editing={textEditing} setEditing={setTextEditing} onChange={(next, h) => patchText(sel, next, h)} swash={swash} setSwash={setSwash} />
           )}
 
+          {isEdit(tool) && !sel && (
+            <aside className="coupe with-list" aria-label="Objets">
+              <div className="cp-head">
+                <div className="cp-title">
+                  <b>Objets</b>
+                  <small>Choisis un objet, dans la liste ou sur la page</small>
+                </div>
+                <button className="cp-close" onClick={() => setTool('move')} aria-label="Fermer">
+                  ×
+                </button>
+              </div>
+              <div className="cp-split">{layersJsx}</div>
+            </aside>
+          )}
           {isEdit(tool) && sel && (
             <CoupePanel
+              list={layersJsx}
               layer={sel}
               doc={doc}
               f={f}
@@ -2701,87 +2794,6 @@ export function App() {
               >
                 Repartir d'une page vierge
               </button>
-            </div>
-          )}
-
-          {bubble === 'layers' && (
-            <div className="bubble layers-bubble">
-              <div className="b-title">Couches</div>
-              <div className="layer-list">
-                {(frozenOrder ? frozenOrder.map((id) => doc.layers.find((x) => x.id === id)).filter((x): x is Layer => !!x) : [...renderOrder(doc.layers)].reverse()).map((l, k, list) => (
-                  <div key={l.id} className={`layer ${l.id === selected ? 'on' : ''} ${l.visible ? '' : 'hidden'}`} onClick={() => setSelected(l.id)}>
-                    <LayerThumb layer={l} doc={doc} />
-                    <div className="layer-main">
-                      <span className="layer-name">
-                        {l.link && (
-                          <span className="link-mark" title="Solidaire d'autres objets : gardez le doigt posé dessus pour le détacher">
-                            <Icon name="link" />
-                          </span>
-                        )}
-                        {l.name}
-                      </span>
-                      {l.kind !== 'surface' ? (
-                        <label className="height" title="Hauteur : ombre et épaisseur" onClick={(e) => e.stopPropagation()}>
-                          <Icon name="height" />
-                          <span className="height-track">
-                            <input
-                              type="range"
-                              min={-1}
-                              max={1}
-                              step={0.01}
-                              value={l.height - (l.inner ?? 0)}
-                              // l'ordre de la liste reste figé tant que le curseur est tenu
-                              onPointerDown={() => setFrozenOrder([...renderOrder(doc.layers)].reverse().map((x) => x.id))}
-                              onPointerUp={() => setFrozenOrder(null)}
-                              onPointerCancel={() => setFrozenOrder(null)}
-                              onBlur={() => setFrozenOrder(null)}
-                              onChange={(e) => {
-                                // le neutre aimante le doigt
-                                const v = Number(e.target.value);
-                                patchLayer(l.id, heightPatch(Math.abs(v) < 0.06 ? 0 : v), false);
-                              }}
-                            />
-                          </span>
-                        </label>
-                      ) : (
-                        <small>bords perdus, suit le format</small>
-                      )}
-                    </div>
-                    <div className="layer-actions" onClick={(e) => e.stopPropagation()}>
-                      <button onClick={() => patchLayer(l.id, { visible: !l.visible })} title={l.visible ? 'Masquer' : 'Afficher'}>
-                        <Icon name={l.visible ? 'eye' : 'eyeoff'} />
-                      </button>
-                      {l.kind !== 'surface' && (
-                        <>
-                          <button onClick={() => moveLayer(l.id, 1)} disabled={!list[k - 1] || levelOf(list[k - 1]!) !== levelOf(l)} title="Monter (entre couches de même hauteur ; sinon, règle la hauteur)">
-                            <Icon name="up" />
-                          </button>
-                          <button onClick={() => moveLayer(l.id, -1)} disabled={!list[k + 1] || levelOf(list[k + 1]!) !== levelOf(l)} title="Descendre (entre couches de même hauteur ; sinon, règle la hauteur)">
-                            <Icon name="down" />
-                          </button>
-                        </>
-                      )}
-                      {/* le fond se cache (œil) mais ne se supprime pas */}
-                      {l.kind !== 'surface' && (
-                        <button
-                          onClick={() => {
-                            update((d) => ({ ...d, layers: d.layers.filter((x) => x.id !== l.id) }));
-                            if (selected === l.id) setSelected(null);
-                          }}
-                          title="Supprimer"
-                        >
-                          <Icon name="trash" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {sel && sel.strokes.length > 0 && (
-                <button className="row" onClick={() => patchLayer(sel.id, { strokes: [] })}>
-                  Effacer la peinture de « {sel.name} »
-                </button>
-              )}
             </div>
           )}
 

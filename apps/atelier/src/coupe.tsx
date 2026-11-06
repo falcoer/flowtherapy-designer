@@ -205,6 +205,7 @@ function pliesOf(l: Layer): Array<{ id: string; name: string; sec: Section; patc
 }
 
 export function CoupePanel({
+  list,
   layer: l,
   doc,
   f,
@@ -213,6 +214,8 @@ export function CoupePanel({
   onToast,
   openOn,
 }: {
+  /** Liste des objets de la page, à gauche du volet. */
+  list?: React.ReactNode;
   layer: Layer;
   doc: Doc;
   f: Format;
@@ -227,6 +230,9 @@ export function CoupePanel({
     if (openOn) setFocus(openOn.key);
   }, [openOn]);
   const [adding, setAdding] = useState<Section | null>(null);
+  // une couche touchée dans l'aperçu : on ne montre que son panneau
+  const [only, setOnly] = useState<Section | null>(null);
+  useEffect(() => setOnly(null), [l.id]);
   const [tick, bump] = useState(0);
   const items = itemsOf(l, doc);
   const reload = () => bump((n) => n + 1);
@@ -358,12 +364,13 @@ export function CoupePanel({
   const byKey = (k: Section) => sections.find((s) => s.sec === k);
   const focused = items.find((x) => x.key === focus);
   return (
-    <aside className="coupe" aria-label={`Coupe de « ${l.name} »`}>
+    <aside className={`coupe ${list ? 'with-list' : ''}`} aria-label={`Coupe de « ${l.name} »`}>
       <div className="cp-head">
         <div className="cp-title">
           <b>{l.name}</b>
           <small>
-            {l.kind === 'photo' ? 'Photo' : l.kind === 'surface' ? 'Surface de fond' : 'Forme'} · {items.filter((x) => x.removable).length} élément{items.filter((x) => x.removable).length > 1 ? 's' : ''}
+            {l.kind === 'photo' ? 'Photo' : l.kind === 'surface' ? 'Surface de fond' : l.kind === 'text' ? 'Texte' : 'Forme'} · {items.filter((x) => x.removable).length} élément
+            {items.filter((x) => x.removable).length > 1 ? 's' : ''}
           </small>
         </div>
         <button className={`cp-bench cp-toggle ${exploded ? 'on' : ''}`} onClick={toggleExploded} aria-pressed={exploded} title="Afficher ou masquer l'aperçu éclaté des couches de l'objet">
@@ -376,39 +383,66 @@ export function CoupePanel({
           ×
         </button>
       </div>
-      <div className="cp-scroll">
-        {exploded && (
-          <div className="plies" aria-hidden>
-            <div className="plies-3d">
-              {plies.map((p, k) => (
-                <button key={p.id} className="ply" style={{ transform: `translate(-50%, -50%) translateZ(${k * Math.min(26, 96 / Math.max(1, plies.length - 1))}px)` }} onClick={() => setAdding(null)}>
-                  <img src={p.src} alt="" />
+      <div className="cp-split">
+        {list}
+        <div className="cp-main">
+          <div className="cp-scroll">
+            {exploded && (
+              <div className="plies">
+                <div className="plies-3d">
+                  {plies.map((p, k) => (
+                    <button
+                      key={p.id}
+                      className={`ply ${only && only === p.sec && p.id !== 'result' ? 'on' : ''}`}
+                      style={{ transform: `translate(-50%, -50%) translateZ(${k * Math.min(30, 120 / Math.max(1, plies.length - 1))}px)` }}
+                      onClick={() => {
+                        setAdding(null);
+                        setOnly(p.id === 'result' || only === p.sec ? null : p.sec);
+                      }}
+                      title={p.id === 'result' ? 'Tout montrer' : `Ne montrer que : ${p.name}`}
+                    >
+                      <img src={p.src} alt="" />
+                    </button>
+                  ))}
+                </div>
+                <ol className="ply-names">
+                  {[...plies].reverse().map((p) => (
+                    <li key={p.id}>
+                      <button className={only && only === p.sec && p.id !== 'result' ? 'on' : ''} onClick={() => setOnly(p.id === 'result' || only === p.sec ? null : p.sec)}>
+                        {p.name}
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+            {only ? (
+              <>
+                {byKey(only) && card(byKey(only)!)}
+                <button className="cp-all" onClick={() => setOnly(null)}>
+                  Toutes les couches
                 </button>
-              ))}
-            </div>
-            <ol className="ply-names">
-              {[...plies].reverse().map((p) => (
-                <li key={p.id}>{p.name}</li>
-              ))}
-            </ol>
+              </>
+            ) : (
+              <>
+                {/* les bords font le tour de l'objet : une rangée en haut de la coupe */}
+                {byKey('edge') && <div className="cp-edge">{card(byKey('edge')!)}</div>}
+                <div className="cp-stack">
+                  <span className="side-tag">dessus</span>
+                  {byKey('coat') && card(byKey('coat')!)}
+                  <div className={byKey('image') ? 'cp-pair' : ''}>
+                    {byKey('image') && card(byKey('image')!)}
+                    {card(byKey('transform')!)}
+                  </div>
+                  {card(byKey('support')!)}
+                  <span className="side-tag">dessous</span>
+                </div>
+              </>
+            )}
           </div>
-        )}
-        {/* les bords font le tour de l'objet : colonne à gauche de la coupe */}
-        <div className={byKey('edge') ? 'cp-body' : ''}>
-          {byKey('edge') && card(byKey('edge')!)}
-          <div className="cp-stack">
-            <span className="side-tag">dessus</span>
-            {byKey('coat') && card(byKey('coat')!)}
-            <div className={byKey('image') ? 'cp-pair' : ''}>
-              {byKey('image') && card(byKey('image')!)}
-              {card(byKey('transform')!)}
-            </div>
-            {card(byKey('support')!)}
-            <span className="side-tag">dessous</span>
-          </div>
+          {focused && <Attrs layer={l} doc={doc} item={focused} patch={patch} />}
         </div>
       </div>
-      {focused && <Attrs layer={l} doc={doc} item={focused} patch={patch} />}
     </aside>
   );
 }
