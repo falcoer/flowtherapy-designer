@@ -1,6 +1,6 @@
 import type { Format } from '@ftd/core';
-import { type Doc } from './model';
-import { drawLampTint, drawLayers, forgetPaint, holdPins } from './scene';
+import { type Doc, type Layer } from './model';
+import { drawLampTint, drawLayers, forgetPaint, holdPins, pageBounds } from './scene';
 
 /** Taille de l'image exportée : 300 dpi pour l'imprimé, la taille native pour les écrans. */
 export function exportSize(f: Format): { w: number; h: number } {
@@ -35,6 +35,36 @@ export async function renderDoc(doc: Doc, f: Format, maxSide = 6000): Promise<HT
     forgetPaint();
     drawLayers(ctx, d, f, { scale: k, onImage: () => late++ });
     drawLampTint(ctx, d, f);
+  };
+  draw();
+  for (let i = 0; i < 20; i++) {
+    const before = late;
+    await new Promise((r) => setTimeout(r, 250));
+    if (late === before && i > 0) break;
+    if (late !== before) draw();
+  }
+  forgetPaint();
+  return c;
+}
+
+/** Un objet seul, découpé et rendu avec ses effets, sur fond transparent (pour la bibliothèque). */
+export async function renderLayer(l: Layer, doc: Doc, f: Format, maxSide = 1600): Promise<HTMLCanvasElement> {
+  const bb = pageBounds(l, f);
+  const pad = 0.06 * Math.max(bb.x1 - bb.x0, bb.y1 - bb.y0);
+  const [x0, y0, w, h] = [bb.x0 - pad, bb.y0 - pad, bb.x1 - bb.x0 + 2 * pad, bb.y1 - bb.y0 + 2 * pad];
+  const k = maxSide / Math.max(w, h, 1e-6);
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w * k));
+  c.height = Math.max(1, Math.round(h * k));
+  const one: Doc = { ...doc, layers: [{ ...l, height: 0, inner: 0, visible: true }] };
+  let late = 0;
+  const draw = () => {
+    const ctx = c.getContext('2d')!;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.setTransform(k, 0, 0, k, -x0 * k, -y0 * k);
+    forgetPaint();
+    drawLayers(ctx, one, f, { scale: k, onImage: () => late++ });
   };
   draw();
   for (let i = 0; i < 20; i++) {
@@ -101,7 +131,10 @@ let saver: Promise<Saver | null> | null = null;
 function viewerSaver(): Promise<Saver | null> {
   const c = (window as unknown as { claude?: { use?: (n: string) => Promise<unknown> } }).claude;
   if (!c?.use) return Promise.resolve(null);
-  return (saver ??= c.use('downloads').then((x) => (x as Saver | null) ?? null, () => null));
+  return (saver ??= c.use('downloads').then(
+    (x) => (x as Saver | null) ?? null,
+    () => null,
+  ));
 }
 
 /** Téléchargement d'un fichier (sur iPad : ouvre la feuille de partage ou l'aperçu). */

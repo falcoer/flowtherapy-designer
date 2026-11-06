@@ -55,3 +55,12 @@ export function newAtelierId(title: string) {
       .slice(0, 40) || 'composition';
   return `${base}-${Math.random().toString(36).slice(2, 6)}`;
 }
+
+/** Ajoute une image (PNG) à la bibliothèque du groupe. */
+export async function addToLibrary(png: Blob, title: string, tags: string[]): Promise<void> {
+  const fd = new FormData();
+  fd.append('title', title);
+  fd.append('tags', tags.join(','));
+  fd.append('file', png, `${title.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'objet'}.png`);
+  await call<unknown>('/api/library/upload', { method: 'POST', body: fd });
+}

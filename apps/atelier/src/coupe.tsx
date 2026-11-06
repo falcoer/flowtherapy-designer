@@ -5,6 +5,7 @@ import { FX, fxGuides, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId 
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { GEN_DEFAULTS, type Doc, type Layer } from './model';
+import { fontFamily, fontList, fontOf, type TextStyle } from './text';
 
 /**
  * Coupe de l'objet : ses couches lues comme l'objet posé, du dessus au dessous.
@@ -81,7 +82,7 @@ const HINTS: Record<string, [string, string]> = {
 };
 const genOf = (l: Layer) => l.gen ?? (l.shape && !l.cut ? GEN_DEFAULTS[l.shape] : undefined);
 /** Pour une forme, la section Image devient Forme : sa découpe et sa couleur. */
-const secLabel = (sec: Section, l: Layer) => (sec === 'image' && l.kind === 'shape' ? 'Forme' : SECTIONS.find((s) => s.sec === sec)!.name);
+const secLabel = (sec: Section, l: Layer) => (sec === 'image' && l.kind === 'shape' ? 'Forme' : sec === 'image' && l.kind === 'text' ? 'Texte' : SECTIONS.find((s) => s.sec === sec)!.name);
 const fxIn = (l: Layer, g: FxGroup) => (l.fx ?? []).map((x, i) => ({ x, i })).filter(({ x }) => groupOf(x) === g);
 
 function itemsOf(l: Layer, doc: Doc): Item[] {
@@ -104,6 +105,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
       removable: false,
     });
   }
+  if (l.kind === 'text' && l.text) out.push({ sec: 'image', key: 'text', name: fontOf(l.text.font).family, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: false });
   if (l.kind === 'photo') {
     if (l.look?.style) out.push({ sec: 'image', key: 'look', name: lookOf(l.look.style)!.name, bg: 'linear-gradient(135deg,#2b3a8c,#9b4f9e,#ee6b5b)', removable: true });
   } else out.push({ sec: 'image', key: 'paint', name: doc.guides[l.guide]?.name ?? 'Couleur', bg: g(l.guide), removable: false });
@@ -206,6 +208,7 @@ function pliesOf(l: Layer): Array<{ id: string; name: string; sec: Section; patc
 
 export function CoupePanel({
   list,
+  patchText,
   layer: l,
   doc,
   f,
@@ -216,6 +219,8 @@ export function CoupePanel({
 }: {
   /** Liste des objets de la page, à gauche du volet. */
   list?: React.ReactNode;
+  /** Retouche du texte (police, graisse) : les lettres gardent leur place sur la page. */
+  patchText?: (next: Partial<TextStyle>, history: boolean) => void;
   layer: Layer;
   doc: Doc;
   f: Format;
@@ -225,16 +230,18 @@ export function CoupePanel({
   /** Élément à ouvrir d'emblée (une forme qu'on vient de poser : ses paramètres). */
   openOn?: { key: string; n: number };
 }) {
-  const [focus, setFocus] = useState<string | null>(openOn?.key ?? null);
+  const [focus, setFocus] = useState<string | null>(openOn && l.kind === 'shape' ? openOn.key : null);
   useEffect(() => {
-    if (openOn) setFocus(openOn.key);
+    if (openOn && l.kind === 'shape') setFocus(openOn.key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openOn]);
   const [adding, setAdding] = useState<Section | null>(null);
   // une couche touchée dans l'aperçu : on ne montre que son panneau
   const [only, setOnly] = useState<Section | null>(null);
   useEffect(() => setOnly(null), [l.id]);
   useEffect(() => {
-    if (openOn) setOnly(openOn.key === 'shape' ? 'image' : null);
+    if (openOn && l.kind === 'shape') setOnly('image');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openOn]);
   // traits de rappel : du bouton de légende à la couche qu'il édite, dans l'aperçu
   const view = useRef<HTMLDivElement>(null);
@@ -359,7 +366,8 @@ export function CoupePanel({
     return sec;
   };
   const pick = (sec: Section | null) => {
-    setAdding(null);
+    // la section choisie prend la place de l'aperçu : ses choix et ses réglages ensemble
+    setAdding(sec && choicesOf(l, sec).length ? sec : null);
     setOnly(sec);
     // le premier élément de la section s'ouvre : ses curseurs sont tout de suite là
     const first = sec ? items.find((x) => x.sec === sec) : undefined;
@@ -374,12 +382,12 @@ export function CoupePanel({
         const tag = tagEls.current[s.sec]?.getBoundingClientRect();
         const ply = plyEls.current[plyOf(s.sec)]?.getBoundingClientRect();
         if (!tag || !ply) continue;
-        const bx = tag.left - box.left - 3;
+        const bx = tag.right - box.left + 3;
         const by = tag.top - box.top + tag.height / 2;
-        // le point d'attache : sur le bord droit de la couche, à sa hauteur
-        const x = ply.right - box.left - ply.width * 0.2;
+        // le point d'attache : sur le bord gauche de la couche, à sa hauteur
+        const x = ply.left - box.left + ply.width * 0.2;
         const y = ply.top - box.top + ply.height * 0.42;
-        const ex = bx - 14;
+        const ex = bx + 14;
         out.push({ sec: s.sec, d: `M${bx} ${by}H${ex}L${x} ${y}`, x, y });
       }
       setLeaders(out);
@@ -389,83 +397,72 @@ export function CoupePanel({
     if (view.current) ro.observe(view.current);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plies, items.length, l.kind]);
+  }, [plies, items.length, l.kind, only]);
   const byKey = (k: Section) => sections.find((s) => s.sec === k);
   const focused = items.find((x) => x.key === focus);
   return (
-    <aside className={`coupe ${list ? 'with-list' : ''}`} aria-label={`Coupe de « ${l.name} »`}>
-      <div className="cp-head">
-        <div className="cp-title">
-          <b>{l.name}</b>
-          <small>
-            {l.kind === 'photo' ? 'Photo' : l.kind === 'surface' ? 'Surface de fond' : l.kind === 'text' ? 'Texte' : 'Forme'} · {items.filter((x) => x.removable).length} élément
-            {items.filter((x) => x.removable).length > 1 ? 's' : ''}
-          </small>
+    <aside className={`coupe ${list ? 'with-list' : ''}`} aria-label={`Attributs de « ${l.name} »`}>
+      <button className="cp-close" onClick={onClose} aria-label="Fermer">
+        ×
+      </button>
+      <div className="cp-view with-list" ref={view}>
+        {list}
+        <div className="cp-tags">
+          {sections.map((s) => {
+            const mine = items.filter((x) => x.sec === s.sec);
+            return (
+              <button
+                key={s.sec}
+                ref={(el) => {
+                  tagEls.current[s.sec] = el;
+                }}
+                className={`cp-tag ${only === s.sec ? 'on' : ''}`}
+                onClick={() => pick(only === s.sec ? null : s.sec)}
+              >
+                <span className={`slab ${s.slab}`} />
+                <span className="tg-t">
+                  <b>{secLabel(s.sec, l)}</b>
+                  <small>{mine.length ? mine.map((x) => x.name).join(', ') : s.empty}</small>
+                </span>
+              </button>
+            );
+          })}
         </div>
-        <button className="cp-bench" disabled title="Établi : préparer l'objet en plein écran et l'enregistrer dans la bibliothèque (bientôt)">
-          Établi
-        </button>
-        <button className="cp-close" onClick={onClose} aria-label="Fermer">
-          ×
-        </button>
-      </div>
-      <div className="cp-split">
-        <div className="cp-main">
-          <div className="cp-scroll">
-            <div className={`cp-view ${list ? 'with-list' : ''}`} ref={view}>
-              {list}
-              <div className="plies">
-                <div className="plies-3d">
-                  {plies.map((p, k) => (
-                    <button
-                      key={p.id}
-                      ref={(el) => {
-                        plyEls.current[p.id] = el;
-                      }}
-                      className={`ply ${only && plyOf(only) === p.id ? 'on' : ''}`}
-                      style={{ transform: `translate(-50%, -50%) translateZ(${k * Math.min(30, 120 / Math.max(1, plies.length - 1))}px)` }}
-                      onClick={() => pick(p.id === 'result' ? 'edge' : p.sec)}
-                      title={p.name}
-                    >
-                      <img src={p.src} alt="" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="cp-tags">
-                {[...sections].map((s) => {
-                  const mine = items.filter((x) => x.sec === s.sec);
-                  return (
-                    <button
-                      key={s.sec}
-                      ref={(el) => {
-                        tagEls.current[s.sec] = el;
-                      }}
-                      className={`cp-tag ${only === s.sec ? 'on' : ''}`}
-                      onClick={() => pick(only === s.sec ? null : s.sec)}
-                    >
-                      <span className={`slab ${s.slab}`} />
-                      <span className="tg-t">
-                        <b>{secLabel(s.sec, l)}</b>
-                        <small>{mine.length ? mine.map((x) => x.name).join(', ') : s.empty}</small>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-              <svg className="cp-leaders" aria-hidden>
-                {leaders.map((g) => (
-                  <g key={g.sec} className={only === g.sec ? 'on' : ''}>
-                    <path d={g.d} />
-                    <circle cx={g.x} cy={g.y} r="2.6" />
-                  </g>
-                ))}
-              </svg>
-            </div>
-            {only && byKey(only) && card(byKey(only)!)}
+        {only && byKey(only) ? (
+          <div className="cp-pane">
+            {card(byKey(only)!)}
+            {focused && focused.sec === only && <Attrs layer={l} doc={doc} item={focused} patch={patch} patchText={patchText} />}
           </div>
-          {focused && only === focused.sec && <Attrs layer={l} doc={doc} item={focused} patch={patch} />}
-        </div>
+        ) : (
+          <div className="plies">
+            <div className="plies-3d">
+              {plies.map((p, k) => (
+                <button
+                  key={p.id}
+                  ref={(el) => {
+                    plyEls.current[p.id] = el;
+                  }}
+                  className="ply"
+                  style={{ transform: `translate(-50%, -50%) translateZ(${k * Math.min(30, 120 / Math.max(1, plies.length - 1))}px)` }}
+                  onClick={() => pick(p.id === 'result' ? 'edge' : p.sec)}
+                  title={p.name}
+                >
+                  <img src={p.src} alt="" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {!only && (
+          <svg className="cp-leaders" aria-hidden>
+            {leaders.map((g) => (
+              <g key={g.sec}>
+                <path d={g.d} />
+                <circle cx={g.x} cy={g.y} r="2.6" />
+              </g>
+            ))}
+          </svg>
+        )}
       </div>
     </aside>
   );
@@ -498,7 +495,7 @@ function Range({ label, value, onChange, unit, min = 0, display }: { label: stri
 }
 
 /** Réglages de l'élément touché, en bas de la coupe. */
-function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: Item; patch: (p: Partial<Layer>, history?: boolean) => void }) {
+function Attrs({ layer: l, doc, item, patch, patchText }: { layer: Layer; doc: Doc; item: Item; patch: (p: Partial<Layer>, history?: boolean) => void; patchText?: (next: Partial<TextStyle>, history: boolean) => void }) {
   const live = (p: Partial<Layer>) => patch(p, false);
   let body: React.ReactNode = null;
   const fxRows = (x: Fx, set: (x: Fx, history?: boolean) => void, amountLabel = 'Intensité') => {
@@ -556,6 +553,25 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
         )}
       </>
     );
+  } else if (item.key === 'text' && l.text && patchText) {
+    const t = l.text;
+    body = (
+      <>
+        <div className="cp-fonts">
+          {fontList().map((ft) => (
+            <button key={ft.id} className={ft.id === t.font ? 'on' : ''} style={{ fontFamily: `${fontFamily(ft.id)}, Inter, sans-serif` }} onClick={() => patchText({ font: ft.id }, true)} title={ft.family}>
+              Aa<small>{ft.family}</small>
+            </button>
+          ))}
+        </div>
+        <Range label="Graisse" display={`${t.weight}`} value={(t.weight - 100) / 800} onChange={(v) => patchText({ weight: 100 + Math.round(v * 80) * 10 }, false)} />
+        <label className="cp-row">
+          <span>Italique</span>
+          <input type="checkbox" checked={!!t.italic} onChange={(e) => patchText({ italic: e.target.checked }, true)} />
+          <output>{t.italic ? 'oui' : 'non'}</output>
+        </label>
+      </>
+    );
   } else if (item.key === 'shape') {
     const gen = genOf(l);
     body = (
@@ -601,7 +617,7 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
   return (
     <section className="cp-attrs">
       <div className="cp-attrs-h">
-        <b>{item.key === 'shape' ? 'Paramètres de la forme' : item.name}</b>
+        <b>{item.key === 'shape' ? 'Paramètres de la forme' : item.key === 'text' ? 'Lettres' : item.name}</b>
         <small>{secName}</small>
       </div>
       {body}

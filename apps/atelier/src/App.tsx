@@ -9,8 +9,8 @@ import { TextBar, type SwashTool } from './textbar';
 import { PaletteEditor } from './colorpicker';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
-import { download, exportSize, fileName, pdfOf, pngOf, renderDoc } from './export';
-import { listAteliers, newAtelierId, readAtelier, removeAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta } from './server';
+import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayer } from './export';
+import { addToLibrary, listAteliers, newAtelierId, readAtelier, removeAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta } from './server';
 import { anchorsOf, compact, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
@@ -346,12 +346,14 @@ export function App() {
   // Modifier rouvre la dernière section utilisée
   const lastEdit = useRef<EditTool>('transform');
   const [coupeOpen, setCoupeOpen] = useState<{ key: string; n: number } | undefined>();
+  // glisser-déposer dans la liste des objets
+  const listPress = useRef<{ id: string; y: number; moved: boolean } | null>(null);
+  const [listDrag, setListDrag] = useState<{ id: string; over?: string; above?: boolean } | null>(null);
   const setTool = (t: Tool) => {
     if (isEdit(t)) lastEdit.current = t;
     setToolState(t);
   };
   const [bubble, setBubble] = useState<Bubble>(null);
-  const [frozenOrder, setFrozenOrder] = useState<string[] | null>(null);
   // astuces (textes d'aide, sous-titres des menus, bandeau d'état) : masquables pour gagner de la place
   const [tips, setTipsState] = useState(() => {
     try {
@@ -776,7 +778,7 @@ export function App() {
       ctx.setLineDash([2 * px, 4 * px]);
       for (const m of matesOf(doc, sel)) if (m.visible) ctx.stroke(maskPath2D(m, f));
       ctx.restore();
-      if (tool === 'move' && L.kind !== 'move') {
+      if ((tool === 'move' || isEdit(tool)) && L.kind !== 'move') {
         const h = handlesOf(sel);
         const r = sel.rot ?? 0;
         const ex = { x: Math.cos(r), y: Math.sin(r) };
@@ -1045,8 +1047,8 @@ export function App() {
   };
   const toLocal = (l: Layer, x: number, y: number) => pageToLocal(l, f, x, y);
   /** Copie de l'élément sélectionné (et de ses objets solidaires), décalée, posée juste au-dessus. */
-  const duplicate = () => {
-    const me = doc.layers.find((x) => x.id === selected);
+  const duplicate = (id: string | null = selected) => {
+    const me = doc.layers.find((x) => x.id === id);
     if (!me || me.kind === 'surface') return;
     const group = [me, ...matesOf(doc, me)];
     const link = me.link ? uid() : undefined;
@@ -1207,7 +1209,8 @@ export function App() {
 
     const p = toPage(e.clientX, e.clientY);
     // le doigt déplace, le stylet (ou la souris) utilise l'outil
-    const t: Tool = e.pointerType === 'touch' ? 'move' : tool;
+    // le doigt déplace ; le volet des attributs dispose aussi l'objet (poignées, glisser)
+    const t: Tool = e.pointerType === 'touch' || isEdit(tool) ? 'move' : tool;
     const sel = doc.layers.find((l) => l.id === selected);
 
     // Prolonger : le trait part d'une lettre et devient une partie du texte
@@ -2189,20 +2192,6 @@ export function App() {
     if (history) update(fn);
     else setDoc(fn);
   };
-  const moveLayer = (id: string, step: number) =>
-    update((d) => {
-      // l'ordre suit la hauteur : on n'échange qu'avec la voisine de même hauteur
-      const ord = renderOrder(d.layers);
-      const k = ord.findIndex((l) => l.id === id);
-      const me = ord[k];
-      const other = ord[k + step];
-      if (!me || !other || other.kind === 'surface' || levelOf(other) !== levelOf(me)) return d;
-      const layers = [...d.layers];
-      const i = layers.indexOf(me);
-      const j = layers.indexOf(other);
-      [layers[i], layers[j]] = [layers[j]!, layers[i]!];
-      return { ...d, layers };
-    });
 
   // raccourcis clavier (ordinateur)
   useEffect(() => {
@@ -2258,8 +2247,42 @@ export function App() {
   const layersJsx = (
     <div className="cp-layers">
       <div className="layer-list">
-        {(frozenOrder ? frozenOrder.map((id) => doc.layers.find((x) => x.id === id)).filter((x): x is Layer => !!x) : [...renderOrder(doc.layers)].reverse()).map((l, k, list) => (
-          <div key={l.id} className={`layer ${l.id === selected ? 'on' : ''} ${l.visible ? '' : 'hidden'}`} onClick={() => setSelected(l.id)}>
+        {[...renderOrder(doc.layers)].reverse().map((l) => (
+          <div
+            key={l.id}
+            data-layer={l.id}
+            className={`layer ${l.id === selected ? 'on' : ''} ${l.visible ? '' : 'hidden'} ${listDrag?.id === l.id ? 'dragging' : ''} ${listDrag?.over === l.id ? (listDrag.above ? 'drop-above' : 'drop-below') : ''}`}
+            onPointerDown={(e) => {
+              if ((e.target as HTMLElement).closest('button') || l.kind === 'surface') return;
+              listPress.current = { id: l.id, y: e.clientY, moved: false };
+            }}
+            onPointerMove={(e) => {
+              const pr = listPress.current;
+              if (!pr || pr.id !== l.id) return;
+              if (!pr.moved && Math.abs(e.clientY - pr.y) < 6) return;
+              if (!pr.moved) {
+                pr.moved = true;
+                (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+              }
+              const row = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest('[data-layer]') as HTMLElement | null;
+              const over = row?.dataset.layer;
+              if (!row || !over || over === l.id) return setListDrag({ id: l.id });
+              const r = row.getBoundingClientRect();
+              setListDrag({ id: l.id, over, above: e.clientY < r.top + r.height / 2 });
+            }}
+            onPointerUp={() => {
+              const pr = listPress.current;
+              listPress.current = null;
+              if (pr?.moved) {
+                if (listDrag?.over) dropLayer(l.id, listDrag.over, !!listDrag.above);
+                setListDrag(null);
+              } else setSelected(l.id);
+            }}
+            onPointerCancel={() => {
+              listPress.current = null;
+              setListDrag(null);
+            }}
+          >
             <LayerThumb layer={l} doc={doc} />
             <div className="layer-main">
               <span className="layer-name">
@@ -2270,70 +2293,68 @@ export function App() {
                 )}
                 {l.name}
               </span>
-              {l.kind !== 'surface' ? (
-                <label className="height" title="Hauteur : ombre et épaisseur" onClick={(e) => e.stopPropagation()}>
-                  <Icon name="height" />
-                  <span className="height-track">
-                    <input
-                      type="range"
-                      min={-1}
-                      max={1}
-                      step={0.01}
-                      value={l.height - (l.inner ?? 0)}
-                      // l'ordre de la liste reste figé tant que le curseur est tenu
-                      onPointerDown={() => setFrozenOrder([...renderOrder(doc.layers)].reverse().map((x) => x.id))}
-                      onPointerUp={() => setFrozenOrder(null)}
-                      onPointerCancel={() => setFrozenOrder(null)}
-                      onBlur={() => setFrozenOrder(null)}
-                      onChange={(e) => {
-                        // le neutre aimante le doigt
-                        const v = Number(e.target.value);
-                        patchLayer(l.id, heightPatch(Math.abs(v) < 0.06 ? 0 : v), false);
-                      }}
-                    />
-                  </span>
-                </label>
-              ) : (
-                <small>bords perdus, suit le format</small>
-              )}
-            </div>
-            <div className="layer-actions" onClick={(e) => e.stopPropagation()}>
-              <button onClick={() => patchLayer(l.id, { visible: !l.visible })} title={l.visible ? 'Masquer' : 'Afficher'}>
-                <Icon name={l.visible ? 'eye' : 'eyeoff'} />
-              </button>
-              {l.kind !== 'surface' && (
-                <>
-                  <button onClick={() => moveLayer(l.id, 1)} disabled={!list[k - 1] || levelOf(list[k - 1]!) !== levelOf(l)} title="Monter (entre couches de même hauteur ; sinon, règle la hauteur)">
-                    <Icon name="up" />
-                  </button>
-                  <button onClick={() => moveLayer(l.id, -1)} disabled={!list[k + 1] || levelOf(list[k + 1]!) !== levelOf(l)} title="Descendre (entre couches de même hauteur ; sinon, règle la hauteur)">
-                    <Icon name="down" />
-                  </button>
-                </>
-              )}
-              {/* le fond se cache (œil) mais ne se supprime pas */}
-              {l.kind !== 'surface' && (
-                <button
-                  onClick={() => {
-                    update((d) => ({ ...d, layers: d.layers.filter((x) => x.id !== l.id) }));
-                    if (selected === l.id) setSelected(null);
-                  }}
-                  title="Supprimer"
-                >
-                  <Icon name="trash" />
+              <div className="layer-actions">
+                <button onClick={() => patchLayer(l.id, { visible: !l.visible })} title={l.visible ? 'Masquer' : 'Afficher'}>
+                  <Icon name={l.visible ? 'eye' : 'eyeoff'} />
                 </button>
-              )}
+                {l.kind !== 'surface' && (
+                  <>
+                    <button onClick={() => duplicate(l.id)} title="Dupliquer">
+                      <Icon name="duplicate" />
+                    </button>
+                    <button onClick={() => void saveToLibrary(l)} title="Ajouter à la bibliothèque (l'objet découpé, avec ses effets)">
+                      <Icon name="library" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        update((d) => ({ ...d, layers: d.layers.filter((x) => x.id !== l.id) }));
+                        if (selected === l.id) setSelected(null);
+                      }}
+                      title="Supprimer"
+                    >
+                      <Icon name="trash" />
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         ))}
       </div>
-      {sel && sel.strokes.length > 0 && (
-        <button className="row" onClick={() => patchLayer(sel.id, { strokes: [] })}>
-          Effacer la peinture de « {sel.name} »
-        </button>
-      )}
     </div>
   );
+
+  /** Glisser-déposer dans la liste : l'objet prend la hauteur de son voisin et se range contre lui. */
+  const dropLayer = (id: string, target: string, above: boolean) =>
+    update((d) => {
+      const me = d.layers.find((x) => x.id === id);
+      const tg = d.layers.find((x) => x.id === target);
+      if (!me || !tg || me === tg) return d;
+      const others = d.layers.filter((x) => x.kind !== 'surface' && x.id !== id);
+      const lv = tg.kind === 'surface' ? Math.min(0, ...others.map(levelOf)) : levelOf(tg);
+      const moved = { ...me, ...heightPatch(lv) };
+      const layers = d.layers.filter((x) => x.id !== id);
+      const j = layers.indexOf(tg);
+      // la liste se lit du dessus au dessous : « au-dessus » = plus loin dans le tableau
+      layers.splice(tg.kind === 'surface' || above ? j + 1 : j, 0, moved);
+      return { ...d, layers };
+    });
+  /** Ajouter à la bibliothèque : l'objet seul, découpé et rendu avec ses effets, en PNG transparent. */
+  const saveToLibrary = async (l: Layer) => {
+    if (!(await serverOnline())) {
+      setToast('La bibliothèque est sur le serveur : connecte-toi au site pour y ajouter un objet');
+      setToastUndo(false);
+      return;
+    }
+    try {
+      const png = await pngOf(await renderLayer(l, doc, f));
+      await addToLibrary(png, l.name, ['atelier', l.kind]);
+      setToast(`« ${l.name} » ajouté à la bibliothèque`);
+    } catch (err) {
+      setToast(`Ajout impossible : ${(err as Error).message}`);
+    }
+    setToastUndo(false);
+  };
 
   return (
     <div className={`atelier ${rendu ? 'rendu' : ''} ${tips ? '' : 'no-tips'}`}>
@@ -2461,21 +2482,26 @@ export function App() {
 
           {isEdit(tool) && !sel && (
             <aside className="coupe with-list" aria-label="Objets">
-              <div className="cp-head">
-                <div className="cp-title">
-                  <b>Objets</b>
-                  <small>Choisis un objet, dans la liste ou sur la page</small>
-                </div>
-                <button className="cp-close" onClick={() => setTool('move')} aria-label="Fermer">
-                  ×
-                </button>
-              </div>
+              <button className="cp-close" onClick={() => setTool('move')} aria-label="Fermer">
+                ×
+              </button>
               <div className="cp-split">{layersJsx}</div>
+            </aside>
+          )}
+          {isEdit(tool) && sel && sel.kind !== 'surface' && (
+            <aside className="height-bar" title="Hauteur : au-dessus de 0 l'objet se soulève (ombre), en dessous il se creuse">
+              <VSlider
+                label="Hauteur"
+                center
+                value={0.5 + (sel.height - (sel.inner ?? 0)) / 2}
+                onChange={(v) => patchLayer(sel.id, heightPatch(Math.abs(v - 0.5) < 0.03 ? 0 : Math.round((v * 2 - 1) * 100) / 100), false)}
+              />
             </aside>
           )}
           {isEdit(tool) && sel && (
             <CoupePanel
               list={layersJsx}
+              patchText={(next, h) => patchText(sel, next, h)}
               layer={sel}
               doc={doc}
               f={f}
@@ -2667,7 +2693,7 @@ export function App() {
               <button className="btn small" onClick={redo} disabled={!future.current.length} title="Rétablir (trois doigts)">
                 <Icon name="redo" />
               </button>
-              <button className="btn small" onClick={duplicate} disabled={!sel || sel.kind === 'surface'} title="Dupliquer l'élément sélectionné">
+              <button className="btn small" onClick={() => duplicate()} disabled={!sel || sel.kind === 'surface'} title="Dupliquer l'élément sélectionné">
                 <Icon name="duplicate" />
               </button>
               <button
