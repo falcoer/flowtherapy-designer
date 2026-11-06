@@ -16,8 +16,10 @@ import { QuickText, TextBar, type SwashTool } from './textbar';
 import { PaletteEditor } from './colorpicker';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
-import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayer } from './export';
-import { addToLibrary, listAteliers, newAtelierId, readAtelier, removeAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta } from './server';
+import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
+import { ObjetsShelf } from './objets-shelf';
+import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
+import { listAteliers, newAtelierId, readAtelier, removeAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta } from './server';
 import { anchorsOf, compact, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
@@ -2771,7 +2773,7 @@ export function App() {
                     <button onClick={() => duplicate(l.id)} title="Dupliquer">
                       <Icon name="duplicate" />
                     </button>
-                    <button onClick={() => void saveToLibrary(l)} title="Ajouter à la bibliothèque (l'objet découpé, avec ses effets)">
+                    <button onClick={() => void saveToLibrary(l)} title="Ranger dans la bibliothèque (Objets) : l'objet et ses pièces, avec tous leurs réglages">
                       <Icon name="library" />
                     </button>
                     <button
@@ -2808,19 +2810,32 @@ export function App() {
       layers.splice(tg.kind === 'surface' || above ? j + 1 : j, 0, moved);
       return { ...d, layers };
     });
-  /** Ajouter à la bibliothèque : l'objet seul, découpé et rendu avec ses effets, en PNG transparent. */
+  /** Ranger dans la bibliothèque : l'objet (ou toutes ses pièces solidaires) avec tout son réglage et ses couleurs. */
   const saveToLibrary = async (l: Layer) => {
-    if (!(await serverOnline())) {
-      setToast('La bibliothèque est sur le serveur : connecte-toi au site pour y ajouter un objet');
-      setToastUndo(false);
-      return;
-    }
+    const ls = objetLayers(l, doc);
+    const title = ls.length > 1 ? (l.name.split(' · ')[0] ?? l.name) : l.name;
+    setToast(`Rangement de « ${title} »…`);
+    setToastUndo(false);
     try {
-      const png = await pngOf(await renderLayer(l, doc, f));
-      await addToLibrary(png, l.name, ['atelier', l.kind]);
-      setToast(`« ${l.name} » ajouté à la bibliothèque`);
+      const thumb = (await renderLayers(ls, doc, f, 320)).toDataURL('image/png');
+      const where = await saveObjet(title, packObjet(ls, doc, f), thumb);
+      setToast(`« ${title} » rangé dans les Objets de la bibliothèque${where === 'navigateur' ? ' (dans ce navigateur, le serveur ne répond pas)' : ''}`);
     } catch (err) {
-      setToast(`Ajout impossible : ${(err as Error).message}`);
+      setToast(`Rangement impossible : ${(err as Error).message}`);
+    }
+  };
+  /** Repose un objet préparé, tel qu'il a été rangé. */
+  const insertObjet = async (e: ObjetEntry, client?: { x: number; y: number }) => {
+    try {
+      const o = await readObjet(e);
+      const at = client ? toPage(client.x, client.y) : { x: f.width / 2, y: f.height / 2 };
+      const r = unpackObjet(o, doc, f, at.x, at.y);
+      update((d) => ({ ...d, guides: r.guides, layers: [...d.layers, ...r.layers] }));
+      setSelected(r.layers[0]?.id ?? null);
+      setBubble(null);
+      setToast(`« ${e.title} » posé${r.layers.length > 1 ? ` en ${r.layers.length} pièces` : ''}, prêt à retoucher`);
+    } catch (err) {
+      setToast(`Objet illisible : ${(err as Error).message}`);
     }
     setToastUndo(false);
   };
@@ -3473,7 +3488,8 @@ export function App() {
                   </div>
                 </RailScroll>
               )}
-              {shelf !== 'formes' && shelf !== 'textes' && (
+              {shelf === 'objets' && <ObjetsShelf onInsert={(e, at) => void insertObjet(e, at)} onDragState={setLibDrag} />}
+              {shelf !== 'formes' && shelf !== 'textes' && shelf !== 'objets' && (
                 <LibraryShelf
                   shelf={shelf}
                   onDragState={setLibDrag}

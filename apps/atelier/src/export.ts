@@ -48,15 +48,18 @@ export async function renderDoc(doc: Doc, f: Format, maxSide = 6000): Promise<HT
 }
 
 /** Un objet seul, découpé et rendu avec ses effets, sur fond transparent (pour la bibliothèque). */
-export async function renderLayer(l: Layer, doc: Doc, f: Format, maxSide = 1600): Promise<HTMLCanvasElement> {
-  const bb = pageBounds(l, f);
+export const renderLayer = (l: Layer, doc: Doc, f: Format, maxSide = 1600) => renderLayers([l], doc, f, maxSide);
+
+/** Plusieurs couches seules (un objet en pièces), à plat, sur fond transparent. */
+export async function renderLayers(ls: Layer[], doc: Doc, f: Format, maxSide = 1600): Promise<HTMLCanvasElement> {
+  const bb = ls.map((l) => pageBounds(l, f)).reduce((a, b) => ({ x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1) }));
   const pad = 0.06 * Math.max(bb.x1 - bb.x0, bb.y1 - bb.y0);
   const [x0, y0, w, h] = [bb.x0 - pad, bb.y0 - pad, bb.x1 - bb.x0 + 2 * pad, bb.y1 - bb.y0 + 2 * pad];
   const k = maxSide / Math.max(w, h, 1e-6);
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.round(w * k));
   c.height = Math.max(1, Math.round(h * k));
-  const one: Doc = { ...doc, layers: [{ ...l, height: 0, inner: 0, visible: true }] };
+  const one: Doc = { ...doc, layers: ls.map((l) => ({ ...l, height: 0, inner: 0, visible: true })) };
   let late = 0;
   const draw = () => {
     const ctx = c.getContext('2d')!;

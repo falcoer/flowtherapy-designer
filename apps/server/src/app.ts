@@ -34,7 +34,10 @@ export async function buildApp(opts: AppOptions) {
   const app = Fastify({ logger: process.env.NODE_ENV === 'production' });
   const lib = new Library(opts.libraryRoot, opts.cacheRoot ?? path.join(path.dirname(path.resolve(opts.libraryRoot)), 'cache'));
   await lib.reindex();
-  const ateliers = new Ateliers(opts.ateliersRoot ?? path.join(path.dirname(path.resolve(opts.libraryRoot)), 'ateliers'));
+  const ateliersRoot = path.resolve(opts.ateliersRoot ?? path.join(path.dirname(path.resolve(opts.libraryRoot)), 'ateliers'));
+  const ateliers = new Ateliers(ateliersRoot);
+  // à côté des compositions : <bibliothèque>/../objets
+  const objets = new Ateliers(path.join(path.dirname(ateliersRoot), 'objets'));
   const exporter = new Exporter(lib, { webFonts: opts.webFonts, chromiumPath: opts.chromiumPath });
   app.addHook('onClose', async () => {
     await exporter.close();
@@ -188,41 +191,46 @@ export async function buildApp(opts: AppOptions) {
     }
   });
 
-  // --- compositions de l'atelier ---
-  app.get('/api/ateliers', async () => ateliers.list());
-  app.get<{ Params: { id: string } }>('/api/ateliers/:id', async (req, reply) => {
-    try {
-      return await ateliers.read(req.params.id);
-    } catch {
-      return reply.code(404).send({ error: 'Composition introuvable' });
-    }
-  });
-  app.put<{ Params: { id: string }; Body: { title?: string; doc?: unknown; thumb?: string } }>(
-    '/api/ateliers/:id',
-    // photos importées comprises, une composition peut peser lourd
-    { bodyLimit: 200 * 1024 * 1024 },
-    async (req, reply) => {
+  // --- compositions de l'atelier, et objets préparés (pièces, matières, hauteurs) rangés en bibliothèque ---
+  for (const [base, store, missing] of [
+    ['/api/ateliers', ateliers, 'Composition introuvable'],
+    ['/api/objets', objets, 'Objet introuvable'],
+  ] as const) {
+    app.get(base, async () => store.list());
+    app.get<{ Params: { id: string } }>(`${base}/:id`, async (req, reply) => {
       try {
-        return { ok: true, meta: await ateliers.write(req.params.id, req.body ?? {}, req.user?.email) };
+        return await store.read(req.params.id);
+      } catch {
+        return reply.code(404).send({ error: missing });
+      }
+    });
+    app.put<{ Params: { id: string }; Body: { title?: string; doc?: unknown; thumb?: string } }>(
+      `${base}/:id`,
+      // photos importées comprises, une composition peut peser lourd
+      { bodyLimit: 200 * 1024 * 1024 },
+      async (req, reply) => {
+        try {
+          return { ok: true, meta: await store.write(req.params.id, req.body ?? {}, req.user?.email) };
+        } catch (err) {
+          return reply.code(400).send({ error: (err as Error).message });
+        }
+      },
+    );
+    app.delete<{ Params: { id: string } }>(`${base}/:id`, async (req, reply) => {
+      try {
+        await store.remove(req.params.id);
+        return { ok: true };
       } catch (err) {
         return reply.code(400).send({ error: (err as Error).message });
       }
-    },
-  );
-  app.delete<{ Params: { id: string } }>('/api/ateliers/:id', async (req, reply) => {
-    try {
-      await ateliers.remove(req.params.id);
-      return { ok: true };
-    } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message });
-    }
-  });
-  app.get<{ Params: { id: string } }>('/api/ateliers/:id/thumb.png', async (req, reply) => {
-    const f = await ateliers.thumb(req.params.id).catch(() => null);
-    if (!f) return reply.code(404).send({ error: 'Pas de vignette' });
-    const { createReadStream } = await import('node:fs');
-    return reply.type('image/png').header('Cache-Control', 'private, no-cache').send(createReadStream(f));
-  });
+    });
+    app.get<{ Params: { id: string } }>(`${base}/:id/thumb.png`, async (req, reply) => {
+      const f = await store.thumb(req.params.id).catch(() => null);
+      if (!f) return reply.code(404).send({ error: 'Pas de vignette' });
+      const { createReadStream } = await import('node:fs');
+      return reply.type('image/png').header('Cache-Control', 'private, no-cache').send(createReadStream(f));
+    });
+  }
 
   // fichiers sources de la bibliothèque (images, polices...)
   await app.register(fastifyStatic, { root: path.resolve(opts.libraryRoot), prefix: '/files/', decorateReply: false });

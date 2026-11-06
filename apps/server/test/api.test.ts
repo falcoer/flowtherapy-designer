@@ -11,7 +11,7 @@ async function setup(password?: string) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'ftd-'));
   await cp(repoLibrary, root, { recursive: true });
   const cacheRoot = await mkdtemp(path.join(os.tmpdir(), 'ftd-cache-'));
-  const ateliersRoot = await mkdtemp(path.join(os.tmpdir(), 'ftd-ateliers-'));
+  const ateliersRoot = path.join(await mkdtemp(path.join(os.tmpdir(), 'ftd-ateliers-')), 'ateliers');
   return { root, app: await buildApp({ libraryRoot: root, cacheRoot, ateliersRoot, password, webFonts: false }) };
 }
 
@@ -53,6 +53,15 @@ describe('API', () => {
     expect((await app.inject({ method: 'PUT', url: '/api/ateliers/..%2Fetc', payload: { doc } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'DELETE', url: '/api/ateliers/affiche-1' })).statusCode).toBe(200);
     expect((await app.inject('/api/ateliers/affiche-1')).statusCode).toBe(404);
+  });
+
+  it('range un objet préparé (ses pièces) dans la bibliothèque', async () => {
+    const { app } = await setup();
+    const doc = { layers: [{ id: 'a', kind: 'shape', link: 'k' }, { id: 'b', kind: 'shape', link: 'k' }] };
+    expect((await app.inject({ method: 'PUT', url: '/api/objets/maison-1', payload: { title: 'Maison', doc } })).statusCode).toBe(200);
+    expect((await app.inject('/api/objets')).json()).toHaveLength(1);
+    expect((await app.inject('/api/objets/maison-1')).json().doc).toEqual(doc);
+    expect((await app.inject('/api/ateliers')).json()).toHaveLength(0);
   });
 
   it('donne le profil et l’état du système', async () => {

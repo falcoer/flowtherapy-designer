@@ -892,3 +892,14 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 @media (pointer: coarse) and (min-width: 600px) { .fan-item { width: 64px; } .fan-ico svg { width: 26px; height: 26px; } }
 @media (prefers-reduced-motion: reduce) { .fan, .fan-item { animation: none; } }
 .bw-fan-at.left { left: auto; }
+
+/* rayon Objets : objets préparés */
+.objet-tile { position: relative; }
+.objet-tile .lib-tile { width: 100%; }
+.shelf-objets .lib-thumb img { object-fit: contain; }
+.objet-del { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--chrome-solid); border: 1px solid var(--line); color: var(--muted); opacity: 0; transition: opacity 0.15s; }
+.objet-del svg { width: 15px; height: 15px; }
+.objet-tile:hover .objet-del, .objet-del.on, .objet-del:focus-visible { opacity: 1; }
+.objet-del.on { color: #fff; background: #c2413a; border-color: #c2413a; }
+@media (pointer: coarse) { .objet-del { opacity: 0.85; } }
+.objets-empty svg { width: 15px; height: 15px; vertical-align: -3px; }
