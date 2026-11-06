@@ -685,3 +685,9 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .pf-btn.danger { border-color: #c0392b; color: #c0392b; }
 .pf-btn:disabled { opacity: 0.4; }
 .pf-confirm { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 12px; border: 1px solid #c0392b; font-size: 12.5px; color: var(--ink); }
+/* actions d'édition au centre de la barre du haut */
+.bar-center { position: absolute; left: 50%; top: env(safe-area-inset-top, 0px); bottom: 0; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; }
+.dup-drop { transition: transform 0.12s, background 0.12s, color 0.12s; }
+.dup-drop.armed { color: var(--accent); }
+.dup-drop.hot { background: var(--accent); color: #fff; transform: scale(1.25); }
+.bar .btn:disabled { opacity: 0.35; }

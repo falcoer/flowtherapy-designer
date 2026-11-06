@@ -515,6 +515,8 @@ export function App() {
   const trashRef = useRef<HTMLButtonElement>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const [trashHot, setTrashHot] = useState(false);
+  const dupRef = useRef<HTMLButtonElement>(null);
+  const [dupHot, setDupHot] = useState(false);
   const [snapshot, setSnapshot] = useState<string | null>(null);
   const [toast, setToastRaw] = useState<string | null>(null);
   // tiroir d'ajout : rayon ouvert (gardé d'une ouverture à l'autre) et glisser en cours
@@ -1092,10 +1094,10 @@ export function App() {
   };
   const toLocal = (l: Layer, x: number, y: number) => pageToLocal(l, f, x, y);
   /** Copie de l'élément sélectionné (et de ses objets solidaires), décalée, posée juste au-dessus. */
-  const duplicate = (id: string | null = selected) => {
-    const me = doc.layers.find((x) => x.id === id);
+  const duplicate = (id: string | null = selected, src: Doc = doc) => {
+    const me = src.layers.find((x) => x.id === id);
     if (!me || me.kind === 'surface') return;
-    const group = [me, ...matesOf(doc, me)];
+    const group = [me, ...matesOf(src, me)];
     const link = me.link ? uid() : undefined;
     const ids = new Map(group.map((g) => [g.id, uid()]));
     const copies = group.map((g) => ({ ...structuredClone(g), id: ids.get(g.id)!, name: `${g.name} (copie)`, dx: g.dx + 0.03, dy: g.dy + 0.03, pins: undefined, ...(link ? { link } : {}) }));
@@ -1160,6 +1162,7 @@ export function App() {
     if (!me) return;
     live.current = { kind: null };
     setTrashHot(false);
+    setDupHot(false);
     const ord = renderOrder(d.layers);
     const below = ord
       .slice(
@@ -1678,9 +1681,14 @@ export function App() {
       }
       redraw();
     } else if (L.kind === 'move' && L.orig && L.start) {
-      const tr = trashRef.current?.getBoundingClientRect();
-      const hot = !!tr && e.clientX > tr.left - 14 && e.clientX < tr.right + 14 && e.clientY > tr.top - 14 && e.clientY < tr.bottom + 14;
+      const over = (el: HTMLElement | null) => {
+        const r = el?.getBoundingClientRect();
+        return !!r && e.clientX > r.left - 14 && e.clientX < r.right + 14 && e.clientY > r.top - 14 && e.clientY < r.bottom + 14;
+      };
+      const hot = over(trashRef.current);
       if (hot !== trashHot) setTrashHot(hot);
+      const dhot = !hot && over(dupRef.current);
+      if (dhot !== dupHot) setDupHot(dhot);
       const o = L.orig;
       const b = layerBox(o, f);
       let cx = b.cx + p.x - L.start.x;
@@ -1880,6 +1888,13 @@ export function App() {
         setSelected(null);
         setTrashHot(false);
         setToast(gone.size > 1 ? `« ${o.name} » et ses objets solidaires à la corbeille` : `« ${o.name} » à la corbeille`);
+      } else if (l && dupHot) {
+        // glissé sur Dupliquer : l'objet revient à sa place et sa copie est posée à côté
+        const back = new Map<string, Layer>([[L.orig!.id, L.orig!], ...(L.mates ?? []).map((x) => [x.id, x] as [string, Layer])]);
+        const src = { ...doc, layers: doc.layers.map((x) => back.get(x.id) ?? x) };
+        setDoc(src);
+        setDupHot(false);
+        duplicate(l.id, src);
       } else if (l) {
         const pins = l.pins
           ? Object.entries(l.pins)
@@ -2545,6 +2560,31 @@ export function App() {
       {!rendu && (
         <>
           <header className="bar">
+            <div className="bar-center">
+              <button className="btn" onClick={undo} disabled={!past.current.length} title="Annuler (deux doigts)">
+                <Icon name="undo" />
+              </button>
+              <button className="btn" onClick={redo} disabled={!future.current.length} title="Rétablir (trois doigts)">
+                <Icon name="redo" />
+              </button>
+              <button
+                ref={dupRef}
+                className={`btn dup-drop ${dupHot ? 'hot' : ''} ${live.current.kind === 'move' ? 'armed' : ''}`}
+                onClick={() => duplicate()}
+                disabled={(!sel || sel.kind === 'surface') && live.current.kind !== 'move'}
+                title="Dupliquer : touche pour l'élément choisi, ou glisse un élément dessus"
+              >
+                <Icon name="duplicate" />
+              </button>
+              <button
+                ref={trashRef}
+                className={`btn trash ${trashHot ? 'hot' : ''} ${live.current.kind === 'move' ? 'armed' : ''}`}
+                onClick={() => setToast('Glisse un élément sur la corbeille pour le supprimer')}
+                title="Corbeille : glisse un élément dessus pour le supprimer"
+              >
+                <Icon name="trash" />
+              </button>
+            </div>
             <div className="bar-left">
               <button
                 className={`chip project-chip ${bubble === 'projects' ? 'on' : ''}`}
@@ -2882,26 +2922,6 @@ export function App() {
                   )}
                 </>
               )}
-            </div>
-            <span className="side-sep" />
-            <div className={`side-actions ${sideTwo ? 'two' : ''}`}>
-              <button className="btn small" onClick={undo} disabled={!past.current.length} title="Annuler (deux doigts)">
-                <Icon name="undo" />
-              </button>
-              <button className="btn small" onClick={redo} disabled={!future.current.length} title="Rétablir (trois doigts)">
-                <Icon name="redo" />
-              </button>
-              <button className="btn small" onClick={() => duplicate()} disabled={!sel || sel.kind === 'surface'} title="Dupliquer l'élément sélectionné">
-                <Icon name="duplicate" />
-              </button>
-              <button
-                ref={trashRef}
-                className={`btn small trash ${trashHot ? 'hot' : ''} ${live.current.kind === 'move' ? 'armed' : ''}`}
-                onClick={() => setToast('Glisse un élément sur la corbeille pour le supprimer')}
-                title="Corbeille : glisse un élément dessus pour le supprimer"
-              >
-                <Icon name="trash" />
-              </button>
             </div>
           </aside>
 
