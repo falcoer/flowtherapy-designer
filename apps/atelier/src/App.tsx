@@ -3055,7 +3055,6 @@ export function App() {
               unmold={() => unmold(sel)}
               onMold={() => setTool('mold')}
               simple={simple}
-              onLevel={(v) => setLevel(sel, v)}
               onSculpt={() => {
                 setSwash((w) => ({ ...w, mode: 'relief' }));
                 setTool('mold');

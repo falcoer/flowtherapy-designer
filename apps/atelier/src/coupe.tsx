@@ -99,9 +99,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
   if (l.kind !== 'surface') {
     if (l.border) out.push({ sec: 'edge', key: 'border', name: BORDER_TYPES.find((x) => x[0] === l.border!.style)![1], bg: g(l.border.guide), removable: true });
     if (l.trim) out.push({ sec: 'edge', key: 'trim', name: 'Rognage', bg: 'repeating-linear-gradient(135deg,#c9c3d6 0 3px,transparent 3px 6px)', removable: true });
-    // l'épaisseur : hauteur, volume, biseau, relief sculpté
-    const lv = Math.round((l.height - (l.inner ?? 0)) * 100);
-    out.push({ sec: 'depth', key: 'height', name: lv > 0 ? `Hauteur ${lv}` : lv < 0 ? `Creux ${-lv}` : 'Posé à plat', bg: 'linear-gradient(180deg,#fff,#c9c3d6 60%,#8a849a)', removable: false });
+    // le volume : forme bombée, biseau, relief sculpté
     if ((l.bevel ?? 0) > 0.001) out.push({ sec: 'depth', key: 'bevel', name: 'Biseau', bg: 'linear-gradient(135deg,#fff,#8a849a)', removable: true });
     if (l.glow) out.push({ sec: 'edge', key: 'glow', name: GLOW_TYPES.find((x) => x[0] === l.glow!.style)![1], bg: `radial-gradient(circle, #fff 20%, ${swatch(doc.guides[l.glow.guide])} 60%)`, removable: true });
   }
@@ -227,8 +225,8 @@ const SECTIONS: Array<{ sec: Section; name: string; role: string; empty: string;
   { sec: 'coat', name: 'Vernis', role: 'par-dessus', empty: 'Aucun', slab: 's-coat' },
   { sec: 'image', name: 'Image', role: 'et son filtre', empty: 'Originale', slab: 's-image' },
   { sec: 'transform', name: 'Transformations', role: 'en parallèle', empty: 'Aucune', slab: 's-fx' },
+  { sec: 'depth', name: 'Volume', role: 'bombé, biseau, relief', empty: 'À plat', slab: 's-depth' },
   { sec: 'support', name: 'Support', role: 'la matière', empty: 'Papier', slab: 's-support' },
-  { sec: 'depth', name: 'Épaisseur', role: 'hauteur et volume', empty: 'À plat', slab: 's-depth' },
 ];
 
 /** Couches de l'aperçu éclaté, de la plus basse à la plus haute. */
@@ -257,7 +255,6 @@ export function CoupePanel({
   unmold,
   onMold,
   simple = true,
-  onLevel,
   onSculpt,
   layer: l,
   doc,
@@ -277,8 +274,6 @@ export function CoupePanel({
   onMold?: () => void;
   /** Mode simplifié : les réglages rares attendent « Plus ». */
   simple?: boolean;
-  /** Hauteur de l'objet (ses pièces solidaires suivent). */
-  onLevel?: (v: number) => void;
   /** Passe à l'outil Modeler en mode Relief. */
   onSculpt?: () => void;
   layer: Layer;
@@ -416,6 +411,11 @@ export function CoupePanel({
             <span className="cp-empty">{s.empty}</span>
           )}
         </div>
+        {s.sec === 'depth' && onSculpt && (
+          <button className="chip cp-sculpt" onClick={onSculpt} title="Modeler › Relief : bosser, creuser, lisser la surface au stylet">
+            {l.bump ? 'Reprendre la sculpture' : 'Sculpter le relief'}
+          </button>
+        )}
         {adding === s.sec && (
           <div className="cp-pick-wrap">
             {(() => {
@@ -565,7 +565,7 @@ export function CoupePanel({
           {only && byKey(only) && (
             <>
               {card(byKey(only)!)}
-              {focused && focused.sec === only && <Attrs layer={l} doc={doc} item={focused} patch={patch} patchText={patchText} unmold={unmold} onMold={onMold} onLevel={onLevel} onSculpt={onSculpt} />}
+              {focused && focused.sec === only && <Attrs layer={l} doc={doc} item={focused} patch={patch} patchText={patchText} unmold={unmold} onMold={onMold} onSculpt={onSculpt} />}
             </>
           )}
         </div>
@@ -637,13 +637,11 @@ function Attrs({
   patchText,
   unmold,
   onMold,
-  onLevel,
   onSculpt,
 }: {
   layer: Layer;
   doc: Doc;
   item: Item;
-  onLevel?: (v: number) => void;
   onSculpt?: () => void;
   patch: (p: Partial<Layer>, history?: boolean) => void;
   patchText?: (next: Partial<TextStyle>, history: boolean) => void;
@@ -682,25 +680,6 @@ function Attrs({
         <Range label="Flottant" value={tr.float} onChange={(v) => live({ trim: { ...tr, float: r2(v) } })} />
         <Range label="Zigzag" value={tr.zigzag} onChange={(v) => live({ trim: { ...tr, zigzag: r2(v) } })} />
         {tr.zigzag > 0.01 && <Range label="Aléa" value={tr.chaos ?? 0.5} onChange={(v) => live({ trim: { ...tr, chaos: r2(v) } })} />}
-      </>
-    );
-  } else if (item.key === 'height') {
-    const v = l.height - (l.inner ?? 0);
-    body = (
-      <>
-        <Range
-          label="Hauteur"
-          min={-1}
-          value={v}
-          display={v > 0 ? `${Math.round(v * 100)}` : v < 0 ? `creux ${Math.round(-v * 100)}` : 'à plat'}
-          onChange={(x) => onLevel?.(Math.abs(x) < 0.03 ? 0 : Math.round(x * 100) / 100)}
-        />
-        <p className="cp-note">{l.link ? 'Les pièces solidaires montent avec la pièce du dessous. ' : ''}La barre Hauteur règle la même chose, avec un aperçu incliné.</p>
-        {onSculpt && (
-          <button className="chip cp-sculpt" onClick={onSculpt} title="Modeler › Relief : bosser, creuser, lisser la surface au stylet">
-            Sculpter le relief
-          </button>
-        )}
       </>
     );
   } else if (item.key === 'relief') {

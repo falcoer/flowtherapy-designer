@@ -135,6 +135,13 @@ function buildShadows(doc: Doc, f: Format, r: number, plates: Plate[]): ShadowPi
   return out;
 }
 
+/** Tranches dessinées sous chaque plaque. */
+const SLICES = 10;
+/** Épaisseur d'un objet découpé (en hauteur de page) : un carton, plus son volume et son biseau. */
+function thicknessOf(l: Layer): number {
+  return 0.035 + (l.volume ? l.volume.amount * 0.07 : 0) + (l.bevel ?? 0) * 0.025;
+}
+
 export function ParallaxView({ doc, f, onClose, start }: { doc: Doc; f: Format; onClose: () => void; start?: [number, number] }) {
   const stage = useRef<HTMLDivElement>(null);
   const [tilt, setTilt] = useState<[number, number]>(start ?? [0, 0]);
@@ -172,7 +179,23 @@ export function ParallaxView({ doc, f, onClose, start }: { doc: Doc; f: Format; 
         c.style.setProperty('--z', String(z));
         el.appendChild(c);
       };
-      plates.forEach((p, i) => put(p.c, p.x, p.y, p.h + i * 0.0015, i ? 'px-plate' : 'px-plate px-page'));
+      plates.forEach((p, i) => {
+        // la tranche : des copies assombries empilées sous la plaque, comme un carton découpé
+        if (i && p.l) {
+          const t = thicknessOf(p.l);
+          const n = SLICES;
+          for (let j = 0; j < n; j++) {
+            const c = document.createElement('canvas');
+            c.width = p.c.width;
+            c.height = p.c.height;
+            const x = c.getContext('2d')!;
+            x.filter = `brightness(${0.42 + (0.4 * j) / n})`;
+            x.drawImage(p.c, 0, 0);
+            put(c, p.x, p.y, Math.max(0.0004, p.h - t + (t * j) / n) + i * 0.0015, 'px-plate px-slice');
+          }
+        }
+        put(p.c, p.x, p.y, p.h + i * 0.0015, i ? 'px-plate' : 'px-plate px-page');
+      });
       for (const s of shadows) put(s.c, s.x, s.y, plates[s.on]!.h + s.on * 0.0015 + 0.0008, 'px-plate px-shadow', 0.5);
       setBusy(false);
       // une légère inclinaison d'entrée montre tout de suite l'épaisseur
