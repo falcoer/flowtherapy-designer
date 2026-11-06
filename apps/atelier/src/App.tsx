@@ -6,7 +6,7 @@ import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { PrefsPanel, type Theme } from './prefs';
 import { BrushWheel } from './wheel';
-import { HeightPeek, ParallaxView } from './parallax';
+import { ParallaxView } from './parallax';
 import { kitFromSvg, nearestOf, SAME_COLOR, type Kit } from './kits';
 import { KITS } from './kit-samples';
 import { blankBump, bumpHeights, dab, encodeBump, smoothBump } from './bump';
@@ -472,9 +472,6 @@ export function App() {
     else document.documentElement.dataset.theme = theme;
   }, [theme]);
   // mode simplifié (par défaut) : les réglages rares (Transformations, Rognage, Lueur, Semis) restent derrière « Plus »
-  /** Aperçu incliné pendant le réglage de la hauteur. */
-  const [peek, setPeek] = useState(false);
-  const peekOff = useRef(0);
   const [simple, setSimpleState] = useState(() => {
     try {
       return localStorage.getItem('ftd-atelier-simple') !== 'off';
@@ -3033,19 +3030,7 @@ export function App() {
           )}
           {isEdit(tool) && sel && sel.kind !== 'surface' && (
             <aside className="height-bar" title="Hauteur : au-dessus de 0 l'objet se soulève (ombre), en dessous il se creuse">
-              <VSlider
-                label="Hauteur"
-                center
-                value={0.5 + (sel.height - (sel.inner ?? 0)) / 2}
-                onChange={(v) => setLevel(sel, Math.abs(v - 0.5) < 0.03 ? 0 : Math.round((v * 2 - 1) * 100) / 100)}
-                onActive={(on) => {
-                  // l'aperçu incliné reste un instant après le lâcher
-                  clearTimeout(peekOff.current);
-                  if (on) setPeek(true);
-                  else peekOff.current = window.setTimeout(() => setPeek(false), 900);
-                }}
-              />
-              {peek && <HeightPeek doc={doc} f={f} focus={objetLayers(sel, doc).map((x) => x.id)} />}
+              <VSlider label="Hauteur" center value={0.5 + (sel.height - (sel.inner ?? 0)) / 2} onChange={(v) => setLevel(sel, Math.abs(v - 0.5) < 0.03 ? 0 : Math.round((v * 2 - 1) * 100) / 100)} />
             </aside>
           )}
           {isEdit(tool) && sel && (
