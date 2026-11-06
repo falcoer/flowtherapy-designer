@@ -1,17 +1,20 @@
 import type { Format } from '@ftd/core';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { BORDER_TYPES, fxPreview, GLOW_TYPES, swatch } from './App';
 import { FX, fxGuides, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
-import { GEN_DEFAULTS, type Doc, type Layer } from './model';
+import { GEN_DEFAULTS, VOLUMES, type Doc, type Layer } from './model';
+import { fontFamily, fontList, fontOf, leanOf, WARPS, withLean, type TextStyle, type WarpKind } from './text';
+import { TextContent, TextWarp, WarpGlyph } from './textbar';
+import { TiltPad } from './tilt';
 
 /**
  * Coupe de l'objet : ses couches lues comme l'objet posé, du dessus au dessous.
  * Bords tout autour, vernis par-dessus, image (et son filtre) avec les transformations
  * en parallèle, support (la matière) dessous. Un aperçu éclaté montre chaque couche rendue.
  */
-export type Section = 'edge' | 'coat' | 'image' | 'transform' | 'support';
+export type Section = 'edge' | 'coat' | 'image' | 'transform' | 'support' | 'depth';
 
 interface Item {
   sec: Section;
@@ -20,6 +23,12 @@ interface Item {
   name: string;
   bg: string;
   removable: boolean;
+  /** Une police : la pastille et le nom s'affichent dans cette police. */
+  font?: string;
+  /** Pastille dessinée (contenu, déformation du texte). */
+  glyph?: 'content' | 'molded' | WarpKind | 'none';
+  /** Attribut d'origine d'un objet modelé : grisé, il revient avec « Revenir ». */
+  locked?: boolean;
 }
 
 const groupOf = (x: Fx) => fxOf(x.id)?.group;
@@ -81,7 +90,7 @@ const HINTS: Record<string, [string, string]> = {
 };
 const genOf = (l: Layer) => l.gen ?? (l.shape && !l.cut ? GEN_DEFAULTS[l.shape] : undefined);
 /** Pour une forme, la section Image devient Forme : sa découpe et sa couleur. */
-const secLabel = (sec: Section, l: Layer) => (sec === 'image' && l.kind === 'shape' ? 'Forme' : SECTIONS.find((s) => s.sec === sec)!.name);
+const secLabel = (sec: Section, l: Layer) => (sec === 'image' && l.kind === 'shape' ? 'Forme' : sec === 'image' && l.kind === 'text' ? 'Texte' : SECTIONS.find((s) => s.sec === sec)!.name);
 const fxIn = (l: Layer, g: FxGroup) => (l.fx ?? []).map((x, i) => ({ x, i })).filter(({ x }) => groupOf(x) === g);
 
 function itemsOf(l: Layer, doc: Doc): Item[] {
@@ -90,9 +99,13 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
   if (l.kind !== 'surface') {
     if (l.border) out.push({ sec: 'edge', key: 'border', name: BORDER_TYPES.find((x) => x[0] === l.border!.style)![1], bg: g(l.border.guide), removable: true });
     if (l.trim) out.push({ sec: 'edge', key: 'trim', name: 'Rognage', bg: 'repeating-linear-gradient(135deg,#c9c3d6 0 3px,transparent 3px 6px)', removable: true });
-    if ((l.bevel ?? 0) > 0.001) out.push({ sec: 'edge', key: 'bevel', name: 'Biseau', bg: 'linear-gradient(135deg,#fff,#8a849a)', removable: true });
+    // le volume : forme bombée, biseau, relief sculpté
+    if ((l.bevel ?? 0) > 0.001) out.push({ sec: 'depth', key: 'bevel', name: 'Biseau', bg: 'linear-gradient(135deg,#fff,#8a849a)', removable: true });
     if (l.glow) out.push({ sec: 'edge', key: 'glow', name: GLOW_TYPES.find((x) => x[0] === l.glow!.style)![1], bg: `radial-gradient(circle, #fff 20%, ${swatch(doc.guides[l.glow.guide])} 60%)`, removable: true });
   }
+  if (l.molded) out.push({ sec: 'image', key: 'molded', name: 'Modelé', bg: '', removable: false, glyph: 'molded' });
+  if (l.volume) out.push({ sec: 'depth', key: 'volume', name: VOLUMES.find((x) => x[0] === l.volume!.kind)![1], bg: 'radial-gradient(circle at 35% 30%,#fff,#b9b2c9 55%,#6f6880)', removable: true });
+  if (l.bump && l.kind !== 'surface') out.push({ sec: 'depth', key: 'relief', name: 'Relief sculpté', bg: 'radial-gradient(circle at 30% 30%,#fff,#b9b2c9 40%,#fff 55%,#8a849a)', removable: true });
   for (const { x, i } of fxIn(l, 'lumiere')) out.push({ sec: 'coat', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: true });
   if (l.kind === 'shape') {
     const gen = genOf(l);
@@ -104,19 +117,31 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
       removable: false,
     });
   }
+  if (l.kind === 'text' && l.text) {
+    const first = l.text.content.split('\n')[0].trim();
+    out.push({ sec: 'image', key: 'content', name: first.length > 14 ? `${first.slice(0, 13)}…` : first || 'Contenu', bg: '', removable: false, glyph: 'content' });
+  }
+  if (l.kind === 'text' && l.text) out.push({ sec: 'image', key: 'text', name: fontOf(l.text.font).family, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: false, font: l.text.font });
   if (l.kind === 'photo') {
     if (l.look?.style) out.push({ sec: 'image', key: 'look', name: lookOf(l.look.style)!.name, bg: 'linear-gradient(135deg,#2b3a8c,#9b4f9e,#ee6b5b)', removable: true });
   } else out.push({ sec: 'image', key: 'paint', name: doc.guides[l.guide]?.name ?? 'Couleur', bg: g(l.guide), removable: false });
+  if (l.kind === 'text' && l.text) {
+    const w = l.text.warp?.kind ?? 'none';
+    out.push({ sec: 'image', key: 'warp', name: w === 'none' ? 'Déformation' : WARPS.find((x) => x.id === w)!.name, bg: '', removable: false, glyph: w });
+  }
   for (const { x, i } of fxIn(l, 'effet')) out.push({ sec: 'transform', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'radial-gradient(circle,#1c1b3a 30%,#e3a83c 34%) 0 0/6px 6px', removable: true });
   if (l.material) out.push({ sec: 'support', key: 'material', name: fxOf(l.material.id)!.name, bg: 'repeating-linear-gradient(45deg,#c79a63 0 3px,#b0814d 3px 6px)', removable: true });
+  if (l.molded) for (const it of out) if (['shape', 'content', 'text', 'warp'].includes(it.key)) it.locked = true;
   return out;
 }
 
 /** Ce qu'on retire quand on touche la croix d'un élément. */
 function removal(l: Layer, key: string): Partial<Layer> {
   if (key === 'border') return { border: undefined };
-  if (key === 'bevel') return { bevel: 0 };
+  if (key === 'bevel') return { bevel: 0, bevelProfile: undefined, bevelBorder: undefined };
   if (key === 'trim') return { trim: undefined };
+  if (key === 'volume') return { volume: undefined };
+  if (key === 'relief') return { bump: undefined };
   if (key === 'glow') return { glow: undefined };
   if (key === 'material') return { material: undefined };
   if (key === 'look' || key === 'draw') {
@@ -133,7 +158,7 @@ function removal(l: Layer, key: string): Partial<Layer> {
 }
 
 /** Ce qu'on peut ajouter dans chaque section, avec la retouche qui l'applique. */
-function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; patch: Partial<Layer>; focus: string }> {
+function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; patch: Partial<Layer>; focus: string; text?: Partial<TextStyle>; font?: string }> {
   const fxAdd = (g: FxGroup) =>
     FX.filter((d) => d.group === g && !(l.fx ?? []).some((x) => x.id === d.id)).map((d) => ({
       id: d.id,
@@ -150,7 +175,6 @@ function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; pa
         focus: 'border',
       })),
       ...(l.trim ? [] : [{ id: 'trim', name: 'Rognage', patch: { trim: { blur: 0.25, float: 0.3, zigzag: 0 } }, focus: 'trim' }]),
-      ...((l.bevel ?? 0) > 0.001 ? [] : [{ id: 'bevel', name: 'Biseau', patch: { bevel: 0.5 }, focus: 'bevel' }]),
       ...GLOW_TYPES.filter((x) => x[0] && x[0] !== l.glow?.style).map(([st, name]) => ({
         id: `g-${st}`,
         name,
@@ -164,6 +188,26 @@ function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; pa
     return MATERIALS()
       .filter((d) => d.id !== l.material?.id && !(d.transparent && l.kind === 'surface'))
       .map((d) => ({ id: d.id, name: d.name, patch: { material: newFx(d.id), ...(d.transparent ? { opacity: d.transparent } : {}) }, focus: 'material' }));
+  if (sec === 'depth')
+    return l.kind === 'surface'
+      ? []
+      : [
+          // volume : proposé à tout objet qui n'en a pas encore
+          ...(l.volume
+            ? []
+            : VOLUMES.map(([kind, name]) => ({ id: `v-${kind}`, name: `Volume ${name.toLowerCase()}`, patch: { volume: { kind, amount: kind === 'cone' ? 0.5 : 0.7 } } as Partial<Layer>, focus: 'volume' }))),
+          ...((l.bevel ?? 0) > 0.001 ? [] : [{ id: 'bevel', name: 'Biseau', patch: { bevel: 0.5 } as Partial<Layer>, focus: 'bevel' }]),
+        ];
+  return imageChoices(l);
+}
+
+function imageChoices(l: Layer): Array<{ id: string; name: string; patch: Partial<Layer>; focus: string; text?: Partial<TextStyle>; font?: string }> {
+  // texte : le catalogue des polices, chacune montrée avec le texte lui-même
+  if (l.kind === 'text' && l.text && l.molded) return [];
+  if (l.kind === 'text' && l.text)
+    return fontList()
+      .filter((ft) => ft.id !== l.text!.font)
+      .map((ft) => ({ id: `font-${ft.id}`, name: ft.family, patch: {}, focus: 'text', text: { font: ft.id }, font: ft.id }));
   if (l.kind !== 'photo') return [];
   const look = l.look ?? { guides: [], mix: 1 };
   return [
@@ -181,6 +225,7 @@ const SECTIONS: Array<{ sec: Section; name: string; role: string; empty: string;
   { sec: 'coat', name: 'Vernis', role: 'par-dessus', empty: 'Aucun', slab: 's-coat' },
   { sec: 'image', name: 'Image', role: 'et son filtre', empty: 'Originale', slab: 's-image' },
   { sec: 'transform', name: 'Transformations', role: 'en parallèle', empty: 'Aucune', slab: 's-fx' },
+  { sec: 'depth', name: 'Volume', role: 'bombé, biseau, relief', empty: 'À plat', slab: 's-depth' },
   { sec: 'support', name: 'Support', role: 'la matière', empty: 'Papier', slab: 's-support' },
 ];
 
@@ -205,6 +250,12 @@ function pliesOf(l: Layer): Array<{ id: string; name: string; sec: Section; patc
 }
 
 export function CoupePanel({
+  list,
+  patchText,
+  unmold,
+  onMold,
+  simple = true,
+  onSculpt,
   layer: l,
   doc,
   f,
@@ -213,6 +264,18 @@ export function CoupePanel({
   onToast,
   openOn,
 }: {
+  /** Liste des objets de la page, à gauche du volet. */
+  list?: React.ReactNode;
+  /** Retouche du texte (police, graisse) : les lettres gardent leur place sur la page. */
+  patchText?: (next: Partial<TextStyle>, history: boolean) => void;
+  /** Retire le modelage : la forme, le texte ou le cadre d'origine reviennent. */
+  unmold?: () => void;
+  /** Passe à l'outil Modeler. */
+  onMold?: () => void;
+  /** Mode simplifié : les réglages rares attendent « Plus ». */
+  simple?: boolean;
+  /** Passe à l'outil Modeler en mode Relief. */
+  onSculpt?: () => void;
   layer: Layer;
   doc: Doc;
   f: Format;
@@ -220,56 +283,65 @@ export function CoupePanel({
   onClose: () => void;
   onToast: (msg: string, undoable?: boolean) => void;
   /** Élément à ouvrir d'emblée (une forme qu'on vient de poser : ses paramètres). */
-  openOn?: { key: string; n: number };
+  openOn?: { key: string; n: number; sec?: Section };
 }) {
-  const [focus, setFocus] = useState<string | null>(openOn?.key ?? null);
+  const [focus, setFocus] = useState<string | null>(openOn && (openOn.sec || l.kind === 'shape') ? openOn.key : null);
   useEffect(() => {
-    if (openOn) setFocus(openOn.key);
+    if (openOn && (openOn.sec || l.kind === 'shape')) setFocus(openOn.key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openOn]);
   const [adding, setAdding] = useState<Section | null>(null);
+  // une couche touchée dans l'aperçu : on ne montre que son panneau
+  const [only, setOnly] = useState<Section | null>(null);
+  // sur téléphone, l'aperçu n'a pas la place : une section est toujours ouverte
+  const narrow = () => window.matchMedia('(max-width: 540px)').matches;
+  useEffect(() => {
+    if (!narrow()) return setOnly(null);
+    const first = sections[0]?.sec ?? null;
+    setOnly(first);
+    const it = first ? items.find((x) => x.sec === first) : undefined;
+    setFocus((f) => (f && items.some((x) => x.key === f) ? f : it ? it.key : null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [l.id]);
+  useEffect(() => {
+    if (openOn && (openOn.sec || l.kind === 'shape')) setOnly(openOn.sec ?? 'image');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openOn]);
+  // traits de rappel : du bouton de légende à la couche qu'il édite, dans l'aperçu
+  const view = useRef<HTMLDivElement>(null);
+  const plyEls = useRef<Record<string, HTMLElement | null>>({});
+  const tagEls = useRef<Record<string, HTMLElement | null>>({});
+  const [leaders, setLeaders] = useState<Array<{ sec: Section; d: string; x: number; y: number }>>([]);
   const [tick, bump] = useState(0);
   const items = itemsOf(l, doc);
   const reload = () => bump((n) => n + 1);
 
   // aperçu éclaté, recalculé un instant après le dernier réglage (le geste reste fluide)
   const [plies, setPlies] = useState<Array<{ id: string; name: string; sec: Section; src: string }>>([]);
-  // aperçu optionnel : choix gardé d'une ouverture à l'autre
-  const [exploded, setExploded] = useState(() => {
-    try {
-      return localStorage.getItem('ftd-atelier-plies') !== 'off';
-    } catch {
-      return true;
-    }
-  });
-  const toggleExploded = () => {
-    setExploded((v) => {
-      try {
-        localStorage.setItem('ftd-atelier-plies', v ? 'off' : 'on');
-      } catch {
-        /* stockage indisponible */
-      }
-      return !v;
-    });
-  };
   useEffect(() => {
-    if (!exploded) return;
     const t = setTimeout(() => setPlies(pliesOf(l).map((p) => ({ ...p, src: fxPreview(l, doc, f, l.fx, `ply-${p.id}`, reload, p.patch) }))), 140);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [l, doc.guides, doc.light, doc.lamp, f, tick, exploded]);
+  }, [l, doc.guides, doc.light, doc.lamp, f, tick]);
 
   // vignettes des choix de la section ouverte : l'objet avec ce choix appliqué
   const choices = adding ? choicesOf(l, adding) : [];
   const hintOf = (id: string) => HINTS[id] ?? HINTS[id.replace(/^[bg]-/, '')] ?? ['', ''];
-  const edgeGroup = (id: string) => (id.startsWith('b-') || id === 'trim' ? 'Bord' : id.startsWith('g-') ? 'Lueur' : 'Relief');
+  const edgeGroup = (id: string) => (id.startsWith('b-') ? 'Bord' : id === 'trim' ? 'Rognage' : 'Lueur');
+  const depthGroup = (id: string) => (id.startsWith('v-') ? 'Volume' : 'Relief');
   const thumbs = useMemo(() => {
     const out: Record<string, string> = {};
-    for (const c of choices) out[c.id] = fxPreview(l, doc, f, l.fx, `add-${c.id}`, reload, c.patch);
+    for (const c of choices) if (!c.font) out[c.id] = fxPreview(l, doc, f, l.fx, `add-${c.id}`, reload, c.patch);
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adding, l, doc.guides, doc.light, doc.lamp, f, tick]);
 
-  const sections = SECTIONS.filter((s) => (l.kind === 'surface' ? s.sec !== 'edge' && s.sec !== 'image' : true));
+  // « Plus » : Transformations, Rognage et Lueur se montrent d'un toucher (ou quand l'objet en a déjà)
+  const [moreOn, setMore] = useState(false);
+  useEffect(() => setMore(false), [l.id]);
+  const more = moreOn || !simple;
+  const hasFx = (l.fx ?? []).some((x) => groupOf(x) === 'effet');
+  const sections = SECTIONS.filter((s) => (l.kind === 'surface' ? s.sec !== 'edge' && s.sec !== 'image' && s.sec !== 'depth' : true)).filter((s) => s.sec !== 'transform' || more || hasFx || only === 'transform');
   const card = (s: (typeof SECTIONS)[number]) => {
     const mine = items.filter((x) => x.sec === s.sec);
     const can = choicesOf(l, s.sec).length > 0;
@@ -280,6 +352,11 @@ export function CoupePanel({
         <div className="cp-h">
           <span className={`slab ${s.slab}`} />
           <span className="cn">{secLabel(s.sec, l)}</span>
+          {s.sec === 'depth' && onSculpt && (
+            <button className="chip cp-sculpt" onClick={onSculpt} title="Modeler › Relief : bosser, creuser, lisser la surface au stylet">
+              {l.bump ? 'Reprendre la sculpture' : 'Sculpter le volume'}
+            </button>
+          )}
           {can && (
             <button
               className="cp-add"
@@ -294,10 +371,30 @@ export function CoupePanel({
         <div className="cp-items">
           {mine.length ? (
             mine.map((it) => (
-              <span key={it.key} className={`cp-item ${focus === it.key ? 'on' : ''}`}>
+              <span key={it.key} className={`cp-item ${focus === it.key ? 'on' : ''} ${it.locked ? 'locked' : ''}`}>
                 <button className="cp-nm" onClick={() => setFocus(focus === it.key ? null : it.key)}>
-                  <span className="sw" style={{ background: it.bg }} />
-                  <span className="nm">{it.name}</span>
+                  {it.glyph ? (
+                    <span className="sw sw-glyph">
+                      {it.glyph === 'molded' ? (
+                        <Icon name="mold" />
+                      ) : it.glyph === 'content' ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                          <path d="M5 6h10M10 6v12M15 14h5M15 18h4" />
+                        </svg>
+                      ) : (
+                        <WarpGlyph k={it.glyph} />
+                      )}
+                    </span>
+                  ) : it.font ? (
+                    <span className="sw sw-font" style={{ fontFamily: `${fontFamily(it.font)}, Inter, sans-serif` }}>
+                      Aa
+                    </span>
+                  ) : (
+                    <span className="sw" style={{ background: it.bg }} />
+                  )}
+                  <span className="nm" style={it.font ? { fontFamily: `${fontFamily(it.font)}, Inter, sans-serif` } : undefined}>
+                    {it.name}
+                  </span>
                 </button>
                 {it.removable && (
                   <button
@@ -324,91 +421,185 @@ export function CoupePanel({
             {(() => {
               const list = choicesOf(l, s.sec);
               const groups: string[] = [];
-              const fam = (id: string) => (s.sec === 'edge' ? edgeGroup(id) : hintOf(id)[0]);
+              const fam = (id: string) => (s.sec === 'edge' ? edgeGroup(id) : s.sec === 'depth' ? depthGroup(id) : hintOf(id)[0]);
               for (const c of list) if (!groups.includes(fam(c.id))) groups.push(fam(c.id));
-              return groups.map((gname) => (
-                <div key={gname || 'all'}>
-                  {gname && <div className="cp-fam">{gname}</div>}
-                  <div className="cp-pick">
-                    {list
-                      .filter((c) => fam(c.id) === gname)
-                      .map((c) => (
-                        <button
-                          key={c.id}
-                          onClick={() => {
-                            patch(c.patch);
-                            setFocus(c.focus);
-                            setAdding(null);
-                          }}
-                        >
-                          <span className="thumb">{thumbs[c.id] && <img src={thumbs[c.id]} alt="" />}</span>
-                          <b>{c.name}</b>
-                          {hintOf(c.id)[1] && <small>{hintOf(c.id)[1]}</small>}
-                        </button>
-                      ))}
+              const extra = s.sec === 'edge' ? ['Rognage', 'Lueur'] : [];
+              const shown = groups.filter((gname) => more || !extra.includes(gname));
+              const hidden = groups.length - shown.length;
+              return [
+                ...shown.map((gname) => (
+                  <div key={gname || 'all'}>
+                    {gname && <div className="cp-fam">{gname}</div>}
+                    <div className="cp-pick">
+                      {list
+                        .filter((c) => fam(c.id) === gname)
+                        .map((c) => (
+                          <button
+                            key={c.id}
+                            onClick={() => {
+                              if (c.text) patchText?.(c.text, true);
+                              else patch(c.patch);
+                              setFocus(c.focus);
+                              setAdding(null);
+                            }}
+                          >
+                            <span className="thumb">
+                              {c.font ? (
+                                <span className="font-thumb" style={{ fontFamily: `${fontFamily(c.font)}, Inter, sans-serif`, fontWeight: l.text?.weight, fontStyle: l.text?.italic ? 'italic' : 'normal' }}>
+                                  {(l.text?.content || 'Aa').split('\n')[0]!.slice(0, 14)}
+                                </span>
+                              ) : (
+                                thumbs[c.id] && <img src={thumbs[c.id]} alt="" />
+                              )}
+                            </span>
+                            <b>{c.name}</b>
+                            {hintOf(c.id)[1] && <small>{hintOf(c.id)[1]}</small>}
+                          </button>
+                        ))}
+                    </div>
                   </div>
-                </div>
-              ));
+                )),
+                ...(hidden
+                  ? [
+                      <button key="more" className="chip cp-more" onClick={() => setMore(true)}>
+                        Plus : rognage, lueur
+                      </button>,
+                    ]
+                  : []),
+              ];
             })()}
           </div>
         )}
       </div>
     );
   };
+  /** La couche de l'aperçu que chaque section édite (les bords : l'objet fini). */
+  const plyOf = (sec: Section) => {
+    const has = (id: string) => plies.some((p) => p.id === id);
+    if (sec === 'edge') return 'result';
+    // le volume se lit sur la plaque du support
+    if (sec === 'depth') return 'support';
+    if (sec === 'coat') return has('coat') ? 'coat' : 'result';
+    if (sec === 'transform') return has('transform') ? 'transform' : 'image';
+    return sec;
+  };
+  const pick = (sec: Section | null) => {
+    // la section choisie prend la place de l'aperçu ; son catalogue s'ouvre au stylo ou au +
+    setAdding(null);
+    setOnly(sec);
+    // le premier élément de la section s'ouvre : ses curseurs sont tout de suite là
+    const first = sec ? items.find((x) => x.sec === sec) : undefined;
+    setFocus(first ? first.key : null);
+  };
+  useLayoutEffect(() => {
+    const draw = () => {
+      const box = view.current?.getBoundingClientRect();
+      if (!box) return;
+      const out: Array<{ sec: Section; d: string; x: number; y: number }> = [];
+      for (const s of sections) {
+        const tag = tagEls.current[s.sec]?.getBoundingClientRect();
+        const ply = plyEls.current[plyOf(s.sec)]?.getBoundingClientRect();
+        if (!tag || !ply) continue;
+        const bx = tag.right - box.left + 3;
+        const by = tag.top - box.top + tag.height / 2;
+        // le point d'attache : sur le bord gauche de la couche, à sa hauteur
+        const x = ply.left - box.left + ply.width * 0.2;
+        const y = ply.top - box.top + ply.height * 0.42;
+        const ex = bx + 14;
+        out.push({ sec: s.sec, d: `M${bx} ${by}H${ex}L${x} ${y}`, x, y });
+      }
+      setLeaders(out);
+    };
+    draw();
+    // l'aperçu glisse : on retrace les rappels une fois arrivé
+    const late = setTimeout(draw, 340);
+    const ro = new ResizeObserver(draw);
+    if (view.current) ro.observe(view.current);
+    return () => {
+      clearTimeout(late);
+      ro.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plies, items.length, l.kind, only]);
   const byKey = (k: Section) => sections.find((s) => s.sec === k);
   const focused = items.find((x) => x.key === focus);
   return (
-    <aside className="coupe" aria-label={`Coupe de « ${l.name} »`}>
-      <div className="cp-head">
-        <div className="cp-title">
-          <b>{l.name}</b>
-          <small>
-            {l.kind === 'photo' ? 'Photo' : l.kind === 'surface' ? 'Surface de fond' : 'Forme'} · {items.filter((x) => x.removable).length} élément{items.filter((x) => x.removable).length > 1 ? 's' : ''}
-          </small>
+    <aside className={`coupe ${list ? 'with-list' : ''}`} aria-label={`Attributs de « ${l.name} »`}>
+      <button className="cp-close" onClick={onClose} aria-label="Fermer">
+        ×
+      </button>
+      <div className={`cp-view with-list ${only ? 'open' : ''}`} ref={view}>
+        {list}
+        <div className="cp-tags">
+          {sections.map((s) => {
+            const mine = items.filter((x) => x.sec === s.sec);
+            return (
+              <button
+                key={s.sec}
+                ref={(el) => {
+                  tagEls.current[s.sec] = el;
+                }}
+                className={`cp-tag ${only === s.sec ? 'on' : ''}`}
+                onClick={() => pick(only === s.sec && !narrow() ? null : s.sec)}
+              >
+                <span className={`slab ${s.slab}`} />
+                <span className="tg-t">
+                  <b>{secLabel(s.sec, l)}</b>
+                  <small>{mine.length ? mine.map((x) => x.name).join(', ') : s.empty}</small>
+                </span>
+              </button>
+            );
+          })}
+          {!sections.some((s) => s.sec === 'transform') && (
+            <button className="cp-tag cp-tag-more" onClick={() => setMore(true)} title="Plus : Transformations (effets en parallèle de l'image)">
+              <span className="slab s-more">
+                <Icon name="more" />
+              </span>
+              <span className="tg-t">
+                <b>Plus</b>
+                <small>Transformations</small>
+              </span>
+            </button>
+          )}
         </div>
-        <button className={`cp-bench cp-toggle ${exploded ? 'on' : ''}`} onClick={toggleExploded} aria-pressed={exploded} title="Afficher ou masquer l'aperçu éclaté des couches de l'objet">
-          Aperçu
-        </button>
-        <button className="cp-bench" disabled title="Établi : préparer l'objet en plein écran et l'enregistrer dans la bibliothèque (bientôt)">
-          Établi
-        </button>
-        <button className="cp-close" onClick={onClose} aria-label="Fermer">
-          ×
-        </button>
-      </div>
-      <div className="cp-scroll">
-        {exploded && (
-          <div className="plies" aria-hidden>
-            <div className="plies-3d">
-              {plies.map((p, k) => (
-                <button key={p.id} className="ply" style={{ transform: `translate(-50%, -50%) translateZ(${k * Math.min(26, 96 / Math.max(1, plies.length - 1))}px)` }} onClick={() => setAdding(null)}>
-                  <img src={p.src} alt="" />
-                </button>
-              ))}
-            </div>
-            <ol className="ply-names">
-              {[...plies].reverse().map((p) => (
-                <li key={p.id}>{p.name}</li>
-              ))}
-            </ol>
+        {/* les réglages s'ouvrent entre les sections et l'aperçu, qui glisse à droite */}
+        <div className="cp-pane">
+          {only && byKey(only) && (
+            <>
+              {card(byKey(only)!)}
+              {focused && focused.sec === only && <Attrs layer={l} doc={doc} item={focused} patch={patch} patchText={patchText} unmold={unmold} onMold={onMold} onSculpt={onSculpt} />}
+            </>
+          )}
+        </div>
+        <div className="plies">
+          <div className="plies-3d">
+            {plies.map((p, k) => (
+              <button
+                key={p.id}
+                ref={(el) => {
+                  plyEls.current[p.id] = el;
+                }}
+                className="ply"
+                style={{ transform: `translate(-50%, -50%) translateZ(${k * Math.min(30, 120 / Math.max(1, plies.length - 1))}px)` }}
+                onClick={() => pick(p.id === 'result' ? 'edge' : p.sec)}
+                title={p.name}
+              >
+                <img src={p.src} alt="" />
+              </button>
+            ))}
           </div>
+        </div>
+        {!only && (
+          <svg className="cp-leaders" aria-hidden>
+            {leaders.map((g) => (
+              <g key={g.sec}>
+                <path d={g.d} />
+                <circle cx={g.x} cy={g.y} r="2.6" />
+              </g>
+            ))}
+          </svg>
         )}
-        {/* les bords font le tour de l'objet : colonne à gauche de la coupe */}
-        <div className={byKey('edge') ? 'cp-body' : ''}>
-          {byKey('edge') && card(byKey('edge')!)}
-          <div className="cp-stack">
-            <span className="side-tag">dessus</span>
-            {byKey('coat') && card(byKey('coat')!)}
-            <div className={byKey('image') ? 'cp-pair' : ''}>
-              {byKey('image') && card(byKey('image')!)}
-              {card(byKey('transform')!)}
-            </div>
-            {card(byKey('support')!)}
-            <span className="side-tag">dessous</span>
-          </div>
-        </div>
       </div>
-      {focused && <Attrs layer={l} doc={doc} item={focused} patch={patch} />}
     </aside>
   );
 }
@@ -440,7 +631,25 @@ function Range({ label, value, onChange, unit, min = 0, display }: { label: stri
 }
 
 /** Réglages de l'élément touché, en bas de la coupe. */
-function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: Item; patch: (p: Partial<Layer>, history?: boolean) => void }) {
+function Attrs({
+  layer: l,
+  doc,
+  item,
+  patch,
+  patchText,
+  unmold,
+  onMold,
+  onSculpt,
+}: {
+  layer: Layer;
+  doc: Doc;
+  item: Item;
+  onSculpt?: () => void;
+  patch: (p: Partial<Layer>, history?: boolean) => void;
+  patchText?: (next: Partial<TextStyle>, history: boolean) => void;
+  unmold?: () => void;
+  onMold?: () => void;
+}) {
   const live = (p: Partial<Layer>) => patch(p, false);
   let body: React.ReactNode = null;
   const fxRows = (x: Fx, set: (x: Fx, history?: boolean) => void, amountLabel = 'Intensité') => {
@@ -475,7 +684,45 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
         {tr.zigzag > 0.01 && <Range label="Aléa" value={tr.chaos ?? 0.5} onChange={(v) => live({ trim: { ...tr, chaos: r2(v) } })} />}
       </>
     );
-  } else if (item.key === 'bevel') body = <Range label="Relief" value={l.bevel ?? 0} onChange={(v) => live({ bevel: Math.max(0.05, Math.round(v * 100) / 100) })} />;
+  } else if (item.key === 'relief') {
+    body = (
+      <>
+        <p className="cp-note">Bosses et creux sculptés au stylet, éclairés par la lampe.</p>
+        {onSculpt && (
+          <button className="chip cp-sculpt" onClick={onSculpt}>
+            Reprendre la sculpture
+          </button>
+        )}
+      </>
+    );
+  } else if (item.key === 'bevel')
+    body = (
+      <>
+        <Range label="Largeur" value={l.bevel ?? 0} onChange={(v) => live({ bevel: Math.max(0.05, Math.round(v * 100) / 100) })} />
+        <label className="cp-row">
+          <span>Profil</span>
+          <span className="seg cp-seg">
+            {(
+              [
+                ['round', 'Arrondi'],
+                ['chamfer', 'Chanfrein'],
+              ] as const
+            ).map(([v, name]) => (
+              <button key={v} className={(l.bevelProfile ?? 'round') === v ? 'on' : ''} onClick={() => patch({ bevelProfile: v === 'round' ? undefined : v })}>
+                {name}
+              </button>
+            ))}
+          </span>
+        </label>
+        {l.border && (
+          <label className="cp-row">
+            <span>Inclure le bord</span>
+            <input type="checkbox" checked={!!l.bevelBorder} onChange={(e) => patch({ bevelBorder: e.target.checked || undefined })} />
+            <output>{l.bevelBorder ? 'oui' : 'non'}</output>
+          </label>
+        )}
+      </>
+    );
   else if (item.key === 'glow' && l.glow) {
     const gl = l.glow;
     body = (
@@ -483,6 +730,31 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
         <Dots label="Couleur" value={gl.guide} doc={doc} onPick={(i) => patch({ glow: { ...gl, guide: i } })} />
         <Range label="Distance" min={-1} value={gl.distance} onChange={(v) => live({ glow: { ...gl, distance: Math.round(v * 100) / 100 } })} />
         <Range label="Largeur" value={gl.width} onChange={(v) => live({ glow: { ...gl, width: Math.round(v * 100) / 100 } })} />
+      </>
+    );
+  } else if (item.key === 'volume' && l.volume) {
+    const v = l.volume;
+    body = (
+      <>
+        <label className="cp-row">
+          <span>Volume</span>
+          <span className="seg cp-seg">
+            {VOLUMES.map(([k, name]) => (
+              <button key={k} className={v.kind === k ? 'on' : ''} onClick={() => patch({ volume: { ...v, kind: k } })}>
+                {name}
+              </button>
+            ))}
+          </span>
+        </label>
+        <Range label="Force" value={v.amount} onChange={(x) => live({ volume: { ...v, amount: Math.max(0.05, Math.round(x * 100) / 100) } })} />
+        {v.kind === 'cylinder' && (
+          <Range
+            label="Axe"
+            value={((((v.axis ?? 0) / Math.PI) % 1) + 1) % 1}
+            display={`${Math.round((((((v.axis ?? 0) * 180) / Math.PI) % 180) + 180) % 180)}°`}
+            onChange={(x) => live({ volume: { ...v, axis: (Math.round(x * 36) / 36) * Math.PI } })}
+          />
+        )}
       </>
     );
   } else if (item.key === 'paint') {
@@ -496,6 +768,45 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
             <output>{l.free ? 'oui' : 'non'}</output>
           </label>
         )}
+      </>
+    );
+  } else if (item.key === 'molded' || item.locked) {
+    const back = l.kind === 'text' ? 'Revenir au texte' : l.kind === 'photo' ? 'Revenir au cadre' : 'Revenir à la forme';
+    body = (
+      <div className="cp-molded">
+        <p>
+          {l.kind === 'text'
+            ? 'Ce texte a été modelé : c’est maintenant une forme. Ses lettres, sa police et sa déformation sont gardées de côté.'
+            : l.kind === 'photo'
+              ? 'Le bord de cette photo a été modelé.'
+              : 'Cette forme a été modelée : son dessin d’origine est gardé de côté.'}
+        </p>
+        <div className="cp-molded-act">
+          {onMold && (
+            <button onClick={onMold}>
+              <Icon name="mold" /> Modeler encore
+            </button>
+          )}
+          {unmold && (
+            <button className="primary" onClick={unmold}>
+              {back}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  } else if (item.key === 'content' && l.text && patchText) body = <TextContent key={l.id} text={l.text} onChange={patchText} />;
+  else if (item.key === 'warp' && l.text && patchText) body = <TextWarp text={l.text} onChange={patchText} />;
+  else if (item.key === 'text' && l.text && patchText) {
+    const t = l.text;
+    body = (
+      <>
+        <Range label="Graisse" display={`${t.weight}`} value={(t.weight - 100) / 800} onChange={(v) => patchText({ weight: 100 + Math.round(v * 80) * 10 }, false)} />
+        <div className="cp-row tilt-row">
+          <span>Inclinaison</span>
+          <TiltPad label="Inclinaison" axis="x" size={52} x={leanOf(t) / 30} display={`${leanOf(t)}°${t.italic ? ' · italique' : ''}`} onChange={(x) => patchText(withLean(Math.round(x * 30)), false)} />
+        </div>
+        <Range label="Espacement" display={`${Math.round((t.tracking ?? 0) * 100)}`} min={-0.2} value={(t.tracking ?? 0) / 0.5} onChange={(v) => patchText({ tracking: Math.round(v * 50) / 100 }, false)} />
       </>
     );
   } else if (item.key === 'shape') {
@@ -543,7 +854,19 @@ function Attrs({ layer: l, doc, item, patch }: { layer: Layer; doc: Doc; item: I
   return (
     <section className="cp-attrs">
       <div className="cp-attrs-h">
-        <b>{item.key === 'shape' ? 'Paramètres de la forme' : item.name}</b>
+        <b>
+          {item.key === 'molded' || item.locked
+            ? 'Modelé'
+            : item.key === 'shape'
+              ? 'Paramètres de la forme'
+              : item.key === 'text'
+                ? 'Style'
+                : item.key === 'content'
+                  ? 'Contenu'
+                  : item.key === 'warp'
+                    ? 'Déformation'
+                    : item.name}
+        </b>
         <small>{secName}</small>
       </div>
       {body}

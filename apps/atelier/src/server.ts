@@ -55,3 +55,38 @@ export function newAtelierId(title: string) {
       .slice(0, 40) || 'composition';
   return `${base}-${Math.random().toString(36).slice(2, 6)}`;
 }
+
+/** Ajoute une image (PNG) à la bibliothèque du groupe. */
+export async function addToLibrary(png: Blob, title: string, tags: string[]): Promise<void> {
+  const fd = new FormData();
+  fd.append('title', title);
+  fd.append('tags', tags.join(','));
+  fd.append('file', png, `${title.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'objet'}.png`);
+  await call<unknown>('/api/library/upload', { method: 'POST', body: fd });
+}
+
+/** Qui est connecté : compte (Google, Apple), accès partagé par mot de passe, ou poste local. */
+export interface Me {
+  email?: string;
+  name?: string;
+  admin: boolean;
+  mode: 'compte' | 'mot-de-passe' | 'local';
+}
+export const fetchMe = () => call<Me | null>('/api/me');
+
+/** État du serveur, pour les administrateurs. */
+export interface SystemInfo {
+  version: string;
+  commit?: string;
+  node: string;
+  startedAt: string;
+  uptime: number;
+  memory: { rss: number; heap: number };
+  library: number;
+  ateliers: number;
+  auth: Me['mode'];
+  restartable: boolean;
+}
+export const fetchSystem = () => call<SystemInfo>('/api/system');
+export const restartServer = () => call<{ ok: boolean }>('/api/system/restart', { method: 'POST' });
+export const reindexLibrary = () => call<{ count: number }>('/api/library/reindex', { method: 'POST' });

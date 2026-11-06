@@ -75,6 +75,9 @@ export interface Stroke {
   grow?: number;
   /** Pinceau Ramures : taille du noyau de couleur au point de départ (0 = aucun, 1 = plein). */
   core?: number;
+  /** Pinceau Poils : longueur des brins (0..1, 0.3 par défaut) et frisure (0 = raides, 0.5 = ondulés comme l'alpaga, 1 = bouclés comme le mouton). */
+  hairLen?: number;
+  curl?: number;
   /** Pinceau Brûlure : largeur de la marge roussie et carbonisée autour du trou (0..1). */
   char?: number;
   /** Pinceau Brûlure : false = la couche n'est pas percée, seule la marge la teinte. */
@@ -105,6 +108,12 @@ export interface Layer {
   /** Ancienne découpe polygonale (documents antérieurs), convertie au chargement. */
   mask?: Pt[];
   shape?: ShapeKind;
+  /**
+   * Modelé (outil Modeler) : la découpe a été tirée ou repoussée, elle est dans `cut`.
+   * On garde la découpe d'avant (absente = celle de la forme ou du texte) et le cadre actuel
+   * dans le repère de la boîte d'origine, pour pouvoir revenir à la forme ou au texte.
+   */
+  molded?: { cut?: string; frame: [number, number, number, number] };
   /** Texte : contenu et typographie ; la découpe suit les lettres. */
   text?: import('./text').TextStyle;
   /** Guide de couleur du support ou de la forme. */
@@ -117,8 +126,16 @@ export interface Layer {
   height: number;
   /** Opacité de la couche entière (0..1, 1 par défaut). */
   opacity?: number;
-  /** Biseau (0..1) : liseré éclairé côté lumière, sombre à l'opposé. */
+  /** Relief sculpté (outil Modeler, mode Relief) : carte de hauteurs éclairée par la lampe. */
+  bump?: import('./bump').Bump;
+  /** Biseau (0..1) : largeur du relief au bord, éclairé par la lampe (scene.ts drawBevel). */
   bevel?: number;
+  /** Volume de la forme, tiré de son contour (indépendant du matériau). */
+  volume?: Volume;
+  /** Profil du biseau : arrondi (par défaut) ou chanfrein. */
+  bevelProfile?: 'round' | 'chamfer';
+  /** Le biseau commence au bord ajouté (et non à la découpe). */
+  bevelBorder?: boolean;
   /** Rotation autour du centre de la boîte, en radians. */
   rot?: number;
   /** Centre de rotation en coordonnées de la couche ; absent = centre du cadre des poignées. */
@@ -364,3 +381,18 @@ export const DEFAULT_GUIDES: Guide[] = [
  * Les traits de peinture comptent des milliers de points : le document pèse ainsi plusieurs fois moins.
  */
 export const compact = (_k: string, v: unknown) => (typeof v === 'number' && !Number.isInteger(v) ? Math.round(v * 1e5) / 1e5 : v);
+
+export type VolumeKind = 'dome' | 'cylinder' | 'cone' | 'cushion';
+export interface Volume {
+  kind: VolumeKind;
+  /** Force (0..1) : 1 = demi-sphère pour le dôme, pente à 45° pour le cône. */
+  amount: number;
+  /** Cylindre : direction de l'axe dans la forme (radians, 0 = debout). */
+  axis?: number;
+}
+export const VOLUMES: Array<[VolumeKind, string]> = [
+  ['dome', 'Dôme'],
+  ['cylinder', 'Cylindre'],
+  ['cone', 'Cône'],
+  ['cushion', 'Coussin'],
+];

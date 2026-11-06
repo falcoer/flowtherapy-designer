@@ -1,15 +1,24 @@
 import { FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format } from '@ftd/core';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { paintStroke, previewStamps } from './brush';
+import { LEAN, paintStroke, previewStamps } from './brush';
 import { STAMPS, stampOf, stampSvg } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
-import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
-import { TextBar, type SwashTool } from './textbar';
+import { PrefsPanel, type Theme } from './prefs';
+import { BrushWheel } from './wheel';
+import { ParallaxView } from './parallax';
+import { kitFromSvg, nearestOf, SAME_COLOR, type Kit } from './kits';
+import { KITS } from './kit-samples';
+import { blankBump, bumpHeights, dab, encodeBump, smoothBump } from './bump';
+import { currentPx, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
+import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
+import { QuickText, TextBar, type SwashTool } from './textbar';
 import { PaletteEditor } from './colorpicker';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
-import { download, exportSize, fileName, pdfOf, pngOf, renderDoc } from './export';
+import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
+import { ObjetsShelf } from './objets-shelf';
+import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { listAteliers, newAtelierId, readAtelier, removeAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta } from './server';
 import { anchorsOf, compact, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
@@ -27,6 +36,7 @@ import {
   type Guide,
   type Lamp,
   type Layer,
+  type Volume,
   type Pt,
   type BorderStyle,
   type GlowStyle,
@@ -34,10 +44,11 @@ import {
   type ShapeKind,
   type Stroke,
 } from './model';
-import { geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRing, splitByCut, subtract } from './cut';
+import { type Ring, geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRing, splitByCut, subtract } from './cut';
 import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, isMaterial, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
+import { FanButton } from './fan';
 import {
   drawLampTint,
   lampOf,
@@ -61,7 +72,7 @@ import {
   tracePath,
 } from './scene';
 
-type Tool = 'cut' | 'paint' | 'stamp' | 'filter' | 'transform' | 'material' | 'coat' | 'edge' | 'move';
+type Tool = 'cut' | 'paint' | 'mold' | 'stamp' | 'filter' | 'transform' | 'material' | 'coat' | 'edge' | 'move';
 /** Les cinq sections du mode Modifier l'objet, dans l'ordre de la barre. */
 type EditTool = 'filter' | 'transform' | 'material' | 'coat' | 'edge';
 const EDIT_SECTIONS: Array<[EditTool, string, string]> = [
@@ -72,7 +83,7 @@ const EDIT_SECTIONS: Array<[EditTool, string, string]> = [
   ['edge', 'Bords', 'frame'],
 ];
 const isEdit = (t: Tool): t is EditTool => EDIT_SECTIONS.some(([k]) => k === t);
-type Bubble = 'add' | 'layers' | 'palette' | 'light' | 'format' | 'anchor' | 'projects' | 'export' | null;
+type Bubble = 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'anchor' | 'projects' | 'export' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc-v2';
@@ -92,6 +103,36 @@ export const BORDER_TYPES: Array<[BorderStyle | null, string, string]> = [
 ];
 /** Pinceaux qui acceptent une forme de brosse. */
 const tipOn = (k: BrushKind) => k === 'aquarelle' || k === 'acrylic' || k === 'roller';
+/** Pinceaux qui suivent l'inclinaison (la ramure et la brûlure poussent d'elles-mêmes). */
+const leanOn = (k: BrushKind) => k !== 'branch' && k !== 'burn';
+/** Les trois façons de modeler une forme. */
+const MOLD_MODES = [
+  { key: 'mold', label: 'Modeler', hint: 'de l’intérieur on tire le contour, de l’extérieur on le repousse', icon: <Icon name="mold" /> },
+  {
+    key: 'orn',
+    label: 'Plume',
+    hint: 'un trait fin, plein et délié, ajouté au contour',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 20c1-5 3-9 8-13l5 5c-4 5-8 7-13 8z" />
+        <path d="M4 20l6-6" />
+        <circle cx="11.5" cy="12.5" r="1.3" />
+      </svg>
+    ),
+  },
+  {
+    key: 'relief',
+    label: 'Relief',
+    hint: 'sculpter la surface, bosses et creux éclairés par la lampe',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 18h20" />
+        <path d="M3 18c3 0 4-8 9-8s6 8 9 8" />
+        <path d="M9 12.5c1-1 2-1.4 3-1.4" opacity="0.6" />
+      </svg>
+    ),
+  },
+];
 const BRUSHES: Array<[BrushKind, string, string]> = [
   ['aquarelle', 'Aquarelle', 'lavis transparent'],
   ['acrylic', 'Acrylique pinceau', 'pâte couvrante striée'],
@@ -345,13 +386,32 @@ export function App() {
   const [tool, setToolState] = useState<Tool>('paint');
   // Modifier rouvre la dernière section utilisée
   const lastEdit = useRef<EditTool>('transform');
-  const [coupeOpen, setCoupeOpen] = useState<{ key: string; n: number } | undefined>();
+  const [coupeOpen, setCoupeOpen] = useState<{ key: string; n: number; sec?: 'edge' | 'coat' | 'image' | 'transform' | 'support' } | undefined>();
+  /** Hauteur du bandeau des attributs, quand il est ouvert : la roue du pinceau se pose au-dessus. */
+  const [bandH, setBandH] = useState(0);
+  useEffect(() => {
+    if (!coupeOpen) return setBandH(0);
+    let ro: ResizeObserver | null = null;
+    const id = requestAnimationFrame(() => {
+      const el = document.querySelector('aside.coupe.with-list');
+      if (!el) return;
+      ro = new ResizeObserver(() => setBandH(Math.round(el.getBoundingClientRect().height)));
+      ro.observe(el);
+    });
+    return () => {
+      cancelAnimationFrame(id);
+      ro?.disconnect();
+    };
+  }, [coupeOpen]);
+  // glisser-déposer dans la liste des objets
+  const [quickText, setQuickText] = useState<string | null>(null);
+  const listPress = useRef<{ id: string; y: number; moved: boolean; grip: boolean } | null>(null);
+  const [listDrag, setListDrag] = useState<{ id: string; over?: string; above?: boolean } | null>(null);
   const setTool = (t: Tool) => {
     if (isEdit(t)) lastEdit.current = t;
     setToolState(t);
   };
   const [bubble, setBubble] = useState<Bubble>(null);
-  const [frozenOrder, setFrozenOrder] = useState<string[] | null>(null);
   // astuces (textes d'aide, sous-titres des menus, bandeau d'état) : masquables pour gagner de la place
   const [tips, setTipsState] = useState(() => {
     try {
@@ -360,6 +420,75 @@ export function App() {
       return true;
     }
   });
+  /** Gaucher : les outils passent à gauche et leurs réglages à droite (l'inverse du droitier). */
+  /** Délai avant que la roue du pinceau s'écarte (null : jamais). */
+  const [wheelHide, setWheelHideState] = useState<number | null>(() => {
+    try {
+      const v = localStorage.getItem('ftd-atelier-wheel-hide');
+      return v === null ? 15000 : v === 'never' ? null : Number(v) || 15000;
+    } catch {
+      return 15000;
+    }
+  });
+  const setWheelHide = (v: number | null) => {
+    setWheelHideState(v);
+    try {
+      localStorage.setItem('ftd-atelier-wheel-hide', v === null ? 'never' : String(v));
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  const [lefty, setLeftyState] = useState(() => {
+    try {
+      return localStorage.getItem('ftd-atelier-hand') === 'left';
+    } catch {
+      return false;
+    }
+  });
+  const setLefty = (v: boolean) => {
+    setLeftyState(v);
+    try {
+      localStorage.setItem('ftd-atelier-hand', v ? 'left' : 'right');
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  /** Thème : suit le système, ou clair ou sombre au choix. */
+  const [theme, setThemeState] = useState<Theme>(() => {
+    try {
+      return (localStorage.getItem('ftd-atelier-theme') as Theme) || 'auto';
+    } catch {
+      return 'auto';
+    }
+  });
+  const setTheme = (t: Theme) => {
+    setThemeState(t);
+    try {
+      localStorage.setItem('ftd-atelier-theme', t);
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  useEffect(() => {
+    if (theme === 'auto') delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = theme;
+  }, [theme]);
+  // mode simplifié (par défaut) : les réglages rares (Transformations, Rognage, Lueur, Semis) restent derrière « Plus »
+  const [simple, setSimpleState] = useState(() => {
+    try {
+      return localStorage.getItem('ftd-atelier-simple') !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const setSimple = (v: boolean) => {
+    setSimpleState(v);
+    try {
+      localStorage.setItem('ftd-atelier-simple', v ? 'on' : 'off');
+    } catch {
+      /* stockage indisponible */
+    }
+  };
   const setTips = (v: boolean) => {
     setTipsState(v);
     try {
@@ -382,12 +511,18 @@ export function App() {
   const [dilution, setDilution] = useState(0.15);
   /** Tampon : essuyé (une empreinte qui s'étire) ou semé (copies éparpillées le long du geste). */
   const [stampSow, setStampSow] = useState(false);
+  /** « Plus » des tampons : le semis se montre d'un toucher. */
+  const [stampMore, setStampMore] = useState(false);
   const [sowDensity, setSowDensity] = useState(0.5);
   const [sowSpread, setSowSpread] = useState(0.4);
   const [sowPersp, setSowPersp] = useState(0.3);
+  /** Semis : le cadran Inclinaison de la roue règle la force de la perspective (le sens varie d'une copie à l'autre). */
+  const [sowPad, setSowPad] = useState<[number, number]>([0.21, -0.21]);
   const [stampFilled, setStampFilled] = useState(false);
   /** Rotation du tampon (radians), fixée au curseur : Safari ne transmet pas la rotation du crayon. */
   const [stampRot, setStampRot] = useState(0);
+  /** Inclinaison réglée à la main (sans stylet) : le tampon se met en perspective dans cette direction. */
+  const [stampTilt, setStampTilt] = useState<[number, number]>([0, 0]);
   /** Réglage global : l'inclinaison du stylet met les empreintes en perspective. */
   const [penTilt, setPenTiltState] = useState(() => {
     try {
@@ -423,11 +558,12 @@ export function App() {
   const [burnChar, setBurnChar] = useState(0.3);
   const [branchCore, setBranchCore] = useState(1);
   const [burnHole, setBurnHole] = useState(true);
-  const [stampPick, setStampPick] = useState(false);
   /** Survol du stylet (ou de la souris) : un repère montre où la pointe touchera. */
   const hoverRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>({ zoom: 1, rot: 0, px: 0, py: 0 });
   const [rendu, setRendu] = useState(false);
+  /** Vue 3D : les couches en plaques, à leur hauteur. */
+  const [view3d, setView3d] = useState<false | { start?: [number, number] }>(false);
   const [magnet, setMagnet] = useState(true);
   /** Ciseaux : le morceau se détache. Scalpel : il reste en place, lié à son objet. */
   const [blade, setBlade] = useState<'scissors' | 'scalpel'>('scissors');
@@ -439,7 +575,6 @@ export function App() {
   /** Bulle ouverte de l'outil Bords. */
   const [epop, setEpop] = useState<string | null>(null);
   const [brushKind, setBrushKind] = useState<BrushKind>('aquarelle');
-  const [brushPick, setBrushPick] = useState(false);
   /** Barre latérale : réglages sur deux colonnes quand une seule ne tient pas dans la hauteur. */
   const sideRef = useRef<HTMLElement>(null);
   const paramsRef = useRef<HTMLDivElement>(null);
@@ -460,8 +595,8 @@ export function App() {
       const actsOne = actKids.reduce((h, c) => h + c.offsetHeight, 0) + 8 * Math.max(0, actKids.length - 1);
       const rest = side.offsetHeight - pr.offsetHeight - (acts?.offsetHeight ?? 0) + actsOne;
       // place libre entre la barre d'outils et le bas de l'écran
-      const tools = document.querySelector('.side.tools-bar')?.getBoundingClientRect();
-      const room = window.innerHeight - (tools ? tools.bottom + 10 : 380) - 12;
+      // place libre sous le haut de la barre des réglages
+      const room = window.innerHeight - side.getBoundingClientRect().top - 12;
       const two = items.length > 2 && one + rest > room;
       if (two !== sideTwo) setSideTwo(two);
       // nombre impair : la case vide va en haut, la grille se remplit depuis le bas
@@ -474,9 +609,14 @@ export function App() {
   /** Forme de la brosse et son angle (radians), auquel s'ajoute la rotation du crayon. */
   const [brushTip, setBrushTip] = useState<'round' | 'flat' | 'triangle'>('round');
   const [brushRot, setBrushRot] = useState(0);
+  /** Inclinaison réglée à la main sur la roue du pinceau : la touche s'allonge dans cette direction, comme un crayon couché. */
+  const [brushTilt, setBrushTilt] = useState<[number, number]>([0, 0]);
   /** Ramures : nombre de ramifications et convergence. */
   const [branches, setBranches] = useState(6);
   const [converge, setConverge] = useState(0.3);
+  /** Poils : longueur des brins et frisure (raide, alpaga, mouton). */
+  const [hairLen, setHairLen] = useState(0.3);
+  const [curl, setCurl] = useState(0);
   const growTimer = useRef(0);
   /** Couleur glissée depuis la palette (position écran). */
   const [dragGuide, setDragGuide] = useState<{ i: number; x: number; y: number } | null>(null);
@@ -490,6 +630,8 @@ export function App() {
   const trashRef = useRef<HTMLButtonElement>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const [trashHot, setTrashHot] = useState(false);
+  const dupRef = useRef<HTMLButtonElement>(null);
+  const [dupHot, setDupHot] = useState(false);
   const [snapshot, setSnapshot] = useState<string | null>(null);
   const [toast, setToastRaw] = useState<string | null>(null);
   // tiroir d'ajout : rayon ouvert (gardé d'une ouverture à l'autre) et glisser en cours
@@ -587,12 +729,42 @@ export function App() {
     return { x: p.x, y: p.y };
   };
   const scale = fit * view.zoom;
+  /** Recadre la vue sur un objet : il remplit la place libre entre les barres et l'éditeur d'objet. */
+  const zoomOn = (l: Layer) => {
+    const b = layerBox(l, f);
+    // place libre entre les barres posées à gauche et à droite (outils, réglages, hauteur)
+    let [left, right] = [12, vp.w - 12];
+    for (const el of document.querySelectorAll('.side, .height-bar')) {
+      const r = el.getBoundingClientRect();
+      if (!r.width) continue;
+      if (r.left + r.width / 2 < vp.w / 2) left = Math.max(left, r.right + 12);
+      else right = Math.min(right, r.left - 12);
+    }
+    const bottom = (document.querySelector('aside.coupe')?.getBoundingClientRect().top ?? vp.h) - 12;
+    const [aw, ah] = [Math.max(80, right - left), Math.max(80, bottom - top - 12)];
+    setView((v) => {
+      const a = (l.rot ?? 0) + v.rot;
+      const ew = Math.abs(b.w * Math.cos(a)) + Math.abs(b.h * Math.sin(a));
+      const eh = Math.abs(b.w * Math.sin(a)) + Math.abs(b.h * Math.cos(a));
+      const zoom = Math.max(0.3, Math.min(6, (Math.min(aw / ew, ah / eh) * 0.8) / fit));
+      const k = fit * zoom;
+      const [dx, dy] = [(b.cx - f.width / 2) * k, (b.cy - f.height / 2) * k];
+      const [c, sn] = [Math.cos(v.rot), Math.sin(v.rot)];
+      const [rx, ry] = [dx * c - dy * sn, dx * sn + dy * c];
+      return { ...v, zoom, px: left + aw / 2 - vp.w / 2 - rx, py: top + 12 + ah / 2 - (top + (vp.h - top) / 2) - ry };
+    });
+  };
 
   const lastTap = useRef<{ t: number; id?: string; x: number; y: number } | null>(null);
   const dotAt = useRef(0);
   // --- état des gestes en cours ---
   const live = useRef<{
-    kind: 'paint' | 'cut' | 'move' | 'resize' | 'rotate' | 'pivot' | 'view' | 'swash' | null;
+    kind: 'paint' | 'cut' | 'move' | 'resize' | 'rotate' | 'pivot' | 'view' | 'swash' | 'mold' | 'bump' | null;
+    /** Relief en cours de sculpture : hauteurs de travail et dernière touche (pixels de la carte). */
+    bump?: { w: number; h: number; H: Float32Array; at: [number, number] };
+    /** Outil Modeler : découpe de départ et découpe d'origine, en pixels de travail. */
+    base?: Ring[];
+    pristine?: Ring[];
     /** Prolongement de lettre en cours de tracé. */
     sw?: Swash;
     /** Modelage du contour en cours. */
@@ -671,9 +843,11 @@ export function App() {
     cutStill.current = null;
   };
   const pointers = useRef(new Map<number, { x: number; y: number; type: string }>());
-  const gesture = useRef<{ view: View; c: { x: number; y: number }; d: number; a: number; next?: View } | null>(null);
+  const gesture = useRef<{ view: View; c: { x: number; y: number }; d: number; a: number; next?: View; c3?: { x: number; y: number } } | null>(null);
   const tap = useRef<{ n: number; t0: number; moved: boolean } | null>(null);
   const lampDrag = useRef<number | null>(null);
+  /** Souris : molette enfoncée, on fait glisser la feuille. */
+  const midPan = useRef<{ id: number; x: number; y: number; px: number; py: number } | null>(null);
   // doigt gardé posé sur un objet : il se solidarise avec celui du dessous
   const hold = useRef<{ timer: number; x: number; y: number } | null>(null);
   const stopHold = () => {
@@ -776,7 +950,7 @@ export function App() {
       ctx.setLineDash([2 * px, 4 * px]);
       for (const m of matesOf(doc, sel)) if (m.visible) ctx.stroke(maskPath2D(m, f));
       ctx.restore();
-      if (tool === 'move' && L.kind !== 'move') {
+      if ((tool === 'move' || isEdit(tool)) && L.kind !== 'move') {
         const h = handlesOf(sel);
         const r = sel.rot ?? 0;
         const ex = { x: Math.cos(r), y: Math.sin(r) };
@@ -1045,10 +1219,10 @@ export function App() {
   };
   const toLocal = (l: Layer, x: number, y: number) => pageToLocal(l, f, x, y);
   /** Copie de l'élément sélectionné (et de ses objets solidaires), décalée, posée juste au-dessus. */
-  const duplicate = () => {
-    const me = doc.layers.find((x) => x.id === selected);
+  const duplicate = (id: string | null = selected, src: Doc = doc) => {
+    const me = src.layers.find((x) => x.id === id);
     if (!me || me.kind === 'surface') return;
-    const group = [me, ...matesOf(doc, me)];
+    const group = [me, ...matesOf(src, me)];
     const link = me.link ? uid() : undefined;
     const ids = new Map(group.map((g) => [g.id, uid()]));
     const copies = group.map((g) => ({ ...structuredClone(g), id: ids.get(g.id)!, name: `${g.name} (copie)`, dx: g.dx + 0.03, dy: g.dy + 0.03, pins: undefined, ...(link ? { link } : {}) }));
@@ -1113,6 +1287,7 @@ export function App() {
     if (!me) return;
     live.current = { kind: null };
     setTrashHot(false);
+    setDupHot(false);
     const ord = renderOrder(d.layers);
     const below = ord
       .slice(
@@ -1165,6 +1340,11 @@ export function App() {
   const onDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     hideHover();
     (e.target as Element).setPointerCapture(e.pointerId);
+    if (e.pointerType === 'mouse' && e.button === 1) {
+      e.preventDefault();
+      midPan.current = { id: e.pointerId, x: e.clientX, y: e.clientY, px: view.px, py: view.py };
+      return;
+    }
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     // le panneau lumière reste ouvert : on règle la lampe en regardant la page
     if (bubble === 'light' && pointers.current.size === 1) {
@@ -1178,8 +1358,6 @@ export function App() {
     setBubble((b) => (b === 'light' ? b : null));
     setModePick(false);
     setEpop(null);
-    setBrushPick(false);
-    setStampPick(false);
     const touches = [...pointers.current.values()].filter((p) => p.type === 'touch');
     if (e.pointerType === 'touch' && touches.length >= 2) {
       // plusieurs doigts : on annule le geste à un doigt et on manipule la vue
@@ -1207,11 +1385,48 @@ export function App() {
 
     const p = toPage(e.clientX, e.clientY);
     // le doigt déplace, le stylet (ou la souris) utilise l'outil
-    const t: Tool = e.pointerType === 'touch' ? 'move' : tool;
+    // le doigt déplace ; le volet des attributs dispose aussi l'objet (poignées, glisser)
+    const t: Tool = e.pointerType === 'touch' || isEdit(tool) ? 'move' : tool;
     const sel = doc.layers.find((l) => l.id === selected);
 
+    // Modeler : le contour de l'objet choisi (ou touché) suit la pointe
+    if (t === 'mold') {
+      const hit = layerAt(p.x, p.y);
+      const target = sel && sel.kind !== 'surface' ? sel : hit && hit.kind !== 'surface' ? hit : null;
+      if (!target) return setToast('Choisis d’abord un objet à modeler');
+      if (target.id !== selected) setSelected(target.id);
+      const loc = toLocal(target, p.x, p.y);
+      // Relief : on sculpte la surface (bosses, creux), le contour ne bouge pas
+      if (swash.mode === 'relief') {
+        const bb = layerBox(target, f);
+        const cur = target.bump ? { w: target.bump.w, h: target.bump.h, H: bumpHeights(target.bump).slice() } : blankBump(bb.w, bb.h);
+        update((d) => d);
+        const at: [number, number] = [loc.x * cur.w, loc.y * cur.h];
+        live.current = { kind: 'bump', layer: target.id, orig: target, bump: { ...cur, at }, last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pressure(e, null) } };
+        sculpt(at, pressure(e, null));
+        return;
+      }
+      const [x, y] = localToPx(target, loc.x, loc.y);
+      const pr = pressure(e, null);
+      const U = unitPx(target);
+      update((d) => d);
+      live.current = {
+        kind: 'mold',
+        layer: target.id,
+        orig: target,
+        base: currentPx(target),
+        pristine: pristinePx(target),
+        mold:
+          swash.mode === 'orn'
+            ? { pts: [], r: 0, orn: { pts: [[x, y, pr]], w: (swash.w ?? (target.text ? swashWidth(target.text.weight) * 0.8 : 0.08)) * U, end: 'fine', nib: -Math.PI / 4 } }
+            : { pts: [[x, y]], r: swash.r * U, k: swash.k ?? 1, ...(swash.tip && swash.tip !== 'round' ? { tip: swash.tip, rot: (swash.rot ?? 0) - view.rot - (target.rot ?? 0) } : {}) },
+        last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
+      };
+      return;
+    }
+
     // Prolonger : le trait part d'une lettre et devient une partie du texte
-    if (swash.on && tool === 'move' && sel?.kind === 'text' && sel.text) {
+    if (swash.on && (tool === 'move' || isEdit(tool)) && sel?.kind === 'text' && sel.text) {
       const loc = toLocal(sel, p.x, p.y);
       const pr = pressure(e, null);
       update((d) => d);
@@ -1220,15 +1435,28 @@ export function App() {
         layer: sel.id,
         // copie légère : le texte garde ses modelages tels quels, déjà calculés
         orig: { ...sel },
-        ...(swash.mode === 'mold'
-          ? { mold: { pts: [swashPoint(sel.text, loc.x, loc.y)], r: swash.r } }
-          : { sw: { pts: [[...swashPoint(sel.text, loc.x, loc.y), pr] as [number, number, number]], w: swash.w ?? swashWidth(sel.text.weight), end: swash.end } }),
+        ...(swash.mode === 'orn'
+          ? {
+              mold: {
+                pts: [],
+                r: 0,
+                orn: {
+                  pts: [[...swashPoint(sel.text, loc.x, loc.y), pr] as [number, number, number]],
+                  w: swash.w ?? swashWidth(sel.text.weight) * 0.8,
+                  end: 'fine',
+                  nib: -Math.PI / 4,
+                },
+              },
+            }
+          : swash.mode === 'mold'
+            ? { mold: { pts: [swashPoint(sel.text, loc.x, loc.y)], r: swash.r, k: swash.k ?? 1, ...(swash.tip && swash.tip !== 'round' ? { tip: swash.tip, rot: (swash.rot ?? 0) - view.rot - (sel.rot ?? 0) } : {}) } }
+            : { sw: { pts: [[...swashPoint(sel.text, loc.x, loc.y), pr] as [number, number, number]], w: swash.w ?? swashWidth(sel.text.weight), end: swash.end } }),
         last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
       };
       return;
     }
 
-    // double toucher (ou double clic) sur une forme ou une image : on passe en Disposer
+    // double toucher (ou double clic) sur un objet : l'éditeur d'objet s'ouvre sur lui
     {
       const now = performance.now();
       const hit = layerAt(p.x, p.y);
@@ -1238,11 +1466,28 @@ export function App() {
         live.current = { kind: null };
         // le premier toucher a pu poser un point de peinture : on le retire
         if (now - dotAt.current < 400) undo();
-        setTool('move');
         setSelected(hit.id);
-        if (hit.kind === 'text') setTextEditing(true);
-        else setToast(`« ${hit.name} » : Disposer`);
+        // mode attributs : le texte se change dans une bulle, sans quitter le mode
+        if (hit.kind === 'text' && isEdit(tool)) {
+          setQuickText(hit.id);
+          requestAnimationFrame(() => zoomOn(hit));
+          redraw();
+          return;
+        }
+        setTool(lastEdit.current);
+        // la vue se recadre sur l'objet, dans la place laissée libre par l'éditeur
+        requestAnimationFrame(() => requestAnimationFrame(() => zoomOn(hit)));
+        const key = hit.molded ? 'molded' : hit.kind === 'text' ? 'content' : hit.kind === 'shape' ? 'shape' : 'look';
+        setCoupeOpen((o) => ({ key, sec: 'image', n: (o?.n ?? 0) + 1 }));
         redraw();
+        return;
+      }
+      // double toucher hors des objets (fond, autour de la page) : la vue revient sur la page entière
+      if ((!hit || hit.kind === 'surface') && lt && lt.id === hit?.id && now - lt.t < 350 && Math.hypot(p.x - lt.x, p.y - lt.y) * scale < 24 && (view.zoom !== 1 || view.rot || view.px || view.py)) {
+        lastTap.current = null;
+        live.current = { kind: null };
+        if (now - dotAt.current < 400) undo();
+        setView({ zoom: 1, rot: 0, px: 0, py: 0 });
         return;
       }
       lastTap.current = { t: now, id: hit?.id, x: p.x, y: p.y };
@@ -1341,7 +1586,8 @@ export function App() {
                   opacity,
                   seed: Math.floor(Math.random() * 1e9),
                   ...(tipOn(brushKind) ? { tip: brushTip } : {}),
-                  pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, target) } : {}) }],
+                  ...(brushKind === 'hair' ? { hairLen, curl } : {}),
+                  pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, target) } : {}), ...(leanOn(brushKind) ? brushLean(e, target) : {}) }],
                 },
     };
     // ramures : tant que la pointe reste posée, les ramifications poussent
@@ -1389,6 +1635,16 @@ export function App() {
   };
   /** Angle de la brosse dans le repère de la couche : le curseur, plus la rotation du crayon. */
   const tipAngle = (e: PenLike, l: Layer) => brushRot + penTwist(e) - view.rot - (l.rot ?? 0);
+  /** Pinceau penché (stylet couché, ou inclinaison de la roue) : la touche s'allonge dans le sens où il penche. */
+  const brushLean = (e: PenLike, l: Layer): { k?: number; d?: number } => {
+    const tx = e.tiltX ?? 0;
+    const ty = e.tiltY ?? 0;
+    const tilt = Math.hypot(tx, ty);
+    if (e.pointerType === 'pen' && penTilt && tilt > 25) return { k: Math.min(0.9, ((tilt - 25) / 45) * 0.9), d: Math.atan2(ty, tx) - view.rot - (l.rot ?? 0) };
+    const m = Math.hypot(brushTilt[0], brushTilt[1]);
+    if (m > 0.02) return { k: Math.min(0.9, m * 0.9), d: Math.atan2(brushTilt[1], brushTilt[0]) - view.rot - (l.rot ?? 0) };
+    return {};
+  };
   /** Rotation et inclinaison du tampon, dans le repère de la couche. */
   const stampAngle = (e: PenLike, l: Layer) => {
     const out: { r?: number; k?: number; d?: number } = { r: stampScreenAngle(e) - view.rot - (l.rot ?? 0) };
@@ -1399,29 +1655,102 @@ export function App() {
     if (e.pointerType === 'pen' && penTilt && tilt > 25) {
       out.k = Math.min(0.9, ((tilt - 25) / 45) * 0.9);
       out.d = Math.atan2(ty, tx) - view.rot - (l.rot ?? 0);
+    } else if (Math.hypot(stampTilt[0], stampTilt[1]) > 0.02) {
+      out.k = Math.min(0.9, Math.hypot(stampTilt[0], stampTilt[1]) * 0.9);
+      out.d = Math.atan2(stampTilt[1], stampTilt[0]) - view.rot - (l.rot ?? 0);
     }
     return out;
   };
 
   /** Repère de survol : un rond de la taille du pinceau, ou l'empreinte du tampon. */
+  /** Sélecteur de pointe de la roue : ronde, plate, triangle. */
+  const tipPick = (cur: 'round' | 'flat' | 'triangle', set: (t: 'round' | 'flat' | 'triangle') => void) => {
+    const all = ['round', 'flat', 'triangle'] as const;
+    const names = { round: 'Ronde', flat: 'Plate', triangle: 'Triangle' };
+    return {
+      face: <Icon name={`tip-${cur}`} />,
+      title: `Pointe : ${names[cur].toLowerCase()}`,
+      next: () => set(all[(all.indexOf(cur) + 1) % all.length]!),
+      options: all.map((t) => ({ key: t, icon: <Icon name={`tip-${t}`} />, label: names[t], on: cur === t })),
+      onOption: (k: string) => set(k as 'round' | 'flat' | 'triangle'),
+    };
+  };
+  /** Empreinte en vraie grandeur au centre de l'écran, pendant le réglage de la taille sur la roue. */
+  const [sizing, setSizing] = useState<'on' | 'after' | null>(null);
+  /** Où survole le stylet (s'il survole la page) : l'empreinte réglée sur la roue s'y montre plutôt qu'au centre. */
+  const penHover = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (sizing !== 'after') return;
+    const t = setTimeout(() => setSizing(null), 900);
+    return () => clearTimeout(t);
+  }, [sizing]);
+  useEffect(() => {
+    const el = hoverRef.current;
+    if (!el) return;
+    if (!sizing) {
+      if (!penHover.current) el.style.display = 'none';
+      return;
+    }
+    const at = penHover.current ?? { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    const m = Math.min(f.width, f.height) * scale;
+    const D = Math.max(
+      6,
+      tool === 'mold' ? (swash.mode === 'orn' ? (swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) : swash.r * 2) * MOLD_UNIT * m : tool === 'stamp' ? stampSize * 2 * m : size * 2 * m,
+    );
+    const tip = tool === 'paint' && tipOn(brushKind) ? brushTip : tool === 'mold' && swash.mode === 'mold' ? (swash.tip ?? 'round') : 'round';
+    const H = tip === 'flat' ? Math.max(3, D * 0.3) : D;
+    const ang = tool === 'stamp' ? stampRot : tool === 'mold' && swash.mode === 'mold' ? (swash.rot ?? 0) : tip !== 'round' ? brushRot : 0;
+    el.dataset.tip = tip;
+    el.style.display = 'block';
+    el.style.width = `${D}px`;
+    el.style.height = `${H}px`;
+    // tampon incliné : l'empreinte s'écrase vers la direction choisie, comme sur la roue
+    const k = tool === 'stamp' && !stampSow ? Math.min(1, Math.hypot(stampTilt[0], stampTilt[1])) : 0;
+    const dir = Math.atan2(stampTilt[1], stampTilt[0]);
+    // pinceau penché : la touche s'allonge dans le sens choisi
+    const kb = tool === 'paint' && leanOn(brushKind) ? Math.min(0.9, Math.hypot(brushTilt[0], brushTilt[1]) * 0.9) : 0;
+    const db = Math.atan2(brushTilt[1], brushTilt[0]);
+    const persp = k > 0.02 ? ` rotate(${dir}rad) scaleX(${1 - k * 0.35}) rotate(${-dir}rad)` : kb > 0.02 ? ` rotate(${db}rad) scaleX(${1 + kb * LEAN}) rotate(${-db}rad)` : '';
+    el.style.transform = `translate(${at.x - D / 2}px, ${at.y - H / 2}px)${persp} rotate(${ang}rad)`;
+  });
   const showHover = (e: React.PointerEvent) => {
     const el = hoverRef.current;
     if (!el) return;
-    const painting = tool === 'paint' || tool === 'stamp';
+    const sel = doc.layers.find((l) => l.id === selected);
+    const shaping = swash.on && (tool === 'move' || isEdit(tool)) && sel?.kind === 'text' && !!sel.text;
+    const molding = tool === 'mold';
+    const painting = tool === 'paint' || tool === 'stamp' || shaping || molding;
     if (!painting || rendu || (e.pointerType !== 'pen' && e.pointerType !== 'mouse')) return hideHover();
+    penHover.current = e.pointerType === 'pen' ? { x: e.clientX, y: e.clientY } : null;
     const m = Math.min(f.width, f.height) * scale;
-    const d = tool === 'stamp' ? stampSize * 2 * m : size * 2 * m;
+    // Modeler : le rond couvre la zone qui bouge ; Plume : l'épaisseur du trait
+    const em = shaping ? (layerBox(sel!, f).w * scale) / Math.max(1e-6, textEm(sel!.text!)) : 0;
+    const mu = MOLD_UNIT * m;
+    const d = molding
+      ? (swash.mode === 'orn' ? (swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) : swash.r * 2) * mu
+      : shaping
+        ? swash.mode === 'orn'
+          ? (swash.w ?? swashWidth(sel!.text!.weight) * 0.8) * em
+          : swash.r * 2 * em
+        : tool === 'stamp'
+          ? stampSize * 2 * m
+          : size * 2 * m;
     el.style.display = 'block';
     const D = Math.max(6, d);
     // brosse plate ou triangle : la silhouette de la touche, tournée comme elle peindra
-    const tip = tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
+    const tip = molding && swash.mode === 'mold' ? (swash.tip ?? 'round') : !shaping && !molding && tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
     el.dataset.tip = tip;
     el.style.width = `${D}px`;
     el.style.height = `${tip === 'flat' ? Math.max(3, D * 0.3) : D}px`;
-    const ang = tool === 'stamp' ? stampScreenAngle(e) : tip !== 'round' ? brushRot + penTwist(e) : view.rot;
-    el.style.transform = `translate(${e.clientX - D / 2}px, ${e.clientY - (tip === 'flat' ? Math.max(3, D * 0.3) : D) / 2}px) rotate(${ang}rad)`;
+    const ang = tool === 'stamp' ? stampScreenAngle(e) : molding && tip !== 'round' ? (swash.rot ?? 0) : tip !== 'round' ? brushRot + penTwist(e) : view.rot;
+    // pinceau penché à la main : le repère s'allonge comme la touche
+    const kb = tool === 'paint' && !shaping && leanOn(brushKind) ? Math.min(0.9, Math.hypot(brushTilt[0], brushTilt[1]) * 0.9) : 0;
+    const db = Math.atan2(brushTilt[1], brushTilt[0]);
+    const lean = kb > 0.02 ? ` rotate(${db}rad) scaleX(${1 + kb * LEAN}) rotate(${-db}rad)` : '';
+    el.style.transform = `translate(${e.clientX - D / 2}px, ${e.clientY - (tip === 'flat' ? Math.max(3, D * 0.3) : D) / 2}px)${lean} rotate(${ang}rad)`;
   };
   const hideHover = () => {
+    penHover.current = null;
     if (hoverRef.current) hoverRef.current.style.display = 'none';
   };
 
@@ -1440,6 +1769,11 @@ export function App() {
   };
 
   const onMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const mp = midPan.current;
+    if (mp && mp.id === e.pointerId) {
+      setView((v) => ({ ...v, px: mp.px + e.clientX - mp.x, py: mp.py + e.clientY - mp.y }));
+      return;
+    }
     const pt = pointers.current.get(e.pointerId);
     // pointe au-dessus de l'écran, sans contact : on montre seulement où elle touchera
     if (!pt) return showHover(e);
@@ -1459,6 +1793,21 @@ export function App() {
       if (touches.length < 2) return;
       const [a, b] = touches;
       const g = gesture.current;
+      // trois doigts qui glissent ensemble : la page s'incline en Vue 3D
+      if (touches.length >= 3) {
+        const c3 = { x: touches.reduce((s, t) => s + t.x, 0) / touches.length, y: touches.reduce((s, t) => s + t.y, 0) / touches.length };
+        g.c3 ??= c3;
+        const [dx, dy] = [c3.x - g.c3.x, c3.y - g.c3.y];
+        if (Math.hypot(dx, dy) > 30) {
+          previewView(null);
+          live.current = { kind: null };
+          gesture.current = null;
+          tap.current = null;
+          pointers.current.clear();
+          setView3d({ start: [Math.max(-40, Math.min(40, dx * 0.3)), Math.max(-40, Math.min(40, -dy * 0.3))] });
+        }
+        return;
+      }
       const c = { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 };
       const d = Math.hypot(b!.x - a!.x, b!.y - a!.y);
       const ang = Math.atan2(b!.y - a!.y, b!.x - a!.x);
@@ -1473,6 +1822,38 @@ export function App() {
     if (tap.current && moved > 6) tap.current.moved = true;
     if (hold.current && Math.hypot(e.clientX - hold.current.x, e.clientY - hold.current.y) > 8) stopHold();
     const p = toPage(e.clientX, e.clientY);
+    if (L.kind === 'bump' && L.bump && L.orig) {
+      const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
+      for (const ev of events) {
+        if (ev.pointerType === 'pen' && ev.buttons === 0) continue;
+        const q = toPage(ev.clientX, ev.clientY);
+        const pr = pressure(ev as unknown as React.PointerEvent, L.last!);
+        L.last = { x: ev.clientX, y: ev.clientY, t: performance.now(), p: pr };
+        const loc = toLocal(L.orig, q.x, q.y);
+        sculpt([loc.x * L.bump.w, loc.y * L.bump.h], pr);
+      }
+      return;
+    }
+    if (L.kind === 'mold' && L.mold && L.orig) {
+      const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
+      const U = unitPx(L.orig);
+      for (const ev of events) {
+        if (ev.pointerType === 'pen' && ev.buttons === 0) continue;
+        const q = toPage(ev.clientX, ev.clientY);
+        const pr = pressure(ev as unknown as React.PointerEvent, L.last!);
+        L.last = { x: ev.clientX, y: ev.clientY, t: performance.now(), p: pr };
+        const loc = toLocal(L.orig, q.x, q.y);
+        const [x, y] = localToPx(L.orig, loc.x, loc.y);
+        const orn = L.mold.orn;
+        const line = orn?.pts ?? L.mold.pts;
+        const prev = line[line.length - 1]!;
+        if (Math.hypot(x - prev[0], y - prev[1]) < U * (orn ? 0.02 : 0.012)) continue;
+        if (orn) orn.pts.push([x, y, pr]);
+        else L.mold.pts.push([x, y]);
+      }
+      if (!swashFrame.current) swashFrame.current = requestAnimationFrame(() => ((swashFrame.current = 0), applyMold(false)));
+      return;
+    }
     if (L.kind === 'swash' && (L.sw || L.mold) && L.orig?.text) {
       const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
       for (const ev of events) {
@@ -1482,10 +1863,12 @@ export function App() {
         L.last = { x: ev.clientX, y: ev.clientY, t: performance.now(), p: pr };
         const loc = toLocal(L.orig, q.x, q.y);
         const [x, y] = swashPoint(L.orig.text, loc.x, loc.y);
-        const line = L.sw?.pts ?? L.mold!.pts;
+        const orn = L.mold?.orn;
+        const line = L.sw?.pts ?? orn?.pts ?? L.mold!.pts;
         const prev = line[line.length - 1]!;
-        if (Math.hypot(x - prev[0], y - prev[1]) < (L.mold ? 0.012 : 0.025)) continue;
+        if (Math.hypot(x - prev[0], y - prev[1]) < (L.mold && !orn ? 0.012 : 0.02)) continue;
         if (L.sw) L.sw.pts.push([x, y, pr]);
+        else if (orn) orn.pts.push([x, y, pr]);
         else L.mold!.pts.push([x, y]);
       }
       if (!swashFrame.current) swashFrame.current = requestAnimationFrame(() => ((swashFrame.current = 0), applySwash(false)));
@@ -1508,7 +1891,12 @@ export function App() {
         // un tampon traîné imprime une suite d'empreintes, espacées de leur taille
         // essuyé : le geste est suivi finement, l'encre s'étire derrière l'empreinte
         if (stamping ? dist < L.stroke.size * (L.stroke.sow ? 0.12 : L.stroke.wipe ? 0.05 : 2.2) : dist * Math.min(f.width, f.height) * scale < 1.5) continue;
-        L.stroke.pts.push({ ...loc, p: pr, ...(stamping && !L.stroke.wipe ? stampAngle(ev, l) : L.stroke.tip ? { r: tipAngle(ev, l) } : {}) });
+        L.stroke.pts.push({
+          ...loc,
+          p: pr,
+          ...(stamping && !L.stroke.wipe ? stampAngle(ev, l) : L.stroke.tip ? { r: tipAngle(ev, l) } : {}),
+          ...(!stamping && !branching && L.stroke.brush !== 'burn' ? brushLean(ev, l) : {}),
+        });
       }
       const tg = paintTarget(l, f, scale * dpr);
       if (stamping || branching) {
@@ -1538,9 +1926,14 @@ export function App() {
       }
       redraw();
     } else if (L.kind === 'move' && L.orig && L.start) {
-      const tr = trashRef.current?.getBoundingClientRect();
-      const hot = !!tr && e.clientX > tr.left - 14 && e.clientX < tr.right + 14 && e.clientY > tr.top - 14 && e.clientY < tr.bottom + 14;
+      const over = (el: HTMLElement | null) => {
+        const r = el?.getBoundingClientRect();
+        return !!r && e.clientX > r.left - 14 && e.clientX < r.right + 14 && e.clientY > r.top - 14 && e.clientY < r.bottom + 14;
+      };
+      const hot = over(trashRef.current);
       if (hot !== trashHot) setTrashHot(hot);
+      const dhot = !hot && over(dupRef.current);
+      if (dhot !== dupHot) setDupHot(dhot);
       const o = L.orig;
       const b = layerBox(o, f);
       let cx = b.cx + p.x - L.start.x;
@@ -1671,6 +2064,10 @@ export function App() {
   };
 
   const onUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (midPan.current?.id === e.pointerId) {
+      midPan.current = null;
+      return;
+    }
     pointers.current.delete(e.pointerId);
     stopHold();
     if (lampDrag.current === e.pointerId) {
@@ -1698,6 +2095,22 @@ export function App() {
     }
     if (remaining > 0) return;
     tap.current = null;
+    if (L.kind === 'bump' && L.bump && L.layer) {
+      if (swashFrame.current) cancelAnimationFrame(swashFrame.current);
+      swashFrame.current = 0;
+      const { w, h, H } = L.bump;
+      const id = L.layer;
+      live.current = { kind: null };
+      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === id ? { ...x, bump: encodeBump(w, h, H) } : x)) }));
+      return;
+    }
+    if (L.kind === 'mold') {
+      if (swashFrame.current) cancelAnimationFrame(swashFrame.current);
+      swashFrame.current = 0;
+      applyMold(true);
+      live.current = { kind: null };
+      return;
+    }
     if (L.kind === 'swash') {
       if (swashFrame.current) cancelAnimationFrame(swashFrame.current);
       swashFrame.current = 0;
@@ -1733,6 +2146,13 @@ export function App() {
         setSelected(null);
         setTrashHot(false);
         setToast(gone.size > 1 ? `« ${o.name} » et ses objets solidaires à la corbeille` : `« ${o.name} » à la corbeille`);
+      } else if (l && dupHot) {
+        // glissé sur Dupliquer : l'objet revient à sa place et sa copie est posée à côté
+        const back = new Map<string, Layer>([[L.orig!.id, L.orig!], ...(L.mates ?? []).map((x) => [x.id, x] as [string, Layer])]);
+        const src = { ...doc, layers: doc.layers.map((x) => back.get(x.id) ?? x) };
+        setDoc(src);
+        setDupHot(false);
+        duplicate(l.id, src);
       } else if (l) {
         const pins = l.pins
           ? Object.entries(l.pins)
@@ -1867,7 +2287,7 @@ export function App() {
       layers.splice(layers.findIndex((x) => x.id === sel.id) + 1, 0, ...extra);
       return { ...d, layers };
     });
-    setToast(`« ${sel.name} » séparée en ${parts.length} morceaux : déplace-les avec Disposer`);
+    setToast(`« ${sel.name} » séparée en ${parts.length} morceaux : glisse-les pour les placer`);
   };
 
   const finishCut = (raw: Pt[]) => {
@@ -1949,6 +2369,63 @@ export function App() {
   };
 
   // --- ajout de couches ---
+  /** Volume léger posé d'office sur une forme : il se change ou se retire dans Forme. */
+  const defaultVolume = (sh: string): Volume => {
+    const dome = ['circle', 'oval', 'drop', 'blob', 'moon', 'semicircle', 'arch'];
+    const cone = ['star', 'diamond', 'leaf'];
+    return { kind: dome.includes(sh) ? 'dome' : cone.includes(sh) ? 'cone' : 'cushion', amount: cone.includes(sh) ? 0.3 : 0.4 };
+  };
+  /** Objet en pièces : une couche par pièce, toutes dans la même boîte, solidaires. */
+  const addKit = (kit: Kit) => {
+    const a = anchorFor(doc.frame, f, f.width / 2, f.height / 2);
+    const k = 0.62;
+    const [w, h] = kit.ratio >= 1 ? [k, k / kit.ratio] : [k * kit.ratio, k];
+    const group = uid();
+    // couleurs du dessin : celles que la palette a déjà (ou presque) sont reprises, les autres s'y ajoutent
+    const guides = [...doc.guides];
+    const colors = guides.map((g) => (g.type === 'color' ? g.color : guideColor(g, 0.5)));
+    let added = 0;
+    const guideFor = (hex: string, name: string) => {
+      const n = nearestOf(hex, colors);
+      if (n.d <= SAME_COLOR) return n.i;
+      guides.push({ name, type: 'color', color: hex });
+      colors.push(hex);
+      added++;
+      return guides.length - 1;
+    };
+    const layers: Layer[] = kit.parts.map((p) => ({
+      id: uid(),
+      name: `${kit.name} · ${p.name}`,
+      kind: 'shape',
+      anchor: a.anchor,
+      dx: a.dx,
+      dy: a.dy,
+      w,
+      h,
+      guide: guideFor(p.color, p.name),
+      cut: p.d,
+      height: Math.round((0.12 + p.lift) * 1000) / 1000,
+      ...(p.volume ? { volume: p.volume } : {}),
+      link: group,
+      visible: true,
+      strokes: [],
+    }));
+    update((d) => ({ ...d, guides, layers: [...d.layers, ...layers] }));
+    setSelected(layers[0]!.id);
+    setBubble(null);
+    setToast(
+      `« ${kit.name} » posé en ${layers.length} pièces solidaires${added ? `, ${added} couleur${added > 1 ? 's' : ''} ajoutée${added > 1 ? 's' : ''} à la palette` : ''} : touche une pièce pour sa couleur, son matériau, son volume`,
+    );
+    setToastUndo(added > 0);
+  };
+  const importKit = async (file: File) => {
+    try {
+      addKit(kitFromSvg(await file.text(), file.name.replace(/\.svg$/i, '')));
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Ce dessin SVG n’a pas pu être lu');
+    }
+  };
+
   const addLayer = (kind: 'shape' | 'photo', opts: { shape?: ShapeKind; src?: string; name: string; ratio?: number; size?: number; at?: Pt; cut?: string; ref?: string }) => {
     const a = anchorFor(doc.frame, f, opts.at?.x ?? f.width / 2, opts.at?.y ?? f.height / 2);
     let w = 0.4;
@@ -1977,6 +2454,7 @@ export function App() {
       cut: opts.cut,
       ref: opts.ref,
       height: 0,
+      ...(kind === 'shape' && opts.shape ? { volume: defaultVolume(opts.shape) } : {}),
       visible: true,
       strokes: [],
     };
@@ -1987,9 +2465,12 @@ export function App() {
       // une forme posée : ses paramètres s'ouvrent tout de suite
       setTool(lastEdit.current);
       setCoupeOpen((o) => ({ key: 'shape', n: (o?.n ?? 0) + 1 }));
-      setToast(`Règle la forme de « ${opts.name} » ici, ou touche Disposer (V) pour la placer`);
+      setToast(`Règle la forme de « ${opts.name} » ici ; glisse-la sur la page pour la placer`);
       setToastUndo(false);
-    } else setTool('move');
+    } else {
+      setTool(lastEdit.current);
+      setCoupeOpen((o) => ({ key: 'look', sec: 'image', n: (o?.n ?? 0) + 1 }));
+    }
   };
   /** Pose un texte dans le style choisi, prêt à être réécrit. */
   const addText = async (p: TextPreset) => {
@@ -2025,13 +2506,16 @@ export function App() {
     if (layer.w > maxW) [layer.w, layer.h] = [maxW, (maxW / layer.w) * layer.h];
     update((d) => ({ ...d, layers: [...d.layers, layer] }));
     setSelected(layer.id);
-    setTool('move');
+    // l'éditeur d'objet s'ouvre sur le contenu du texte
+    setTool(lastEdit.current);
+    setCoupeOpen((o) => ({ key: 'content', sec: 'image', n: (o?.n ?? 0) + 1 }));
     setBubble(null);
-    setTextEditing(true);
   };
   /** Change la typographie d'un texte en gardant son corps : la boîte suit les lettres. */
   const patchText = (l: Layer, next: Partial<TextStyle>, history: boolean) => {
     if (!l.text) return;
+    // texte modelé : c'est une forme, ses lettres reviennent seulement avec « Revenir au texte »
+    if (l.molded) return setToast('Ce texte est modelé : « Revenir au texte » pour le modifier');
     const t = { ...l.text, ...next };
     // enveloppe et prolongements : les lettres restent où elles sont, la boîte s'adapte autour
     if ('warp' in next || 'swashes' in next || 'molds' in next) return patchLayer(l.id, placeText(l, t), history);
@@ -2055,16 +2539,73 @@ export function App() {
   useEffect(() => setSwash((s) => (s.on ? { ...s, on: false } : s)), [selected, tool]);
   useEffect(() => {
     if (swash.on) {
-      setToast(swash.mode === 'mold' ? 'De l’intérieur, tire le trait ; de l’extérieur, repousse-le' : 'Dessine depuis une lettre pour la prolonger');
+      setToast(
+        swash.mode === 'mold'
+          ? 'De l’intérieur, tire le trait ; de l’extérieur, repousse-le'
+          : swash.mode === 'orn'
+            ? 'Dessine une boucle ou une ligne : elle se lisse et s’ajoute au titre'
+            : 'Dessine depuis une lettre pour la prolonger',
+      );
       setToastUndo(false);
     }
   }, [swash.on, swash.mode]);
+  /** Pose le modelage en cours sur la découpe (en direct pendant le geste). */
+  /** Relief : touches de sculpteur le long du geste, de la dernière touche jusqu'à `to` (pixels de la carte). */
+  const sculpt = (to: [number, number], pr: number) => {
+    const L = live.current;
+    if (L.kind !== 'bump' || !L.bump || !L.orig) return;
+    const bb = layerBox(L.orig, f);
+    const B = L.bump;
+    // même rayon que le rond qui suit la pointe : swash.r unités de modelage
+    const rad = (swash.r * MOLD_UNIT * Math.min(f.width, f.height) * B.w) / bb.w;
+    const k = (swash.dig ? -1 : 1) * 0.06 * (swash.k ?? 1) * (0.4 + 0.8 * pr);
+    const [x0, y0] = B.at;
+    const n = Math.max(1, Math.ceil(Math.hypot(to[0] - x0, to[1] - y0) / Math.max(1, rad * 0.25)));
+    for (let i = 1; i <= n; i++) dab(B.H, B.w, B.h, x0 + ((to[0] - x0) * i) / n, y0 + ((to[1] - y0) * i) / n, rad, k);
+    B.at = to;
+    if (!swashFrame.current)
+      swashFrame.current = requestAnimationFrame(() => {
+        swashFrame.current = 0;
+        const LL = live.current;
+        if (LL.kind !== 'bump' || !LL.bump || !LL.layer) return;
+        const enc = encodeBump(LL.bump.w, LL.bump.h, LL.bump.H);
+        const id = LL.layer;
+        setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === id ? { ...x, bump: enc } : x)) }));
+      });
+  };
+  const smoothRelief = (l: Layer) => {
+    if (!l.bump) return;
+    patchLayer(l.id, { bump: encodeBump(l.bump.w, l.bump.h, smoothBump(bumpHeights(l.bump), l.bump.w, l.bump.h)) }, true);
+  };
+  const applyMold = (final: boolean) => {
+    const L = live.current;
+    if (L.kind !== 'mold' || !L.orig || !L.mold || !L.base || !L.pristine) return;
+    const o = L.orig;
+    const n = (L.mold.orn ?? L.mold).pts.length;
+    if (final && n < 2) {
+      past.current.pop();
+      return void setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? o : x)) }));
+    }
+    const m = { ...L.mold, pts: [...L.mold.pts], ...(L.mold.orn ? { orn: { ...L.mold.orn, pts: [...L.mold.orn.pts] } } : {}), live: !final };
+    const patch = moldPatch(o, f, L.base, L.pristine, m);
+    setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...o, ...patch } : x)) }));
+  };
+  /** Lisser : seules les parties modelées s'adoucissent, le reste garde son dessin d'origine. */
+  const smoothMold = (l: Layer) => {
+    if (!l.molded) return;
+    patchLayer(l.id, moldPatch(l, f, currentPx(l), pristinePx(l), { pts: [], r: 0, smooth: 0.035 * unitPx(l) }), true);
+  };
+  const unmold = (l: Layer) => {
+    if (!l.molded) return;
+    patchLayer(l.id, unmoldPatch(l, f), true);
+    setToast(l.kind === 'text' ? 'Le texte retrouve ses lettres et tous ses attributs' : l.kind === 'photo' ? 'La photo retrouve son cadre' : 'La forme retrouve son dessin d’origine');
+  };
   /** Pose le prolongement en cours sur le texte (en direct pendant le tracé). */
   const applySwash = (final: boolean) => {
     const L = live.current;
     if (L.kind !== 'swash' || !L.orig?.text) return;
     const o = L.orig;
-    const n = (L.sw ?? L.mold)?.pts.length ?? 0;
+    const n = (L.sw ?? L.mold?.orn ?? L.mold)?.pts.length ?? 0;
     if (final && n < 2) {
       // simple toucher : rien n'est tracé
       past.current.pop();
@@ -2074,7 +2615,7 @@ export function App() {
       o,
       L.sw
         ? { ...o.text!, swashes: [...(o.text!.swashes ?? []), { ...L.sw, pts: [...L.sw.pts] }] }
-        : { ...o.text!, molds: [...(o.text!.molds ?? []), { pts: [...L.mold!.pts], r: L.mold!.r, ...(final ? {} : { live: true }) }] },
+        : { ...o.text!, molds: [...(o.text!.molds ?? []), { pts: [...L.mold!.pts], r: L.mold!.r, ...(L.mold!.orn ? { orn: { ...L.mold!.orn, pts: [...L.mold!.orn.pts] } } : {}), ...(final ? {} : { live: true }) }] },
     );
     setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, ...patch } : x)) }));
   };
@@ -2164,19 +2705,19 @@ export function App() {
     if (history) update(fn);
     else setDoc(fn);
   };
-  const moveLayer = (id: string, step: number) =>
-    update((d) => {
-      // l'ordre suit la hauteur : on n'échange qu'avec la voisine de même hauteur
-      const ord = renderOrder(d.layers);
-      const k = ord.findIndex((l) => l.id === id);
-      const me = ord[k];
-      const other = ord[k + step];
-      if (!me || !other || other.kind === 'surface' || levelOf(other) !== levelOf(me)) return d;
-      const layers = [...d.layers];
-      const i = layers.indexOf(me);
-      const j = layers.indexOf(other);
-      [layers[i], layers[j]] = [layers[j]!, layers[i]!];
-      return { ...d, layers };
+
+  /**
+   * Hauteur d'un objet. Dans un objet en pièces, la pièce la plus basse porte les autres :
+   * la monter monte tout le groupe, chaque pièce gardant son écart ; une autre pièce bouge seule.
+   */
+  const setLevel = (l: Layer, v: number) =>
+    setDoc((d) => {
+      const mates = l.link ? d.layers.filter((x) => x.link === l.link && x.kind !== 'surface') : [];
+      const base = mates.reduce<Layer | null>((m, x) => (!m || levelOf(x) < levelOf(m) - 1e-6 ? x : m), null);
+      if (!base || base.id !== l.id) return { ...d, layers: d.layers.map((x) => (x.id === l.id ? { ...x, ...heightPatch(v) } : x)) };
+      const dv = v - levelOf(base);
+      const ids = new Set(mates.map((x) => x.id));
+      return { ...d, layers: d.layers.map((x) => (ids.has(x.id) ? { ...x, ...heightPatch(Math.round((levelOf(x) + dv) * 1000) / 1000) } : x)) };
     });
 
   // raccourcis clavier (ordinateur)
@@ -2193,7 +2734,7 @@ export function App() {
       else if (e.key === 't') setTool(lastEdit.current);
       else if (e.key === 'e') setTool('edge');
       else if (e.key === 'm') setTool('material');
-      else if (e.key === 'v') setTool('move');
+      else if (e.key === 'g') setTool('mold');
       else if (e.key === 'Escape') {
         setBubble(null);
         setRendu(false);
@@ -2229,8 +2770,141 @@ export function App() {
     setSnapshot(c.toDataURL('image/png'));
   };
 
+  // liste des objets, dans le volet du Créateur de matériaux : l'objet choisi l'est aussi sur la page
+  const layersJsx = (
+    <div className="cp-layers">
+      <div className="layer-list">
+        {[...renderOrder(doc.layers)].reverse().map((l) => (
+          <div
+            key={l.id}
+            data-layer={l.id}
+            className={`layer ${l.id === selected ? 'on' : ''} ${l.visible ? '' : 'hidden'} ${listDrag?.id === l.id ? 'dragging' : ''} ${listDrag?.over === l.id ? (listDrag.above ? 'drop-above' : 'drop-below') : ''}`}
+            onPointerDown={(e) => {
+              // on glisse l'objet par sa vignette ; ailleurs, le doigt fait défiler la liste
+              if ((e.target as HTMLElement).closest('button')) return;
+              const grip = !!(e.target as HTMLElement).closest('.thumb') && l.kind !== 'surface';
+              listPress.current = { id: l.id, y: e.clientY, moved: false, grip };
+            }}
+            onPointerMove={(e) => {
+              const pr = listPress.current;
+              if (!pr || pr.id !== l.id) return;
+              if (!pr.moved && Math.abs(e.clientY - pr.y) < 6) return;
+              if (!pr.grip) {
+                // défilement : ce n'est plus un toucher
+                listPress.current = null;
+                return;
+              }
+              if (!pr.moved) {
+                pr.moved = true;
+                (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+              }
+              const row = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest('[data-layer]') as HTMLElement | null;
+              const over = row?.dataset.layer;
+              if (!row || !over || over === l.id) return setListDrag({ id: l.id });
+              const r = row.getBoundingClientRect();
+              setListDrag({ id: l.id, over, above: e.clientY < r.top + r.height / 2 });
+            }}
+            onPointerUp={() => {
+              const pr = listPress.current;
+              listPress.current = null;
+              if (pr?.moved) {
+                if (listDrag?.over) dropLayer(l.id, listDrag.over, !!listDrag.above);
+                setListDrag(null);
+              } else setSelected(l.id);
+            }}
+            onPointerCancel={() => {
+              listPress.current = null;
+              setListDrag(null);
+            }}
+          >
+            <LayerThumb layer={l} doc={doc} />
+            <div className="layer-main">
+              <span className="layer-name">
+                {l.link && (
+                  <span className="link-mark" title="Solidaire d'autres objets : gardez le doigt posé dessus pour le détacher">
+                    <Icon name="link" />
+                  </span>
+                )}
+                {l.name}
+              </span>
+              <div className="layer-actions">
+                <button onClick={() => patchLayer(l.id, { visible: !l.visible })} title={l.visible ? 'Masquer' : 'Afficher'}>
+                  <Icon name={l.visible ? 'eye' : 'eyeoff'} />
+                </button>
+                {l.kind !== 'surface' && (
+                  <>
+                    <button onClick={() => duplicate(l.id)} title="Dupliquer">
+                      <Icon name="duplicate" />
+                    </button>
+                    <button onClick={() => void saveToLibrary(l)} title="Ranger dans la bibliothèque (Objets) : l'objet et ses pièces, avec tous leurs réglages">
+                      <Icon name="library" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        update((d) => ({ ...d, layers: d.layers.filter((x) => x.id !== l.id) }));
+                        if (selected === l.id) setSelected(null);
+                      }}
+                      title="Supprimer"
+                    >
+                      <Icon name="trash" />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  /** Glisser-déposer dans la liste : l'objet prend la hauteur de son voisin et se range contre lui. */
+  const dropLayer = (id: string, target: string, above: boolean) =>
+    update((d) => {
+      const me = d.layers.find((x) => x.id === id);
+      const tg = d.layers.find((x) => x.id === target);
+      if (!me || !tg || me === tg) return d;
+      const others = d.layers.filter((x) => x.kind !== 'surface' && x.id !== id);
+      const lv = tg.kind === 'surface' ? Math.min(0, ...others.map(levelOf)) : levelOf(tg);
+      const moved = { ...me, ...heightPatch(lv) };
+      const layers = d.layers.filter((x) => x.id !== id);
+      const j = layers.indexOf(tg);
+      // la liste se lit du dessus au dessous : « au-dessus » = plus loin dans le tableau
+      layers.splice(tg.kind === 'surface' || above ? j + 1 : j, 0, moved);
+      return { ...d, layers };
+    });
+  /** Ranger dans la bibliothèque : l'objet (ou toutes ses pièces solidaires) avec tout son réglage et ses couleurs. */
+  const saveToLibrary = async (l: Layer) => {
+    const ls = objetLayers(l, doc);
+    const title = ls.length > 1 ? (l.name.split(' · ')[0] ?? l.name) : l.name;
+    setToast(`Rangement de « ${title} »…`);
+    setToastUndo(false);
+    try {
+      const thumb = (await renderLayers(ls, doc, f, 320)).toDataURL('image/png');
+      const where = await saveObjet(title, packObjet(ls, doc, f), thumb);
+      setToast(`« ${title} » rangé dans les Objets de la bibliothèque${where === 'navigateur' ? ' (dans ce navigateur, le serveur ne répond pas)' : ''}`);
+    } catch (err) {
+      setToast(`Rangement impossible : ${(err as Error).message}`);
+    }
+  };
+  /** Repose un objet préparé, tel qu'il a été rangé. */
+  const insertObjet = async (e: ObjetEntry, client?: { x: number; y: number }) => {
+    try {
+      const o = await readObjet(e);
+      const at = client ? toPage(client.x, client.y) : { x: f.width / 2, y: f.height / 2 };
+      const r = unpackObjet(o, doc, f, at.x, at.y);
+      update((d) => ({ ...d, guides: r.guides, layers: [...d.layers, ...r.layers] }));
+      setSelected(r.layers[0]?.id ?? null);
+      setBubble(null);
+      setToast(`« ${e.title} » posé${r.layers.length > 1 ? ` en ${r.layers.length} pièces` : ''}, prêt à retoucher`);
+    } catch (err) {
+      setToast(`Objet illisible : ${(err as Error).message}`);
+    }
+    setToastUndo(false);
+  };
+
   return (
-    <div className={`atelier ${rendu ? 'rendu' : ''} ${tips ? '' : 'no-tips'}`}>
+    <div className={`atelier ${rendu ? 'rendu' : ''} ${tips ? '' : 'no-tips'} ${lefty ? 'hand-left' : 'hand-right'}`}>
       <canvas
         ref={canvasRef}
         className="stage"
@@ -2241,9 +2915,14 @@ export function App() {
         onPointerCancel={onUp}
         onPointerLeave={hideHover}
         onContextMenu={(e) => e.preventDefault()}
+        // molette enfoncée : pas de défilement automatique du navigateur
+        onMouseDown={(e) => e.button === 1 && e.preventDefault()}
         onWheel={(e) => {
-          // ordinateur : molette = zoom, Maj + molette = rotation
-          if (e.shiftKey) setView((v) => ({ ...v, rot: v.rot + e.deltaY * 0.002 }));
+          // ordinateur : molette = zoom, Alt + molette = rotation ; Maj + molette ou défilement horizontal = Vue 3D
+          if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+            const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            setView3d({ start: [Math.max(-40, Math.min(40, d * 0.15)), 0] });
+          } else if (e.altKey) setView((v) => ({ ...v, rot: v.rot + e.deltaY * 0.002 }));
           else setView((v) => ({ ...v, zoom: Math.max(0.3, Math.min(6, v.zoom * Math.exp(-e.deltaY * 0.0015))) }));
         }}
       />
@@ -2256,6 +2935,31 @@ export function App() {
       {!rendu && (
         <>
           <header className="bar">
+            <div className="bar-center">
+              <button className="btn" onClick={undo} disabled={!past.current.length} title="Annuler (deux doigts)">
+                <Icon name="undo" />
+              </button>
+              <button className="btn" onClick={redo} disabled={!future.current.length} title="Rétablir (trois doigts)">
+                <Icon name="redo" />
+              </button>
+              <button
+                ref={dupRef}
+                className={`btn dup-drop ${dupHot ? 'hot' : ''} ${live.current.kind === 'move' ? 'armed' : ''}`}
+                onClick={() => duplicate()}
+                disabled={(!sel || sel.kind === 'surface') && live.current.kind !== 'move'}
+                title="Dupliquer : touche pour l'élément choisi, ou glisse un élément dessus"
+              >
+                <Icon name="duplicate" />
+              </button>
+              <button
+                ref={trashRef}
+                className={`btn trash ${trashHot ? 'hot' : ''} ${live.current.kind === 'move' ? 'armed' : ''}`}
+                onClick={() => setToast('Glisse un élément sur la corbeille pour le supprimer')}
+                title="Corbeille : glisse un élément dessus pour le supprimer"
+              >
+                <Icon name="trash" />
+              </button>
+            </div>
             <div className="bar-left">
               <button
                 className={`chip project-chip ${bubble === 'projects' ? 'on' : ''}`}
@@ -2272,10 +2976,23 @@ export function App() {
                 <FormatGlyph w={f.width} h={f.height} /> <span className="chip-label">{f.title}</span>
               </button>
               <button className={`btn ${bubble === 'anchor' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'anchor' ? null : 'anchor')} title="Aide au positionnement : repères, densité, marge">
-                <Icon name="anchor" />
+                <Icon name="layout" />
               </button>
             </div>
             <div className="bar-right">
+              <button className={`btn ${bubble === 'light' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'light' ? null : 'light')} title="Lumière">
+                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <circle cx="12" cy="12" r="4.5" style={{ fill: lampOf(doc).color }} />
+                  <path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
+                </svg>
+              </button>
+              <button className={`btn guide-btn ${bubble === 'palette' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'palette' ? null : 'palette')} title="Palette de guides">
+                <span className="dot" style={{ background: swatch(g) }} />
+              </button>
+              <span className="sep" />
+              <button className={`btn ${bubble === 'prefs' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'prefs' ? null : 'prefs')} title="Préférences : affichage, compte, système">
+                <Icon name="settings" />
+              </button>
               <button
                 className={`btn ${bubble === 'export' ? 'on' : ''}`}
                 onClick={() => {
@@ -2286,52 +3003,19 @@ export function App() {
               >
                 <Icon name="export" />
               </button>
-              <button className={`btn ${bubble === 'layers' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'layers' ? null : 'layers')} title="Couches">
-                <Icon name="layers" />
-              </button>
-              <button className={`btn ${bubble === 'light' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'light' ? null : 'light')} title="Lumière">
-                <Icon name="sun" />
-              </button>
-              <button className={`btn guide-btn ${bubble === 'palette' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'palette' ? null : 'palette')} title="Palette de guides">
-                <span className="dot" style={{ background: swatch(g) }} />
-              </button>
-              <span className="sep" />
-              <button
-                className={`btn ${penRoll ? 'on' : ''}`}
-                onClick={() => setPenRoll(!penRoll)}
-                title={penRoll ? 'Rotation du stylet : tourner le crayon tourne les tampons (désactiver)' : 'Rotation du stylet ignorée (activer)'}
-              >
-                <Icon name="pen-roll" />
-              </button>
-              <button
-                className={`btn ${penTilt ? 'on' : ''}`}
-                onClick={() => setPenTilt(!penTilt)}
-                title={penTilt ? 'Inclinaison du stylet : les tampons se mettent en perspective (désactiver)' : 'Inclinaison du stylet ignorée (activer la perspective des tampons)'}
-              >
-                <Icon name="pen-tilt" />
-              </button>
-              <button className={`btn ${tips ? 'on' : ''}`} onClick={() => setTips(!tips)} title={tips ? 'Masquer les astuces' : 'Afficher les astuces'}>
-                <Icon name="tips" />
-              </button>
-              <button
-                className={`btn ${guidesOn.on ? 'on' : ''}`}
-                aria-pressed={guidesOn.on}
-                onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}
-                title={guidesOn.on ? 'Masquer les repères' : 'Afficher les repères en permanence'}
-              >
-                <Icon name="guides" />
-              </button>
-              <button className="btn fit" onClick={() => setView({ zoom: 1, rot: 0, px: 0, py: 0 })} title="Recadrer la vue" disabled={view.zoom === 1 && !view.rot && !view.px && !view.py}>
-                <Icon name="fit" />
-              </button>
-              <button className="btn" onClick={() => setRendu(true)} title="Rendu final">
-                <Icon name="eye" />
-              </button>
             </div>
           </header>
 
           <aside className="side tools-bar">
-            <button className={`btn small ${bubble === 'add' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'add' ? null : 'add')} title="Ajouter une couche">
+            <button
+              className={`btn small ${bubble === 'add' ? 'on' : ''}`}
+              onClick={() => {
+                // ajouter : les autres outils se rangent, le bas de l'écran se libère
+                if (bubble !== 'add') setTool('move');
+                setBubble(bubble === 'add' ? null : 'add');
+              }}
+              title="Ajouter une couche"
+            >
               <Icon name="plus" />
             </button>
             <span className="side-sep" />
@@ -2341,23 +3025,57 @@ export function App() {
             <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => setTool('cut')} title="Découper (C) : trace un contour au stylet">
               <Icon name="scissors" />
             </button>
+            <button className={`btn small ${tool === 'mold' ? 'on' : ''}`} onClick={() => setTool('mold')} title="Modeler (G) : tirer ou repousser le contour de l'objet, à la plume ou au doigt de glaise">
+              <Icon name="mold" />
+            </button>
+
             <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre (B) : aquarelle, acrylique, pistolet, paillettes, poils">
               <Icon name="brush" />
             </button>
-            <button className={`btn small ${tool === 'stamp' ? 'on' : ''}`} onClick={() => setTool('stamp')} title="Tampons (S) : motifs à la couleur courante, dilution et rotation">
+            <button className={`btn small ${tool === 'stamp' ? 'on' : ''}`} onClick={() => setTool('stamp')} title="Tampons (S) : motifs à la couleur courante, intensité et rotation">
               <Icon name="stamp" />
-            </button>
-            <button className={`btn small ${tool === 'move' ? 'on' : ''}`} onClick={() => setTool('move')} title="Disposer (V) : déplacer, agrandir, ancrer">
-              <Icon name="move" />
             </button>
           </aside>
 
-          {tool === 'move' && sel?.kind === 'text' && sel.text && !bubble && (
-            <TextBar layer={sel} editing={textEditing} setEditing={setTextEditing} onChange={(next, h) => patchText(sel, next, h)} swash={swash} setSwash={setSwash} />
+          {(tool === 'move' || isEdit(tool)) && sel?.kind === 'text' && sel.text && !sel.molded && !bubble && (
+            <TextBar
+              layer={sel}
+              editing={textEditing}
+              setEditing={setTextEditing}
+              onChange={(next, h) => patchText(sel, next, h)}
+              swash={swash}
+              setSwash={setSwash}
+              toolsOnly={isEdit(tool)}
+              onMold={() => setTool('mold')}
+              onStyle={() => setCoupeOpen((o) => ({ key: 'text', sec: 'image', n: (o?.n ?? 0) + 1 }))}
+            />
           )}
+          {isEdit(tool) && quickText && sel?.id === quickText && sel.text && !sel.molded && <QuickText layer={sel} onChange={(next, h) => patchText(sel, next, h)} onClose={() => setQuickText(null)} />}
 
+          {isEdit(tool) && !sel && (
+            <aside className="coupe with-list" aria-label="Objets">
+              <button className="cp-close" onClick={() => setTool('move')} aria-label="Fermer">
+                ×
+              </button>
+              <div className="cp-split">{layersJsx}</div>
+            </aside>
+          )}
+          {isEdit(tool) && sel && sel.kind !== 'surface' && (
+            <aside className="height-bar" title="Hauteur : au-dessus de 0 l'objet se soulève (ombre), en dessous il se creuse">
+              <VSlider label="Hauteur" center value={0.5 + (sel.height - (sel.inner ?? 0)) / 2} onChange={(v) => setLevel(sel, Math.abs(v - 0.5) < 0.03 ? 0 : Math.round((v * 2 - 1) * 100) / 100)} />
+            </aside>
+          )}
           {isEdit(tool) && sel && (
             <CoupePanel
+              list={layersJsx}
+              patchText={(next, h) => patchText(sel, next, h)}
+              unmold={() => unmold(sel)}
+              onMold={() => setTool('mold')}
+              simple={simple}
+              onSculpt={() => {
+                setSwash((w) => ({ ...w, mode: 'relief' }));
+                setTool('mold');
+              }}
               layer={sel}
               doc={doc}
               f={f}
@@ -2378,28 +3096,13 @@ export function App() {
             <div ref={paramsRef} className={`side-params ${sideTwo ? 'two' : ''} ${sideOdd ? 'odd' : ''}`}>
               {tool === 'paint' && (
                 <>
-                  <button className={`btn small ${brushPick ? 'on' : ''}`} onClick={() => setBrushPick(!brushPick)} title={`Pinceau : ${BRUSHES.find((x) => x[0] === brushKind)![1]}`}>
-                    <Icon name={`brush-${brushKind}`} />
-                  </button>
-                  {brushPick && (
-                    <div className="mode-pop wide">
-                      <div className="b-title">Pinceau</div>
-                      {BRUSHES.map(([k, t, hint]) => (
-                        <button
-                          key={k}
-                          className={`row ${brushKind === k ? 'on' : ''}`}
-                          onClick={() => {
-                            setBrushKind(k);
-                            setBrushPick(false);
-                          }}
-                        >
-                          <Icon name={`brush-${k}`} />
-                          <span>{t}</span>
-                          <small>{hint}</small>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <FanButton
+                    dir={lefty ? 'left' : 'right'}
+                    face={<Icon name={`brush-${brushKind}`} />}
+                    title={`Pinceau : ${BRUSHES.find((x) => x[0] === brushKind)![1]}`}
+                    items={BRUSHES.map(([k, t, hint]) => ({ key: k, icon: <Icon name={`brush-${k}`} />, label: t, hint, on: brushKind === k }))}
+                    onPick={(k) => setBrushKind(k as BrushKind)}
+                  />
                   <button
                     className="btn small"
                     disabled={!sel?.strokes.length}
@@ -2413,23 +3116,17 @@ export function App() {
                   >
                     <Icon name="paint-reset" />
                   </button>
-                  <VSlider label="Opacité" value={opacity} onChange={(v) => setOpacity(Math.max(0.05, v))} />
-                  <VSlider label="Taille" value={(size - 0.01) / 0.14} onChange={(v) => setSize(0.01 + v * 0.14)} />
-                  {tipOn(brushKind) && brushTip !== 'round' && <Dial label="Rotation de la brosse" value={brushRot} onChange={setBrushRot} />}
-                  {tipOn(brushKind) && (
-                    <button
-                      className="btn small"
-                      onClick={() => setBrushTip(brushTip === 'round' ? 'flat' : brushTip === 'flat' ? 'triangle' : 'round')}
-                      title={`Forme de la brosse : ${brushTip === 'round' ? 'ronde' : brushTip === 'flat' ? 'plate' : 'triangle'} (toucher pour changer)`}
-                    >
-                      <Icon name={`tip-${brushTip}`} />
-                    </button>
-                  )}
                   {brushKind === 'branch' && (
                     <>
                       <VSlider label="Ramifications" value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
                       <VSlider label="Chaos" value={converge} onChange={(v) => setConverge(Math.round(v * 100) / 100)} />
                       <VSlider label="Taille noyau" value={branchCore} onChange={(v) => setBranchCore(Math.round(v * 100) / 100)} />
+                    </>
+                  )}
+                  {brushKind === 'hair' && (
+                    <>
+                      <VSlider label="Longueur" value={hairLen} onChange={(v) => setHairLen(Math.max(0.03, Math.round(v * 100) / 100))} />
+                      <VSlider label={curl < 0.15 ? 'Frisure · raide' : curl < 0.6 ? 'Frisure · alpaga' : 'Frisure · mouton'} value={curl} onChange={(v) => setCurl(Math.round(v * 100) / 100)} />
                     </>
                   )}
                   {brushKind === 'burn' && (
@@ -2442,53 +3139,89 @@ export function App() {
                   )}
                 </>
               )}
+              {tool === 'mold' && (
+                <>
+                  <FanButton
+                    dir={lefty ? 'left' : 'right'}
+                    face={MOLD_MODES.find((m) => m.key === (swash.mode ?? 'mold'))!.icon}
+                    title={`Mode : ${MOLD_MODES.find((m) => m.key === (swash.mode ?? 'mold'))!.label} (toucher pour changer)`}
+                    items={MOLD_MODES.map((m) => ({ ...m, on: (swash.mode ?? 'mold') === m.key }))}
+                    onPick={(k) => setSwash({ ...swash, mode: k as 'mold' | 'orn' | 'relief' })}
+                  />
+                  {swash.mode === 'relief' ? (
+                    <>
+                      <button
+                        className="btn small"
+                        disabled={!sel?.bump}
+                        onClick={() => {
+                          if (!sel?.bump) return;
+                          patchLayer(sel.id, { bump: undefined }, true);
+                          setToast('Le relief est effacé, la surface redevient lisse');
+                        }}
+                        title="Revenir à une surface lisse : efface tout le relief"
+                      >
+                        <Icon name="paint-reset" />
+                      </button>
+                      <button
+                        className={`btn small ${swash.dig ? 'on' : ''}`}
+                        onClick={() => setSwash({ ...swash, dig: !swash.dig })}
+                        title={swash.dig ? 'Creuser : la pointe enfonce la surface (toucher pour bosser)' : 'Bosser : la pointe soulève la surface (toucher pour creuser)'}
+                      >
+                        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          {swash.dig ? <path d="M3 9c4 0 5 7 9 7s5-7 9-7" /> : <path d="M3 16c4 0 5-7 9-7s5 7 9 7" />}
+                          <path d={swash.dig ? 'M12 4v6m-2.5-2.5L12 10l2.5-2.5' : 'M12 20v-6m-2.5 2.5L12 14l2.5 2.5'} />
+                        </svg>
+                      </button>
+                      <button className="btn small" disabled={!sel?.bump} onClick={() => sel && smoothRelief(sel)} title="Lisser le relief (à répéter pour lisser plus)">
+                        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 16c2-1 2.5-3 4-3s2 2.5 3.5 2.5S12 12 13.5 12 15 14 16.5 14" strokeDasharray="2 2" />
+                          <path d="M3 9c4-3 10-3 18 0" />
+                        </svg>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className="btn small"
+                        disabled={!sel?.molded}
+                        onClick={() => sel && unmold(sel)}
+                        title={sel?.kind === 'text' ? 'Revenir au texte : retire le modelage, rend les lettres et tous leurs attributs' : 'Revenir à l’origine : retire tout le modelage'}
+                      >
+                        <Icon name="paint-reset" />
+                      </button>
+                      <button className="btn small" disabled={!sel?.molded} onClick={() => sel && smoothMold(sel)} title="Lisser : seules les parties modelées s’adoucissent (à répéter pour lisser plus)">
+                        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 16c2-1 2.5-3 4-3s2 2.5 3.5 2.5S12 12 13.5 12 15 14 16.5 14" strokeDasharray="2 2" />
+                          <path d="M3 9c4-3 10-3 18 0" />
+                        </svg>
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
               {tool === 'stamp' && (
                 <>
-                  <button
-                    className={`btn small stamp-btn ${stampPick ? 'on' : ''}`}
-                    onClick={() => setStampPick(!stampPick)}
-                    title={`Motif : ${stampOf(stampId).name}`}
-                    dangerouslySetInnerHTML={{ __html: stampSvg(stampOf(stampId)) }}
-                  />
-                  {stampPick && (
-                    <div className="mode-pop wide stamp-pop">
-                      <div className="b-title">Tampons</div>
-                      <div className="stamp-grid">
-                        {STAMPS.map((x) => (
-                          <button
-                            key={x.id}
-                            className={stampId === x.id ? 'on' : ''}
-                            onClick={() => {
-                              setStampId(x.id);
-                              setStampPick(false);
-                            }}
-                            title={x.name}
-                          >
-                            <span className="stamp-ico" dangerouslySetInnerHTML={{ __html: stampSvg(x, guideColor(doc.guides[guide], 0.5)) }} />
-                            <small>{x.name}</small>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                  {simple && !stampMore && !stampSow && (
+                    <button className="btn small" onClick={() => setStampMore(true)} title="Plus : semis (copies du motif éparpillées le long du geste)">
+                      <Icon name="more" />
+                    </button>
                   )}
-                  <Dial label="Rotation" value={stampRot} onChange={setStampRot} />
-                  <button
-                    className="btn small"
-                    onClick={() => setStampSow(!stampSow)}
-                    title={stampSow ? 'Semis : des copies du motif s’éparpillent le long du geste (toucher pour l’essuyé)' : 'Essuyé : l’empreinte s’étire quand on glisse (toucher pour le semis)'}
-                  >
-                    <Icon name={stampSow ? 'stamp-sow' : 'stamp-wipe'} />
-                  </button>
+                  {(!simple || stampMore || stampSow) && (
+                    <button
+                      className="btn small"
+                      onClick={() => setStampSow(!stampSow)}
+                      title={stampSow ? 'Semis : des copies du motif s’éparpillent le long du geste (toucher pour l’essuyé)' : 'Essuyé : l’empreinte s’étire quand on glisse (toucher pour le semis)'}
+                    >
+                      <Icon name={stampSow ? 'stamp-sow' : 'stamp-wipe'} />
+                    </button>
+                  )}
                   <button className={`btn small ${stampFilled ? 'on' : ''}`} onClick={() => setStampFilled(!stampFilled)} title="Motif rempli : ses formes prennent le dégradé du guide">
                     <Icon name="stamp-fill" />
                   </button>
-                  <VSlider label="Dilution" value={dilution} onChange={(v) => setDilution(Math.round(v * 100) / 100)} />
-                  <VSlider label="Taille" value={(stampSize - 0.02) / 0.28} onChange={(v) => setStampSize(0.02 + v * 0.28)} />
                   {stampSow && (
                     <>
                       <VSlider label="Densité" value={sowDensity} onChange={(v) => setSowDensity(Math.round(v * 100) / 100)} />
                       <VSlider label="Écart" value={sowSpread} onChange={(v) => setSowSpread(Math.round(v * 100) / 100)} />
-                      <VSlider label="Perspective" value={sowPersp} onChange={(v) => setSowPersp(Math.round(v * 100) / 100)} />
                     </>
                   )}
                 </>
@@ -2535,33 +3268,100 @@ export function App() {
                   )}
                 </>
               )}
-              {tool === 'move' && sel && sel.kind !== 'surface' && (
-                <>
-                  <VSlider label="Hauteur" center value={0.5 + (sel.height - (sel.inner ?? 0)) / 2} onChange={(v) => patchLayer(sel.id, heightPatch(Math.round((v * 2 - 1) * 100) / 100), false)} />
-                </>
-              )}
-            </div>
-            <span className="side-sep" />
-            <div className={`side-actions ${sideTwo ? 'two' : ''}`}>
-              <button className="btn small" onClick={undo} disabled={!past.current.length} title="Annuler (deux doigts)">
-                <Icon name="undo" />
-              </button>
-              <button className="btn small" onClick={redo} disabled={!future.current.length} title="Rétablir (trois doigts)">
-                <Icon name="redo" />
-              </button>
-              <button className="btn small" onClick={duplicate} disabled={!sel || sel.kind === 'surface'} title="Dupliquer l'élément sélectionné">
-                <Icon name="duplicate" />
-              </button>
-              <button
-                ref={trashRef}
-                className={`btn small trash ${trashHot ? 'hot' : ''} ${live.current.kind === 'move' ? 'armed' : ''}`}
-                onClick={() => setToast('Glisse un élément sur la corbeille pour le supprimer')}
-                title="Corbeille : glisse un élément dessus pour le supprimer"
-              >
-                <Icon name="trash" />
-              </button>
             </div>
           </aside>
+          {(tool === 'paint' || tool === 'stamp' || tool === 'mold') && (
+            <div className="wheel-dock" style={bandH ? { bottom: bandH + 12 } : undefined}>
+              {/* une seule roue d'un outil à l'autre (même clé) : elle glisse d'un réglage à l'autre au lieu de se redessiner */}
+              {[
+                tool === 'paint' && (
+                  <BrushWheel
+                    key="wheel"
+                    side={lefty ? 'right' : 'left'}
+                    tips={tips}
+                    hideAfter={wheelHide}
+                    size={(size - 0.01) / 0.14}
+                    sizeText={`${Math.round(size * 100)}`}
+                    onSize={(v) => setSize(0.01 + v * 0.14)}
+                    intensity={opacity}
+                    onIntensity={(v) => setOpacity(Math.max(0.05, v))}
+                    onSizing={(on) => setSizing(on ? 'on' : 'after')}
+                    {...(tipOn(brushKind) ? { tip: brushTip, ...(brushTip !== 'round' ? { rotation: brushRot, onRotation: setBrushRot } : {}) } : {})}
+                    {...(leanOn(brushKind) ? { tilt: brushTilt, onTilt: (x: number, y: number) => setBrushTilt([x, y]) } : {})}
+                    pick={tipOn(brushKind) ? tipPick(brushTip, setBrushTip) : { face: <Icon name="tip-round" />, title: 'Pointe ronde (seule possible pour ce pinceau)' }}
+                  />
+                ),
+                tool === 'stamp' && (
+                  <BrushWheel
+                    key="wheel"
+                    side={lefty ? 'right' : 'left'}
+                    tips={tips}
+                    hideAfter={wheelHide}
+                    size={(stampSize - 0.02) / 0.28}
+                    sizeText={`${Math.round(stampSize * 100)}`}
+                    onSize={(v) => setStampSize(0.02 + v * 0.28)}
+                    intensity={1 - dilution}
+                    onIntensity={(v) => setDilution(Math.round((1 - v) * 100) / 100)}
+                    rotation={stampRot}
+                    onRotation={setStampRot}
+                    onSizing={(on) => setSizing(on ? 'on' : 'after')}
+                    {...(stampSow
+                      ? {
+                          tilt: sowPad,
+                          onTilt: (x: number, y: number) => {
+                            setSowPad([x, y]);
+                            setSowPersp(Math.min(1, Math.round(Math.hypot(x, y) * 100) / 100));
+                          },
+                        }
+                      : { tilt: stampTilt, onTilt: (x: number, y: number) => setStampTilt([x, y]) })}
+                    pick={{
+                      face: <span className="bw-stamp-face" dangerouslySetInnerHTML={{ __html: stampSvg(stampOf(stampId)) }} />,
+                      title: `Tampon : ${stampOf(stampId).name}`,
+                      // les tampons défilent dans l'éventail, comme les autres choix de la roue
+                      options: STAMPS.map((x) => ({
+                        key: x.id,
+                        icon: <span className="fan-stamp" dangerouslySetInnerHTML={{ __html: stampSvg(x, guideColor(doc.guides[guide], 0.5)) }} />,
+                        label: x.name,
+                        on: stampId === x.id,
+                      })),
+                      onOption: setStampId,
+                    }}
+                    stamp={`data:image/svg+xml,${encodeURIComponent(stampSvg(stampOf(stampId), guideColor(doc.guides[guide], 0.5)))}`}
+                  />
+                ),
+                tool === 'mold' &&
+                  (swash.mode === 'orn' ? (
+                    <BrushWheel
+                      key="wheel"
+                      side={lefty ? 'right' : 'left'}
+                      tips={tips}
+                      hideAfter={wheelHide}
+                      size={((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) - 0.01) / 0.29}
+                      sizeText={`${Math.round((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) * 100)}`}
+                      onSize={(v) => setSwash({ ...swash, w: 0.01 + v * 0.29 })}
+                      pick={{ face: <Icon name="tip-round" />, title: 'Plume : un trait plein et délié' }}
+                      onSizing={(on) => setSizing(on ? 'on' : 'after')}
+                    />
+                  ) : (
+                    <BrushWheel
+                      key="wheel"
+                      side={lefty ? 'right' : 'left'}
+                      tips={tips}
+                      hideAfter={wheelHide}
+                      size={(swash.r - 0.06) / 0.94}
+                      sizeText={`${Math.round(swash.r * 100)}`}
+                      onSize={(v) => setSwash({ ...swash, r: 0.06 + v * 0.94 })}
+                      onSizing={(on) => setSizing(on ? 'on' : 'after')}
+                      intensity={swash.k ?? 1}
+                      onIntensity={(v) => setSwash({ ...swash, k: Math.max(0.05, v) })}
+                      tip={swash.mode === 'relief' ? 'round' : (swash.tip ?? 'round')}
+                      pick={swash.mode === 'relief' ? { face: <Icon name="tip-round" />, title: 'Relief : pointe ronde, en cloche' } : tipPick(swash.tip ?? 'round', (tip) => setSwash({ ...swash, tip }))}
+                      {...(swash.mode !== 'relief' && (swash.tip ?? 'round') !== 'round' ? { rotation: swash.rot ?? 0, onRotation: (rot: number) => setSwash({ ...swash, rot }) } : {})}
+                    />
+                  )),
+              ]}
+            </div>
+          )}
 
           {bubble === 'projects' && (
             <div className="bubble projects-bubble">
@@ -2625,6 +3425,28 @@ export function App() {
 
           {bubble === 'export' && (
             <div className="bubble export-bubble">
+              <button
+                className="row"
+                onClick={() => {
+                  setBubble(null);
+                  setRendu(true);
+                }}
+              >
+                <Icon name="eye" />
+                <span>Aperçu plein écran</span>
+                <small>le rendu final, sans les outils</small>
+              </button>
+              <button
+                className="row"
+                onClick={() => {
+                  setBubble(null);
+                  setView3d({});
+                }}
+              >
+                <Icon name="layers" />
+                <span>Vue 3D</span>
+                <small>les couches en relief, à leur hauteur</small>
+              </button>
               <div className="b-title">Exporter</div>
               <div className="seg">
                 {(['png', 'pdf'] as const).map((k) => (
@@ -2654,6 +3476,28 @@ export function App() {
             </div>
           )}
 
+          {bubble === 'prefs' && (
+            <PrefsPanel
+              online={online}
+              tips={tips}
+              setTips={setTips}
+              simple={simple}
+              setSimple={setSimple}
+              penRoll={penRoll}
+              setPenRoll={setPenRoll}
+              penTilt={penTilt}
+              setPenTilt={setPenTilt}
+              theme={theme}
+              setTheme={setTheme}
+              lefty={lefty}
+              setLefty={setLefty}
+              wheelHide={wheelHide}
+              setWheelHide={setWheelHide}
+              guides={guidesOn}
+              setGuides={setGuidesOn}
+              onClose={() => setBubble(null)}
+            />
+          )}
           {bubble === 'format' && (
             <div className="bubble format-bubble">
               <div className="b-title">Format</div>
@@ -2676,87 +3520,6 @@ export function App() {
               >
                 Repartir d'une page vierge
               </button>
-            </div>
-          )}
-
-          {bubble === 'layers' && (
-            <div className="bubble layers-bubble">
-              <div className="b-title">Couches</div>
-              <div className="layer-list">
-                {(frozenOrder ? frozenOrder.map((id) => doc.layers.find((x) => x.id === id)).filter((x): x is Layer => !!x) : [...renderOrder(doc.layers)].reverse()).map((l, k, list) => (
-                  <div key={l.id} className={`layer ${l.id === selected ? 'on' : ''} ${l.visible ? '' : 'hidden'}`} onClick={() => setSelected(l.id)}>
-                    <LayerThumb layer={l} doc={doc} />
-                    <div className="layer-main">
-                      <span className="layer-name">
-                        {l.link && (
-                          <span className="link-mark" title="Solidaire d'autres objets : gardez le doigt posé dessus pour le détacher">
-                            <Icon name="link" />
-                          </span>
-                        )}
-                        {l.name}
-                      </span>
-                      {l.kind !== 'surface' ? (
-                        <label className="height" title="Hauteur : ombre et épaisseur" onClick={(e) => e.stopPropagation()}>
-                          <Icon name="height" />
-                          <span className="height-track">
-                            <input
-                              type="range"
-                              min={-1}
-                              max={1}
-                              step={0.01}
-                              value={l.height - (l.inner ?? 0)}
-                              // l'ordre de la liste reste figé tant que le curseur est tenu
-                              onPointerDown={() => setFrozenOrder([...renderOrder(doc.layers)].reverse().map((x) => x.id))}
-                              onPointerUp={() => setFrozenOrder(null)}
-                              onPointerCancel={() => setFrozenOrder(null)}
-                              onBlur={() => setFrozenOrder(null)}
-                              onChange={(e) => {
-                                // le neutre aimante le doigt
-                                const v = Number(e.target.value);
-                                patchLayer(l.id, heightPatch(Math.abs(v) < 0.06 ? 0 : v), false);
-                              }}
-                            />
-                          </span>
-                        </label>
-                      ) : (
-                        <small>bords perdus, suit le format</small>
-                      )}
-                    </div>
-                    <div className="layer-actions" onClick={(e) => e.stopPropagation()}>
-                      <button onClick={() => patchLayer(l.id, { visible: !l.visible })} title={l.visible ? 'Masquer' : 'Afficher'}>
-                        <Icon name={l.visible ? 'eye' : 'eyeoff'} />
-                      </button>
-                      {l.kind !== 'surface' && (
-                        <>
-                          <button onClick={() => moveLayer(l.id, 1)} disabled={!list[k - 1] || levelOf(list[k - 1]!) !== levelOf(l)} title="Monter (entre couches de même hauteur ; sinon, règle la hauteur)">
-                            <Icon name="up" />
-                          </button>
-                          <button onClick={() => moveLayer(l.id, -1)} disabled={!list[k + 1] || levelOf(list[k + 1]!) !== levelOf(l)} title="Descendre (entre couches de même hauteur ; sinon, règle la hauteur)">
-                            <Icon name="down" />
-                          </button>
-                        </>
-                      )}
-                      {/* le fond se cache (œil) mais ne se supprime pas */}
-                      {l.kind !== 'surface' && (
-                        <button
-                          onClick={() => {
-                            update((d) => ({ ...d, layers: d.layers.filter((x) => x.id !== l.id) }));
-                            if (selected === l.id) setSelected(null);
-                          }}
-                          title="Supprimer"
-                        >
-                          <Icon name="trash" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {sel && sel.strokes.length > 0 && (
-                <button className="row" onClick={() => patchLayer(sel.id, { strokes: [] })}>
-                  Effacer la peinture de « {sel.name} »
-                </button>
-              )}
             </div>
           )}
 
@@ -2806,7 +3569,8 @@ export function App() {
                   </div>
                 </RailScroll>
               )}
-              {shelf !== 'formes' && shelf !== 'textes' && (
+              {shelf === 'objets' && <ObjetsShelf onInsert={(e, at) => void insertObjet(e, at)} onDragState={setLibDrag} />}
+              {shelf !== 'formes' && shelf !== 'textes' && shelf !== 'objets' && (
                 <LibraryShelf
                   shelf={shelf}
                   onDragState={setLibDrag}
@@ -2826,8 +3590,8 @@ export function App() {
                         {list.map(([sh, name]) => (
                           <button
                             key={sh}
-                            onClick={() => addLayer('shape', sh === 'polystar' ? { shape: 'star', name: 'Étoile' } : { shape: sh as ShapeKind, name })}
-                            title={sh === 'polystar' ? 'Polygone ou étoile : côtés et creux se règlent ensuite' : name}
+                            onClick={() => (KITS[sh] ? addKit(kitFromSvg(KITS[sh].svg, name)) : addLayer('shape', sh === 'polystar' ? { shape: 'star', name: 'Étoile' } : { shape: sh as ShapeKind, name }))}
+                            title={sh === 'polystar' ? 'Polygone ou étoile : côtés et creux se règlent ensuite' : KITS[sh] ? `${name} : en pièces à colorer séparément` : name}
                           >
                             {sh === 'polystar' ? <PolyStarGlyph /> : <ShapeGlyph shape={sh as ShapeKind} />}
                             {name}
@@ -2836,6 +3600,24 @@ export function App() {
                       </div>
                     </div>
                   ))}
+                  <div className="forms-fam">
+                    <div className="b-title">Vos dessins</div>
+                    <div className="add-grid forms-grid kits-grid">
+                      <label className="file" title="Un dessin SVG : chaque groupe devient une pièce nommée (data-volume, data-lift facultatifs)">
+                        <Icon name="import" />
+                        Importer un SVG
+                        <input
+                          type="file"
+                          accept="image/svg+xml,.svg"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = '';
+                            if (file) void importKit(file);
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
                   <div className="add-grid">
                     {!doc.layers.some((l) => l.kind === 'surface') && (
                       <button
@@ -2936,10 +3718,17 @@ export function App() {
               onDrag={(i, x, y) => setDragGuide(i === null ? null : { i, x, y })}
               onDrop={(i, x, y) => {
                 setDragGuide(null);
-                const el = document.elementFromPoint(x, y);
-                if (!el || el.tagName !== 'CANVAS') return;
-                const q = toPage(x, y);
-                const l = layerAt(q.x, q.y);
+                const el = document.elementFromPoint(x, y) as HTMLElement | null;
+                if (!el) return;
+                let l: Layer | null | undefined;
+                if (el.closest('aside.coupe')) {
+                  // posée sur le volet des attributs : la ligne visée de la liste, sinon l'objet ouvert
+                  const row = el.closest('[data-layer]') as HTMLElement | null;
+                  l = doc.layers.find((x) => x.id === (row?.dataset.layer ?? selected));
+                } else if (el.tagName === 'CANVAS') {
+                  const q = toPage(x, y);
+                  l = layerAt(q.x, q.y);
+                } else return;
                 if (!l) return;
                 if (l.kind === 'photo') return setToast('Une photo n’a pas de couleur de fond : peins-la ou donne-lui un style');
                 patchLayer(l.id, { guide: i });
@@ -2987,11 +3776,15 @@ export function App() {
           <button className="chip" onClick={makeSnapshot}>
             <Icon name="photo" /> Image finale
           </button>
+          <button className="chip" onClick={() => setView3d({})} title="Voir les couches en relief, à leur hauteur">
+            Vue 3D
+          </button>
           <button className="chip" onClick={() => setRendu(false)}>
             Retour à l'atelier
           </button>
         </div>
       )}
+      {view3d && <ParallaxView doc={doc} f={f} start={view3d.start} onClose={() => setView3d(false)} selected={selected} onSelect={setSelected} onLevel={setLevel} />}
       {snapshot && (
         <div className="snapshot" onClick={() => setSnapshot(null)}>
           <img src={snapshot} alt="Rendu final" />
@@ -3058,7 +3851,7 @@ function Dial({ label, value, onChange }: { label: string; value: number; onChan
   );
 }
 
-function VSlider({ label, value, onChange, center }: { label: string; value: number; onChange: (v: number) => void; center?: boolean }) {
+function VSlider({ label, value, onChange, center, onActive }: { label: string; value: number; onChange: (v: number) => void; center?: boolean; onActive?: (on: boolean) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const set = (e: React.PointerEvent) => {
     const r = ref.current!.getBoundingClientRect();
@@ -3074,9 +3867,12 @@ function VSlider({ label, value, onChange, center }: { label: string; value: num
       title={label}
       onPointerDown={(e) => {
         (e.target as Element).setPointerCapture(e.pointerId);
+        onActive?.(true);
         set(e);
       }}
       onPointerMove={(e) => e.buttons && set(e)}
+      onPointerUp={() => onActive?.(false)}
+      onPointerCancel={() => onActive?.(false)}
     >
       {center ? (
         <>

@@ -21,8 +21,9 @@ export interface LibItem {
 }
 export type Shelf = 'photos' | 'illustrations' | 'logos';
 
-export type DrawerShelf = Shelf | 'formes' | 'textes';
+export type DrawerShelf = Shelf | 'objets' | 'formes' | 'textes';
 export const SHELVES: Array<[DrawerShelf, string]> = [
+  ['objets', 'Objets'],
   ['textes', 'Textes'],
   ['formes', 'Formes'],
   ['photos', 'Photos'],

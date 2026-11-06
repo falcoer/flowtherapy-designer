@@ -14,6 +14,8 @@ export interface TextStyle {
   /** Graisse 100..900 : réelle sur une police variable, épaissie ou amincie sinon. */
   weight: number;
   italic: boolean;
+  /** Inclinaison simulée, en degrés (positif : penche vers la droite), en plus de l'italique. */
+  slant?: number;
   align: 'left' | 'center' | 'right';
   /** Interlettrage, en fraction du corps. */
   tracking?: number;
@@ -35,12 +37,37 @@ export interface TextStyle {
 export interface Mold {
   pts: [number, number][];
   r: number;
+  /** Force : la part du geste que le contour suit (absente : 1). */
+  k?: number;
+  /** Forme de la pointe (absente : ronde) et son angle, en radians. */
+  tip?: 'round' | 'flat' | 'triangle';
+  rot?: number;
   /** Geste en cours : le contour n'est refondu qu'au lâcher. */
   live?: boolean;
+  /** Régularisation (sans geste) : force du lissage, en corps. */
+  smooth?: number;
+  /** Ornement : un trait (boucle, ligne simple ou doublée) posé sur les lettres déjà modelées. */
+  orn?: Swash;
 }
 
+/** Modelage de n'importe quelle découpe : contours, points et rayons en pixels du même repère. */
+export const moldPx = (rings: Ring[], m: Mold, pristine: Ring[]): Ring[] => mold(rings, m, 0, 0, 1, pristine);
+
 /** Applique un modelage aux contours (en pixels), en gardant des points assez serrés. */
-function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number): Ring[] {
+/** Distance normalisée (au carré) d'un point à la pointe : moins de 1 à l'intérieur. Plate : une lame ; triangle : pointe en haut. */
+function tipDist(x: number, y: number, R: number, tip: Mold['tip'], rot: number) {
+  if (!tip || tip === 'round') return (x * x + y * y) / (R * R);
+  const [c, s] = [Math.cos(rot), Math.sin(rot)];
+  const [u, v] = [x * c + y * s, -x * s + y * c];
+  if (tip === 'flat') return Math.max(Math.abs(u) / R, Math.abs(v) / (0.3 * R)) ** 2;
+  let d = -Infinity;
+  for (const a of [Math.PI / 2, -Math.PI / 6, (7 * Math.PI) / 6]) d = Math.max(d, (u * Math.cos(a) + v * Math.sin(a)) / (R / 2));
+  return Math.max(0, d) ** 2;
+}
+
+function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number, pristine: Ring[]): Ring[] {
+  if (m.smooth) return regularize(rings, m.smooth * size, pristine);
+  if (m.orn) return ornament(rings, m.orn, X0, Y0, size, !!m.live);
   const R = Math.max(2, m.r * size);
   const pts = m.pts.map(([x, y]) => ({ x: X0 + x * size, y: Y0 + y * size }));
   let out = rings.map((r) => r.map((p) => ({ x: p.x, y: p.y })));
@@ -52,9 +79,9 @@ function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number): Rin
     if ((i - 1) % 3 === 0) out = out.map((r) => densify(r, 1.6, a, R * 1.5));
     for (const r of out)
       for (const q of r) {
-        const d2 = ((q.x - a.x) ** 2 + (q.y - a.y) ** 2) / (R * R);
+        const d2 = tipDist(q.x - a.x, q.y - a.y, R, m.tip, m.rot ?? 0);
         if (d2 >= 1) continue;
-        const f = (1 - d2) ** 2;
+        const f = (1 - d2) ** 2 * (m.k ?? 1);
         q.x += dx * f;
         q.y += dy * f;
       }
@@ -66,6 +93,157 @@ function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number): Rin
  * Refonte du contour : on remplit le tracé modelé puis on relève à nouveau son bord.
  * Les replis, les traits qui se chevauchent ou se tassent fusionnent en une forme nette.
  */
+/** Cadre en pixels qui contient tous les contours donnés, plus une marge. */
+function frameOf(sets: Ring[][], margin: number) {
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const rings of sets)
+    for (const r of rings)
+      for (const p of r) {
+        x0 = Math.min(x0, p.x);
+        y0 = Math.min(y0, p.y);
+        x1 = Math.max(x1, p.x);
+        y1 = Math.max(y1, p.y);
+      }
+  if (!isFinite(x0)) return null;
+  const ox = Math.floor(x0) - margin;
+  const oy = Math.floor(y0) - margin;
+  const W = Math.ceil(x1) - ox + margin + 1;
+  const H = Math.ceil(y1) - oy + margin + 1;
+  return W * H > 6e7 ? null : { ox, oy, W, H };
+}
+/** Le tracé rempli, en couverture 0..1, dans le cadre donné. */
+function rasterIn(rings: Ring[], f: { ox: number; oy: number; W: number; H: number }): Float32Array {
+  const cv = document.createElement('canvas');
+  cv.width = f.W;
+  cv.height = f.H;
+  const ctx = cv.getContext('2d', { willReadFrequently: true })!;
+  const path = new Path2D();
+  for (const r of rings) {
+    r.forEach((p, i) => (i ? path.lineTo(p.x - f.ox, p.y - f.oy) : path.moveTo(p.x - f.ox, p.y - f.oy)));
+    path.closePath();
+  }
+  ctx.fillStyle = '#000';
+  ctx.fill(path, 'nonzero');
+  const d = ctx.getImageData(0, 0, f.W, f.H).data;
+  const a = new Float32Array(f.W * f.H);
+  for (let i = 0; i < a.length; i++) a[i] = d[i * 4 + 3]! / 255;
+  return a;
+}
+/** Flou en boîte séparable, répété : proche d'un flou gaussien. */
+function blur(a: Float32Array, W: number, H: number, r: number, passes = 3): Float32Array {
+  if (r < 1) return a;
+  const src = Float32Array.from(a);
+  const tmp = new Float32Array(W * H);
+  const pass = (from: Float32Array, to: Float32Array, horiz: boolean) => {
+    const n = horiz ? W : H;
+    const m = horiz ? H : W;
+    const at = (line: number, k: number) => (horiz ? line * W + k : k * W + line);
+    for (let line = 0; line < m; line++) {
+      let acc = 0;
+      for (let k = -r; k <= r; k++) acc += from[at(line, Math.max(0, Math.min(n - 1, k)))]!;
+      for (let k = 0; k < n; k++) {
+        to[at(line, k)] = acc / (2 * r + 1);
+        acc += from[at(line, Math.min(n - 1, k + r + 1))]! - from[at(line, Math.max(0, k - r))]!;
+      }
+    }
+  };
+  for (let i = 0; i < passes; i++) {
+    pass(src, tmp, true);
+    pass(tmp, src, false);
+  }
+  return src;
+}
+
+/** Ornement : le trait est peint par-dessus les lettres, puis le tout est relevé en un seul contour. */
+function ornament(rings: Ring[], s: Swash, X0: number, Y0: number, size: number, live: boolean): Ring[] {
+  const reach = s.w * size * 2 + (s.double ?? 0) * size + 4;
+  const dots: Ring = s.pts.map(([x, y]) => ({ x: X0 + x * size, y: Y0 + y * size }));
+  // pendant le tracé, seul le trait est relevé (vite) ; au lâcher, il se fond dans les lettres
+  const f = frameOf(live ? [[dots]] : [rings, [dots]], Math.ceil(reach));
+  if (!f) return rings;
+  const cv = document.createElement('canvas');
+  cv.width = f.W;
+  cv.height = f.H;
+  const ctx = cv.getContext('2d', { willReadFrequently: true })!;
+  ctx.fillStyle = ctx.strokeStyle = '#000';
+  if (!live) {
+    const path = new Path2D();
+    for (const r of rings) {
+      r.forEach((p, i) => (i ? path.lineTo(p.x - f.ox, p.y - f.oy) : path.moveTo(p.x - f.ox, p.y - f.oy)));
+      path.closePath();
+    }
+    ctx.fill(path, 'nonzero');
+  }
+  drawSwash(ctx, s, X0 - f.ox, Y0 - f.oy, size);
+  const traced = contours(ctx.getImageData(0, 0, f.W, f.H).data, f.W, f.H, 128)
+    .filter((r) => r.length >= 8)
+    .map((r) =>
+      simplifyRing(
+        r.map((p) => ({ x: p.x + f.ox, y: p.y + f.oy })),
+        0.2,
+      ),
+    );
+  return live ? [...rings, ...traced] : traced;
+}
+
+/**
+ * Régulariser : seul ce qui a été ajouté ou modifié (par rapport aux lettres d'origine) est lissé,
+ * comme une encre qui se pose. Les accrocs et les miettes disparaissent, les pleins s'égalisent
+ * (flou puis seuil), les bords ondulés se redressent dans leur sens. Ailleurs, les lettres
+ * reprennent exactement leur dessin d'origine.
+ */
+function regularize(rings: Ring[], radius: number, pristine: Ring[]): Ring[] {
+  const r = Math.max(1, Math.round(radius));
+  const f = frameOf([rings, pristine], r * 4 + 4);
+  if (!f) return rings;
+  const { W, H, ox, oy } = f;
+  const cur = rasterIn(rings, f);
+  const orig = rasterIn(pristine, f);
+  // où le dessin s'écarte des lettres : on ignore le liseré d'un pixel laissé par les retracés
+  let diff: Float32Array = new Float32Array(W * H);
+  for (let i = 0; i < diff.length; i++) diff[i] = Math.abs(cur[i]! - orig[i]!) > 0.5 ? 1 : 0;
+  diff = blur(diff, W, H, 1, 1);
+  for (let i = 0; i < diff.length; i++) diff[i] = diff[i]! > 0.99 ? 1 : 0;
+  // la zone retouchée, élargie pour couvrir les raccords, puis adoucie
+  let mask = blur(diff, W, H, r * 2, 1);
+  for (let i = 0; i < mask.length; i++) mask[i] = mask[i]! > 0 ? 1 : 0;
+  mask = blur(mask, W, H, Math.max(1, Math.round(r / 2)), 3);
+  const soft = blur(cur, W, H, r, 3);
+  const out = new Uint8ClampedArray(W * H * 4);
+  for (let i = 0; i < W * H; i++) {
+    const m = mask[i]!;
+    out[i * 4 + 3] = Math.round((m * soft[i]! + (1 - m) * orig[i]!) * 255);
+  }
+  const at = (p: { x: number; y: number }) => mask[Math.min(H - 1, Math.max(0, Math.round(p.y))) * W + Math.min(W - 1, Math.max(0, Math.round(p.x)))]!;
+  const minArea = (r * 1.5) ** 2;
+  return contours(out, W, H, 128)
+    .filter((ring) => Math.abs(ringArea(ring)) > minArea || ring.every((p) => at(p) < 0.01))
+    .map((ring) => {
+      const t = taubin(ring, 6);
+      // le redressement ne s'applique que dans la zone retouchée
+      return simplifyRing(
+        ring.map((p, i) => {
+          const m = at(p);
+          return { x: ox + p.x + m * (t[i]!.x - p.x), y: oy + p.y + m * (t[i]!.y - p.y) };
+        }),
+        0.2,
+      );
+    });
+}
+const ringArea = (r: Ring) => r.reduce((s, p, i) => s + p.x * r[(i + 1) % r.length]!.y - r[(i + 1) % r.length]!.x * p.y, 0) / 2;
+/** Lissage de Taubin : les ondulations s'effacent sans que la forme rétrécisse. */
+function taubin(r: Ring, n: number): Ring {
+  let p = r;
+  const step = (q: Ring, k: number) =>
+    q.map((c, i) => {
+      const a = q[(i - 1 + q.length) % q.length]!;
+      const b = q[(i + 1) % q.length]!;
+      return { x: c.x + k * ((a.x + b.x) / 2 - c.x), y: c.y + k * ((a.y + b.y) / 2 - c.y) };
+    });
+  for (let i = 0; i < n; i++) p = step(step(p, 0.5), -0.53);
+  return p;
+}
+
 function refuse(rings: Ring[]): Ring[] {
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
   for (const r of rings)
@@ -120,7 +298,7 @@ function densify(r: Ring, gap: number, c: { x: number; y: number }, near: number
   return o;
 }
 
-export type SwashEnd = 'point' | 'ball' | 'flat';
+export type SwashEnd = 'point' | 'ball' | 'flat' | 'fine';
 /**
  * Un paraphe : les points [x, y, pression] sont en corps (1 = taille de la police), comptés depuis
  * le coin haut gauche du bloc de lignes, avant l'enveloppe. Il suit donc le texte quand on change
@@ -131,6 +309,10 @@ export interface Swash {
   /** Épaisseur, en corps. */
   w: number;
   end: SwashEnd;
+  /** Plume : angle du bec (radians). Le trait est gras dans un sens, fin comme un cheveu dans l'autre. */
+  nib?: number;
+  /** Ligne doublée : écart entre les deux traits, en corps (0 ou absent : trait simple). */
+  double?: number;
 }
 export type WarpKind = 'arc' | 'wave' | 'bulge' | 'persp';
 export interface TextWarp {
@@ -237,6 +419,13 @@ export function ensureFont(id: string): Promise<void> {
 export const isFontReady = (id: string) => ready.has(id);
 
 /** Ce que la police sait faire en vrai : plage de graisse, italique dessiné. */
+/** L'italique compte pour cette inclinaison, en degrés. */
+export const ITALIC_DEG = 12;
+/** Inclinaison totale du texte, en degrés (positif : penche à droite). */
+export const leanOf = (t: { italic: boolean; slant?: number }) => (t.slant ?? 0) + (t.italic ? ITALIC_DEG : 0);
+/** Une seule commande : à partir de 8° vers la droite, la police passe en italique (dessinée si elle existe), le reste est penché. */
+export const withLean = (deg: number) => (deg >= 8 ? { italic: true, slant: deg - ITALIC_DEG } : { italic: false, slant: deg });
+
 function abilities(id: string, italic: boolean) {
   const fi = fontOf(id);
   const files = fi.files.filter((x) => x.style === (italic && fi.files.some((y) => y.style === 'italic') ? 'italic' : 'normal'));
@@ -268,6 +457,9 @@ const cache = new Map<string, TextCut>();
 const byStyle = new WeakMap<TextStyle, { epoch: number; c: TextCut }>();
 
 /** Découpe des lettres en coordonnées 0..1 de leur boîte. */
+/** Largeur de la boîte du texte, en corps : pour passer des tailles en corps à l'écran. */
+export const textEm = (t: TextStyle) => textCut(t).bw / BODY;
+
 export function textCut(t: TextStyle): TextCut {
   const hit = byStyle.get(t);
   if (hit && hit.epoch === fontEpoch) return hit.c;
@@ -292,7 +484,7 @@ interface Base {
   widest: number;
   fh: number;
 }
-const baseKey = (t: TextStyle) => JSON.stringify([t.content, t.font, t.weight, t.italic, t.align, t.tracking ?? 0, t.leading ?? 1.1, t.swashes ?? 0, fontEpoch]);
+const baseKey = (t: TextStyle) => JSON.stringify([t.content, t.font, t.weight, t.italic, t.slant ?? 0, t.align, t.tracking ?? 0, t.leading ?? 1.1, t.swashes ?? 0, fontEpoch]);
 const bases = new Map<string, Base>();
 function baseOf(t: TextStyle): Base {
   const key = baseKey(t);
@@ -317,7 +509,7 @@ function moldedRings(t: TextStyle, b: Base): Ring[] {
       rings = hit.rings;
       continue;
     }
-    rings = mold(rings, m, b.X0, b.Y0, b.size);
+    rings = mold(rings, m, b.X0, b.Y0, b.size, b.raw);
     molded.set(m, { base: b.key, prev, rings });
   }
   return rings;
@@ -376,7 +568,10 @@ function render(t: TextStyle, key: string): Base {
       const r = s.w * 1.2;
       [sx0, sy0, sx1, sy1] = [Math.min(sx0, x - r), Math.min(sy0, y - r), Math.max(sx1, x + r), Math.max(sy1, y + r)];
     }
-  const emW = Math.max(widest / size + 1.3, sx1 + 0.5) - Math.min(0, sx0 - 0.5);
+  // penché (italique simulé et inclinaison) : le haut des lignes se décale d'autant
+  const skew = Math.tan(((t.slant ?? 0) * Math.PI) / 180) + (t.italic && !ab.realItalic ? Math.tan((ITALIC_DEG * Math.PI) / 180) : 0);
+  const lean = Math.abs(skew) * lines.length * lead;
+  const emW = Math.max(widest / size + 1.3 + lean, sx1 + 0.5) - Math.min(0, sx0 - 0.5);
   const emH = Math.max(lines.length * lead + 1, sy1 + 0.5) - Math.min(0, sy0 - 0.5);
   // un très long texte est rendu plus petit, pour rester dans un canevas raisonnable
   const k = Math.min(1, MAX_SIDE / (emW * size), MAX_SIDE / (emH * size));
@@ -387,9 +582,9 @@ function render(t: TextStyle, key: string): Base {
   const extra = ((t.weight - real) / 500) * size * 0.05;
   const pad = Math.ceil(size * 0.5 + Math.abs(extra));
   // coin du bloc de lignes dans le canevas : de la place à gauche et en haut pour les paraphes
-  const X0 = Math.max(pad, Math.ceil(-sx0 * size) + 4);
+  const X0 = Math.max(pad + (skew < 0 ? Math.ceil(lean * size) : 0), Math.ceil(-sx0 * size) + 4);
   const Y0 = Math.max(pad, Math.ceil(-sy0 * size) + 4);
-  const W = Math.ceil(Math.max(X0 + widest + pad + size * 0.3, X0 + sx1 * size + 4));
+  const W = Math.ceil(Math.max(X0 + widest + pad + (skew > 0 ? lean * size : 0), X0 + sx1 * size + 4));
   const H = Math.ceil(Math.max(Y0 + lines.length * lead * size + pad, Y0 + sy1 * size + 4));
   const cv = document.createElement('canvas');
   cv.width = W;
@@ -401,7 +596,8 @@ function render(t: TextStyle, key: string): Base {
   ctx.strokeStyle = '#000';
   ctx.lineJoin = 'round';
   // italique simulé : on penche les lettres
-  if (t.italic && !ab.realItalic) ctx.setTransform(1, 0, -0.2, 1, size * 0.3, 0);
+  // les lignes penchent autour de leur pied : le bas du bloc reste en place
+  if (skew) ctx.setTransform(1, 0, -skew, 1, skew * (Y0 + lines.length * lead * size), 0);
   const lineX = (line: string) => {
     const w = ctx.measureText(line).width;
     return X0 + (t.align === 'left' ? 0 : t.align === 'right' ? widest - w : (widest - w) / 2);
@@ -453,19 +649,43 @@ function drawSwash(ctx: CanvasRenderingContext2D, s: Swash, X0: number, Y0: numb
   for (let i = 1; i < pts.length; i++) len.push(len[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y));
   const total = len[len.length - 1]! || 1;
   const smooth = (x: number) => x * x * (3 - 2 * x);
+  // direction du trait en chaque point, pour la plume et pour doubler
+  const dir = pts.map((_, i) => {
+    const [a, b] = [pts[Math.max(0, i - 1)]!, pts[Math.min(pts.length - 1, i + 1)]!];
+    return Math.atan2(b.y - a.y, b.x - a.x);
+  });
   const width = (i: number) => {
     const t = len[i]! / total;
-    const f = s.end === 'point' ? (t < 0.3 ? 1 : Math.max(0.03, 1 - smooth((t - 0.3) / 0.7))) : s.end === 'ball' ? 1 - 0.5 * smooth(t) : 1;
-    return s.w * size * (0.4 + 0.85 * pts[i]!.p) * f;
+    const f =
+      s.end === 'point'
+        ? t < 0.3
+          ? 1
+          : Math.max(0.03, 1 - smooth((t - 0.3) / 0.7))
+        : s.end === 'fine'
+          ? Math.max(0.03, Math.min(1, smooth(Math.min(1, t / 0.25)), 1 - smooth(Math.max(0, (t - 0.55) / 0.45))))
+          : s.end === 'ball'
+            ? 1 - 0.5 * smooth(t)
+            : 1;
+    // plume : plein quand le trait croise le bec, délié quand il le suit
+    const nib = s.nib === undefined ? 1 : 0.3 + 0.7 * Math.abs(Math.sin(dir[i]! - s.nib));
+    // un ornement garde toujours un délié visible, même au stylet effleuré
+    if (s.end === 'fine') return Math.max(2, s.w * size * (0.7 + 0.5 * pts[i]!.p) * f * nib, s.w * size * 0.25 * Math.min(1, f * 4));
+    return s.w * size * (0.4 + 0.85 * pts[i]!.p) * f * nib;
   };
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  for (let i = 1; i < pts.length; i++) {
-    ctx.beginPath();
-    ctx.moveTo(pts[i - 1]!.x, pts[i - 1]!.y);
-    ctx.lineTo(pts[i]!.x, pts[i]!.y);
-    ctx.lineWidth = Math.max(0.5, (width(i - 1) + width(i)) / 2);
-    ctx.stroke();
+  const gap = (s.double ?? 0) * size;
+  const sides = gap ? [-gap / 2, gap / 2] : [0];
+  for (const off of sides) {
+    const at = (i: number) => ({ x: pts[i]!.x - Math.sin(dir[i]!) * off, y: pts[i]!.y + Math.cos(dir[i]!) * off });
+    for (let i = 1; i < pts.length; i++) {
+      const [a, b] = [at(i - 1), at(i)];
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.lineWidth = Math.max(0.5, ((width(i - 1) + width(i)) / 2) * (gap ? 0.5 : 1));
+      ctx.stroke();
+    }
   }
   if (pts.length === 1) {
     ctx.beginPath();

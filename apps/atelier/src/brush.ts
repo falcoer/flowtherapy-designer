@@ -71,11 +71,22 @@ export interface Target {
   pxPerMin: number;
 }
 
-/** Tampons d'un trait : position en pixels, rayon, position relative le long du trait. */
+/** Allongement de la touche d'un pinceau couché, à inclinaison maximale (0.9) : presque deux fois plus longue. */
+export const LEAN = 1.2;
+/** Étire un décalage (dx, dy) dans la direction d, du facteur 1 + K. */
+function stretch(dx: number, dy: number, K: number, d: number): [number, number] {
+  if (!K) return [dx, dy];
+  const c = Math.cos(d);
+  const s = Math.sin(d);
+  const along = (dx * c + dy * s) * K;
+  return [dx + along * c, dy + along * s];
+}
+
+/** Tampons d'un trait : position en pixels, rayon, position relative le long du trait, et pinceau penché (K, d). */
 function stamps(s: Stroke, t: Target) {
   const r = rng(s.seed);
-  const out: Array<{ x: number; y: number; r: number; t: number; a: number }> = [];
-  const pts = s.pts.map((p) => ({ x: p.x * t.pw, y: p.y * t.ph, p: p.p ?? 0.6, a: p.r ?? 0 }));
+  const out: Array<{ x: number; y: number; r: number; t: number; a: number; K: number; d: number }> = [];
+  const pts = s.pts.map((p) => ({ x: p.x * t.pw, y: p.y * t.ph, p: p.p ?? 0.6, a: p.r ?? 0, K: s.brush === 'stamp' ? 0 : (p.k ?? 0) * LEAN, d: p.d ?? 0 }));
   let total = 0;
   for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
   let along = 0;
@@ -99,6 +110,8 @@ function stamps(s: Stroke, t: Target) {
         r: base * (0.35 + 0.65 * p) * wobble,
         t: total ? (along + d * f) / total : 0,
         a: a.a + (b.a - a.a) * f,
+        K: a.K + (b.K - a.K) * f,
+        d: a.d,
       });
       if (d === 0) break;
     }
@@ -107,11 +120,12 @@ function stamps(s: Stroke, t: Target) {
   return out;
 }
 
-/** Empreinte de la brosse : ronde, plate (lame fine) ou triangle, tournée de `a`. */
-function tipShape(ctx: CanvasRenderingContext2D, tip: Stroke['tip'], x: number, y: number, r: number, a: number) {
+/** Empreinte de la brosse : ronde, plate (lame fine) ou triangle, tournée de `a` ; penchée, elle s'allonge vers `d`. */
+function tipShape(ctx: CanvasRenderingContext2D, tip: Stroke['tip'], x: number, y: number, r: number, a: number, K = 0, d = 0) {
   ctx.beginPath();
   if (!tip || tip === 'round') {
-    ctx.arc(x, y, r, 0, Math.PI * 2);
+    if (K) ctx.ellipse(x, y, r * (1 + K), r, d, 0, Math.PI * 2);
+    else ctx.arc(x, y, r, 0, Math.PI * 2);
     return;
   }
   const c = Math.cos(a);
@@ -125,7 +139,11 @@ function tipShape(ctx: CanvasRenderingContext2D, tip: Stroke['tip'], x: number, 
           [-r, r * 0.16],
         ]
       : [0, 1, 2].map((k) => [Math.cos(-Math.PI / 2 + (k * 2 * Math.PI) / 3) * r, Math.sin(-Math.PI / 2 + (k * 2 * Math.PI) / 3) * r]);
-  pts.forEach(([px, py], i) => (i ? ctx.lineTo(x + px! * c - py! * s, y + px! * s + py! * c) : ctx.moveTo(x + px! * c - py! * s, y + px! * s + py! * c)));
+  pts.forEach(([px, py], i) => {
+    const [ox, oy] = stretch(px! * c - py! * s, px! * s + py! * c, K, d);
+    if (i) ctx.lineTo(x + ox, y + oy);
+    else ctx.moveTo(x + ox, y + oy);
+  });
   ctx.closePath();
 }
 
@@ -159,7 +177,7 @@ function aquarelle(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
   const g = guides[s.guide];
   for (const st of stamps(s, t)) {
     sx.fillStyle = guideColor(g, st.t);
-    tipShape(sx, s.tip, st.x, st.y, Math.max(0.5, st.r), st.a);
+    tipShape(sx, s.tip, st.x, st.y, Math.max(0.5, st.r), st.a, st.K, st.d);
     sx.fill();
   }
   // grain : le pigment se dépose moins dans les creux du papier
@@ -168,18 +186,23 @@ function aquarelle(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
   sx.fillStyle = sx.createPattern(paperGrain(), 'repeat')!;
   sx.fillRect(0, 0, t.pw, t.ph);
 
+  // peu d'intensité : plus d'eau, le pigment s'étale et se concentre sur les bords (comme la dilution des tampons)
+  const water = Math.max(0, Math.min(1, 1 - s.opacity));
+  const R = s.size * t.pxPerMin;
   // liseré : silhouette moins sa version floutée
   const { c: edge, ctx: ex } = buffer('b', t.pw, t.ph);
   ex.drawImage(sil, 0, 0);
   ex.globalCompositeOperation = 'destination-out';
-  ex.filter = `blur(${Math.max(1, s.size * t.pxPerMin * 0.18)}px)`;
+  ex.filter = `blur(${Math.max(1, R * (0.18 + 0.22 * water))}px)`;
   ex.drawImage(sil, 0, 0);
 
   dst.save();
   dst.globalCompositeOperation = 'multiply';
+  if (water > 0.05) dst.filter = `blur(${R * 0.12 * water}px)`;
   dst.globalAlpha = 0.42 * s.opacity;
   dst.drawImage(sil, 0, 0);
-  dst.globalAlpha = 0.75 * s.opacity;
+  dst.filter = 'none';
+  dst.globalAlpha = 0.75 * Math.min(1, s.opacity + 0.3 * water);
   dst.drawImage(edge, 0, 0);
   dst.restore();
 }
@@ -711,7 +734,7 @@ export function previewStamps(ctx: CanvasRenderingContext2D, s: Stroke, guides: 
   for (let i = from; i < all.length; i++) {
     const st = all[i]!;
     ctx.fillStyle = guideColor(g, st.t);
-    tipShape(ctx, s.brush === 'aquarelle' || !s.brush || s.brush === 'acrylic' || s.brush === 'roller' ? s.tip : 'round', st.x, st.y, Math.max(0.5, st.r), st.a);
+    tipShape(ctx, s.brush === 'aquarelle' || !s.brush || s.brush === 'acrylic' || s.brush === 'roller' ? s.tip : 'round', st.x, st.y, Math.max(0.5, st.r), st.a, st.K, st.d);
     ctx.fill();
   }
   ctx.restore();
@@ -762,8 +785,8 @@ function vn(x: number, y: number, seed: number): number {
 
 /** Le trait rééchantillonné à pas régulier : position, normale lissée, pression, abscisse. */
 function track(s: Stroke, t: Target, step: number) {
-  const raw = s.pts.map((p) => ({ x: p.x * t.pw, y: p.y * t.ph, p: p.p ?? 0.6, a: p.r ?? 0 }));
-  const out: Array<{ x: number; y: number; nx: number; ny: number; p: number; s: number; a: number }> = [];
+  const raw = s.pts.map((p) => ({ x: p.x * t.pw, y: p.y * t.ph, p: p.p ?? 0.6, a: p.r ?? 0, K: (p.k ?? 0) * LEAN, d: p.d ?? 0 }));
+  const out: Array<{ x: number; y: number; nx: number; ny: number; p: number; s: number; a: number; K: number; d: number }> = [];
   let carry = 0;
   let along = 0;
   for (let i = 0; i + 1 < raw.length; i++) {
@@ -773,7 +796,7 @@ function track(s: Stroke, t: Target, step: number) {
     let u = carry;
     while (u < d) {
       const f = u / d;
-      out.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, nx: 0, ny: 0, p: a.p + (b.p - a.p) * f, s: along + u, a: a.a + (b.a - a.a) * f });
+      out.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, nx: 0, ny: 0, p: a.p + (b.p - a.p) * f, s: along + u, a: a.a + (b.a - a.a) * f, K: a.K + (b.K - a.K) * f, d: a.d });
       u += step;
     }
     carry = u - d;
@@ -817,7 +840,7 @@ function streaks(
   // zone touchée par le trait
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
   for (const q of pts) {
-    const h = o.half(q.p) + 4;
+    const h = o.half(q.p) * (1 + q.K) + 4;
     x0 = Math.min(x0, q.x - h);
     y0 = Math.min(y0, q.y - h);
     x1 = Math.max(x1, q.x + h);
@@ -865,8 +888,10 @@ function streaks(
         }
         h *= (hi - lo) / 2;
       }
-      const x = q.x + ax * off * h;
-      const y = q.y + ay * off * h;
+      // pinceau penché : la touche s'allonge dans le sens où il penche
+      const [ox, oy] = stretch(ax * off * h, ay * off * h, q.K, q.d);
+      const x = q.x + ox;
+      const y = q.y + oy;
       if (prev) {
         const c = Math.min(1, o.cover(k, off, q.s, length ? q.s / length : 0));
         if (c > 0.02) {
@@ -974,7 +999,8 @@ function spray(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Tar
       const d = 0.3 + r() * Math.max(0.6, R * 0.025);
       dst.globalAlpha = s.opacity * (0.25 + 0.5 * r());
       dst.beginPath();
-      dst.arc(q.x + Math.cos(a) * rad, q.y + Math.sin(a) * rad, d, 0, Math.PI * 2);
+      const [ox, oy] = stretch(Math.cos(a) * rad, Math.sin(a) * rad, q.K, q.d);
+      dst.arc(q.x + ox, q.y + oy, d, 0, Math.PI * 2);
       dst.fill();
     }
   }
@@ -993,8 +1019,9 @@ function glitter(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: T
     for (let k = 0; k < n; k++) {
       const a = r() * Math.PI * 2;
       const rad = Math.sqrt(r()) * q.r;
-      const x = q.x + Math.cos(a) * rad;
-      const y = q.y + Math.sin(a) * rad;
+      const [ox, oy] = stretch(Math.cos(a) * rad, Math.sin(a) * rad, q.K, q.d);
+      const x = q.x + ox;
+      const y = q.y + oy;
       const sz = Math.max(1, q.r * (0.06 + r() * 0.1));
       const base = guideColor(g, q.t);
       // chaque éclat accroche la lumière différemment
@@ -1034,30 +1061,51 @@ function hair(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Targ
   const st = stamps(s, t);
   const tg = tangents(st);
   const r = rng(s.seed ^ 0x33);
+  const lenK = (s.hairLen ?? 0.3) / 0.3;
+  const curl = Math.max(0, Math.min(1, s.curl ?? 0));
   dst.save();
   dst.lineCap = 'round';
+  dst.lineJoin = 'round';
   for (let i = 0; i < st.length; i++) {
     const q = st[i]!;
-    const n = Math.round(2 + q.r * 0.12);
+    // la laine est plus fournie que le poil raide
+    const n = Math.round((2 + q.r * 0.12) * (1 + curl * 0.8));
     for (let k = 0; k < n; k++) {
       const o = (r() * 2 - 1) * q.r;
-      const x = q.x - tg[i]!.y * o;
-      const y = q.y + tg[i]!.x * o;
-      // le brin part dans le sens du geste, un peu dévié, et se courbe
-      const ang = Math.atan2(tg[i]!.y, tg[i]!.x) + (r() - 0.5) * 0.5;
-      const len = q.r * (0.8 + r() * 1.4);
-      const bend = (r() - 0.5) * len * 0.5;
-      const ex = x + Math.cos(ang) * len;
-      const ey = y + Math.sin(ang) * len;
-      const cx = (x + ex) / 2 - Math.sin(ang) * bend;
-      const cy = (y + ey) / 2 + Math.cos(ang) * bend;
+      const [ox, oy] = stretch(-tg[i]!.y * o, tg[i]!.x * o, q.K, q.d);
+      const x = q.x + ox;
+      const y = q.y + oy;
+      // le brin part dans le sens du geste, un peu dévié (la laine part dans tous les sens), et se courbe
+      const ang = Math.atan2(tg[i]!.y, tg[i]!.x) + (r() - 0.5) * (0.5 + curl * 2.2);
+      const len = q.r * (0.8 + r() * 1.4) * lenK;
       const base = guideColor(g, q.t);
-      dst.strokeStyle = shade(base, (r() - 0.5) * 0.6, 0.35 + 0.5 * s.opacity);
-      // effilé : un trait large puis un plus fin vers la pointe
-      dst.lineWidth = Math.max(0.5, q.r * 0.035);
+      dst.strokeStyle = shade(base, (r() - 0.5) * 0.6 + curl * 0.08, 0.35 + 0.5 * s.opacity);
+      dst.lineWidth = Math.max(0.5, q.r * (0.035 + curl * 0.02));
       dst.beginPath();
       dst.moveTo(x, y);
-      dst.quadraticCurveTo(cx, cy, ex, ey);
+      if (curl < 0.02) {
+        const bend = (r() - 0.5) * len * 0.5;
+        const ex = x + Math.cos(ang) * len;
+        const ey = y + Math.sin(ang) * len;
+        dst.quadraticCurveTo((x + ex) / 2 - Math.sin(ang) * bend, (y + ey) / 2 + Math.cos(ang) * bend, ex, ey);
+      } else {
+        // frisure : ondulation (alpaga), puis vraies boucles qui s'enroulent (mouton)
+        const waves = 1 + curl * 5 + r() * 1.5;
+        const amp = Math.min(1, curl * 1.6) * 1.1;
+        const spin = Math.max(0, (curl - 0.55) / 0.45) * Math.PI * 2 * (2 + r() * 2) * (r() < 0.5 ? -1 : 1);
+        const phase = r() * Math.PI * 2;
+        const segs = Math.round(10 + curl * 26);
+        const dl = len / segs;
+        let px = x;
+        let py = y;
+        for (let j = 1; j <= segs; j++) {
+          const u = j / segs;
+          const a = ang + amp * Math.sin(phase + u * waves * Math.PI * 2) + spin * u;
+          px += Math.cos(a) * dl;
+          py += Math.sin(a) * dl;
+          dst.lineTo(px, py);
+        }
+      }
       dst.stroke();
     }
   }
