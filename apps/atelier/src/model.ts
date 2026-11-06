@@ -123,6 +123,8 @@ export interface Layer {
   height: number;
   /** Opacité de la couche entière (0..1, 1 par défaut). */
   opacity?: number;
+  /** Relief sculpté (outil Modeler, mode Relief) : carte de hauteurs éclairée par la lampe. */
+  bump?: import('./bump').Bump;
   /** Biseau (0..1) : liseré éclairé côté lumière, sombre à l'opposé. */
   bevel?: number;
   /** Rotation autour du centre de la boîte, en radians. */

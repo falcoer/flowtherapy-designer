@@ -6,7 +6,9 @@ import { ensureFont, fontFamily, fontList, fontOf, ITALIC_DEG, leanOf, loadFonts
 export interface SwashTool {
   on: boolean;
   /** Tracer un prolongement, ou modeler le contour (tirer de l'intérieur, repousser de l'extérieur). */
-  mode: 'draw' | 'mold' | 'orn';
+  mode: 'draw' | 'mold' | 'orn' | 'relief';
+  /** Relief : creuser au lieu de bosser. */
+  dig?: boolean;
   /** Rayon du modelage, en corps. */
   r: number;
   end: SwashEnd;

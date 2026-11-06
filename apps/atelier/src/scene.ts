@@ -1,3 +1,4 @@
+import { shadeBump } from './bump';
 import { burnLayers, paintStroke, type Target } from './brush';
 import { rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
@@ -551,6 +552,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     if (buf) ctx.drawImage(buf, x0, y0, b.w, b.h);
     else drawMaterial(ctx, l, doc, f, o);
     if (o.wet?.id === l.id) ctx.drawImage(o.wet.canvas, x0, y0, b.w, b.h);
+    if (l.bump) drawBump(ctx, l, doc, f, b, x0, y0);
     ctx.restore();
     drawFxInside(ctx, l, doc, f, o, path);
 
@@ -1527,5 +1529,23 @@ function paintGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format,
       break;
     }
   }
+  ctx.restore();
+}
+
+/** Relief sculpté : son éclairage (calculé dans bump.ts) posé sur la matière, dans le repère de l'objet. */
+function drawBump(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, b: { cx: number; cy: number; w: number; h: number }, x0: number, y0: number) {
+  const li = lightAt(doc, f, b.cx, b.cy);
+  // la lampe vue depuis l'objet tourné
+  const r = -(l.rot ?? 0);
+  const lx = li.lx * Math.cos(r) - li.ly * Math.sin(r);
+  const ly = li.lx * Math.sin(r) + li.ly * Math.cos(r);
+  const ids = new Set((l.fx ?? []).map((x) => x.id));
+  const [shine, spec] = ids.has('gloss') ? [60, 0.9] : ids.has('satin') ? [18, 0.45] : ids.has('matte-varnish') ? [0, 0] : [8, 0.12];
+  const col = hexRGB(lampOf(doc).color) as [number, number, number];
+  const img = shadeBump(l.bump!, { lx, ly, elev: Math.atan2(1, Math.max(0.05, li.k)), color: col, shine, spec });
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, x0, y0, b.w, b.h);
   ctx.restore();
 }

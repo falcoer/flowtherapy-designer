@@ -6,6 +6,7 @@ import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { PrefsPanel, type Theme } from './prefs';
 import { BrushWheel } from './wheel';
+import { blankBump, bumpHeights, dab, encodeBump, smoothBump } from './bump';
 import { currentPx, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
 import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
 import { QuickText, TextBar, type SwashTool } from './textbar';
@@ -695,7 +696,9 @@ export function App() {
   const dotAt = useRef(0);
   // --- état des gestes en cours ---
   const live = useRef<{
-    kind: 'paint' | 'cut' | 'move' | 'resize' | 'rotate' | 'pivot' | 'view' | 'swash' | 'mold' | null;
+    kind: 'paint' | 'cut' | 'move' | 'resize' | 'rotate' | 'pivot' | 'view' | 'swash' | 'mold' | 'bump' | null;
+    /** Relief en cours de sculpture : hauteurs de travail et dernière touche (pixels de la carte). */
+    bump?: { w: number; h: number; H: Float32Array; at: [number, number] };
     /** Outil Modeler : découpe de départ et découpe d'origine, en pixels de travail. */
     base?: Ring[];
     pristine?: Ring[];
@@ -1324,6 +1327,16 @@ export function App() {
       if (!target) return setToast('Choisis d’abord un objet à modeler');
       if (target.id !== selected) setSelected(target.id);
       const loc = toLocal(target, p.x, p.y);
+      // Relief : on sculpte la surface (bosses, creux), le contour ne bouge pas
+      if (swash.mode === 'relief') {
+        const bb = layerBox(target, f);
+        const cur = target.bump ? { w: target.bump.w, h: target.bump.h, H: bumpHeights(target.bump).slice() } : blankBump(bb.w, bb.h);
+        update((d) => d);
+        const at: [number, number] = [loc.x * cur.w, loc.y * cur.h];
+        live.current = { kind: 'bump', layer: target.id, orig: target, bump: { ...cur, at }, last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pressure(e, null) } };
+        sculpt(at, pressure(e, null));
+        return;
+      }
       const [x, y] = localToPx(target, loc.x, loc.y);
       const pr = pressure(e, null);
       const U = unitPx(target);
@@ -1619,9 +1632,9 @@ export function App() {
       6,
       tool === 'mold' ? (swash.mode === 'orn' ? (swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) : swash.r * 2) * MOLD_UNIT * m : tool === 'stamp' ? stampSize * 2 * m : size * 2 * m,
     );
-    const tip = tool === 'paint' && tipOn(brushKind) ? brushTip : tool === 'mold' && swash.mode !== 'orn' ? (swash.tip ?? 'round') : 'round';
+    const tip = tool === 'paint' && tipOn(brushKind) ? brushTip : tool === 'mold' && swash.mode === 'mold' ? (swash.tip ?? 'round') : 'round';
     const H = tip === 'flat' ? Math.max(3, D * 0.3) : D;
-    const ang = tool === 'stamp' ? stampRot : tool === 'mold' ? (swash.rot ?? 0) : tip !== 'round' ? brushRot : 0;
+    const ang = tool === 'stamp' ? stampRot : tool === 'mold' && swash.mode === 'mold' ? (swash.rot ?? 0) : tip !== 'round' ? brushRot : 0;
     el.dataset.tip = tip;
     el.style.display = 'block';
     el.style.width = `${D}px`;
@@ -1657,7 +1670,7 @@ export function App() {
     el.style.display = 'block';
     const D = Math.max(6, d);
     // brosse plate ou triangle : la silhouette de la touche, tournée comme elle peindra
-    const tip = molding && swash.mode !== 'orn' ? (swash.tip ?? 'round') : !shaping && !molding && tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
+    const tip = molding && swash.mode === 'mold' ? (swash.tip ?? 'round') : !shaping && !molding && tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
     el.dataset.tip = tip;
     el.style.width = `${D}px`;
     el.style.height = `${tip === 'flat' ? Math.max(3, D * 0.3) : D}px`;
@@ -1717,6 +1730,18 @@ export function App() {
     if (tap.current && moved > 6) tap.current.moved = true;
     if (hold.current && Math.hypot(e.clientX - hold.current.x, e.clientY - hold.current.y) > 8) stopHold();
     const p = toPage(e.clientX, e.clientY);
+    if (L.kind === 'bump' && L.bump && L.orig) {
+      const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
+      for (const ev of events) {
+        if (ev.pointerType === 'pen' && ev.buttons === 0) continue;
+        const q = toPage(ev.clientX, ev.clientY);
+        const pr = pressure(ev as unknown as React.PointerEvent, L.last!);
+        L.last = { x: ev.clientX, y: ev.clientY, t: performance.now(), p: pr };
+        const loc = toLocal(L.orig, q.x, q.y);
+        sculpt([loc.x * L.bump.w, loc.y * L.bump.h], pr);
+      }
+      return;
+    }
     if (L.kind === 'mold' && L.mold && L.orig) {
       const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
       const U = unitPx(L.orig);
@@ -1969,6 +1994,15 @@ export function App() {
     }
     if (remaining > 0) return;
     tap.current = null;
+    if (L.kind === 'bump' && L.bump && L.layer) {
+      if (swashFrame.current) cancelAnimationFrame(swashFrame.current);
+      swashFrame.current = 0;
+      const { w, h, H } = L.bump;
+      const id = L.layer;
+      live.current = { kind: null };
+      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === id ? { ...x, bump: encodeBump(w, h, H) } : x)) }));
+      return;
+    }
     if (L.kind === 'mold') {
       if (swashFrame.current) cancelAnimationFrame(swashFrame.current);
       swashFrame.current = 0;
@@ -2357,6 +2391,33 @@ export function App() {
     }
   }, [swash.on, swash.mode]);
   /** Pose le modelage en cours sur la découpe (en direct pendant le geste). */
+  /** Relief : touches de sculpteur le long du geste, de la dernière touche jusqu'à `to` (pixels de la carte). */
+  const sculpt = (to: [number, number], pr: number) => {
+    const L = live.current;
+    if (L.kind !== 'bump' || !L.bump || !L.orig) return;
+    const bb = layerBox(L.orig, f);
+    const B = L.bump;
+    // même rayon que le rond qui suit la pointe : swash.r unités de modelage
+    const rad = (swash.r * MOLD_UNIT * Math.min(f.width, f.height) * B.w) / bb.w;
+    const k = (swash.dig ? -1 : 1) * 0.06 * (swash.k ?? 1) * (0.4 + 0.8 * pr);
+    const [x0, y0] = B.at;
+    const n = Math.max(1, Math.ceil(Math.hypot(to[0] - x0, to[1] - y0) / Math.max(1, rad * 0.25)));
+    for (let i = 1; i <= n; i++) dab(B.H, B.w, B.h, x0 + ((to[0] - x0) * i) / n, y0 + ((to[1] - y0) * i) / n, rad, k);
+    B.at = to;
+    if (!swashFrame.current)
+      swashFrame.current = requestAnimationFrame(() => {
+        swashFrame.current = 0;
+        const LL = live.current;
+        if (LL.kind !== 'bump' || !LL.bump || !LL.layer) return;
+        const enc = encodeBump(LL.bump.w, LL.bump.h, LL.bump.H);
+        const id = LL.layer;
+        setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === id ? { ...x, bump: enc } : x)) }));
+      });
+  };
+  const smoothRelief = (l: Layer) => {
+    if (!l.bump) return;
+    patchLayer(l.id, { bump: encodeBump(l.bump.w, l.bump.h, smoothBump(bumpHeights(l.bump), l.bump.w, l.bump.h)) }, true);
+  };
   const applyMold = (final: boolean) => {
     const L = live.current;
     if (L.kind !== 'mold' || !L.orig || !L.mold || !L.base || !L.pristine) return;
@@ -2891,11 +2952,13 @@ export function App() {
                 <>
                   <button
                     className="btn small"
-                    onClick={() => setSwash({ ...swash, mode: swash.mode === 'orn' ? 'mold' : 'orn' })}
+                    onClick={() => setSwash({ ...swash, mode: swash.mode === 'mold' ? 'orn' : swash.mode === 'orn' ? 'relief' : 'mold' })}
                     title={
                       swash.mode === 'orn'
-                        ? 'Plume : un trait fin, plein et délié, ajouté au contour (toucher pour revenir à Modeler)'
-                        : 'Modeler : de l’intérieur on tire le contour, de l’extérieur on le repousse (toucher pour passer à la Plume)'
+                        ? 'Plume : un trait fin, plein et délié, ajouté au contour (toucher pour passer au Relief)'
+                        : swash.mode === 'relief'
+                          ? 'Relief : sculpter la surface, bosses et creux éclairés par la lampe (toucher pour revenir à Modeler)'
+                          : 'Modeler : de l’intérieur on tire le contour, de l’extérieur on le repousse (toucher pour passer à la Plume)'
                     }
                   >
                     {swash.mode === 'orn' ? (
@@ -2904,24 +2967,65 @@ export function App() {
                         <path d="M4 20l6-6" />
                         <circle cx="11.5" cy="12.5" r="1.3" />
                       </svg>
+                    ) : swash.mode === 'relief' ? (
+                      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2 18h20" />
+                        <path d="M3 18c3 0 4-8 9-8s6 8 9 8" />
+                        <path d="M9 12.5c1-1 2-1.4 3-1.4" opacity="0.6" />
+                      </svg>
                     ) : (
                       <Icon name="mold" />
                     )}
                   </button>
-                  <button
-                    className="btn small"
-                    disabled={!sel?.molded}
-                    onClick={() => sel && unmold(sel)}
-                    title={sel?.kind === 'text' ? 'Revenir au texte : retire le modelage, rend les lettres et tous leurs attributs' : 'Revenir à l’origine : retire tout le modelage'}
-                  >
-                    <Icon name="paint-reset" />
-                  </button>
-                  <button className="btn small" disabled={!sel?.molded} onClick={() => sel && smoothMold(sel)} title="Lisser : seules les parties modelées s’adoucissent (à répéter pour lisser plus)">
-                    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3 16c2-1 2.5-3 4-3s2 2.5 3.5 2.5S12 12 13.5 12 15 14 16.5 14" strokeDasharray="2 2" />
-                      <path d="M3 9c4-3 10-3 18 0" />
-                    </svg>
-                  </button>
+                  {swash.mode === 'relief' ? (
+                    <>
+                      <button
+                        className="btn small"
+                        disabled={!sel?.bump}
+                        onClick={() => {
+                          if (!sel?.bump) return;
+                          patchLayer(sel.id, { bump: undefined }, true);
+                          setToast('Le relief est effacé, la surface redevient lisse');
+                        }}
+                        title="Revenir à une surface lisse : efface tout le relief"
+                      >
+                        <Icon name="paint-reset" />
+                      </button>
+                      <button
+                        className={`btn small ${swash.dig ? 'on' : ''}`}
+                        onClick={() => setSwash({ ...swash, dig: !swash.dig })}
+                        title={swash.dig ? 'Creuser : la pointe enfonce la surface (toucher pour bosser)' : 'Bosser : la pointe soulève la surface (toucher pour creuser)'}
+                      >
+                        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          {swash.dig ? <path d="M3 9c4 0 5 7 9 7s5-7 9-7" /> : <path d="M3 16c4 0 5-7 9-7s5 7 9 7" />}
+                          <path d={swash.dig ? 'M12 4v6m-2.5-2.5L12 10l2.5-2.5' : 'M12 20v-6m-2.5 2.5L12 14l2.5 2.5'} />
+                        </svg>
+                      </button>
+                      <button className="btn small" disabled={!sel?.bump} onClick={() => sel && smoothRelief(sel)} title="Lisser le relief (à répéter pour lisser plus)">
+                        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 16c2-1 2.5-3 4-3s2 2.5 3.5 2.5S12 12 13.5 12 15 14 16.5 14" strokeDasharray="2 2" />
+                          <path d="M3 9c4-3 10-3 18 0" />
+                        </svg>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className="btn small"
+                        disabled={!sel?.molded}
+                        onClick={() => sel && unmold(sel)}
+                        title={sel?.kind === 'text' ? 'Revenir au texte : retire le modelage, rend les lettres et tous leurs attributs' : 'Revenir à l’origine : retire tout le modelage'}
+                      >
+                        <Icon name="paint-reset" />
+                      </button>
+                      <button className="btn small" disabled={!sel?.molded} onClick={() => sel && smoothMold(sel)} title="Lisser : seules les parties modelées s’adoucissent (à répéter pour lisser plus)">
+                        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 16c2-1 2.5-3 4-3s2 2.5 3.5 2.5S12 12 13.5 12 15 14 16.5 14" strokeDasharray="2 2" />
+                          <path d="M3 9c4-3 10-3 18 0" />
+                        </svg>
+                      </button>
+                    </>
+                  )}
                 </>
               )}
               {tool === 'stamp' && (
@@ -3075,9 +3179,9 @@ export function App() {
                       onSizing={(on) => setSizing(on ? 'on' : 'after')}
                       intensity={swash.k ?? 1}
                       onIntensity={(v) => setSwash({ ...swash, k: Math.max(0.05, v) })}
-                      tip={swash.tip ?? 'round'}
-                      pick={tipPick(swash.tip ?? 'round', (tip) => setSwash({ ...swash, tip }))}
-                      {...((swash.tip ?? 'round') !== 'round' ? { rotation: swash.rot ?? 0, onRotation: (rot: number) => setSwash({ ...swash, rot }) } : {})}
+                      tip={swash.mode === 'relief' ? 'round' : (swash.tip ?? 'round')}
+                      pick={swash.mode === 'relief' ? { face: <Icon name="tip-round" />, title: 'Relief : pointe ronde, en cloche' } : tipPick(swash.tip ?? 'round', (tip) => setSwash({ ...swash, tip }))}
+                      {...(swash.mode !== 'relief' && (swash.tip ?? 'round') !== 'round' ? { rotation: swash.rot ?? 0, onRotation: (rot: number) => setSwash({ ...swash, rot }) } : {})}
                     />
                   )),
               ]}
