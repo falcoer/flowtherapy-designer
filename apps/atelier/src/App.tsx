@@ -591,6 +591,25 @@ export function App() {
     return { x: p.x, y: p.y };
   };
   const scale = fit * view.zoom;
+  /** Recadre la vue sur un objet : il remplit la place libre entre les barres et l'éditeur d'objet. */
+  const zoomOn = (l: Layer) => {
+    const b = layerBox(l, f);
+    const left = (document.querySelector('.side.tools-bar')?.getBoundingClientRect().right ?? 70) + 12;
+    const right = (document.querySelector('.height-bar')?.getBoundingClientRect().left ?? vp.w - 12) - 12;
+    const bottom = (document.querySelector('aside.coupe')?.getBoundingClientRect().top ?? vp.h) - 12;
+    const [aw, ah] = [Math.max(80, right - left), Math.max(80, bottom - top - 12)];
+    setView((v) => {
+      const a = (l.rot ?? 0) + v.rot;
+      const ew = Math.abs(b.w * Math.cos(a)) + Math.abs(b.h * Math.sin(a));
+      const eh = Math.abs(b.w * Math.sin(a)) + Math.abs(b.h * Math.cos(a));
+      const zoom = Math.max(0.3, Math.min(6, (Math.min(aw / ew, ah / eh) * 0.8) / fit));
+      const k = fit * zoom;
+      const [dx, dy] = [(b.cx - f.width / 2) * k, (b.cy - f.height / 2) * k];
+      const [c, sn] = [Math.cos(v.rot), Math.sin(v.rot)];
+      const [rx, ry] = [dx * c - dy * sn, dx * sn + dy * c];
+      return { ...v, zoom, px: left + aw / 2 - vp.w / 2 - rx, py: top + 12 + ah / 2 - (top + (vp.h - top) / 2) - ry };
+    });
+  };
 
   const lastTap = useRef<{ t: number; id?: string; x: number; y: number } | null>(null);
   const dotAt = useRef(0);
@@ -1289,13 +1308,24 @@ export function App() {
         // mode attributs : le texte se change dans une bulle, sans quitter le mode
         if (hit.kind === 'text' && isEdit(tool)) {
           setQuickText(hit.id);
+          requestAnimationFrame(() => zoomOn(hit));
           redraw();
           return;
         }
         setTool(lastEdit.current);
+        // la vue se recadre sur l'objet, dans la place laissée libre par l'éditeur
+        requestAnimationFrame(() => requestAnimationFrame(() => zoomOn(hit)));
         const key = hit.molded ? 'molded' : hit.kind === 'text' ? 'content' : hit.kind === 'shape' ? 'shape' : 'look';
         setCoupeOpen((o) => ({ key, sec: 'image', n: (o?.n ?? 0) + 1 }));
         redraw();
+        return;
+      }
+      // double toucher hors des objets (fond, autour de la page) : la vue revient sur la page entière
+      if ((!hit || hit.kind === 'surface') && lt && lt.id === hit?.id && now - lt.t < 350 && Math.hypot(p.x - lt.x, p.y - lt.y) * scale < 24 && (view.zoom !== 1 || view.rot || view.px || view.py)) {
+        lastTap.current = null;
+        live.current = { kind: null };
+        if (now - dotAt.current < 400) undo();
+        setView({ zoom: 1, rot: 0, px: 0, py: 0 });
         return;
       }
       lastTap.current = { t: now, id: hit?.id, x: p.x, y: p.y };
@@ -2514,16 +2544,6 @@ export function App() {
               </button>
             </div>
             <div className="bar-right">
-              <button
-                className={`btn ${bubble === 'export' ? 'on' : ''}`}
-                onClick={() => {
-                  if (bubble !== 'export') setExportFormats([doc.formatId]);
-                  setBubble(bubble === 'export' ? null : 'export');
-                }}
-                title="Exporter en PNG ou PDF, dans un ou plusieurs formats"
-              >
-                <Icon name="export" />
-              </button>
               <button className={`btn ${bubble === 'light' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'light' ? null : 'light')} title="Lumière">
                 <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
                   <circle cx="12" cy="12" r="4.5" style={{ fill: lampOf(doc).color }} />
@@ -2559,11 +2579,18 @@ export function App() {
               >
                 <Icon name="guides" />
               </button>
-              <button className="btn fit" onClick={() => setView({ zoom: 1, rot: 0, px: 0, py: 0 })} title="Recadrer la vue" disabled={view.zoom === 1 && !view.rot && !view.px && !view.py}>
-                <Icon name="fit" />
-              </button>
               <button className="btn" onClick={() => setRendu(true)} title="Rendu final">
                 <Icon name="eye" />
+              </button>
+              <button
+                className={`btn ${bubble === 'export' ? 'on' : ''}`}
+                onClick={() => {
+                  if (bubble !== 'export') setExportFormats([doc.formatId]);
+                  setBubble(bubble === 'export' ? null : 'export');
+                }}
+                title="Exporter en PNG ou PDF, dans un ou plusieurs formats"
+              >
+                <Icon name="export" />
               </button>
             </div>
           </header>
