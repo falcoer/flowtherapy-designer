@@ -3026,10 +3026,17 @@ export function App() {
               onDrag={(i, x, y) => setDragGuide(i === null ? null : { i, x, y })}
               onDrop={(i, x, y) => {
                 setDragGuide(null);
-                const el = document.elementFromPoint(x, y);
-                if (!el || el.tagName !== 'CANVAS') return;
-                const q = toPage(x, y);
-                const l = layerAt(q.x, q.y);
+                const el = document.elementFromPoint(x, y) as HTMLElement | null;
+                if (!el) return;
+                let l: Layer | null | undefined;
+                if (el.closest('aside.coupe')) {
+                  // posée sur le volet des attributs : la ligne visée de la liste, sinon l'objet ouvert
+                  const row = el.closest('[data-layer]') as HTMLElement | null;
+                  l = doc.layers.find((x) => x.id === (row?.dataset.layer ?? selected));
+                } else if (el.tagName === 'CANVAS') {
+                  const q = toPage(x, y);
+                  l = layerAt(q.x, q.y);
+                } else return;
                 if (!l) return;
                 if (l.kind === 'photo') return setToast('Une photo n’a pas de couleur de fond : peins-la ou donne-lui un style');
                 patchLayer(l.id, { guide: i });
