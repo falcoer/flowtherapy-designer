@@ -826,3 +826,13 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .bw-pick { right: auto; bottom: auto; width: 48px; height: 48px; transform: translate(-50%, -50%); }
 @media (pointer: coarse) and (min-width: 600px) { .brush-wheel > svg { width: 296px; height: 296px; } .bw-pick { width: 58px; height: 58px; } }
 @media (max-width: 560px) { .brush-wheel > svg { width: 196px; height: 196px; } .bw-pick { width: 42px; height: 42px; } }
+/* roue : transitions douces d'un outil à l'autre (coupées pendant le geste) */
+.brush-wheel { animation: none; }
+.brush-wheel > svg { width: 256px; height: 256px; }
+.brush-wheel .bw-fp, .brush-wheel .bw-arrow-g { transform-origin: 0 0; transition: transform 0.35s cubic-bezier(0.3, 0.7, 0.2, 1), opacity 0.25s; }
+.brush-wheel .bw-arrow-g.off { opacity: 0; pointer-events: none; }
+.brush-wheel .bw-seg, .brush-wheel .bw-tilt-pad, .brush-wheel .bw-plane { transition: fill 0.3s, opacity 0.3s; }
+.brush-wheel > svg.live .bw-fp, .brush-wheel > svg.live .bw-arrow-g { transition: none; }
+.bw-pick > * { transition: opacity 0.2s; }
+@media (pointer: coarse) and (min-width: 600px) { .brush-wheel > svg { width: 320px; height: 320px; } }
+@media (max-width: 560px) { .brush-wheel > svg { width: 212px; height: 212px; } }

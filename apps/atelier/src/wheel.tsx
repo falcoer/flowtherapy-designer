@@ -29,8 +29,8 @@ interface Props {
 }
 
 // repère : 0 en haut, sens horaire
-const S = 236;
-const C = 112; // centre de la roue
+const S = 264;
+const C = 128; // centre de la roue
 const RO = 92; // bord extérieur de la jauge
 const RI = 64; // bord intérieur de la jauge (dedans : la taille)
 const MAXF = 52; // rayon de l'empreinte à taille maximale
@@ -42,9 +42,11 @@ const SEG = 18;
 // cadran de perspective, en bas à droite ; choix du pinceau, en bas à gauche
 const TX = C + RO * 0.74;
 const TY = C + RO * 0.74;
-const TR = 40;
+const TR = 32;
 const PX = C - RO * 0.74;
 const PY = C + RO * 0.74;
+// la flèche de rotation tourne au-delà des bulles du bas, pour rester visible
+const RA = RO + 20;
 
 const fr = (v: number) => MINF + v * (MAXF - MINF);
 const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
@@ -138,10 +140,12 @@ export function BrushWheel(p: Props) {
     const [x, y] = local(e);
     const r = Math.hypot(x - C, y - C);
     let zone: Zone | null = null;
-    if (Math.hypot(x - TX, y - TY) <= TR) zone = p.onTilt ? 'tilt' : null;
+    const [ax0, ay0] = at(rot, RA);
+    if (p.onRotation && Math.hypot(x - ax0, y - ay0) < 18) zone = 'rot';
+    else if (Math.hypot(x - TX, y - TY) <= TR) zone = p.onTilt ? 'tilt' : null;
     else if (r < RI) zone = 'size';
     else if (r <= RO) zone = p.onIntensity ? 'ring' : null;
-    else if (r <= RO + 26) zone = p.onRotation ? 'rot' : null;
+    else if (r <= RA + 18) zone = p.onRotation ? 'rot' : null;
     if (!zone) return;
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     const now = performance.now();
@@ -171,7 +175,7 @@ export function BrushWheel(p: Props) {
   // empreinte : tournée, puis mise en perspective
   const k = Math.min(1, Math.hypot(tx, ty));
   const dir = Math.atan2(ty, tx);
-  const persp = k > 0.02 ? `rotate(${(dir * 180) / Math.PI}) scale(${1 - k * 0.35} 1) rotate(${(-dir * 180) / Math.PI})` : '';
+  const persp = `rotate(${(dir * 180) / Math.PI}deg) scale(${1 - k * 0.35}, 1) rotate(${(-dir * 180) / Math.PI}deg)`;
   const dots = p.stamp ? [] : stipple(p.tip ?? 'round', R, p.intensity ?? 0.8);
   const level = p.intensity ?? 0;
   const segs = Array.from({ length: SEG }, (_, i) => [A0 + (i / SEG) * (A1 - A0), A0 + ((i + 1) / SEG) * (A1 - A0)] as const);
@@ -190,10 +194,9 @@ export function BrushWheel(p: Props) {
     const across = (-a * s + b * c) * (1 - (k * 0.45 * (a * c + b * s)) / h);
     return [TX + along * c - across * s, TY + along * s + across * c];
   });
-  const [ax, ay] = at(rot, RO + 4);
   return (
     <div className="brush-wheel">
-      <svg ref={ref} viewBox={`0 0 ${S} ${S}`} onPointerDown={down} onPointerMove={(e) => e.buttons && apply(e)} onPointerUp={up} onPointerCancel={up}>
+      <svg ref={ref} className={active ? 'live' : ''} viewBox={`0 0 ${S} ${S}`} onPointerDown={down} onPointerMove={(e) => e.buttons && apply(e)} onPointerUp={up} onPointerCancel={up}>
         {/* jauge d'intensité : 3/4 de tour en segments */}
         <circle cx={C} cy={C} r={RO} className="bw-disc" />
         {segs.map(([a, b], i) => (
@@ -208,7 +211,7 @@ export function BrushWheel(p: Props) {
         {/* milieu : la taille, l'empreinte à l'échelle */}
         <circle cx={C} cy={C} r={RI} className="bw-center" />
         <circle cx={C} cy={C} r={MAXF} className="bw-guide faint dashed" />
-        <g transform={`translate(${C} ${C}) ${persp} rotate(${(rot * 180) / Math.PI})`}>
+        <g className="bw-fp" style={{ transform: `translate(${C}px, ${C}px) ${persp} rotate(${(rot * 180) / Math.PI}deg)` }}>
           {p.stamp ? (
             <image href={p.stamp} x={-R} y={-R} width={R * 2} height={R * 2} opacity={0.35 + 0.65 * (p.intensity ?? 1)} />
           ) : (
@@ -219,17 +222,15 @@ export function BrushWheel(p: Props) {
         <text x={C} y={C + RI - 8} className="bw-label">
           {active ?? `Ø ${p.sizeText}`}
         </text>
-        {/* rotation : la flèche extérieure */}
-        {p.onRotation && (
-          <g transform={`translate(${ax} ${ay}) rotate(${(rot * 180) / Math.PI})`}>
-            <path d="M0 0 L-9 -16 L9 -16 Z" className="bw-arrow" />
-          </g>
-        )}
         {/* perspective, en bas à droite */}
         <g className={`bw-tilt-pad ${p.onTilt ? '' : 'off'}`}>
           <circle cx={TX} cy={TY} r={TR} className="bw-pad" />
           <polygon points={plane.map((q) => q.join(',')).join(' ')} className="bw-plane" />
           {p.onTilt && <circle cx={TX + tx * TR * 0.8} cy={TY + ty * TR * 0.8} r={5.5} className="bw-tilt" />}
+        </g>
+        {/* rotation : la flèche extérieure, au-dessus des bulles */}
+        <g className={`bw-arrow-g ${p.onRotation ? '' : 'off'}`} style={{ transform: `translate(${C}px, ${C}px) rotate(${(rot * 180) / Math.PI}deg) translate(0px, ${-RA}px)` }}>
+          <path d="M0 0 L-9 -16 L9 -16 Z" className="bw-arrow" />
         </g>
       </svg>
       {p.pick && <Picker {...p.pick} />}

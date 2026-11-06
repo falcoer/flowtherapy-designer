@@ -2974,77 +2974,84 @@ export function App() {
           </aside>
           {(tool === 'paint' || tool === 'stamp' || tool === 'mold') && (
             <div className="wheel-dock" style={bandH ? { bottom: bandH + 12 } : undefined}>
-              {tool === 'paint' && (
-                <BrushWheel
-                  size={(size - 0.01) / 0.14}
-                  sizeText={`${Math.round(size * 100)}`}
-                  onSize={(v) => setSize(0.01 + v * 0.14)}
-                  intensity={opacity}
-                  onIntensity={(v) => setOpacity(Math.max(0.05, v))}
-                  onSizing={(on) => setSizing(on ? 'on' : 'after')}
-                  {...(tipOn(brushKind) ? { tip: brushTip, ...(brushTip !== 'round' ? { rotation: brushRot, onRotation: setBrushRot } : {}) } : {})}
-                  pick={tipOn(brushKind) ? tipPick(brushTip, setBrushTip) : { face: <Icon name="tip-round" />, title: 'Pointe ronde (seule possible pour ce pinceau)' }}
-                />
-              )}
-              {tool === 'stamp' && (
-                <BrushWheel
-                  size={(stampSize - 0.02) / 0.28}
-                  sizeText={`${Math.round(stampSize * 100)}`}
-                  onSize={(v) => setStampSize(0.02 + v * 0.28)}
-                  intensity={1 - dilution}
-                  onIntensity={(v) => setDilution(Math.round((1 - v) * 100) / 100)}
-                  rotation={stampRot}
-                  onRotation={setStampRot}
-                  onSizing={(on) => setSizing(on ? 'on' : 'after')}
-                  {...(stampSow ? {} : { tilt: stampTilt, onTilt: (x: number, y: number) => setStampTilt([x, y]) })}
-                  pick={{
-                    face: <span className="bw-stamp-face" dangerouslySetInnerHTML={{ __html: stampSvg(stampOf(stampId)) }} />,
-                    title: `Tampon : ${stampOf(stampId).name}`,
-                    next: () => setStampId(STAMPS[(STAMPS.findIndex((x) => x.id === stampId) + 1) % STAMPS.length]!.id),
-                    choices: (close) => (
-                      <div className="stamp-grid">
-                        {STAMPS.map((x) => (
-                          <button
-                            key={x.id}
-                            className={stampId === x.id ? 'on' : ''}
-                            onClick={() => {
-                              setStampId(x.id);
-                              close();
-                            }}
-                            title={x.name}
-                          >
-                            <span className="stamp-ico" dangerouslySetInnerHTML={{ __html: stampSvg(x, guideColor(doc.guides[guide], 0.5)) }} />
-                            <small>{x.name}</small>
-                          </button>
-                        ))}
-                      </div>
-                    ),
-                  }}
-                  stamp={`data:image/svg+xml,${encodeURIComponent(stampSvg(stampOf(stampId), guideColor(doc.guides[guide], 0.5)))}`}
-                />
-              )}
-              {tool === 'mold' &&
-                (swash.mode === 'orn' ? (
+              {/* une seule roue d'un outil à l'autre (même clé) : elle glisse d'un réglage à l'autre au lieu de se redessiner */}
+              {[
+                tool === 'paint' && (
                   <BrushWheel
-                    size={((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) - 0.01) / 0.29}
-                    sizeText={`${Math.round((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) * 100)}`}
-                    onSize={(v) => setSwash({ ...swash, w: 0.01 + v * 0.29 })}
-                    pick={{ face: <Icon name="tip-round" />, title: 'Plume : un trait plein et délié' }}
+                    key="wheel"
+                    size={(size - 0.01) / 0.14}
+                    sizeText={`${Math.round(size * 100)}`}
+                    onSize={(v) => setSize(0.01 + v * 0.14)}
+                    intensity={opacity}
+                    onIntensity={(v) => setOpacity(Math.max(0.05, v))}
                     onSizing={(on) => setSizing(on ? 'on' : 'after')}
+                    {...(tipOn(brushKind) ? { tip: brushTip, ...(brushTip !== 'round' ? { rotation: brushRot, onRotation: setBrushRot } : {}) } : {})}
+                    pick={tipOn(brushKind) ? tipPick(brushTip, setBrushTip) : { face: <Icon name="tip-round" />, title: 'Pointe ronde (seule possible pour ce pinceau)' }}
                   />
-                ) : (
+                ),
+                tool === 'stamp' && (
                   <BrushWheel
-                    size={(swash.r - 0.06) / 0.94}
-                    sizeText={`${Math.round(swash.r * 100)}`}
-                    onSize={(v) => setSwash({ ...swash, r: 0.06 + v * 0.94 })}
+                    key="wheel"
+                    size={(stampSize - 0.02) / 0.28}
+                    sizeText={`${Math.round(stampSize * 100)}`}
+                    onSize={(v) => setStampSize(0.02 + v * 0.28)}
+                    intensity={1 - dilution}
+                    onIntensity={(v) => setDilution(Math.round((1 - v) * 100) / 100)}
+                    rotation={stampRot}
+                    onRotation={setStampRot}
                     onSizing={(on) => setSizing(on ? 'on' : 'after')}
-                    intensity={swash.k ?? 1}
-                    onIntensity={(v) => setSwash({ ...swash, k: Math.max(0.05, v) })}
-                    tip={swash.tip ?? 'round'}
-                    pick={tipPick(swash.tip ?? 'round', (tip) => setSwash({ ...swash, tip }))}
-                    {...((swash.tip ?? 'round') !== 'round' ? { rotation: swash.rot ?? 0, onRotation: (rot: number) => setSwash({ ...swash, rot }) } : {})}
+                    {...(stampSow ? {} : { tilt: stampTilt, onTilt: (x: number, y: number) => setStampTilt([x, y]) })}
+                    pick={{
+                      face: <span className="bw-stamp-face" dangerouslySetInnerHTML={{ __html: stampSvg(stampOf(stampId)) }} />,
+                      title: `Tampon : ${stampOf(stampId).name}`,
+                      next: () => setStampId(STAMPS[(STAMPS.findIndex((x) => x.id === stampId) + 1) % STAMPS.length]!.id),
+                      choices: (close) => (
+                        <div className="stamp-grid">
+                          {STAMPS.map((x) => (
+                            <button
+                              key={x.id}
+                              className={stampId === x.id ? 'on' : ''}
+                              onClick={() => {
+                                setStampId(x.id);
+                                close();
+                              }}
+                              title={x.name}
+                            >
+                              <span className="stamp-ico" dangerouslySetInnerHTML={{ __html: stampSvg(x, guideColor(doc.guides[guide], 0.5)) }} />
+                              <small>{x.name}</small>
+                            </button>
+                          ))}
+                        </div>
+                      ),
+                    }}
+                    stamp={`data:image/svg+xml,${encodeURIComponent(stampSvg(stampOf(stampId), guideColor(doc.guides[guide], 0.5)))}`}
                   />
-                ))}
+                ),
+                tool === 'mold' &&
+                  (swash.mode === 'orn' ? (
+                    <BrushWheel
+                      key="wheel"
+                      size={((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) - 0.01) / 0.29}
+                      sizeText={`${Math.round((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) * 100)}`}
+                      onSize={(v) => setSwash({ ...swash, w: 0.01 + v * 0.29 })}
+                      pick={{ face: <Icon name="tip-round" />, title: 'Plume : un trait plein et délié' }}
+                      onSizing={(on) => setSizing(on ? 'on' : 'after')}
+                    />
+                  ) : (
+                    <BrushWheel
+                      key="wheel"
+                      size={(swash.r - 0.06) / 0.94}
+                      sizeText={`${Math.round(swash.r * 100)}`}
+                      onSize={(v) => setSwash({ ...swash, r: 0.06 + v * 0.94 })}
+                      onSizing={(on) => setSizing(on ? 'on' : 'after')}
+                      intensity={swash.k ?? 1}
+                      onIntensity={(v) => setSwash({ ...swash, k: Math.max(0.05, v) })}
+                      tip={swash.tip ?? 'round'}
+                      pick={tipPick(swash.tip ?? 'round', (tip) => setSwash({ ...swash, tip }))}
+                      {...((swash.tip ?? 'round') !== 'round' ? { rotation: swash.rot ?? 0, onRotation: (rot: number) => setSwash({ ...swash, rot }) } : {})}
+                    />
+                  )),
+              ]}
             </div>
           )}
 
