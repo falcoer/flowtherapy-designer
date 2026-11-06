@@ -1998,7 +1998,7 @@ export function App() {
     const t: TextStyle = { content: p.sample, ...p.style };
     const c = textCut(t);
     // corps de départ : une ligne haute d'un dixième du petit côté
-    const h = 0.1;
+    const h = p.size ?? 0.1;
     const n = doc.guides.length || 1;
     const accent = (guide + 1) % n;
     const layer: Layer = {

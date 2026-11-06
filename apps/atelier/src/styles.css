@@ -435,7 +435,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .text-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
 .text-preset { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 6px; border-radius: 12px; background: var(--line); text-align: center; }
 .text-preset:hover { background: var(--accent-soft); }
-.tp-sample { display: grid; place-items: center; height: 58px; overflow: hidden; white-space: nowrap; font-size: 24px; line-height: 1.1; color: var(--ink); border-radius: 9px; background: var(--chrome-solid); padding: 0 6px; }
+.tp-sample { display: grid; place-items: center; height: 58px; overflow: hidden; white-space: pre; font-size: 24px; line-height: 1; color: var(--ink); border-radius: 9px; background: var(--chrome-solid); padding: 0 6px; }
 .tp-neon { color: #fff; background: #1d1830; text-shadow: 0 0 4px #ff5fd2, 0 0 10px #ff5fd2, 0 0 18px #ff5fd2; }
 .tp-sticker { color: #e8553e; text-shadow: 2px 0 #fff, -2px 0 #fff, 0 2px #fff, 0 -2px #fff, 2px 2px #fff, -2px -2px #fff, 2px -2px #fff, -2px 2px #fff, 0 3px 6px rgba(0, 0, 0, 0.35); background: #f4d9a8; }
 .tp-stamp { color: #c2413b; }

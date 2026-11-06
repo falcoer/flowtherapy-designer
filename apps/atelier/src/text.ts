@@ -597,6 +597,8 @@ export interface TextPreset {
   name: string;
   sample: string;
   style: Omit<TextStyle, 'content'>;
+  /** Hauteur de départ de la boîte, en fraction du petit côté (0.1 par défaut). */
+  size?: number;
   /** Apparence posée avec le texte. */
   extra?: 'neon' | 'sticker' | 'stamp' | 'shadow';
 }
@@ -611,6 +613,37 @@ export const TEXT_PRESETS: TextPreset[] = [
   { name: 'Craie', sample: 'ce soir', style: { font: 'kalam', weight: 400, italic: false, align: 'center' } },
   { name: 'Feutre', sample: 'Entrée libre', style: { font: 'marker', weight: 400, italic: false, align: 'center' } },
   { name: 'Enseigne', sample: 'BAR', style: { font: 'bungee', weight: 400, italic: false, align: 'center' } },
+  // le titre de l'affiche : deux lignes serrées, la queue du y file sous « Therapy »
+  {
+    name: 'Flow Therapy',
+    sample: 'Flow\nTherapy',
+    style: {
+      font: 'shrikhand',
+      weight: 400,
+      italic: false,
+      align: 'center',
+      leading: 1,
+      swashes: [
+        {
+          pts: [
+            [4.08, 1.86, 0.75],
+            [3.85, 2.08, 0.75],
+            [3.45, 2.24, 0.75],
+            [2.9, 2.31, 0.75],
+            [2.2, 2.33, 0.75],
+            [1.5, 2.31, 0.75],
+            [0.9, 2.25, 0.75],
+            [0.45, 2.15, 0.75],
+            [0.12, 2.02, 0.75],
+          ],
+          w: 0.17,
+          end: 'point',
+        },
+      ],
+    },
+    extra: 'sticker',
+    size: 0.42,
+  },
   { name: 'Psyché', sample: 'Flow Therapy', style: { font: 'shrikhand', weight: 400, italic: false, align: 'center', warp: { kind: 'bulge', amount: 0.6 } } },
   { name: 'Arche', sample: 'en concert', style: { font: 'bungee', weight: 400, italic: false, align: 'center', tracking: 0.04, warp: { kind: 'arc', amount: 0.5 } } },
   { name: 'Rétro', sample: 'Disco', style: { font: 'lobster', weight: 400, italic: false, align: 'center' } },
