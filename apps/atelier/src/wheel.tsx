@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 export type Tip = 'round' | 'flat' | 'triangle';
 
@@ -18,8 +18,11 @@ interface Props {
   onTilt?: (x: number, y: number) => void;
   /** Empreinte montrée au centre : une pointe, ou l'image d'un tampon. */
   tip?: Tip;
-  /** Choix de la forme de pointe, sous la roue (absent : pas de choix, comme pour les tampons). */
-  onTip?: (t: Tip) => void;
+  /**
+   * Sélecteur rond en bas à droite de la roue, à la même place dans tous les modes :
+   * un toucher passe à la pointe (ou au tampon) suivante ; double toucher ou appui long ouvre le choix.
+   */
+  pick?: { face: ReactNode; title: string; next?: () => void; choices?: (close: () => void) => ReactNode };
   stamp?: string;
   /** Pendant un réglage de la pointe (taille, rotation, inclinaison) et au lâcher : montrer l'empreinte en vraie grandeur sur la page. */
   onSizing?: (on: boolean) => void;
@@ -176,15 +179,9 @@ export function BrushWheel(p: Props) {
           setActive(null);
         }}
       >
-        <defs>
-          <pattern id="bw-grid" width="6" height="6" patternUnits="userSpaceOnUse">
-            <circle cx="3" cy="3" r="0.55" className="bw-grid-dot" />
-          </pattern>
-        </defs>
         {/* couronne pleine, centre transparent : on voit la page à travers */}
         <circle cx={C} cy={C} r={C - 1} className="bw-center" />
         <circle cx={C} cy={C} r={(C - 1 + RING - 13) / 2} className="bw-disc" strokeWidth={C - 1 - (RING - 13)} />
-        <circle cx={C} cy={C} r={RING - 13} fill="url(#bw-grid)" />
         {/* cercles de taille repères */}
         <circle cx={C} cy={C} r={MAXF} className="bw-guide" />
         <circle cx={C} cy={C} r={fr(0.5)} className="bw-guide faint" />
@@ -232,23 +229,68 @@ export function BrushWheel(p: Props) {
           </text>
         )}
       </svg>
-      {p.onTip && (
-        <div className="bw-tips">
-          {(
-            [
-              ['round', 'Ronde', 'M12 7a5 5 0 1 0 0 10a5 5 0 1 0 0-10z'],
-              ['flat', 'Plate', 'M4 10.5h16v3H4z'],
-              ['triangle', 'Triangle', 'M12 6l6 10.5H6z'],
-            ] as const
-          ).map(([t, name, d]) => (
-            <button key={t} className={(p.tip ?? 'round') === t ? 'on' : ''} onClick={() => p.onTip!(t)} title={`Pointe ${name.toLowerCase()}`} aria-label={`Pointe ${name.toLowerCase()}`}>
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
-                <path d={d} fill="currentColor" />
-              </svg>
-            </button>
-          ))}
+      {p.pick && <Picker {...p.pick} />}
+    </div>
+  );
+}
+
+/** Le sélecteur de pointe : toucher pour passer à la suivante, double toucher ou appui long pour choisir. */
+function Picker({ face, title, next, choices }: NonNullable<Props['pick']>) {
+  const [open, setOpen] = useState(false);
+  const press = useRef<{ timer: number; long: boolean } | null>(null);
+  const single = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (single.current) clearTimeout(single.current);
+    },
+    [],
+  );
+  return (
+    <>
+      <button
+        className={`bw-pick ${open ? 'on' : ''}`}
+        title={`${title} (toucher : suivant ; double toucher ou appui long : choisir)`}
+        aria-label={title}
+        onPointerDown={() => {
+          const st = { timer: 0, long: false };
+          st.timer = window.setTimeout(() => {
+            st.long = true;
+            if (choices) setOpen(true);
+          }, 480);
+          press.current = st;
+        }}
+        onPointerUp={() => {
+          const st = press.current;
+          press.current = null;
+          if (!st) return;
+          clearTimeout(st.timer);
+          if (st.long) return;
+          if (single.current) {
+            // deuxième toucher : on ouvre le choix au lieu de passer à la suivante
+            clearTimeout(single.current);
+            single.current = null;
+            if (choices) setOpen(true);
+            return;
+          }
+          if (open) return setOpen(false);
+          single.current = window.setTimeout(() => {
+            single.current = null;
+            next?.();
+          }, 260);
+        }}
+        onPointerLeave={() => {
+          if (press.current) clearTimeout(press.current.timer);
+          press.current = null;
+        }}
+      >
+        {face}
+      </button>
+      {open && choices && (
+        <div className="bw-choices">
+          <div className="b-title">{title}</div>
+          {choices(() => setOpen(false))}
         </div>
       )}
-    </div>
+    </>
   );
 }

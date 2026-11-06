@@ -483,7 +483,6 @@ export function App() {
   const [burnChar, setBurnChar] = useState(0.3);
   const [branchCore, setBranchCore] = useState(1);
   const [burnHole, setBurnHole] = useState(true);
-  const [stampPick, setStampPick] = useState(false);
   /** Survol du stylet (ou de la souris) : un repère montre où la pointe touchera. */
   const hoverRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>({ zoom: 1, rot: 0, px: 0, py: 0 });
@@ -1270,7 +1269,6 @@ export function App() {
     setModePick(false);
     setEpop(null);
     setBrushPick(false);
-    setStampPick(false);
     const touches = [...pointers.current.values()].filter((p) => p.type === 'touch');
     if (e.pointerType === 'touch' && touches.length >= 2) {
       // plusieurs doigts : on annule le geste à un doigt et on manipule la vue
@@ -1555,6 +1553,33 @@ export function App() {
   };
 
   /** Repère de survol : un rond de la taille du pinceau, ou l'empreinte du tampon. */
+  /** Sélecteur de pointe de la roue : ronde, plate, triangle. */
+  const tipPick = (cur: 'round' | 'flat' | 'triangle', set: (t: 'round' | 'flat' | 'triangle') => void) => {
+    const all = ['round', 'flat', 'triangle'] as const;
+    const names = { round: 'Ronde', flat: 'Plate', triangle: 'Triangle' };
+    return {
+      face: <Icon name={`tip-${cur}`} />,
+      title: `Pointe : ${names[cur].toLowerCase()}`,
+      next: () => set(all[(all.indexOf(cur) + 1) % all.length]!),
+      choices: (close: () => void) => (
+        <div className="bw-choice-row">
+          {all.map((t) => (
+            <button
+              key={t}
+              className={cur === t ? 'on' : ''}
+              onClick={() => {
+                set(t);
+                close();
+              }}
+            >
+              <Icon name={`tip-${t}`} />
+              <small>{names[t]}</small>
+            </button>
+          ))}
+        </div>
+      ),
+    };
+  };
   /** Empreinte en vraie grandeur au centre de l'écran, pendant le réglage de la taille sur la roue. */
   const [sizing, setSizing] = useState<'on' | 'after' | null>(null);
   /** Où survole le stylet (s'il survole la page) : l'empreinte réglée sur la roue s'y montre plutôt qu'au centre. */
@@ -2885,33 +2910,6 @@ export function App() {
               {tool === 'stamp' && (
                 <>
                   <button
-                    className={`btn small stamp-btn ${stampPick ? 'on' : ''}`}
-                    onClick={() => setStampPick(!stampPick)}
-                    title={`Motif : ${stampOf(stampId).name}`}
-                    dangerouslySetInnerHTML={{ __html: stampSvg(stampOf(stampId)) }}
-                  />
-                  {stampPick && (
-                    <div className="mode-pop wide stamp-pop">
-                      <div className="b-title">Tampons</div>
-                      <div className="stamp-grid">
-                        {STAMPS.map((x) => (
-                          <button
-                            key={x.id}
-                            className={stampId === x.id ? 'on' : ''}
-                            onClick={() => {
-                              setStampId(x.id);
-                              setStampPick(false);
-                            }}
-                            title={x.name}
-                          >
-                            <span className="stamp-ico" dangerouslySetInnerHTML={{ __html: stampSvg(x, guideColor(doc.guides[guide], 0.5)) }} />
-                            <small>{x.name}</small>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <button
                     className="btn small"
                     onClick={() => setStampSow(!stampSow)}
                     title={stampSow ? 'Semis : des copies du motif s’éparpillent le long du geste (toucher pour l’essuyé)' : 'Essuyé : l’empreinte s’étire quand on glisse (toucher pour le semis)'}
@@ -2984,7 +2982,8 @@ export function App() {
                   intensity={opacity}
                   onIntensity={(v) => setOpacity(Math.max(0.05, v))}
                   onSizing={(on) => setSizing(on ? 'on' : 'after')}
-                  {...(tipOn(brushKind) ? { tip: brushTip, onTip: setBrushTip, ...(brushTip !== 'round' ? { rotation: brushRot, onRotation: setBrushRot } : {}) } : {})}
+                  {...(tipOn(brushKind) ? { tip: brushTip, ...(brushTip !== 'round' ? { rotation: brushRot, onRotation: setBrushRot } : {}) } : {})}
+                  pick={tipOn(brushKind) ? tipPick(brushTip, setBrushTip) : { face: <Icon name="tip-round" />, title: 'Pointe ronde (seule possible pour ce pinceau)' }}
                 />
               )}
               {tool === 'stamp' && (
@@ -2998,6 +2997,29 @@ export function App() {
                   onRotation={setStampRot}
                   onSizing={(on) => setSizing(on ? 'on' : 'after')}
                   {...(stampSow ? {} : { tilt: stampTilt, onTilt: (x: number, y: number) => setStampTilt([x, y]) })}
+                  pick={{
+                    face: <span className="bw-stamp-face" dangerouslySetInnerHTML={{ __html: stampSvg(stampOf(stampId)) }} />,
+                    title: `Tampon : ${stampOf(stampId).name}`,
+                    next: () => setStampId(STAMPS[(STAMPS.findIndex((x) => x.id === stampId) + 1) % STAMPS.length]!.id),
+                    choices: (close) => (
+                      <div className="stamp-grid">
+                        {STAMPS.map((x) => (
+                          <button
+                            key={x.id}
+                            className={stampId === x.id ? 'on' : ''}
+                            onClick={() => {
+                              setStampId(x.id);
+                              close();
+                            }}
+                            title={x.name}
+                          >
+                            <span className="stamp-ico" dangerouslySetInnerHTML={{ __html: stampSvg(x, guideColor(doc.guides[guide], 0.5)) }} />
+                            <small>{x.name}</small>
+                          </button>
+                        ))}
+                      </div>
+                    ),
+                  }}
                   stamp={`data:image/svg+xml,${encodeURIComponent(stampSvg(stampOf(stampId), guideColor(doc.guides[guide], 0.5)))}`}
                 />
               )}
@@ -3007,6 +3029,7 @@ export function App() {
                     size={((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) - 0.01) / 0.29}
                     sizeText={`${Math.round((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) * 100)}`}
                     onSize={(v) => setSwash({ ...swash, w: 0.01 + v * 0.29 })}
+                    pick={{ face: <Icon name="tip-round" />, title: 'Plume : un trait plein et délié' }}
                     onSizing={(on) => setSizing(on ? 'on' : 'after')}
                   />
                 ) : (
@@ -3018,7 +3041,7 @@ export function App() {
                     intensity={swash.k ?? 1}
                     onIntensity={(v) => setSwash({ ...swash, k: Math.max(0.05, v) })}
                     tip={swash.tip ?? 'round'}
-                    onTip={(tip) => setSwash({ ...swash, tip })}
+                    pick={tipPick(swash.tip ?? 'round', (tip) => setSwash({ ...swash, tip }))}
                     {...((swash.tip ?? 'round') !== 'round' ? { rotation: swash.rot ?? 0, onRotation: (rot: number) => setSwash({ ...swash, rot }) } : {})}
                   />
                 ))}
