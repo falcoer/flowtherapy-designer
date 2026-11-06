@@ -516,6 +516,8 @@ export function App() {
   const [sowDensity, setSowDensity] = useState(0.5);
   const [sowSpread, setSowSpread] = useState(0.4);
   const [sowPersp, setSowPersp] = useState(0.3);
+  /** Semis : le cadran Inclinaison de la roue règle la force de la perspective (le sens varie d'une copie à l'autre). */
+  const [sowPad, setSowPad] = useState<[number, number]>([0.21, -0.21]);
   const [stampFilled, setStampFilled] = useState(false);
   /** Rotation du tampon (radians), fixée au curseur : Safari ne transmet pas la rotation du crayon. */
   const [stampRot, setStampRot] = useState(0);
@@ -3210,7 +3212,6 @@ export function App() {
                     <>
                       <VSlider label="Densité" value={sowDensity} onChange={(v) => setSowDensity(Math.round(v * 100) / 100)} />
                       <VSlider label="Écart" value={sowSpread} onChange={(v) => setSowSpread(Math.round(v * 100) / 100)} />
-                      <VSlider label="Inclinaison" value={sowPersp} onChange={(v) => setSowPersp(Math.round(v * 100) / 100)} />
                     </>
                   )}
                 </>
@@ -3294,7 +3295,15 @@ export function App() {
                     rotation={stampRot}
                     onRotation={setStampRot}
                     onSizing={(on) => setSizing(on ? 'on' : 'after')}
-                    {...(stampSow ? {} : { tilt: stampTilt, onTilt: (x: number, y: number) => setStampTilt([x, y]) })}
+                    {...(stampSow
+                      ? {
+                          tilt: sowPad,
+                          onTilt: (x: number, y: number) => {
+                            setSowPad([x, y]);
+                            setSowPersp(Math.min(1, Math.round(Math.hypot(x, y) * 100) / 100));
+                          },
+                        }
+                      : { tilt: stampTilt, onTilt: (x: number, y: number) => setStampTilt([x, y]) })}
                     pick={{
                       face: <span className="bw-stamp-face" dangerouslySetInnerHTML={{ __html: stampSvg(stampOf(stampId)) }} />,
                       title: `Tampon : ${stampOf(stampId).name}`,
