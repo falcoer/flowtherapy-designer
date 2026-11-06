@@ -476,7 +476,9 @@ export function CoupePanel({
   /** La couche de l'aperçu que chaque section édite (les bords : l'objet fini). */
   const plyOf = (sec: Section) => {
     const has = (id: string) => plies.some((p) => p.id === id);
-    if (sec === 'edge' || sec === 'depth') return 'result';
+    if (sec === 'edge') return 'result';
+    // le volume se lit sur la plaque du support
+    if (sec === 'depth') return 'support';
     if (sec === 'coat') return has('coat') ? 'coat' : 'result';
     if (sec === 'transform') return has('transform') ? 'transform' : 'image';
     return sec;
