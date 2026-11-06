@@ -2734,6 +2734,14 @@ export function App() {
                       <Icon name="mold" />
                     )}
                   </button>
+                  <button
+                    className="btn small"
+                    disabled={!sel?.molded}
+                    onClick={() => sel && unmold(sel)}
+                    title={sel?.kind === 'text' ? 'Revenir au texte : retire le modelage, rend les lettres et tous leurs attributs' : 'Revenir à l’origine : retire tout le modelage'}
+                  >
+                    <Icon name="paint-reset" />
+                  </button>
                   {swash.mode === 'orn' ? (
                     <VSlider label="Taille" value={((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) - 0.01) / 0.29} onChange={(v) => setSwash({ ...swash, w: 0.01 + v * 0.29 })} />
                   ) : (
@@ -2743,19 +2751,6 @@ export function App() {
                     <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M3 16c2-1 2.5-3 4-3s2 2.5 3.5 2.5S12 12 13.5 12 15 14 16.5 14" strokeDasharray="2 2" />
                       <path d="M3 9c4-3 10-3 18 0" />
-                    </svg>
-                  </button>
-                  <button
-                    className="btn small"
-                    disabled={!sel?.molded}
-                    onClick={() => sel && unmold(sel)}
-                    title={sel?.kind === 'text' ? 'Revenir au texte : retire le modelage, rend les lettres et tous leurs attributs' : 'Revenir à l’origine : retire tout le modelage'}
-                  >
-                    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="3.5" y="3.5" width="10" height="10" rx="1.5" strokeDasharray="2.2 2" />
-                      <path d="M20 9c1 5-2.5 10-8 10.5" />
-                      <path d="M14.5 16.5 12 19.5l3 2.2" />
-                      <path d="M17 6.5c1 .6 2 1.5 2.7 2.5" strokeWidth="1.4" />
                     </svg>
                   </button>
                 </>
