@@ -167,7 +167,8 @@ export function shadeField(w: number, h: number, H: Float32Array, L: BumpLight, 
  * Profil du biseau : à partir d'un masque (0..1), la distance au bord en pixels, puis une hauteur
  * qui monte sur `width` pixels (arrondi : quart de rond ; chanfrein : pente droite).
  */
-export function bevelField(w: number, h: number, mask: Float32Array, width: number, profile: 'round' | 'chamfer'): Float32Array {
+/** Distance au bord du masque, en pixels (exacte, euclidienne). */
+export function distField(w: number, h: number, mask: Float32Array): Float32Array {
   // distance euclidienne exacte (Felzenszwalb), en deux passes séparées
   const INF = 1e12;
   const G = new Float64Array(w * h);
@@ -216,18 +217,15 @@ export function bevelField(w: number, h: number, mask: Float32Array, width: numb
       (i, x) => (G[j * w + i] = x),
     );
   const D = new Float32Array(w * h);
-  for (let n = 0; n < D.length; n++) D[n] = Math.sqrt(G[n]!) * 3;
-  const W = Math.max(1, width);
-  const out = new Float32Array(w * h);
-  for (let n = 0; n < D.length; n++) {
-    // le bord doux du masque prolonge la distance d'une fraction de pixel
-    const t = Math.min(1, (D[n]! / 3 + mask[n]! - 0.5) / W);
-    if (t <= 0) continue;
-    out[n] = W * (profile === 'chamfer' ? t * 0.8 : 1 - (1 - t) * (1 - t));
-  }
-  // trois passages de lissage effacent les marches de la distance (rayons en éventail)
-  let cur = out;
-  for (let pass = 0; pass < 3; pass++) {
+  // le bord doux du masque prolonge la distance d'une fraction de pixel
+  for (let n = 0; n < D.length; n++) D[n] = G[n] ? Math.max(0, Math.sqrt(G[n]!) - 0.5 + mask[n]!) : 0;
+  return D;
+}
+
+/** Lissage 3×3, répété : efface les marches de la distance (rayons en éventail). */
+export function soften(H: Float32Array, w: number, h: number, passes: number): Float32Array {
+  let cur = H;
+  for (let pass = 0; pass < passes; pass++) {
     const sm = new Float32Array(w * h);
     for (let j = 0; j < h; j++)
       for (let i = 0; i < w; i++) {
@@ -245,4 +243,66 @@ export function bevelField(w: number, h: number, mask: Float32Array, width: numb
     cur = sm;
   }
   return cur;
+}
+
+/**
+ * Profil du biseau : à partir de la distance au bord, une hauteur qui monte sur `width` pixels
+ * (arrondi : quart de rond ; chanfrein : pente droite).
+ */
+export function bevelField(w: number, h: number, D: Float32Array, width: number, profile: 'round' | 'chamfer'): Float32Array {
+  const W = Math.max(1, width);
+  const out = new Float32Array(w * h);
+  for (let n = 0; n < D.length; n++) {
+    const t = Math.min(1, D[n]! / W);
+    if (t <= 0) continue;
+    out[n] = W * (profile === 'chamfer' ? t * 0.8 : 1 - (1 - t) * (1 - t));
+  }
+  return out;
+}
+
+/**
+ * Volume tiré du contour (hauteurs en pixels) : dôme et coussin depuis la distance au bord,
+ * cône en pente droite, cylindre arrondi en travers de son axe.
+ */
+export function volumeField(w: number, h: number, mask: Float32Array, D: Float32Array, v: { kind: string; amount: number; axis?: number }): Float32Array {
+  const out = new Float32Array(w * h);
+  let R = 1;
+  for (let n = 0; n < D.length; n++) if (D[n]! > R) R = D[n]!;
+  const a = v.amount;
+  if (v.kind === 'cylinder') {
+    // en travers de l'axe : on cherche les deux bords de la tranche, puis un demi-cercle
+    const ax = v.axis ?? 0;
+    const [px, py] = [Math.cos(ax), Math.sin(ax)];
+    const inside = (x: number, y: number) => {
+      const [i, j] = [Math.round(x), Math.round(y)];
+      return i >= 0 && j >= 0 && i < w && j < h && mask[j * w + i]! >= 0.5;
+    };
+    const step = 1;
+    for (let j = 0; j < h; j++)
+      for (let i = 0; i < w; i++) {
+        const n = j * w + i;
+        if (mask[n]! < 0.5) continue;
+        let l = 0;
+        while (inside(i - px * (l + step), j - py * (l + step))) l += step;
+        let r = 0;
+        while (inside(i + px * (r + step), j + py * (r + step))) r += step;
+        const half = (l + r + 1) / 2;
+        const t = (r - l) / 2 / half;
+        out[n] = a * half * Math.sqrt(Math.max(0, 1 - t * t));
+      }
+    return out;
+  }
+  for (let n = 0; n < D.length; n++) {
+    const d = D[n]!;
+    if (d <= 0) continue;
+    const t = d / R;
+    if (v.kind === 'dome') out[n] = a * R * Math.sqrt(1 - (1 - t) * (1 - t));
+    else if (v.kind === 'cone') out[n] = a * d;
+    else {
+      // coussin : arrondi sur le premier tiers, plat au milieu
+      const u = Math.min(1, t / 0.35);
+      out[n] = a * 0.35 * R * Math.sqrt(1 - (1 - u) * (1 - u));
+    }
+  }
+  return out;
 }

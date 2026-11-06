@@ -4,7 +4,7 @@ import { BORDER_TYPES, fxPreview, GLOW_TYPES, swatch } from './App';
 import { FX, fxGuides, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
-import { GEN_DEFAULTS, type Doc, type Layer } from './model';
+import { GEN_DEFAULTS, VOLUMES, type Doc, type Layer } from './model';
 import { fontFamily, fontList, fontOf, leanOf, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { TextContent, TextWarp, WarpGlyph } from './textbar';
 import { TiltPad } from './tilt';
@@ -103,6 +103,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
     if (l.glow) out.push({ sec: 'edge', key: 'glow', name: GLOW_TYPES.find((x) => x[0] === l.glow!.style)![1], bg: `radial-gradient(circle, #fff 20%, ${swatch(doc.guides[l.glow.guide])} 60%)`, removable: true });
   }
   if (l.molded) out.push({ sec: 'image', key: 'molded', name: 'Modelé', bg: '', removable: false, glyph: 'molded' });
+  if (l.volume) out.push({ sec: 'image', key: 'volume', name: VOLUMES.find((x) => x[0] === l.volume!.kind)![1], bg: 'radial-gradient(circle at 35% 30%,#fff,#b9b2c9 55%,#6f6880)', removable: true });
   for (const { x, i } of fxIn(l, 'lumiere')) out.push({ sec: 'coat', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: true });
   if (l.kind === 'shape') {
     const gen = genOf(l);
@@ -137,6 +138,7 @@ function removal(l: Layer, key: string): Partial<Layer> {
   if (key === 'border') return { border: undefined };
   if (key === 'bevel') return { bevel: 0, bevelProfile: undefined, bevelBorder: undefined };
   if (key === 'trim') return { trim: undefined };
+  if (key === 'volume') return { volume: undefined };
   if (key === 'glow') return { glow: undefined };
   if (key === 'material') return { material: undefined };
   if (key === 'look' || key === 'draw') {
@@ -184,6 +186,15 @@ function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; pa
     return MATERIALS()
       .filter((d) => d.id !== l.material?.id && !(d.transparent && l.kind === 'surface'))
       .map((d) => ({ id: d.id, name: d.name, patch: { material: newFx(d.id), ...(d.transparent ? { opacity: d.transparent } : {}) }, focus: 'material' }));
+  // volume : proposé à tout objet qui n'en a pas encore
+  const vols =
+    l.kind === 'surface' || l.volume
+      ? []
+      : VOLUMES.map(([kind, name]) => ({ id: `v-${kind}`, name: `Volume ${name.toLowerCase()}`, patch: { volume: { kind, amount: kind === 'cone' ? 0.5 : 0.7 } } as Partial<Layer>, focus: 'volume' }));
+  return [...vols, ...imageChoices(l)];
+}
+
+function imageChoices(l: Layer): Array<{ id: string; name: string; patch: Partial<Layer>; focus: string; text?: Partial<TextStyle>; font?: string }> {
   // texte : le catalogue des polices, chacune montrée avec le texte lui-même
   if (l.kind === 'text' && l.text && l.molded) return [];
   if (l.kind === 'text' && l.text)
@@ -656,6 +667,31 @@ function Attrs({
         <Dots label="Couleur" value={gl.guide} doc={doc} onPick={(i) => patch({ glow: { ...gl, guide: i } })} />
         <Range label="Distance" min={-1} value={gl.distance} onChange={(v) => live({ glow: { ...gl, distance: Math.round(v * 100) / 100 } })} />
         <Range label="Largeur" value={gl.width} onChange={(v) => live({ glow: { ...gl, width: Math.round(v * 100) / 100 } })} />
+      </>
+    );
+  } else if (item.key === 'volume' && l.volume) {
+    const v = l.volume;
+    body = (
+      <>
+        <label className="cp-row">
+          <span>Volume</span>
+          <span className="seg cp-seg">
+            {VOLUMES.map(([k, name]) => (
+              <button key={k} className={v.kind === k ? 'on' : ''} onClick={() => patch({ volume: { ...v, kind: k } })}>
+                {name}
+              </button>
+            ))}
+          </span>
+        </label>
+        <Range label="Force" value={v.amount} onChange={(x) => live({ volume: { ...v, amount: Math.max(0.05, Math.round(x * 100) / 100) } })} />
+        {v.kind === 'cylinder' && (
+          <Range
+            label="Axe"
+            value={((((v.axis ?? 0) / Math.PI) % 1) + 1) % 1}
+            display={`${Math.round((((((v.axis ?? 0) * 180) / Math.PI) % 180) + 180) % 180)}°`}
+            onChange={(x) => live({ volume: { ...v, axis: (Math.round(x * 36) / 36) * Math.PI } })}
+          />
+        )}
       </>
     );
   } else if (item.key === 'paint') {

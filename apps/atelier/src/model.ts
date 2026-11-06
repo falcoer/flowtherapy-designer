@@ -127,6 +127,8 @@ export interface Layer {
   bump?: import('./bump').Bump;
   /** Biseau (0..1) : largeur du relief au bord, éclairé par la lampe (scene.ts drawBevel). */
   bevel?: number;
+  /** Volume de la forme, tiré de son contour (indépendant du matériau). */
+  volume?: Volume;
   /** Profil du biseau : arrondi (par défaut) ou chanfrein. */
   bevelProfile?: 'round' | 'chamfer';
   /** Le biseau commence au bord ajouté (et non à la découpe). */
@@ -376,3 +378,18 @@ export const DEFAULT_GUIDES: Guide[] = [
  * Les traits de peinture comptent des milliers de points : le document pèse ainsi plusieurs fois moins.
  */
 export const compact = (_k: string, v: unknown) => (typeof v === 'number' && !Number.isInteger(v) ? Math.round(v * 1e5) / 1e5 : v);
+
+export type VolumeKind = 'dome' | 'cylinder' | 'cone' | 'cushion';
+export interface Volume {
+  kind: VolumeKind;
+  /** Force (0..1) : 1 = demi-sphère pour le dôme, pente à 45° pour le cône. */
+  amount: number;
+  /** Cylindre : direction de l'axe dans la forme (radians, 0 = debout). */
+  axis?: number;
+}
+export const VOLUMES: Array<[VolumeKind, string]> = [
+  ['dome', 'Dôme'],
+  ['cylinder', 'Cylindre'],
+  ['cone', 'Cône'],
+  ['cushion', 'Coussin'],
+];

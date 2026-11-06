@@ -1,4 +1,4 @@
-import { bevelField, lightKey, shadeBump, shadeField, type BumpLight } from './bump';
+import { bevelField, distField, lightKey, shadeBump, shadeField, soften, volumeField, type BumpLight } from './bump';
 import { burnLayers, paintStroke, type Target } from './brush';
 import { rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
@@ -557,8 +557,8 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     drawFxInside(ctx, l, doc, f, o, path);
 
     ctx.restore();
-    // biseau : un relief au bord de la découpe (ou du bord ajouté), éclairé comme le relief sculpté
-    if ((l.bevel ?? 0) > 0.001 && l.kind !== 'surface') drawBevel(ctx, l, doc, f, path, b);
+    // volume et biseau : un relief tiré du contour (ou du bord ajouté), éclairé comme le relief sculpté
+    if (((l.bevel ?? 0) > 0.001 || (l.volume && l.volume.amount > 0.001)) && l.kind !== 'surface') drawBevel(ctx, l, doc, f, path, b);
     drawGlow(ctx, l, doc, f, o, false);
     ctx.restore();
   }
@@ -1550,7 +1550,7 @@ const bevelCache = new Map<string, { key: string; c: HTMLCanvasElement; W: numbe
 function drawBevel(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, path: Path2D, b: { cx: number; cy: number; w: number; h: number }) {
   const minSide = Math.min(f.width, f.height);
   const out = l.bevelBorder ? borderOut(l, f) : 0;
-  const width = 0.18 * (l.bevel ?? 0) * minSide;
+  const width = (l.bevel ?? 0) > 0.001 ? 0.18 * (l.bevel ?? 0) * minSide : 0;
   const [W, H] = [b.w + 2 * out + 0.01 * minSide, b.h + 2 * out + 0.01 * minSide];
   const s = 320 / Math.max(W, H);
   const [gw, gh] = [Math.max(8, Math.round(W * s)), Math.max(8, Math.round(H * s))];
@@ -1558,7 +1558,7 @@ function drawBevel(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format,
   const r = -(l.rot ?? 0);
   const L: BumpLight = { lx: li.lx * Math.cos(r) - li.ly * Math.sin(r), ly: li.lx * Math.sin(r) + li.ly * Math.cos(r), ...surfaceLight(l, doc, li.k) };
   const profile = l.bevelProfile ?? 'round';
-  const key = JSON.stringify([cutId(l), b.w, b.h, l.rot ?? 0, l.trim, out, l.border?.style, width.toFixed(4), profile, gw, gh, lightKey(L)]);
+  const key = JSON.stringify([cutId(l), b.w, b.h, l.rot ?? 0, l.trim, out, l.border?.style, width.toFixed(4), profile, l.volume, gw, gh, lightKey(L)]);
   let hit = bevelCache.get(l.id);
   if (hit?.key !== key) {
     const m = document.createElement('canvas');
@@ -1577,8 +1577,16 @@ function drawBevel(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format,
     const px = mx.getImageData(0, 0, gw, gh).data;
     const mask = new Float32Array(gw * gh);
     for (let n = 0; n < mask.length; n++) mask[n] = px[n * 4 + 3]! / 255;
-    const Hf = bevelField(gw, gh, mask, width * s, profile);
-    hit = { key, c: shadeField(gw, gh, Hf, L, 1, mask, 0.65), W, H };
+    const D = distField(gw, gh, mask);
+    const Hf = width > 0 ? bevelField(gw, gh, D, width * s, profile) : new Float32Array(gw * gh);
+    if (l.volume && l.volume.amount > 0.001) {
+      // le volume ne prend que la découpe : le bord ajouté reste à plat (sauf biseau)
+      const cm = out > 0 ? cutMask(path, gw, gh, s, r, b) : mask;
+      const V = volumeField(gw, gh, cm, out > 0 ? distField(gw, gh, cm) : D, l.volume);
+      for (let n = 0; n < Hf.length; n++) Hf[n] += V[n]!;
+    }
+    const Hs = soften(Hf, gw, gh, 3);
+    hit = { key, c: shadeField(gw, gh, Hs, L, 1, mask, 0.65), W, H };
     if (bevelCache.size > 64) bevelCache.clear();
     bevelCache.set(l.id, hit);
   }
@@ -1589,4 +1597,20 @@ function drawBevel(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format,
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(hit.c, -hit.W / 2, -hit.H / 2, hit.W, hit.H);
   ctx.restore();
+}
+
+/** Masque de la seule découpe, sur la grille du biseau (quand le bord ajouté est compris). */
+function cutMask(path: Path2D, gw: number, gh: number, s: number, r: number, b: { cx: number; cy: number }): Float32Array {
+  const m = document.createElement('canvas');
+  m.width = gw;
+  m.height = gh;
+  const mx = m.getContext('2d')!;
+  mx.setTransform(s, 0, 0, s, gw / 2, gh / 2);
+  mx.rotate(r);
+  mx.translate(-b.cx, -b.cy);
+  mx.fill(path, 'evenodd');
+  const px = mx.getImageData(0, 0, gw, gh).data;
+  const out = new Float32Array(gw * gh);
+  for (let n = 0; n < out.length; n++) out[n] = px[n * 4 + 3]! / 255;
+  return out;
 }
