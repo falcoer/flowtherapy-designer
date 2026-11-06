@@ -429,6 +429,9 @@ const cache = new Map<string, TextCut>();
 const byStyle = new WeakMap<TextStyle, { epoch: number; c: TextCut }>();
 
 /** Découpe des lettres en coordonnées 0..1 de leur boîte. */
+/** Largeur de la boîte du texte, en corps : pour passer des tailles en corps à l'écran. */
+export const textEm = (t: TextStyle) => textCut(t).bw / BODY;
+
 export function textCut(t: TextStyle): TextCut {
   const hit = byStyle.get(t);
   if (hit && hit.epoch === fontEpoch) return hit.c;

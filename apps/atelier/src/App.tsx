@@ -4,7 +4,7 @@ import { paintStroke, previewStamps } from './brush';
 import { STAMPS, stampOf, stampSvg } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
-import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
+import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
 import { TextBar, type SwashTool } from './textbar';
 import { PaletteEditor } from './colorpicker';
 import { isClosed, recognize } from './shapes';
@@ -373,7 +373,7 @@ export function App() {
   /** Barre de texte ouverte sur le clavier (ou l'écriture au stylet). */
   const [textEditing, setTextEditing] = useState(false);
   /** Outil Prolonger de la barre de texte. */
-  const [swash, setSwash] = useState<SwashTool>({ on: false, mode: 'mold', r: 0.3, end: 'point', w: null, nib: true, double: false });
+  const [swash, setSwash] = useState<SwashTool>({ on: false, mode: 'mold', r: 0.3, end: 'point', w: null });
   const [size, setSize] = useState(0.05);
   const [opacity, setOpacity] = useState(0.85);
   /** Outil Tampons : motif, taille, opacité et dilution de l'encre. */
@@ -1229,8 +1229,7 @@ export function App() {
                   pts: [[...swashPoint(sel.text, loc.x, loc.y), pr] as [number, number, number]],
                   w: swash.w ?? swashWidth(sel.text.weight) * 0.8,
                   end: 'fine',
-                  ...(swash.nib ? { nib: -Math.PI / 4 } : {}),
-                  ...(swash.double ? { double: (swash.w ?? swashWidth(sel.text.weight) * 0.8) * 1.6 } : {}),
+                  nib: -Math.PI / 4,
                 },
               },
             }
@@ -1421,14 +1420,18 @@ export function App() {
   const showHover = (e: React.PointerEvent) => {
     const el = hoverRef.current;
     if (!el) return;
-    const painting = tool === 'paint' || tool === 'stamp';
+    const sel = doc.layers.find((l) => l.id === selected);
+    const shaping = swash.on && tool === 'move' && sel?.kind === 'text' && !!sel.text;
+    const painting = tool === 'paint' || tool === 'stamp' || shaping;
     if (!painting || rendu || (e.pointerType !== 'pen' && e.pointerType !== 'mouse')) return hideHover();
     const m = Math.min(f.width, f.height) * scale;
-    const d = tool === 'stamp' ? stampSize * 2 * m : size * 2 * m;
+    // Modeler : le rond couvre la zone qui bouge ; Plume : l'épaisseur du trait
+    const em = shaping ? (layerBox(sel!, f).w * scale) / Math.max(1e-6, textEm(sel!.text!)) : 0;
+    const d = shaping ? (swash.mode === 'orn' ? (swash.w ?? swashWidth(sel!.text!.weight) * 0.8) * em : swash.r * 2 * em) : tool === 'stamp' ? stampSize * 2 * m : size * 2 * m;
     el.style.display = 'block';
     const D = Math.max(6, d);
     // brosse plate ou triangle : la silhouette de la touche, tournée comme elle peindra
-    const tip = tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
+    const tip = !shaping && tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
     el.dataset.tip = tip;
     el.style.width = `${D}px`;
     el.style.height = `${tip === 'flat' ? Math.max(3, D * 0.3) : D}px`;

@@ -557,4 +557,5 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .export-bubble { width: min(320px, calc(100vw - 20px)); }
 .btn-primary { height: 42px; border-radius: 12px; background: var(--accent); color: #fff; font-weight: 600; margin-top: 4px; }
 .btn-primary:disabled { opacity: 0.5; }
-.tb-modes button { padding: 0 12px; font-size: 13px; }
+.tb-mode { display: flex; align-items: center; gap: 6px; padding: 0 12px; flex: none; width: auto; }
+.tb-mode small { font-size: 12px; font-weight: 600; }
