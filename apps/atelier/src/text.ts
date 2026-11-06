@@ -42,8 +42,8 @@ export interface Mold {
 }
 
 /** Applique un modelage aux contours (en pixels), en gardant des points assez serrés. */
-function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number): Ring[] {
-  if (m.smooth) return regularize(rings, m.smooth * size);
+function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number, pristine: Ring[]): Ring[] {
+  if (m.smooth) return regularize(rings, m.smooth * size, pristine);
   const R = Math.max(2, m.r * size);
   const pts = m.pts.map(([x, y]) => ({ x: X0 + x * size, y: Y0 + y * size }));
   let out = rings.map((r) => r.map((p) => ({ x: p.x, y: p.y })));
@@ -69,82 +69,110 @@ function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number): Rin
  * Refonte du contour : on remplit le tracé modelé puis on relève à nouveau son bord.
  * Les replis, les traits qui se chevauchent ou se tassent fusionnent en une forme nette.
  */
-/** Le tracé rempli, en alpha, dans un canevas juste assez grand (plus une marge). */
-function rasterRings(rings: Ring[], margin: number) {
+/** Cadre en pixels qui contient tous les contours donnés, plus une marge. */
+function frameOf(sets: Ring[][], margin: number) {
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
-  for (const r of rings)
-    for (const p of r) {
-      x0 = Math.min(x0, p.x);
-      y0 = Math.min(y0, p.y);
-      x1 = Math.max(x1, p.x);
-      y1 = Math.max(y1, p.y);
-    }
+  for (const rings of sets)
+    for (const r of rings)
+      for (const p of r) {
+        x0 = Math.min(x0, p.x);
+        y0 = Math.min(y0, p.y);
+        x1 = Math.max(x1, p.x);
+        y1 = Math.max(y1, p.y);
+      }
   if (!isFinite(x0)) return null;
   const ox = Math.floor(x0) - margin;
   const oy = Math.floor(y0) - margin;
   const W = Math.ceil(x1) - ox + margin + 1;
   const H = Math.ceil(y1) - oy + margin + 1;
-  if (W * H > 6e7) return null;
+  return W * H > 6e7 ? null : { ox, oy, W, H };
+}
+/** Le tracé rempli, en couverture 0..1, dans le cadre donné. */
+function rasterIn(rings: Ring[], f: { ox: number; oy: number; W: number; H: number }): Float32Array {
   const cv = document.createElement('canvas');
-  cv.width = W;
-  cv.height = H;
+  cv.width = f.W;
+  cv.height = f.H;
   const ctx = cv.getContext('2d', { willReadFrequently: true })!;
   const path = new Path2D();
   for (const r of rings) {
-    r.forEach((p, i) => (i ? path.lineTo(p.x - ox, p.y - oy) : path.moveTo(p.x - ox, p.y - oy)));
+    r.forEach((p, i) => (i ? path.lineTo(p.x - f.ox, p.y - f.oy) : path.moveTo(p.x - f.ox, p.y - f.oy)));
     path.closePath();
   }
   ctx.fillStyle = '#000';
   ctx.fill(path, 'nonzero');
-  return { data: ctx.getImageData(0, 0, W, H).data, W, H, ox, oy };
+  const d = ctx.getImageData(0, 0, f.W, f.H).data;
+  const a = new Float32Array(f.W * f.H);
+  for (let i = 0; i < a.length; i++) a[i] = d[i * 4 + 3]! / 255;
+  return a;
 }
-
-/**
- * Régulariser : le contour est lissé comme une encre qui se pose. Les petits accrocs et les
- * miettes disparaissent, les pleins s'égalisent (flou puis seuil), puis les bords ondulés se
- * redressent dans leur propre sens (lissage qui ne fait pas maigrir la lettre).
- */
-function regularize(rings: Ring[], radius: number): Ring[] {
-  const r = Math.max(1, Math.round(radius));
-  const ras = rasterRings(rings, r * 3 + 3);
-  if (!ras) return rings;
-  const { data, W, H, ox, oy } = ras;
-  let a = new Float32Array(W * H);
-  for (let i = 0; i < W * H; i++) a[i] = data[i * 4 + 3]! / 255;
-  // flou en boîte, trois passes dans chaque sens : proche d'un flou gaussien
+/** Flou en boîte séparable, répété : proche d'un flou gaussien. */
+function blur(a: Float32Array, W: number, H: number, r: number, passes = 3): Float32Array {
+  if (r < 1) return a;
+  const src = Float32Array.from(a);
   const tmp = new Float32Array(W * H);
-  const pass = (src: Float32Array, dst: Float32Array, horiz: boolean) => {
+  const pass = (from: Float32Array, to: Float32Array, horiz: boolean) => {
     const n = horiz ? W : H;
     const m = horiz ? H : W;
     const at = (line: number, k: number) => (horiz ? line * W + k : k * W + line);
     for (let line = 0; line < m; line++) {
       let acc = 0;
-      for (let k = -r; k <= r; k++) acc += src[at(line, Math.max(0, Math.min(n - 1, k)))]!;
+      for (let k = -r; k <= r; k++) acc += from[at(line, Math.max(0, Math.min(n - 1, k)))]!;
       for (let k = 0; k < n; k++) {
-        dst[at(line, k)] = acc / (2 * r + 1);
-        acc += src[at(line, Math.min(n - 1, k + r + 1))]! - src[at(line, Math.max(0, k - r))]!;
+        to[at(line, k)] = acc / (2 * r + 1);
+        acc += from[at(line, Math.min(n - 1, k + r + 1))]! - from[at(line, Math.max(0, k - r))]!;
       }
     }
   };
-  for (let i = 0; i < 3; i++) {
-    pass(a, tmp, true);
-    pass(tmp, a, false);
+  for (let i = 0; i < passes; i++) {
+    pass(src, tmp, true);
+    pass(tmp, src, false);
   }
+  return src;
+}
+
+/**
+ * Régulariser : seul ce qui a été ajouté ou modifié (par rapport aux lettres d'origine) est lissé,
+ * comme une encre qui se pose. Les accrocs et les miettes disparaissent, les pleins s'égalisent
+ * (flou puis seuil), les bords ondulés se redressent dans leur sens. Ailleurs, les lettres
+ * reprennent exactement leur dessin d'origine.
+ */
+function regularize(rings: Ring[], radius: number, pristine: Ring[]): Ring[] {
+  const r = Math.max(1, Math.round(radius));
+  const f = frameOf([rings, pristine], r * 4 + 4);
+  if (!f) return rings;
+  const { W, H, ox, oy } = f;
+  const cur = rasterIn(rings, f);
+  const orig = rasterIn(pristine, f);
+  // où le dessin s'écarte des lettres : on ignore le liseré d'un pixel laissé par les retracés
+  let diff: Float32Array = new Float32Array(W * H);
+  for (let i = 0; i < diff.length; i++) diff[i] = Math.abs(cur[i]! - orig[i]!) > 0.5 ? 1 : 0;
+  diff = blur(diff, W, H, 1, 1);
+  for (let i = 0; i < diff.length; i++) diff[i] = diff[i]! > 0.99 ? 1 : 0;
+  // la zone retouchée, élargie pour couvrir les raccords, puis adoucie
+  let mask = blur(diff, W, H, r * 2, 1);
+  for (let i = 0; i < mask.length; i++) mask[i] = mask[i]! > 0 ? 1 : 0;
+  mask = blur(mask, W, H, Math.max(1, Math.round(r / 2)), 3);
+  const soft = blur(cur, W, H, r, 3);
   const out = new Uint8ClampedArray(W * H * 4);
-  for (let i = 0; i < W * H; i++) out[i * 4 + 3] = Math.round(a[i]! * 255);
-  a = new Float32Array(0);
+  for (let i = 0; i < W * H; i++) {
+    const m = mask[i]!;
+    out[i * 4 + 3] = Math.round((m * soft[i]! + (1 - m) * orig[i]!) * 255);
+  }
+  const at = (p: { x: number; y: number }) => mask[Math.min(H - 1, Math.max(0, Math.round(p.y))) * W + Math.min(W - 1, Math.max(0, Math.round(p.x)))]!;
   const minArea = (r * 1.5) ** 2;
   return contours(out, W, H, 128)
-    .filter((ring) => Math.abs(ringArea(ring)) > minArea)
-    .map((ring) =>
-      simplifyRing(
-        taubin(
-          ring.map((p) => ({ x: p.x + ox, y: p.y + oy })),
-          6,
-        ),
+    .filter((ring) => Math.abs(ringArea(ring)) > minArea || ring.every((p) => at(p) < 0.01))
+    .map((ring) => {
+      const t = taubin(ring, 6);
+      // le redressement ne s'applique que dans la zone retouchée
+      return simplifyRing(
+        ring.map((p, i) => {
+          const m = at(p);
+          return { x: ox + p.x + m * (t[i]!.x - p.x), y: oy + p.y + m * (t[i]!.y - p.y) };
+        }),
         0.2,
-      ),
-    );
+      );
+    });
 }
 const ringArea = (r: Ring) => r.reduce((s, p, i) => s + p.x * r[(i + 1) % r.length]!.y - r[(i + 1) % r.length]!.x * p.y, 0) / 2;
 /** Lissage de Taubin : les ondulations s'effacent sans que la forme rétrécisse. */
@@ -411,7 +439,7 @@ function moldedRings(t: TextStyle, b: Base): Ring[] {
       rings = hit.rings;
       continue;
     }
-    rings = mold(rings, m, b.X0, b.Y0, b.size);
+    rings = mold(rings, m, b.X0, b.Y0, b.size, b.raw);
     molded.set(m, { base: b.key, prev, rings });
   }
   return rings;
