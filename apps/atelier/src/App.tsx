@@ -1275,7 +1275,7 @@ export function App() {
       return;
     }
 
-    // double toucher (ou double clic) sur une forme ou une image : on passe en Disposer
+    // double toucher (ou double clic) sur un objet : l'éditeur d'objet s'ouvre sur lui
     {
       const now = performance.now();
       const hit = layerAt(p.x, p.y);
@@ -1292,9 +1292,9 @@ export function App() {
           redraw();
           return;
         }
-        setTool('move');
-        if (hit.kind === 'text') setTextEditing(true);
-        else setToast(`« ${hit.name} » : Disposer`);
+        setTool(lastEdit.current);
+        const key = hit.molded ? 'molded' : hit.kind === 'text' ? 'content' : hit.kind === 'shape' ? 'shape' : 'look';
+        setCoupeOpen((o) => ({ key, sec: 'image', n: (o?.n ?? 0) + 1 }));
         redraw();
         return;
       }
@@ -1963,7 +1963,7 @@ export function App() {
       layers.splice(layers.findIndex((x) => x.id === sel.id) + 1, 0, ...extra);
       return { ...d, layers };
     });
-    setToast(`« ${sel.name} » séparée en ${parts.length} morceaux : déplace-les avec Disposer`);
+    setToast(`« ${sel.name} » séparée en ${parts.length} morceaux : glisse-les pour les placer`);
   };
 
   const finishCut = (raw: Pt[]) => {
@@ -2083,9 +2083,12 @@ export function App() {
       // une forme posée : ses paramètres s'ouvrent tout de suite
       setTool(lastEdit.current);
       setCoupeOpen((o) => ({ key: 'shape', n: (o?.n ?? 0) + 1 }));
-      setToast(`Règle la forme de « ${opts.name} » ici, ou touche Disposer (V) pour la placer`);
+      setToast(`Règle la forme de « ${opts.name} » ici ; glisse-la sur la page pour la placer`);
       setToastUndo(false);
-    } else setTool('move');
+    } else {
+      setTool(lastEdit.current);
+      setCoupeOpen((o) => ({ key: 'look', sec: 'image', n: (o?.n ?? 0) + 1 }));
+    }
   };
   /** Pose un texte dans le style choisi, prêt à être réécrit. */
   const addText = async (p: TextPreset) => {
@@ -2121,9 +2124,10 @@ export function App() {
     if (layer.w > maxW) [layer.w, layer.h] = [maxW, (maxW / layer.w) * layer.h];
     update((d) => ({ ...d, layers: [...d.layers, layer] }));
     setSelected(layer.id);
-    setTool('move');
+    // l'éditeur d'objet s'ouvre sur le contenu du texte
+    setTool(lastEdit.current);
+    setCoupeOpen((o) => ({ key: 'content', sec: 'image', n: (o?.n ?? 0) + 1 }));
     setBubble(null);
-    setTextEditing(true);
   };
   /** Change la typographie d'un texte en gardant son corps : la boîte suit les lettres. */
   const patchText = (l: Layer, next: Partial<TextStyle>, history: boolean) => {
@@ -2307,7 +2311,6 @@ export function App() {
       else if (e.key === 't') setTool(lastEdit.current);
       else if (e.key === 'e') setTool('edge');
       else if (e.key === 'm') setTool('material');
-      else if (e.key === 'v') setTool('move');
       else if (e.key === 'g') setTool('mold');
       else if (e.key === 'Escape') {
         setBubble(null);
@@ -2585,9 +2588,6 @@ export function App() {
             <button className={`btn small ${tool === 'stamp' ? 'on' : ''}`} onClick={() => setTool('stamp')} title="Tampons (S) : motifs à la couleur courante, dilution et rotation">
               <Icon name="stamp" />
             </button>
-            <button className={`btn small ${tool === 'move' ? 'on' : ''}`} onClick={() => setTool('move')} title="Disposer (V) : déplacer, agrandir, ancrer">
-              <Icon name="move" />
-            </button>
           </aside>
 
           {(tool === 'move' || isEdit(tool)) && sel?.kind === 'text' && sel.text && !sel.molded && !bubble && (
@@ -2851,11 +2851,6 @@ export function App() {
                       <VSlider label="Lissage" value={edgeSmooth} onChange={(v) => setEdgeSmooth(Math.round(v * 20) / 20)} />
                     </>
                   )}
-                </>
-              )}
-              {tool === 'move' && sel && sel.kind !== 'surface' && (
-                <>
-                  <VSlider label="Hauteur" center value={0.5 + (sel.height - (sel.inner ?? 0)) / 2} onChange={(v) => patchLayer(sel.id, heightPatch(Math.round((v * 2 - 1) * 100) / 100), false)} />
                 </>
               )}
             </div>
