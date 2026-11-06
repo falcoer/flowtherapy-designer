@@ -471,7 +471,7 @@ export function App() {
     if (theme === 'auto') delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = theme;
   }, [theme]);
-  // mode simplifié (par défaut) : les outils essentiels ; Découper et Modeler se rangent, les objets préparés arrivent tout réglés
+  // mode simplifié (par défaut) : les réglages rares (Transformations, Rognage, Lueur, Semis) restent derrière « Plus »
   /** Aperçu incliné pendant le réglage de la hauteur. */
   const [peek, setPeek] = useState(false);
   const peekOff = useRef(0);
@@ -484,7 +484,6 @@ export function App() {
   });
   const setSimple = (v: boolean) => {
     setSimpleState(v);
-    if (v && (tool === 'cut' || tool === 'mold')) setTool('move');
     try {
       localStorage.setItem('ftd-atelier-simple', v ? 'on' : 'off');
     } catch {
@@ -2702,11 +2701,11 @@ export function App() {
         else undo();
       } else if (e.key === 'b') setTool('paint');
       else if (e.key === 's') setTool('stamp');
-      else if (e.key === 'c' && !simple) setTool('cut');
+      else if (e.key === 'c') setTool('cut');
       else if (e.key === 't') setTool(lastEdit.current);
       else if (e.key === 'e') setTool('edge');
       else if (e.key === 'm') setTool('material');
-      else if (e.key === 'g' && !simple) setTool('mold');
+      else if (e.key === 'g') setTool('mold');
       else if (e.key === 'Escape') {
         setBubble(null);
         setRendu(false);
@@ -2714,7 +2713,7 @@ export function App() {
     };
     window.addEventListener('keydown', on);
     return () => window.removeEventListener('keydown', on);
-  }, [undo, redo, simple]);
+  }, [undo, redo]);
 
   const sel = doc.layers.find((l) => l.id === selected) ?? null;
   const textShelf = bubble === 'add' && shelf === 'textes';
@@ -2994,16 +2993,13 @@ export function App() {
             <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => setTool(lastEdit.current)} title="Créateur de matériaux (T) : forme, bords, vernis, image, transformations, support">
               <Icon name="matter" />
             </button>
-            {!simple && (
-              <>
-                <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => setTool('cut')} title="Découper (C) : trace un contour au stylet">
-                  <Icon name="scissors" />
-                </button>
-                <button className={`btn small ${tool === 'mold' ? 'on' : ''}`} onClick={() => setTool('mold')} title="Modeler (G) : tirer ou repousser le contour de l'objet, à la plume ou au doigt de glaise">
-                  <Icon name="mold" />
-                </button>
-              </>
-            )}
+            <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => setTool('cut')} title="Découper (C) : trace un contour au stylet">
+              <Icon name="scissors" />
+            </button>
+            <button className={`btn small ${tool === 'mold' ? 'on' : ''}`} onClick={() => setTool('mold')} title="Modeler (G) : tirer ou repousser le contour de l'objet, à la plume ou au doigt de glaise">
+              <Icon name="mold" />
+            </button>
+
             <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre (B) : aquarelle, acrylique, pistolet, paillettes, poils">
               <Icon name="brush" />
             </button>
@@ -3058,6 +3054,7 @@ export function App() {
               patchText={(next, h) => patchText(sel, next, h)}
               unmold={() => unmold(sel)}
               onMold={() => setTool('mold')}
+              simple={simple}
               onLevel={(v) => setLevel(sel, v)}
               onSculpt={() => {
                 setSwash((w) => ({ ...w, mode: 'relief' }));
@@ -3182,12 +3179,12 @@ export function App() {
               )}
               {tool === 'stamp' && (
                 <>
-                  {!stampMore && !stampSow && (
+                  {simple && !stampMore && !stampSow && (
                     <button className="btn small" onClick={() => setStampMore(true)} title="Plus : semis (copies du motif éparpillées le long du geste)">
                       <Icon name="more" />
                     </button>
                   )}
-                  {(stampMore || stampSow) && (
+                  {(!simple || stampMore || stampSow) && (
                     <button
                       className="btn small"
                       onClick={() => setStampSow(!stampSow)}

@@ -256,6 +256,7 @@ export function CoupePanel({
   patchText,
   unmold,
   onMold,
+  simple = true,
   onLevel,
   onSculpt,
   layer: l,
@@ -274,6 +275,8 @@ export function CoupePanel({
   unmold?: () => void;
   /** Passe à l'outil Modeler. */
   onMold?: () => void;
+  /** Mode simplifié : les réglages rares attendent « Plus ». */
+  simple?: boolean;
   /** Hauteur de l'objet (ses pièces solidaires suivent). */
   onLevel?: (v: number) => void;
   /** Passe à l'outil Modeler en mode Relief. */
@@ -339,8 +342,9 @@ export function CoupePanel({
   }, [adding, l, doc.guides, doc.light, doc.lamp, f, tick]);
 
   // « Plus » : Transformations, Rognage et Lueur se montrent d'un toucher (ou quand l'objet en a déjà)
-  const [more, setMore] = useState(false);
+  const [moreOn, setMore] = useState(false);
   useEffect(() => setMore(false), [l.id]);
+  const more = moreOn || !simple;
   const hasFx = (l.fx ?? []).some((x) => groupOf(x) === 'effet');
   const sections = SECTIONS.filter((s) => (l.kind === 'surface' ? s.sec !== 'edge' && s.sec !== 'image' && s.sec !== 'depth' : true)).filter((s) => s.sec !== 'transform' || more || hasFx || only === 'transform');
   const card = (s: (typeof SECTIONS)[number]) => {
