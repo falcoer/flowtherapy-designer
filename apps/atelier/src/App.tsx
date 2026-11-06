@@ -383,6 +383,23 @@ export function App() {
     }
   });
   /** Gaucher : les outils passent à gauche et leurs réglages à droite (l'inverse du droitier). */
+  /** Délai avant que la roue du pinceau s'écarte (null : jamais). */
+  const [wheelHide, setWheelHideState] = useState<number | null>(() => {
+    try {
+      const v = localStorage.getItem('ftd-atelier-wheel-hide');
+      return v === null ? 15000 : v === 'never' ? null : Number(v) || 15000;
+    } catch {
+      return 15000;
+    }
+  });
+  const setWheelHide = (v: number | null) => {
+    setWheelHideState(v);
+    try {
+      localStorage.setItem('ftd-atelier-wheel-hide', v === null ? 'never' : String(v));
+    } catch {
+      /* stockage indisponible */
+    }
+  };
   const [lefty, setLeftyState] = useState(() => {
     try {
       return localStorage.getItem('ftd-atelier-hand') === 'left';
@@ -2981,6 +2998,7 @@ export function App() {
                     key="wheel"
                     side={lefty ? 'right' : 'left'}
                     tips={tips}
+                    hideAfter={wheelHide}
                     size={(size - 0.01) / 0.14}
                     sizeText={`${Math.round(size * 100)}`}
                     onSize={(v) => setSize(0.01 + v * 0.14)}
@@ -2996,6 +3014,7 @@ export function App() {
                     key="wheel"
                     side={lefty ? 'right' : 'left'}
                     tips={tips}
+                    hideAfter={wheelHide}
                     size={(stampSize - 0.02) / 0.28}
                     sizeText={`${Math.round(stampSize * 100)}`}
                     onSize={(v) => setStampSize(0.02 + v * 0.28)}
@@ -3037,6 +3056,7 @@ export function App() {
                       key="wheel"
                       side={lefty ? 'right' : 'left'}
                       tips={tips}
+                      hideAfter={wheelHide}
                       size={((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) - 0.01) / 0.29}
                       sizeText={`${Math.round((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) * 100)}`}
                       onSize={(v) => setSwash({ ...swash, w: 0.01 + v * 0.29 })}
@@ -3048,6 +3068,7 @@ export function App() {
                       key="wheel"
                       side={lefty ? 'right' : 'left'}
                       tips={tips}
+                      hideAfter={wheelHide}
                       size={(swash.r - 0.06) / 0.94}
                       sizeText={`${Math.round(swash.r * 100)}`}
                       onSize={(v) => setSwash({ ...swash, r: 0.06 + v * 0.94 })}
@@ -3178,6 +3199,8 @@ export function App() {
               setTheme={setTheme}
               lefty={lefty}
               setLefty={setLefty}
+              wheelHide={wheelHide}
+              setWheelHide={setWheelHide}
               guides={guidesOn}
               setGuides={setGuidesOn}
               onClose={() => setBubble(null)}

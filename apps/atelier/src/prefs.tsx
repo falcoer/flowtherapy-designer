@@ -43,6 +43,8 @@ export function PrefsPanel(p: {
   setTheme: (t: Theme) => void;
   lefty: boolean;
   setLefty: (v: boolean) => void;
+  wheelHide: number | null;
+  setWheelHide: (v: number | null) => void;
   guides: { on: boolean; color: string };
   setGuides: (v: { on: boolean; color: string }) => void;
   onClose: () => void;
@@ -133,6 +135,28 @@ export function PrefsPanel(p: {
                 {n}
               </button>
             ))}
+          </div>
+          <div className="pf-group">Roue du pinceau</div>
+          <div className="pf-row pf-col">
+            <span className="pf-txt">
+              <b>Cacher la roue du pinceau</b>
+              <small>Elle s'écarte sur le côté après ce délai sans y toucher, et revient au survol ou au toucher</small>
+            </span>
+            <div className="seg pf-theme">
+              {(
+                [
+                  [null, 'Jamais'],
+                  [5000, '5 s'],
+                  [15000, '15 s'],
+                  [30000, '30 s'],
+                  [60000, '1 min'],
+                ] as const
+              ).map(([v, n]) => (
+                <button key={n} className={p.wheelHide === v ? 'on' : ''} onClick={() => p.setWheelHide(v)}>
+                  {n}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="pf-group">Repères</div>
           <Toggle label="Repères toujours visibles" hint="Sinon, ils n'apparaissent que pendant un déplacement" on={p.guides.on} set={(on) => p.setGuides({ ...p.guides, on })} />

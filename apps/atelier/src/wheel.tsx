@@ -26,6 +26,8 @@ interface Props {
   pick?: { face: ReactNode; title: string; next?: () => void; choices?: (close: () => void) => ReactNode };
   /** Côté de l'écran où la roue est posée (et vers lequel elle s'écarte). */
   side?: 'left' | 'right';
+  /** Après combien de temps sans y toucher la roue s'écarte (ms) ; absent : jamais. */
+  hideAfter?: number | null;
   /** Légendes (mode astuces). */
   tips?: boolean;
   /** Pendant un réglage de la pointe (taille, rotation, perspective) et au lâcher : montrer l'empreinte en vraie grandeur sur la page. */
@@ -103,19 +105,26 @@ export function BrushWheel(p: Props) {
   const PX = left ? C + BX : C - BX;
   const PY = BY;
   // écartée sur le côté ; elle revient au survol ou au toucher, puis repart
-  const [out, setOut] = useState(false);
+  const [out, setOut] = useState(true);
   const away = useRef<number | null>(null);
   const comeBack = () => {
     if (away.current) clearTimeout(away.current);
     away.current = null;
     setOut(true);
   };
-  const leaveSoon = (ms: number) => {
+  const leaveSoon = () => {
     if (away.current) clearTimeout(away.current);
+    if (!p.hideAfter) return setOut(true);
+    const ms = p.hideAfter;
     away.current = window.setTimeout(() => {
       if (!drag.current) setOut(false);
     }, ms);
   };
+  // au réglage du délai (et à l'arrivée) : le compte à rebours repart
+  useEffect(() => {
+    leaveSoon();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.hideAfter]);
   useEffect(
     () => () => {
       if (away.current) clearTimeout(away.current);
@@ -200,7 +209,7 @@ export function BrushWheel(p: Props) {
     if (drag.current && drag.current.zone !== 'ring') p.onSizing?.(false);
     drag.current = null;
     setActive(null);
-    if (!e || e.pointerType !== 'mouse') leaveSoon(2500);
+    if (!e || e.pointerType !== 'mouse') leaveSoon();
   };
 
   // empreinte : tournée, puis mise en perspective
@@ -229,7 +238,7 @@ export function BrushWheel(p: Props) {
     <div
       className={`brush-wheel side-${left ? 'left' : 'right'} ${out ? '' : 'away'}`}
       onPointerEnter={(e) => e.pointerType !== 'touch' && comeBack()}
-      onPointerLeave={(e) => e.pointerType !== 'touch' && !drag.current && leaveSoon(900)}
+      onPointerLeave={(e) => e.pointerType !== 'touch' && !drag.current && leaveSoon()}
       onPointerDownCapture={comeBack}
     >
       <svg ref={ref} className={active ? 'live' : ''} viewBox={`0 0 ${S} ${S}`} onPointerDown={down} onPointerMove={(e) => e.buttons && apply(e)} onPointerUp={up} onPointerCancel={up}>

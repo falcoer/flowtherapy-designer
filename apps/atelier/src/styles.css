@@ -846,3 +846,5 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .brush-wheel .bw-legend text { font: 600 9px ui-monospace, 'SF Mono', Menlo, monospace; letter-spacing: 0.1em; text-transform: uppercase; fill: var(--muted); text-anchor: middle; pointer-events: none; }
 .brush-wheel .bw-legend, .brush-wheel .bw-label.faint { transition: opacity 0.3s; }
 .brush-wheel.away .bw-legend, .brush-wheel.away .bw-label.faint { opacity: 0; }
+.pf-row.pf-col { flex-direction: column; align-items: stretch; cursor: default; }
+.pf-row.pf-col .seg button { padding-inline: 4px; }
