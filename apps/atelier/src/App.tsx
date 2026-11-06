@@ -2877,7 +2877,15 @@ export function App() {
           </header>
 
           <aside className="side tools-bar">
-            <button className={`btn small ${bubble === 'add' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'add' ? null : 'add')} title="Ajouter une couche">
+            <button
+              className={`btn small ${bubble === 'add' ? 'on' : ''}`}
+              onClick={() => {
+                // ajouter : les autres outils se rangent, le bas de l'écran se libère
+                if (bubble !== 'add') setTool('move');
+                setBubble(bubble === 'add' ? null : 'add');
+              }}
+              title="Ajouter une couche"
+            >
               <Icon name="plus" />
             </button>
             <span className="side-sep" />
