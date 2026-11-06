@@ -348,7 +348,7 @@ export function App() {
   const [coupeOpen, setCoupeOpen] = useState<{ key: string; n: number; sec?: 'edge' | 'coat' | 'image' | 'transform' | 'support' } | undefined>();
   // glisser-déposer dans la liste des objets
   const [quickText, setQuickText] = useState<string | null>(null);
-  const listPress = useRef<{ id: string; y: number; moved: boolean } | null>(null);
+  const listPress = useRef<{ id: string; y: number; moved: boolean; grip: boolean } | null>(null);
   const [listDrag, setListDrag] = useState<{ id: string; over?: string; above?: boolean } | null>(null);
   const setTool = (t: Tool) => {
     if (isEdit(t)) lastEdit.current = t;
@@ -2260,13 +2260,20 @@ export function App() {
             data-layer={l.id}
             className={`layer ${l.id === selected ? 'on' : ''} ${l.visible ? '' : 'hidden'} ${listDrag?.id === l.id ? 'dragging' : ''} ${listDrag?.over === l.id ? (listDrag.above ? 'drop-above' : 'drop-below') : ''}`}
             onPointerDown={(e) => {
-              if ((e.target as HTMLElement).closest('button') || l.kind === 'surface') return;
-              listPress.current = { id: l.id, y: e.clientY, moved: false };
+              // on glisse l'objet par sa vignette ; ailleurs, le doigt fait défiler la liste
+              if ((e.target as HTMLElement).closest('button')) return;
+              const grip = !!(e.target as HTMLElement).closest('.thumb') && l.kind !== 'surface';
+              listPress.current = { id: l.id, y: e.clientY, moved: false, grip };
             }}
             onPointerMove={(e) => {
               const pr = listPress.current;
               if (!pr || pr.id !== l.id) return;
               if (!pr.moved && Math.abs(e.clientY - pr.y) < 6) return;
+              if (!pr.grip) {
+                // défilement : ce n'est plus un toucher
+                listPress.current = null;
+                return;
+              }
               if (!pr.moved) {
                 pr.moved = true;
                 (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
