@@ -75,6 +75,9 @@ export interface Stroke {
   grow?: number;
   /** Pinceau Ramures : taille du noyau de couleur au point de départ (0 = aucun, 1 = plein). */
   core?: number;
+  /** Pinceau Poils : longueur des brins (0..1, 0.3 par défaut) et frisure (0 = raides, 0.5 = ondulés comme l'alpaga, 1 = bouclés comme le mouton). */
+  hairLen?: number;
+  curl?: number;
   /** Pinceau Brûlure : largeur de la marge roussie et carbonisée autour du trou (0..1). */
   char?: number;
   /** Pinceau Brûlure : false = la couche n'est pas percée, seule la marge la teinte. */

@@ -1061,31 +1061,51 @@ function hair(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Targ
   const st = stamps(s, t);
   const tg = tangents(st);
   const r = rng(s.seed ^ 0x33);
+  const lenK = (s.hairLen ?? 0.3) / 0.3;
+  const curl = Math.max(0, Math.min(1, s.curl ?? 0));
   dst.save();
   dst.lineCap = 'round';
+  dst.lineJoin = 'round';
   for (let i = 0; i < st.length; i++) {
     const q = st[i]!;
-    const n = Math.round(2 + q.r * 0.12);
+    // la laine est plus fournie que le poil raide
+    const n = Math.round((2 + q.r * 0.12) * (1 + curl * 0.8));
     for (let k = 0; k < n; k++) {
       const o = (r() * 2 - 1) * q.r;
       const [ox, oy] = stretch(-tg[i]!.y * o, tg[i]!.x * o, q.K, q.d);
       const x = q.x + ox;
       const y = q.y + oy;
-      // le brin part dans le sens du geste, un peu dévié, et se courbe
-      const ang = Math.atan2(tg[i]!.y, tg[i]!.x) + (r() - 0.5) * 0.5;
-      const len = q.r * (0.8 + r() * 1.4);
-      const bend = (r() - 0.5) * len * 0.5;
-      const ex = x + Math.cos(ang) * len;
-      const ey = y + Math.sin(ang) * len;
-      const cx = (x + ex) / 2 - Math.sin(ang) * bend;
-      const cy = (y + ey) / 2 + Math.cos(ang) * bend;
+      // le brin part dans le sens du geste, un peu dévié (la laine part dans tous les sens), et se courbe
+      const ang = Math.atan2(tg[i]!.y, tg[i]!.x) + (r() - 0.5) * (0.5 + curl * 2.2);
+      const len = q.r * (0.8 + r() * 1.4) * lenK;
       const base = guideColor(g, q.t);
-      dst.strokeStyle = shade(base, (r() - 0.5) * 0.6, 0.35 + 0.5 * s.opacity);
-      // effilé : un trait large puis un plus fin vers la pointe
-      dst.lineWidth = Math.max(0.5, q.r * 0.035);
+      dst.strokeStyle = shade(base, (r() - 0.5) * 0.6 + curl * 0.08, 0.35 + 0.5 * s.opacity);
+      dst.lineWidth = Math.max(0.5, q.r * (0.035 + curl * 0.02));
       dst.beginPath();
       dst.moveTo(x, y);
-      dst.quadraticCurveTo(cx, cy, ex, ey);
+      if (curl < 0.02) {
+        const bend = (r() - 0.5) * len * 0.5;
+        const ex = x + Math.cos(ang) * len;
+        const ey = y + Math.sin(ang) * len;
+        dst.quadraticCurveTo((x + ex) / 2 - Math.sin(ang) * bend, (y + ey) / 2 + Math.cos(ang) * bend, ex, ey);
+      } else {
+        // frisure : ondulation (alpaga), puis vraies boucles qui s'enroulent (mouton)
+        const waves = 1 + curl * 5 + r() * 1.5;
+        const amp = Math.min(1, curl * 1.6) * 1.1;
+        const spin = Math.max(0, (curl - 0.55) / 0.45) * Math.PI * 2 * (2 + r() * 2) * (r() < 0.5 ? -1 : 1);
+        const phase = r() * Math.PI * 2;
+        const segs = Math.round(10 + curl * 26);
+        const dl = len / segs;
+        let px = x;
+        let py = y;
+        for (let j = 1; j <= segs; j++) {
+          const u = j / segs;
+          const a = ang + amp * Math.sin(phase + u * waves * Math.PI * 2) + spin * u;
+          px += Math.cos(a) * dl;
+          py += Math.sin(a) * dl;
+          dst.lineTo(px, py);
+        }
+      }
       dst.stroke();
     }
   }

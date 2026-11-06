@@ -614,6 +614,9 @@ export function App() {
   /** Ramures : nombre de ramifications et convergence. */
   const [branches, setBranches] = useState(6);
   const [converge, setConverge] = useState(0.3);
+  /** Poils : longueur des brins et frisure (raide, alpaga, mouton). */
+  const [hairLen, setHairLen] = useState(0.3);
+  const [curl, setCurl] = useState(0);
   const growTimer = useRef(0);
   /** Couleur glissée depuis la palette (position écran). */
   const [dragGuide, setDragGuide] = useState<{ i: number; x: number; y: number } | null>(null);
@@ -1583,6 +1586,7 @@ export function App() {
                   opacity,
                   seed: Math.floor(Math.random() * 1e9),
                   ...(tipOn(brushKind) ? { tip: brushTip } : {}),
+                  ...(brushKind === 'hair' ? { hairLen, curl } : {}),
                   pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, target) } : {}), ...(leanOn(brushKind) ? brushLean(e, target) : {}) }],
                 },
     };
@@ -3117,6 +3121,12 @@ export function App() {
                       <VSlider label="Ramifications" value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
                       <VSlider label="Chaos" value={converge} onChange={(v) => setConverge(Math.round(v * 100) / 100)} />
                       <VSlider label="Taille noyau" value={branchCore} onChange={(v) => setBranchCore(Math.round(v * 100) / 100)} />
+                    </>
+                  )}
+                  {brushKind === 'hair' && (
+                    <>
+                      <VSlider label="Longueur" value={hairLen} onChange={(v) => setHairLen(Math.max(0.03, Math.round(v * 100) / 100))} />
+                      <VSlider label={curl < 0.15 ? 'Frisure · raide' : curl < 0.6 ? 'Frisure · alpaga' : 'Frisure · mouton'} value={curl} onChange={(v) => setCurl(Math.round(v * 100) / 100)} />
                     </>
                   )}
                   {brushKind === 'burn' && (
