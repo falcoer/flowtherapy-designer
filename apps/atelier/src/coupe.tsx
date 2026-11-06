@@ -14,7 +14,7 @@ import { TiltPad } from './tilt';
  * Bords tout autour, vernis par-dessus, image (et son filtre) avec les transformations
  * en parallèle, support (la matière) dessous. Un aperçu éclaté montre chaque couche rendue.
  */
-export type Section = 'edge' | 'coat' | 'image' | 'transform' | 'support';
+export type Section = 'edge' | 'coat' | 'image' | 'transform' | 'support' | 'depth';
 
 interface Item {
   sec: Section;
@@ -99,11 +99,15 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
   if (l.kind !== 'surface') {
     if (l.border) out.push({ sec: 'edge', key: 'border', name: BORDER_TYPES.find((x) => x[0] === l.border!.style)![1], bg: g(l.border.guide), removable: true });
     if (l.trim) out.push({ sec: 'edge', key: 'trim', name: 'Rognage', bg: 'repeating-linear-gradient(135deg,#c9c3d6 0 3px,transparent 3px 6px)', removable: true });
-    if ((l.bevel ?? 0) > 0.001) out.push({ sec: 'edge', key: 'bevel', name: 'Biseau', bg: 'linear-gradient(135deg,#fff,#8a849a)', removable: true });
+    // l'épaisseur : hauteur, volume, biseau, relief sculpté
+    const lv = Math.round((l.height - (l.inner ?? 0)) * 100);
+    out.push({ sec: 'depth', key: 'height', name: lv > 0 ? `Hauteur ${lv}` : lv < 0 ? `Creux ${-lv}` : 'Posé à plat', bg: 'linear-gradient(180deg,#fff,#c9c3d6 60%,#8a849a)', removable: false });
+    if ((l.bevel ?? 0) > 0.001) out.push({ sec: 'depth', key: 'bevel', name: 'Biseau', bg: 'linear-gradient(135deg,#fff,#8a849a)', removable: true });
     if (l.glow) out.push({ sec: 'edge', key: 'glow', name: GLOW_TYPES.find((x) => x[0] === l.glow!.style)![1], bg: `radial-gradient(circle, #fff 20%, ${swatch(doc.guides[l.glow.guide])} 60%)`, removable: true });
   }
   if (l.molded) out.push({ sec: 'image', key: 'molded', name: 'Modelé', bg: '', removable: false, glyph: 'molded' });
-  if (l.volume) out.push({ sec: 'image', key: 'volume', name: VOLUMES.find((x) => x[0] === l.volume!.kind)![1], bg: 'radial-gradient(circle at 35% 30%,#fff,#b9b2c9 55%,#6f6880)', removable: true });
+  if (l.volume) out.push({ sec: 'depth', key: 'volume', name: VOLUMES.find((x) => x[0] === l.volume!.kind)![1], bg: 'radial-gradient(circle at 35% 30%,#fff,#b9b2c9 55%,#6f6880)', removable: true });
+  if (l.bump && l.kind !== 'surface') out.push({ sec: 'depth', key: 'relief', name: 'Relief sculpté', bg: 'radial-gradient(circle at 30% 30%,#fff,#b9b2c9 40%,#fff 55%,#8a849a)', removable: true });
   for (const { x, i } of fxIn(l, 'lumiere')) out.push({ sec: 'coat', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: true });
   if (l.kind === 'shape') {
     const gen = genOf(l);
@@ -139,6 +143,7 @@ function removal(l: Layer, key: string): Partial<Layer> {
   if (key === 'bevel') return { bevel: 0, bevelProfile: undefined, bevelBorder: undefined };
   if (key === 'trim') return { trim: undefined };
   if (key === 'volume') return { volume: undefined };
+  if (key === 'relief') return { bump: undefined };
   if (key === 'glow') return { glow: undefined };
   if (key === 'material') return { material: undefined };
   if (key === 'look' || key === 'draw') {
@@ -172,7 +177,6 @@ function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; pa
         focus: 'border',
       })),
       ...(l.trim ? [] : [{ id: 'trim', name: 'Rognage', patch: { trim: { blur: 0.25, float: 0.3, zigzag: 0 } }, focus: 'trim' }]),
-      ...((l.bevel ?? 0) > 0.001 ? [] : [{ id: 'bevel', name: 'Biseau', patch: { bevel: 0.5 }, focus: 'bevel' }]),
       ...GLOW_TYPES.filter((x) => x[0] && x[0] !== l.glow?.style).map(([st, name]) => ({
         id: `g-${st}`,
         name,
@@ -186,12 +190,17 @@ function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; pa
     return MATERIALS()
       .filter((d) => d.id !== l.material?.id && !(d.transparent && l.kind === 'surface'))
       .map((d) => ({ id: d.id, name: d.name, patch: { material: newFx(d.id), ...(d.transparent ? { opacity: d.transparent } : {}) }, focus: 'material' }));
-  // volume : proposé à tout objet qui n'en a pas encore
-  const vols =
-    l.kind === 'surface' || l.volume
+  if (sec === 'depth')
+    return l.kind === 'surface'
       ? []
-      : VOLUMES.map(([kind, name]) => ({ id: `v-${kind}`, name: `Volume ${name.toLowerCase()}`, patch: { volume: { kind, amount: kind === 'cone' ? 0.5 : 0.7 } } as Partial<Layer>, focus: 'volume' }));
-  return [...vols, ...imageChoices(l)];
+      : [
+          // volume : proposé à tout objet qui n'en a pas encore
+          ...(l.volume
+            ? []
+            : VOLUMES.map(([kind, name]) => ({ id: `v-${kind}`, name: `Volume ${name.toLowerCase()}`, patch: { volume: { kind, amount: kind === 'cone' ? 0.5 : 0.7 } } as Partial<Layer>, focus: 'volume' }))),
+          ...((l.bevel ?? 0) > 0.001 ? [] : [{ id: 'bevel', name: 'Biseau', patch: { bevel: 0.5 } as Partial<Layer>, focus: 'bevel' }]),
+        ];
+  return imageChoices(l);
 }
 
 function imageChoices(l: Layer): Array<{ id: string; name: string; patch: Partial<Layer>; focus: string; text?: Partial<TextStyle>; font?: string }> {
@@ -219,6 +228,7 @@ const SECTIONS: Array<{ sec: Section; name: string; role: string; empty: string;
   { sec: 'image', name: 'Image', role: 'et son filtre', empty: 'Originale', slab: 's-image' },
   { sec: 'transform', name: 'Transformations', role: 'en parallèle', empty: 'Aucune', slab: 's-fx' },
   { sec: 'support', name: 'Support', role: 'la matière', empty: 'Papier', slab: 's-support' },
+  { sec: 'depth', name: 'Épaisseur', role: 'hauteur et volume', empty: 'À plat', slab: 's-depth' },
 ];
 
 /** Couches de l'aperçu éclaté, de la plus basse à la plus haute. */
@@ -246,6 +256,8 @@ export function CoupePanel({
   patchText,
   unmold,
   onMold,
+  onLevel,
+  onSculpt,
   layer: l,
   doc,
   f,
@@ -262,6 +274,10 @@ export function CoupePanel({
   unmold?: () => void;
   /** Passe à l'outil Modeler. */
   onMold?: () => void;
+  /** Hauteur de l'objet (ses pièces solidaires suivent). */
+  onLevel?: (v: number) => void;
+  /** Passe à l'outil Modeler en mode Relief. */
+  onSculpt?: () => void;
   layer: Layer;
   doc: Doc;
   f: Format;
@@ -313,7 +329,8 @@ export function CoupePanel({
   // vignettes des choix de la section ouverte : l'objet avec ce choix appliqué
   const choices = adding ? choicesOf(l, adding) : [];
   const hintOf = (id: string) => HINTS[id] ?? HINTS[id.replace(/^[bg]-/, '')] ?? ['', ''];
-  const edgeGroup = (id: string) => (id.startsWith('b-') || id === 'trim' ? 'Bord' : id.startsWith('g-') ? 'Lueur' : 'Relief');
+  const edgeGroup = (id: string) => (id.startsWith('b-') ? 'Bord' : id === 'trim' ? 'Rognage' : 'Lueur');
+  const depthGroup = (id: string) => (id.startsWith('v-') ? 'Volume' : 'Relief');
   const thumbs = useMemo(() => {
     const out: Record<string, string> = {};
     for (const c of choices) if (!c.font) out[c.id] = fxPreview(l, doc, f, l.fx, `add-${c.id}`, reload, c.patch);
@@ -321,7 +338,11 @@ export function CoupePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adding, l, doc.guides, doc.light, doc.lamp, f, tick]);
 
-  const sections = SECTIONS.filter((s) => (l.kind === 'surface' ? s.sec !== 'edge' && s.sec !== 'image' : true));
+  // « Plus » : Transformations, Rognage et Lueur se montrent d'un toucher (ou quand l'objet en a déjà)
+  const [more, setMore] = useState(false);
+  useEffect(() => setMore(false), [l.id]);
+  const hasFx = (l.fx ?? []).some((x) => groupOf(x) === 'effet');
+  const sections = SECTIONS.filter((s) => (l.kind === 'surface' ? s.sec !== 'edge' && s.sec !== 'image' && s.sec !== 'depth' : true)).filter((s) => s.sec !== 'transform' || more || hasFx || only === 'transform');
   const card = (s: (typeof SECTIONS)[number]) => {
     const mine = items.filter((x) => x.sec === s.sec);
     const can = choicesOf(l, s.sec).length > 0;
@@ -396,40 +417,52 @@ export function CoupePanel({
             {(() => {
               const list = choicesOf(l, s.sec);
               const groups: string[] = [];
-              const fam = (id: string) => (s.sec === 'edge' ? edgeGroup(id) : hintOf(id)[0]);
+              const fam = (id: string) => (s.sec === 'edge' ? edgeGroup(id) : s.sec === 'depth' ? depthGroup(id) : hintOf(id)[0]);
               for (const c of list) if (!groups.includes(fam(c.id))) groups.push(fam(c.id));
-              return groups.map((gname) => (
-                <div key={gname || 'all'}>
-                  {gname && <div className="cp-fam">{gname}</div>}
-                  <div className="cp-pick">
-                    {list
-                      .filter((c) => fam(c.id) === gname)
-                      .map((c) => (
-                        <button
-                          key={c.id}
-                          onClick={() => {
-                            if (c.text) patchText?.(c.text, true);
-                            else patch(c.patch);
-                            setFocus(c.focus);
-                            setAdding(null);
-                          }}
-                        >
-                          <span className="thumb">
-                            {c.font ? (
-                              <span className="font-thumb" style={{ fontFamily: `${fontFamily(c.font)}, Inter, sans-serif`, fontWeight: l.text?.weight, fontStyle: l.text?.italic ? 'italic' : 'normal' }}>
-                                {(l.text?.content || 'Aa').split('\n')[0]!.slice(0, 14)}
-                              </span>
-                            ) : (
-                              thumbs[c.id] && <img src={thumbs[c.id]} alt="" />
-                            )}
-                          </span>
-                          <b>{c.name}</b>
-                          {hintOf(c.id)[1] && <small>{hintOf(c.id)[1]}</small>}
-                        </button>
-                      ))}
+              const extra = s.sec === 'edge' ? ['Rognage', 'Lueur'] : [];
+              const shown = groups.filter((gname) => more || !extra.includes(gname));
+              const hidden = groups.length - shown.length;
+              return [
+                ...shown.map((gname) => (
+                  <div key={gname || 'all'}>
+                    {gname && <div className="cp-fam">{gname}</div>}
+                    <div className="cp-pick">
+                      {list
+                        .filter((c) => fam(c.id) === gname)
+                        .map((c) => (
+                          <button
+                            key={c.id}
+                            onClick={() => {
+                              if (c.text) patchText?.(c.text, true);
+                              else patch(c.patch);
+                              setFocus(c.focus);
+                              setAdding(null);
+                            }}
+                          >
+                            <span className="thumb">
+                              {c.font ? (
+                                <span className="font-thumb" style={{ fontFamily: `${fontFamily(c.font)}, Inter, sans-serif`, fontWeight: l.text?.weight, fontStyle: l.text?.italic ? 'italic' : 'normal' }}>
+                                  {(l.text?.content || 'Aa').split('\n')[0]!.slice(0, 14)}
+                                </span>
+                              ) : (
+                                thumbs[c.id] && <img src={thumbs[c.id]} alt="" />
+                              )}
+                            </span>
+                            <b>{c.name}</b>
+                            {hintOf(c.id)[1] && <small>{hintOf(c.id)[1]}</small>}
+                          </button>
+                        ))}
+                    </div>
                   </div>
-                </div>
-              ));
+                )),
+                ...(hidden
+                  ? [
+                      <button key="more" className="chip cp-more" onClick={() => setMore(true)}>
+                        Plus : rognage, lueur
+                      </button>,
+                    ]
+                  : []),
+              ];
             })()}
           </div>
         )}
@@ -439,7 +472,7 @@ export function CoupePanel({
   /** La couche de l'aperçu que chaque section édite (les bords : l'objet fini). */
   const plyOf = (sec: Section) => {
     const has = (id: string) => plies.some((p) => p.id === id);
-    if (sec === 'edge') return 'result';
+    if (sec === 'edge' || sec === 'depth') return 'result';
     if (sec === 'coat') return has('coat') ? 'coat' : 'result';
     if (sec === 'transform') return has('transform') ? 'transform' : 'image';
     return sec;
@@ -511,13 +544,24 @@ export function CoupePanel({
               </button>
             );
           })}
+          {!sections.some((s) => s.sec === 'transform') && (
+            <button className="cp-tag cp-tag-more" onClick={() => setMore(true)} title="Plus : Transformations (effets en parallèle de l'image)">
+              <span className="slab s-more">
+                <Icon name="more" />
+              </span>
+              <span className="tg-t">
+                <b>Plus</b>
+                <small>Transformations</small>
+              </span>
+            </button>
+          )}
         </div>
         {/* les réglages s'ouvrent entre les sections et l'aperçu, qui glisse à droite */}
         <div className="cp-pane">
           {only && byKey(only) && (
             <>
               {card(byKey(only)!)}
-              {focused && focused.sec === only && <Attrs layer={l} doc={doc} item={focused} patch={patch} patchText={patchText} unmold={unmold} onMold={onMold} />}
+              {focused && focused.sec === only && <Attrs layer={l} doc={doc} item={focused} patch={patch} patchText={patchText} unmold={unmold} onMold={onMold} onLevel={onLevel} onSculpt={onSculpt} />}
             </>
           )}
         </div>
@@ -589,10 +633,14 @@ function Attrs({
   patchText,
   unmold,
   onMold,
+  onLevel,
+  onSculpt,
 }: {
   layer: Layer;
   doc: Doc;
   item: Item;
+  onLevel?: (v: number) => void;
+  onSculpt?: () => void;
   patch: (p: Partial<Layer>, history?: boolean) => void;
   patchText?: (next: Partial<TextStyle>, history: boolean) => void;
   unmold?: () => void;
@@ -630,6 +678,36 @@ function Attrs({
         <Range label="Flottant" value={tr.float} onChange={(v) => live({ trim: { ...tr, float: r2(v) } })} />
         <Range label="Zigzag" value={tr.zigzag} onChange={(v) => live({ trim: { ...tr, zigzag: r2(v) } })} />
         {tr.zigzag > 0.01 && <Range label="Aléa" value={tr.chaos ?? 0.5} onChange={(v) => live({ trim: { ...tr, chaos: r2(v) } })} />}
+      </>
+    );
+  } else if (item.key === 'height') {
+    const v = l.height - (l.inner ?? 0);
+    body = (
+      <>
+        <Range
+          label="Hauteur"
+          min={-1}
+          value={v}
+          display={v > 0 ? `${Math.round(v * 100)}` : v < 0 ? `creux ${Math.round(-v * 100)}` : 'à plat'}
+          onChange={(x) => onLevel?.(Math.abs(x) < 0.03 ? 0 : Math.round(x * 100) / 100)}
+        />
+        <p className="cp-note">{l.link ? 'Les pièces solidaires montent avec la pièce du dessous. ' : ''}La barre Hauteur règle la même chose, avec un aperçu incliné.</p>
+        {onSculpt && (
+          <button className="chip cp-sculpt" onClick={onSculpt} title="Modeler › Relief : bosser, creuser, lisser la surface au stylet">
+            Sculpter le relief
+          </button>
+        )}
+      </>
+    );
+  } else if (item.key === 'relief') {
+    body = (
+      <>
+        <p className="cp-note">Bosses et creux sculptés au stylet, éclairés par la lampe.</p>
+        {onSculpt && (
+          <button className="chip cp-sculpt" onClick={onSculpt}>
+            Reprendre la sculpture
+          </button>
+        )}
       </>
     );
   } else if (item.key === 'bevel')

@@ -290,3 +290,66 @@ export function ParallaxView({ doc, f, onClose, start }: { doc: Doc; f: Format; 
     document.body,
   );
 }
+
+/**
+ * Aperçu incliné, pendant le réglage de la hauteur : la page en petit, vue de biais, et les
+ * plaques qui montent ou descendent avec le curseur. Les images se font une fois à l'ouverture,
+ * seules les hauteurs suivent ensuite.
+ */
+export function HeightPeek({ doc, f, focus }: { doc: Doc; f: Format; focus: string[] }) {
+  const stage = useRef<HTMLDivElement>(null);
+  const els = useRef(new Map<string, HTMLCanvasElement>());
+  const k = Math.min(170 / f.width, 190 / f.height);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      const el = stage.current;
+      if (!el) return;
+      const r = k * Math.min(2, window.devicePixelRatio || 1);
+      el.replaceChildren();
+      els.current.clear();
+      buildPlates(doc, f, r).forEach((p, i) => {
+        const c = p.c;
+        c.className = i ? 'px-plate' : 'px-plate px-page';
+        c.style.left = `${(p.x / r) * k}px`;
+        c.style.top = `${(p.y / r) * k}px`;
+        c.style.width = `${(c.width / r) * k}px`;
+        c.style.height = `${(c.height / r) * k}px`;
+        c.style.setProperty('--z', String(p.h + i * 0.0015));
+        c.dataset.i = String(i);
+        if (p.l) {
+          els.current.set(p.l.id, c);
+          if (!focus.includes(p.l.id)) c.classList.add('px-dim');
+          else {
+            // l'ombre de l'objet réglé, posée sur la feuille : l'écart dit la hauteur
+            const sh = document.createElement('canvas');
+            sh.width = c.width;
+            sh.height = c.height;
+            sh.getContext('2d')!.drawImage(c, 0, 0);
+            sh.className = 'px-plate hp-shadow';
+            for (const k of ['left', 'top', 'width', 'height'] as const) sh.style[k] = c.style[k];
+            sh.style.setProperty('--z', '0.0005');
+            el.appendChild(sh);
+          }
+        }
+        el.appendChild(c);
+      });
+      setReady(true);
+    }, 0);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // les hauteurs suivent le curseur
+  useEffect(() => {
+    for (const l of doc.layers) {
+      const c = els.current.get(l.id);
+      if (c) c.style.setProperty('--z', String(Math.max(0, levelOf(l)) + Number(c.dataset.i) * 0.0015));
+    }
+  }, [doc.layers, ready]);
+  const minPx = Math.min(f.width, f.height) * k;
+  return (
+    <div className="hpeek" aria-hidden>
+      <div ref={stage} className="px-stage" style={{ width: f.width * k, height: f.height * k, '--lift': `${minPx * 0.9}px`, transform: 'rotateX(52deg) rotateZ(-22deg)' } as React.CSSProperties} />
+    </div>
+  );
+}

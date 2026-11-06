@@ -143,22 +143,32 @@ export function kitFromSvg(text: string, name: string): Kit {
   }
 }
 
+const rgbOf = (c: string) => {
+  const s = c.replace('#', '');
+  const n = parseInt(s.length === 3 ? s.replace(/./g, (x) => x + x) : s.slice(0, 6), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255] as const;
+};
+/** Écart perçu entre deux couleurs, grossièrement : le vert compte plus. */
+export function colorDist(a: string, b: string): number {
+  const [r, g, bl] = rgbOf(a);
+  const [R, G, B] = rgbOf(b);
+  return 2 * (r - R) ** 2 + 4 * (g - G) ** 2 + 3 * (bl - B) ** 2;
+}
+
 /** Guide de la palette le plus proche d'une couleur. */
 export function nearestGuide(hex: string, colors: string[]): number {
-  const rgb = (c: string) => {
-    const s = c.replace('#', '');
-    const n = parseInt(s.length === 3 ? s.replace(/./g, (x) => x + x) : s.slice(0, 6), 16);
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-  };
-  const [r, g, b] = rgb(hex);
+  return nearestOf(hex, colors).i;
+}
+export function nearestOf(hex: string, colors: string[]): { i: number; d: number } {
   let best = 0;
   let bd = Infinity;
   colors.forEach((c, i) => {
     if (!c.startsWith('#')) return;
-    const [R, G, B] = rgb(c);
-    // écart perçu, grossièrement : le vert compte plus
-    const d = 2 * (r! - R!) ** 2 + 4 * (g! - G!) ** 2 + 3 * (b! - B!) ** 2;
+    const d = colorDist(hex, c);
     if (d < bd) [bd, best] = [d, i];
   });
-  return best;
+  return { i: best, d: bd };
 }
+
+/** Au-dessous de cet écart, une couleur du dessin est celle de la palette. */
+export const SAME_COLOR = 2400;

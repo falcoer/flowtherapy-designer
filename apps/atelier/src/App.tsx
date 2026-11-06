@@ -6,8 +6,8 @@ import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { PrefsPanel, type Theme } from './prefs';
 import { BrushWheel } from './wheel';
-import { ParallaxView } from './parallax';
-import { kitFromSvg, nearestGuide, type Kit } from './kits';
+import { HeightPeek, ParallaxView } from './parallax';
+import { kitFromSvg, nearestOf, SAME_COLOR, type Kit } from './kits';
 import { KITS } from './kit-samples';
 import { blankBump, bumpHeights, dab, encodeBump, smoothBump } from './bump';
 import { currentPx, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
@@ -472,6 +472,9 @@ export function App() {
     else document.documentElement.dataset.theme = theme;
   }, [theme]);
   // mode simplifié (par défaut) : les outils essentiels ; Découper et Modeler se rangent, les objets préparés arrivent tout réglés
+  /** Aperçu incliné pendant le réglage de la hauteur. */
+  const [peek, setPeek] = useState(false);
+  const peekOff = useRef(0);
   const [simple, setSimpleState] = useState(() => {
     try {
       return localStorage.getItem('ftd-atelier-simple') !== 'off';
@@ -510,6 +513,8 @@ export function App() {
   const [dilution, setDilution] = useState(0.15);
   /** Tampon : essuyé (une empreinte qui s'étire) ou semé (copies éparpillées le long du geste). */
   const [stampSow, setStampSow] = useState(false);
+  /** « Plus » des tampons : le semis se montre d'un toucher. */
+  const [stampMore, setStampMore] = useState(false);
   const [sowDensity, setSowDensity] = useState(0.5);
   const [sowSpread, setSowSpread] = useState(0.4);
   const [sowPersp, setSowPersp] = useState(0.3);
@@ -2348,7 +2353,18 @@ export function App() {
     const k = 0.62;
     const [w, h] = kit.ratio >= 1 ? [k, k / kit.ratio] : [k * kit.ratio, k];
     const group = uid();
-    const colors = doc.guides.map((g) => guideColor(g, 0.5));
+    // couleurs du dessin : celles que la palette a déjà (ou presque) sont reprises, les autres s'y ajoutent
+    const guides = [...doc.guides];
+    const colors = guides.map((g) => (g.type === 'color' ? g.color : guideColor(g, 0.5)));
+    let added = 0;
+    const guideFor = (hex: string, name: string) => {
+      const n = nearestOf(hex, colors);
+      if (n.d <= SAME_COLOR) return n.i;
+      guides.push({ name, type: 'color', color: hex });
+      colors.push(hex);
+      added++;
+      return guides.length - 1;
+    };
     const layers: Layer[] = kit.parts.map((p) => ({
       id: uid(),
       name: `${kit.name} · ${p.name}`,
@@ -2358,7 +2374,7 @@ export function App() {
       dy: a.dy,
       w,
       h,
-      guide: nearestGuide(p.color, colors),
+      guide: guideFor(p.color, p.name),
       cut: p.d,
       height: Math.round((0.12 + p.lift) * 1000) / 1000,
       ...(p.volume ? { volume: p.volume } : {}),
@@ -2366,11 +2382,13 @@ export function App() {
       visible: true,
       strokes: [],
     }));
-    update((d) => ({ ...d, layers: [...d.layers, ...layers] }));
+    update((d) => ({ ...d, guides, layers: [...d.layers, ...layers] }));
     setSelected(layers[0]!.id);
     setBubble(null);
-    setToast(`« ${kit.name} » posé en ${layers.length} pièces solidaires : touche une pièce pour sa couleur, son matériau, son volume`);
-    setToastUndo(false);
+    setToast(
+      `« ${kit.name} » posé en ${layers.length} pièces solidaires${added ? `, ${added} couleur${added > 1 ? 's' : ''} ajoutée${added > 1 ? 's' : ''} à la palette` : ''} : touche une pièce pour sa couleur, son matériau, son volume`,
+    );
+    setToastUndo(added > 0);
   };
   const importKit = async (file: File) => {
     try {
@@ -3019,7 +3037,19 @@ export function App() {
           )}
           {isEdit(tool) && sel && sel.kind !== 'surface' && (
             <aside className="height-bar" title="Hauteur : au-dessus de 0 l'objet se soulève (ombre), en dessous il se creuse">
-              <VSlider label="Hauteur" center value={0.5 + (sel.height - (sel.inner ?? 0)) / 2} onChange={(v) => setLevel(sel, Math.abs(v - 0.5) < 0.03 ? 0 : Math.round((v * 2 - 1) * 100) / 100)} />
+              <VSlider
+                label="Hauteur"
+                center
+                value={0.5 + (sel.height - (sel.inner ?? 0)) / 2}
+                onChange={(v) => setLevel(sel, Math.abs(v - 0.5) < 0.03 ? 0 : Math.round((v * 2 - 1) * 100) / 100)}
+                onActive={(on) => {
+                  // l'aperçu incliné reste un instant après le lâcher
+                  clearTimeout(peekOff.current);
+                  if (on) setPeek(true);
+                  else peekOff.current = window.setTimeout(() => setPeek(false), 900);
+                }}
+              />
+              {peek && <HeightPeek doc={doc} f={f} focus={objetLayers(sel, doc).map((x) => x.id)} />}
             </aside>
           )}
           {isEdit(tool) && sel && (
@@ -3028,6 +3058,11 @@ export function App() {
               patchText={(next, h) => patchText(sel, next, h)}
               unmold={() => unmold(sel)}
               onMold={() => setTool('mold')}
+              onLevel={(v) => setLevel(sel, v)}
+              onSculpt={() => {
+                setSwash((w) => ({ ...w, mode: 'relief' }));
+                setTool('mold');
+              }}
               layer={sel}
               doc={doc}
               f={f}
@@ -3147,13 +3182,20 @@ export function App() {
               )}
               {tool === 'stamp' && (
                 <>
-                  <button
-                    className="btn small"
-                    onClick={() => setStampSow(!stampSow)}
-                    title={stampSow ? 'Semis : des copies du motif s’éparpillent le long du geste (toucher pour l’essuyé)' : 'Essuyé : l’empreinte s’étire quand on glisse (toucher pour le semis)'}
-                  >
-                    <Icon name={stampSow ? 'stamp-sow' : 'stamp-wipe'} />
-                  </button>
+                  {!stampMore && !stampSow && (
+                    <button className="btn small" onClick={() => setStampMore(true)} title="Plus : semis (copies du motif éparpillées le long du geste)">
+                      <Icon name="more" />
+                    </button>
+                  )}
+                  {(stampMore || stampSow) && (
+                    <button
+                      className="btn small"
+                      onClick={() => setStampSow(!stampSow)}
+                      title={stampSow ? 'Semis : des copies du motif s’éparpillent le long du geste (toucher pour l’essuyé)' : 'Essuyé : l’empreinte s’étire quand on glisse (toucher pour le semis)'}
+                    >
+                      <Icon name={stampSow ? 'stamp-sow' : 'stamp-wipe'} />
+                    </button>
+                  )}
                   <button className={`btn small ${stampFilled ? 'on' : ''}`} onClick={() => setStampFilled(!stampFilled)} title="Motif rempli : ses formes prennent le dégradé du guide">
                     <Icon name="stamp-fill" />
                   </button>
@@ -3793,7 +3835,7 @@ function Dial({ label, value, onChange }: { label: string; value: number; onChan
   );
 }
 
-function VSlider({ label, value, onChange, center }: { label: string; value: number; onChange: (v: number) => void; center?: boolean }) {
+function VSlider({ label, value, onChange, center, onActive }: { label: string; value: number; onChange: (v: number) => void; center?: boolean; onActive?: (on: boolean) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const set = (e: React.PointerEvent) => {
     const r = ref.current!.getBoundingClientRect();
@@ -3809,9 +3851,12 @@ function VSlider({ label, value, onChange, center }: { label: string; value: num
       title={label}
       onPointerDown={(e) => {
         (e.target as Element).setPointerCapture(e.pointerId);
+        onActive?.(true);
         set(e);
       }}
       onPointerMove={(e) => e.buttons && set(e)}
+      onPointerUp={() => onActive?.(false)}
+      onPointerCancel={() => onActive?.(false)}
     >
       {center ? (
         <>
