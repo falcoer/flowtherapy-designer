@@ -22,12 +22,18 @@ export const SUBJECT_MODEL: string =
 /** Côté le plus long de l'image analysée, en pixels. */
 export const SUBJECT_SIZE = 1024;
 
-/** Un trait sur le sujet, en coordonnées de la couche (0..1) : ajouter ou retirer. */
+/** Un geste sur le sujet, en coordonnées de la couche (0..1) : ajouter, retirer, ou entourer une zone. */
 export interface SubjectStroke {
-  mode: 'add' | 'remove';
+  mode: 'add' | 'remove' | 'zone';
   pts: Pt[];
-  /** Proposition faite d'office à l'ouverture : le premier geste la remplace. */
-  auto?: boolean;
+}
+
+/** Partie de la couche analysée (coordonnées de la couche) : toute l'image, ou autour de la zone tracée. */
+export interface SubjectCrop {
+  u0: number;
+  v0: number;
+  u1: number;
+  v1: number;
 }
 
 export interface SubjectMask {
@@ -97,7 +103,7 @@ export async function segmentSubject(strokes: SubjectStroke[]): Promise<SubjectM
   const r = await call({
     type: 'segment',
     strokes: strokes.map((s) => ({
-      brushMode: s.mode === 'add' ? 1 : 2,
+      brushMode: s.mode === 'add' ? 1 : s.mode === 'remove' ? 2 : 3,
       // un simple toucher : un point suffit au modèle
       point: s.pts.map((p) => ({
         x: Math.min(1, Math.max(0, p.x)),
@@ -129,13 +135,13 @@ export function maskImage(m: SubjectMask, rgb: [number, number, number]): HTMLCa
 }
 
 /**
- * Masque → géométrie du sujet en coordonnées de la couche, gardée dans la
- * découpe actuelle. Les miettes (petits îlots, petits trous) sont écartées.
+ * Masque (sur le recadrage) → géométrie du sujet en coordonnées de la couche, gardée
+ * dans `shape` (la découpe, ou la découpe ∩ la zone tracée). Les miettes (petits îlots, petits trous) sont écartées.
  */
-export function subjectGeom(m: SubjectMask, shape: Ring[]): MultiPolygon {
+export function subjectGeom(m: SubjectMask, shape: Ring[], crop: SubjectCrop = { u0: 0, v0: 0, u1: 1, v1: 1 }): MultiPolygon {
   const px = new Uint8ClampedArray(m.w * m.h * 4);
   for (let i = 0; i < m.data.length; i++) px[i * 4 + 3] = Math.round(Math.min(1, Math.max(0, m.data[i]!)) * 255);
-  const rings = contours(px, m.w, m.h, 128).map((r) => r.map((p) => ({ x: p.x / m.w, y: p.y / m.h })));
+  const rings = contours(px, m.w, m.h, 128).map((r) => r.map((p) => ({ x: crop.u0 + (p.x / m.w) * (crop.u1 - crop.u0), y: crop.v0 + (p.y / m.h) * (crop.v1 - crop.v0) })));
   if (!rings.length) return [];
   const g = intersect(shape, rings);
   const area = (r: Array<[number, number]>) => {
