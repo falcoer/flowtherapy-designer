@@ -373,7 +373,7 @@ export function App() {
   /** Barre de texte ouverte sur le clavier (ou l'écriture au stylet). */
   const [textEditing, setTextEditing] = useState(false);
   /** Outil Prolonger de la barre de texte. */
-  const [swash, setSwash] = useState<SwashTool>({ on: false, mode: 'mold', r: 0.3, end: 'point', w: null });
+  const [swash, setSwash] = useState<SwashTool>({ on: false, mode: 'mold', r: 0.3, end: 'point', w: null, nib: true, double: false });
   const [size, setSize] = useState(0.05);
   const [opacity, setOpacity] = useState(0.85);
   /** Outil Tampons : motif, taille, opacité et dilution de l'encre. */
@@ -1220,9 +1220,23 @@ export function App() {
         layer: sel.id,
         // copie légère : le texte garde ses modelages tels quels, déjà calculés
         orig: { ...sel },
-        ...(swash.mode === 'mold'
-          ? { mold: { pts: [swashPoint(sel.text, loc.x, loc.y)], r: swash.r } }
-          : { sw: { pts: [[...swashPoint(sel.text, loc.x, loc.y), pr] as [number, number, number]], w: swash.w ?? swashWidth(sel.text.weight), end: swash.end } }),
+        ...(swash.mode === 'orn'
+          ? {
+              mold: {
+                pts: [],
+                r: 0,
+                orn: {
+                  pts: [[...swashPoint(sel.text, loc.x, loc.y), pr] as [number, number, number]],
+                  w: swash.w ?? swashWidth(sel.text.weight) * 0.8,
+                  end: 'fine',
+                  ...(swash.nib ? { nib: -Math.PI / 4 } : {}),
+                  ...(swash.double ? { double: (swash.w ?? swashWidth(sel.text.weight) * 0.8) * 1.6 } : {}),
+                },
+              },
+            }
+          : swash.mode === 'mold'
+            ? { mold: { pts: [swashPoint(sel.text, loc.x, loc.y)], r: swash.r } }
+            : { sw: { pts: [[...swashPoint(sel.text, loc.x, loc.y), pr] as [number, number, number]], w: swash.w ?? swashWidth(sel.text.weight), end: swash.end } }),
         last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
       };
       return;
@@ -1482,10 +1496,12 @@ export function App() {
         L.last = { x: ev.clientX, y: ev.clientY, t: performance.now(), p: pr };
         const loc = toLocal(L.orig, q.x, q.y);
         const [x, y] = swashPoint(L.orig.text, loc.x, loc.y);
-        const line = L.sw?.pts ?? L.mold!.pts;
+        const orn = L.mold?.orn;
+        const line = L.sw?.pts ?? orn?.pts ?? L.mold!.pts;
         const prev = line[line.length - 1]!;
-        if (Math.hypot(x - prev[0], y - prev[1]) < (L.mold ? 0.012 : 0.025)) continue;
+        if (Math.hypot(x - prev[0], y - prev[1]) < (L.mold && !orn ? 0.012 : 0.02)) continue;
         if (L.sw) L.sw.pts.push([x, y, pr]);
+        else if (orn) orn.pts.push([x, y, pr]);
         else L.mold!.pts.push([x, y]);
       }
       if (!swashFrame.current) swashFrame.current = requestAnimationFrame(() => ((swashFrame.current = 0), applySwash(false)));
@@ -2055,7 +2071,13 @@ export function App() {
   useEffect(() => setSwash((s) => (s.on ? { ...s, on: false } : s)), [selected, tool]);
   useEffect(() => {
     if (swash.on) {
-      setToast(swash.mode === 'mold' ? 'De l’intérieur, tire le trait ; de l’extérieur, repousse-le' : 'Dessine depuis une lettre pour la prolonger');
+      setToast(
+        swash.mode === 'mold'
+          ? 'De l’intérieur, tire le trait ; de l’extérieur, repousse-le'
+          : swash.mode === 'orn'
+            ? 'Dessine une boucle ou une ligne : elle se lisse et s’ajoute au titre'
+            : 'Dessine depuis une lettre pour la prolonger',
+      );
       setToastUndo(false);
     }
   }, [swash.on, swash.mode]);
@@ -2064,7 +2086,7 @@ export function App() {
     const L = live.current;
     if (L.kind !== 'swash' || !L.orig?.text) return;
     const o = L.orig;
-    const n = (L.sw ?? L.mold)?.pts.length ?? 0;
+    const n = (L.sw ?? L.mold?.orn ?? L.mold)?.pts.length ?? 0;
     if (final && n < 2) {
       // simple toucher : rien n'est tracé
       past.current.pop();
@@ -2074,7 +2096,7 @@ export function App() {
       o,
       L.sw
         ? { ...o.text!, swashes: [...(o.text!.swashes ?? []), { ...L.sw, pts: [...L.sw.pts] }] }
-        : { ...o.text!, molds: [...(o.text!.molds ?? []), { pts: [...L.mold!.pts], r: L.mold!.r, ...(final ? {} : { live: true }) }] },
+        : { ...o.text!, molds: [...(o.text!.molds ?? []), { pts: [...L.mold!.pts], r: L.mold!.r, ...(L.mold!.orn ? { orn: { ...L.mold!.orn, pts: [...L.mold!.orn.pts] } } : {}), ...(final ? {} : { live: true }) }] },
     );
     setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, ...patch } : x)) }));
   };

@@ -39,11 +39,14 @@ export interface Mold {
   live?: boolean;
   /** Régularisation (sans geste) : force du lissage, en corps. */
   smooth?: number;
+  /** Ornement : un trait (boucle, ligne simple ou doublée) posé sur les lettres déjà modelées. */
+  orn?: Swash;
 }
 
 /** Applique un modelage aux contours (en pixels), en gardant des points assez serrés. */
 function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number, pristine: Ring[]): Ring[] {
   if (m.smooth) return regularize(rings, m.smooth * size, pristine);
+  if (m.orn) return ornament(rings, m.orn, X0, Y0, size, !!m.live);
   const R = Math.max(2, m.r * size);
   const pts = m.pts.map(([x, y]) => ({ x: X0 + x * size, y: Y0 + y * size }));
   let out = rings.map((r) => r.map((p) => ({ x: p.x, y: p.y })));
@@ -128,6 +131,38 @@ function blur(a: Float32Array, W: number, H: number, r: number, passes = 3): Flo
     pass(tmp, src, false);
   }
   return src;
+}
+
+/** Ornement : le trait est peint par-dessus les lettres, puis le tout est relevé en un seul contour. */
+function ornament(rings: Ring[], s: Swash, X0: number, Y0: number, size: number, live: boolean): Ring[] {
+  const reach = s.w * size * 2 + (s.double ?? 0) * size + 4;
+  const dots: Ring = s.pts.map(([x, y]) => ({ x: X0 + x * size, y: Y0 + y * size }));
+  // pendant le tracé, seul le trait est relevé (vite) ; au lâcher, il se fond dans les lettres
+  const f = frameOf(live ? [[dots]] : [rings, [dots]], Math.ceil(reach));
+  if (!f) return rings;
+  const cv = document.createElement('canvas');
+  cv.width = f.W;
+  cv.height = f.H;
+  const ctx = cv.getContext('2d', { willReadFrequently: true })!;
+  ctx.fillStyle = ctx.strokeStyle = '#000';
+  if (!live) {
+    const path = new Path2D();
+    for (const r of rings) {
+      r.forEach((p, i) => (i ? path.lineTo(p.x - f.ox, p.y - f.oy) : path.moveTo(p.x - f.ox, p.y - f.oy)));
+      path.closePath();
+    }
+    ctx.fill(path, 'nonzero');
+  }
+  drawSwash(ctx, s, X0 - f.ox, Y0 - f.oy, size);
+  const traced = contours(ctx.getImageData(0, 0, f.W, f.H).data, f.W, f.H, 128)
+    .filter((r) => r.length >= 8)
+    .map((r) =>
+      simplifyRing(
+        r.map((p) => ({ x: p.x + f.ox, y: p.y + f.oy })),
+        0.2,
+      ),
+    );
+  return live ? [...rings, ...traced] : traced;
 }
 
 /**
@@ -242,7 +277,7 @@ function densify(r: Ring, gap: number, c: { x: number; y: number }, near: number
   return o;
 }
 
-export type SwashEnd = 'point' | 'ball' | 'flat';
+export type SwashEnd = 'point' | 'ball' | 'flat' | 'fine';
 /**
  * Un paraphe : les points [x, y, pression] sont en corps (1 = taille de la police), comptés depuis
  * le coin haut gauche du bloc de lignes, avant l'enveloppe. Il suit donc le texte quand on change
@@ -253,6 +288,10 @@ export interface Swash {
   /** Épaisseur, en corps. */
   w: number;
   end: SwashEnd;
+  /** Plume : angle du bec (radians). Le trait est gras dans un sens, fin comme un cheveu dans l'autre. */
+  nib?: number;
+  /** Ligne doublée : écart entre les deux traits, en corps (0 ou absent : trait simple). */
+  double?: number;
 }
 export type WarpKind = 'arc' | 'wave' | 'bulge' | 'persp';
 export interface TextWarp {
@@ -575,19 +614,41 @@ function drawSwash(ctx: CanvasRenderingContext2D, s: Swash, X0: number, Y0: numb
   for (let i = 1; i < pts.length; i++) len.push(len[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y));
   const total = len[len.length - 1]! || 1;
   const smooth = (x: number) => x * x * (3 - 2 * x);
+  // direction du trait en chaque point, pour la plume et pour doubler
+  const dir = pts.map((_, i) => {
+    const [a, b] = [pts[Math.max(0, i - 1)]!, pts[Math.min(pts.length - 1, i + 1)]!];
+    return Math.atan2(b.y - a.y, b.x - a.x);
+  });
   const width = (i: number) => {
     const t = len[i]! / total;
-    const f = s.end === 'point' ? (t < 0.3 ? 1 : Math.max(0.03, 1 - smooth((t - 0.3) / 0.7))) : s.end === 'ball' ? 1 - 0.5 * smooth(t) : 1;
-    return s.w * size * (0.4 + 0.85 * pts[i]!.p) * f;
+    const f =
+      s.end === 'point'
+        ? t < 0.3
+          ? 1
+          : Math.max(0.03, 1 - smooth((t - 0.3) / 0.7))
+        : s.end === 'fine'
+          ? Math.max(0.03, Math.min(1, smooth(Math.min(1, t / 0.25)), 1 - smooth(Math.max(0, (t - 0.55) / 0.45))))
+          : s.end === 'ball'
+            ? 1 - 0.5 * smooth(t)
+            : 1;
+    // plume : plein quand le trait croise le bec, délié quand il le suit
+    const nib = s.nib === undefined ? 1 : 0.14 + 0.86 * Math.abs(Math.sin(dir[i]! - s.nib));
+    return s.w * size * (0.4 + 0.85 * pts[i]!.p) * f * nib;
   };
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  for (let i = 1; i < pts.length; i++) {
-    ctx.beginPath();
-    ctx.moveTo(pts[i - 1]!.x, pts[i - 1]!.y);
-    ctx.lineTo(pts[i]!.x, pts[i]!.y);
-    ctx.lineWidth = Math.max(0.5, (width(i - 1) + width(i)) / 2);
-    ctx.stroke();
+  const gap = (s.double ?? 0) * size;
+  const sides = gap ? [-gap / 2, gap / 2] : [0];
+  for (const off of sides) {
+    const at = (i: number) => ({ x: pts[i]!.x - Math.sin(dir[i]!) * off, y: pts[i]!.y + Math.cos(dir[i]!) * off });
+    for (let i = 1; i < pts.length; i++) {
+      const [a, b] = [at(i - 1), at(i)];
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.lineWidth = Math.max(0.5, ((width(i - 1) + width(i)) / 2) * (gap ? 0.5 : 1));
+      ctx.stroke();
+    }
   }
   if (pts.length === 1) {
     ctx.beginPath();

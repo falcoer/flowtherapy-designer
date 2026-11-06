@@ -6,12 +6,15 @@ import { ensureFont, fontFamily, fontList, fontOf, loadFonts, swashWidth, WARPS,
 export interface SwashTool {
   on: boolean;
   /** Tracer un prolongement, ou modeler le contour (tirer de l'intérieur, repousser de l'extérieur). */
-  mode: 'draw' | 'mold';
+  mode: 'draw' | 'mold' | 'orn';
   /** Rayon du modelage, en corps. */
   r: number;
   end: SwashEnd;
   /** Épaisseur choisie, en corps (null : celle d'un fût à la graisse du texte). */
   w: number | null;
+  /** Ornement : trait à la plume (plein et délié) et ligne doublée. */
+  nib: boolean;
+  double: boolean;
 }
 
 const WEIGHTS = ['Extra-fin', 'Très fin', 'Fin', 'Normal', 'Medium', 'Demi-gras', 'Gras', 'Extra-gras', 'Noir'];
@@ -132,21 +135,52 @@ export function TextBar({
         </button>
         {swash.on ? (
           <>
-            <label className="tb-slider">
-              <span className="tb-label">Taille</span>
-              <input type="range" min={0.06} max={1} step={0.01} value={swash.r} onChange={(e) => setSwash({ ...swash, r: Number(e.target.value) })} />
-            </label>
-            <button
-              className="tb-btn tb-regular"
-              onClick={() => onChange({ molds: [...(t.molds ?? []), { pts: [], r: 0, smooth: 0.035 }] }, true)}
-              title="Régulariser : lisse le contour, retire les accrocs, égalise les pleins (à répéter pour lisser plus)"
-            >
-              <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 16c2-1 2.5-3 4-3s2 2.5 3.5 2.5S12 12 13.5 12 15 14 16.5 14" strokeDasharray="2 2" />
-                <path d="M3 9c4-3 10-3 18 0" />
-                <path d="M18 3l.7 1.6 1.6.7-1.6.7L18 7.6l-.7-1.6-1.6-.7 1.6-.7z" fill="currentColor" stroke="none" />
-              </svg>
-            </button>
+            <div className="seg tb-modes">
+              <button className={swash.mode !== 'orn' ? 'on' : ''} onClick={() => setSwash({ ...swash, mode: 'mold' })}>
+                Modeler
+              </button>
+              <button className={swash.mode === 'orn' ? 'on' : ''} onClick={() => setSwash({ ...swash, mode: 'orn' })} title="Orner : boucles et lignes, simples ou doublées, posées sur le titre">
+                Orner
+              </button>
+            </div>
+            {swash.mode === 'orn' ? (
+              <>
+                <label className="tb-slider narrow">
+                  <span className="tb-label">Épaisseur</span>
+                  <input type="range" min={0.01} max={0.3} step={0.005} value={swash.w ?? swashWidth(t.weight) * 0.8} onChange={(e) => setSwash({ ...swash, w: Number(e.target.value) })} />
+                </label>
+                <button className={`tb-btn tb-regular ${swash.nib ? 'on' : ''}`} onClick={() => setSwash({ ...swash, nib: !swash.nib })} title="Plume : plein et délié selon le sens du trait">
+                  <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 20l3-1 11-11-2-2L5 17z" />
+                    <path d="M14 6l4 4" />
+                  </svg>
+                </button>
+                <button className={`tb-btn tb-regular ${swash.double ? 'on' : ''}`} onClick={() => setSwash({ ...swash, double: !swash.double })} title="Ligne doublée : deux traits parallèles">
+                  <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                    <path d="M3 10c4-4 8 4 12 0s4-3 6-2" />
+                    <path d="M3 15c4-4 8 4 12 0s4-3 6-2" />
+                  </svg>
+                </button>
+              </>
+            ) : (
+              <>
+                <label className="tb-slider">
+                  <span className="tb-label">Taille</span>
+                  <input type="range" min={0.06} max={1} step={0.01} value={swash.r} onChange={(e) => setSwash({ ...swash, r: Number(e.target.value) })} />
+                </label>
+                <button
+                  className="tb-btn tb-regular"
+                  onClick={() => onChange({ molds: [...(t.molds ?? []), { pts: [], r: 0, smooth: 0.035 }] }, true)}
+                  title="Régulariser : lisse le contour, retire les accrocs, égalise les pleins (à répéter pour lisser plus)"
+                >
+                  <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 16c2-1 2.5-3 4-3s2 2.5 3.5 2.5S12 12 13.5 12 15 14 16.5 14" strokeDasharray="2 2" />
+                    <path d="M3 9c4-3 10-3 18 0" />
+                    <path d="M18 3l.7 1.6 1.6.7-1.6.7L18 7.6l-.7-1.6-1.6-.7 1.6-.7z" fill="currentColor" stroke="none" />
+                  </svg>
+                </button>
+              </>
+            )}
             {!!(t.swashes?.length || t.molds?.length) && (
               <button className="tb-btn tb-clear" onClick={() => onChange({ swashes: [], molds: [] }, true)} title="Retirer tous les prolongements et modelages">
                 <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
