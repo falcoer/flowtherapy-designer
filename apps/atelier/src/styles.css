@@ -620,3 +620,9 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 /* outils du texte en mode attributs : barre en haut de la page */
 .text-bar.tools-only { bottom: auto; top: 64px; width: auto; max-width: calc(100vw - 150px); gap: 6px; padding: 8px; }
 .text-bar.tools-only .tb-slider { min-width: 140px; }
+/* bulle de changement rapide du texte (double toucher en mode attributs) */
+.quick-text { position: absolute; z-index: 13; top: 182px; left: 50%; transform: translateX(-50%); width: min(460px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 18px; background: var(--chrome-solid); border: 1px solid var(--line); box-shadow: var(--shadow); animation: pop 0.14s ease-out; }
+.qt-row { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.qt-row .tb-align { margin-right: auto; }
+.qt-ok { padding: 8px 16px; border-radius: 999px; background: var(--accent); color: #fff; font-weight: 600; }
+.tb-style, .tb-content { display: grid; place-items: center; }

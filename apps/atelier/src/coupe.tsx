@@ -235,11 +235,11 @@ export function CoupePanel({
   onClose: () => void;
   onToast: (msg: string, undoable?: boolean) => void;
   /** Élément à ouvrir d'emblée (une forme qu'on vient de poser : ses paramètres). */
-  openOn?: { key: string; n: number };
+  openOn?: { key: string; n: number; sec?: Section };
 }) {
-  const [focus, setFocus] = useState<string | null>(openOn && l.kind === 'shape' ? openOn.key : null);
+  const [focus, setFocus] = useState<string | null>(openOn && (openOn.sec || l.kind === 'shape') ? openOn.key : null);
   useEffect(() => {
-    if (openOn && l.kind === 'shape') setFocus(openOn.key);
+    if (openOn && (openOn.sec || l.kind === 'shape')) setFocus(openOn.key);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openOn]);
   const [adding, setAdding] = useState<Section | null>(null);
@@ -247,7 +247,7 @@ export function CoupePanel({
   const [only, setOnly] = useState<Section | null>(null);
   useEffect(() => setOnly(null), [l.id]);
   useEffect(() => {
-    if (openOn && l.kind === 'shape') setOnly('image');
+    if (openOn && (openOn.sec || l.kind === 'shape')) setOnly(openOn.sec ?? 'image');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openOn]);
   // traits de rappel : du bouton de légende à la couche qu'il édite, dans l'aperçu
@@ -582,6 +582,8 @@ function Attrs({ layer: l, doc, item, patch, patchText }: { layer: Layer; doc: D
     body = (
       <>
         <Range label="Graisse" display={`${t.weight}`} value={(t.weight - 100) / 800} onChange={(v) => patchText({ weight: 100 + Math.round(v * 80) * 10 }, false)} />
+        <Range label="Inclinaison" min={-1} display={`${Math.round(t.slant ?? 0)}°`} value={(t.slant ?? 0) / 30} onChange={(v) => patchText({ slant: Math.abs(v) < 0.04 ? 0 : Math.round(v * 30) }, false)} />
+        <Range label="Espacement" display={`${Math.round((t.tracking ?? 0) * 100)}`} min={-0.2} value={(t.tracking ?? 0) / 0.5} onChange={(v) => patchText({ tracking: Math.round(v * 50) / 100 }, false)} />
         <label className="cp-row">
           <span>Italique</span>
           <input type="checkbox" checked={!!t.italic} onChange={(e) => patchText({ italic: e.target.checked }, true)} />

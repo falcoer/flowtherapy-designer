@@ -30,6 +30,7 @@ export function TextBar({
   swash,
   setSwash,
   toolsOnly,
+  onStyle,
 }: {
   layer: Layer;
   editing: boolean;
@@ -39,9 +40,14 @@ export function TextBar({
   setSwash: (s: SwashTool) => void;
   /** Mode attributs : seulement les outils du texte, en barre au-dessus de la page. */
   toolsOnly?: boolean;
+  /** Ouvre le style du texte (police, graisse, inclinaison) dans le volet des attributs. */
+  onStyle?: () => void;
 }) {
   const t = layer.text!;
   const area = useRef<HTMLTextAreaElement>(null);
+  // mode attributs : le contenu se replie dans une section qu'on ouvre au besoin
+  const [showContent, setShowContent] = useState(false);
+  const [draft, setDraft] = useLazyText(t.content, (v) => change({ content: v }, 'content'));
   const [, setReady] = useState(0);
   // une seule étape d'annulation par séance d'écriture ou de réglage
   const session = useRef<string | null>(null);
@@ -74,18 +80,18 @@ export function TextBar({
 
   return (
     <div className={`text-bar ${toolsOnly ? 'tools-only' : ''}`} onPointerDown={(e) => e.stopPropagation()}>
-      {!toolsOnly && (
+      {(!toolsOnly || showContent) && (
         <textarea
           ref={area}
           className="tb-area"
           rows={rows}
-          value={t.content}
+          value={draft}
           placeholder="Écris ici, au clavier ou au stylet"
           spellCheck
           style={{ fontFamily: `${fontFamily(t.font)}, Inter, sans-serif`, fontWeight: t.weight, fontStyle: t.italic ? 'italic' : 'normal', textAlign: t.align }}
           onFocus={() => setEditing(true)}
           onBlur={() => setEditing(false)}
-          onChange={(e) => change({ content: e.target.value }, 'content')}
+          onChange={(e) => setDraft(e.target.value)}
         />
       )}
       {!toolsOnly && (
@@ -124,6 +130,20 @@ export function TextBar({
         </label>
       </div>
       <div className="tb-row">
+        {toolsOnly && (
+          <>
+            <button className={`tb-btn tb-content ${showContent ? 'on' : ''}`} onClick={() => setShowContent(!showContent)} title="Contenu : modifier le texte">
+              <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <path d="M5 6h10M10 6v12M15 14h5M15 18h4" />
+              </svg>
+            </button>
+            {onStyle && (
+              <button className="tb-btn tb-style" onClick={onStyle} title="Style : police, graisse, inclinaison, espacement">
+                <span style={{ fontFamily: `${fontFamily(t.font)}, Inter, sans-serif`, fontSize: 18 }}>Aa</span>
+              </button>
+            )}
+          </>
+        )}
         <button
           className={`tb-btn tb-swash ${swash.on ? 'on' : ''}`}
           onClick={() => {
@@ -248,5 +268,84 @@ function AlignGlyph({ a }: { a: 'left' | 'center' | 'right' }) {
         return <rect key={i} x={x} y={1 + i * 5} width={w} height="2" rx="1" fill="currentColor" />;
       })}
     </svg>
+  );
+}
+
+/**
+ * Saisie fluide : le champ garde sa valeur à lui et le rendu (lourd : tracé des lettres) ne suit
+ * qu'après une courte pause, ou dès qu'on quitte le champ.
+ */
+export function useLazyText(value: string, commit: (v: string) => void, delay = 350): [string, (v: string) => void] {
+  const [draft, setDraftState] = useState(value);
+  const timer = useRef(0);
+  const pending = useRef<string | null>(null);
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+  useEffect(() => {
+    // changement venu d'ailleurs (annuler, autre texte) : on le reprend
+    if (pending.current === null) setDraftState(value);
+  }, [value]);
+  const flush = () => {
+    window.clearTimeout(timer.current);
+    if (pending.current !== null) {
+      const v = pending.current;
+      pending.current = null;
+      commitRef.current(v);
+    }
+  };
+  useEffect(() => flush, []);
+  const setDraft = (v: string) => {
+    setDraftState(v);
+    pending.current = v;
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(flush, delay);
+  };
+  return [draft, setDraft];
+}
+
+/** Changement rapide du texte, dans une bulle ouverte d'un double toucher. */
+export function QuickText({ layer, onChange, onClose }: { layer: Layer; onChange: (next: Partial<TextStyle>, history: boolean) => void; onClose: () => void }) {
+  const t = layer.text!;
+  const first = useRef(true);
+  const [draft, setDraft] = useLazyText(t.content, (v) => {
+    onChange({ content: v }, first.current);
+    first.current = false;
+  });
+  const area = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const id = setTimeout(() => {
+      area.current?.focus();
+      area.current?.select();
+    }, 60);
+    return () => clearTimeout(id);
+  }, [layer.id]);
+  const multi = draft.includes('\n');
+  return (
+    <div className="quick-text" onPointerDown={(e) => e.stopPropagation()}>
+      <textarea
+        ref={area}
+        className="tb-area"
+        rows={Math.min(4, Math.max(1, draft.split('\n').length))}
+        value={draft}
+        spellCheck
+        style={{ fontFamily: `${fontFamily(t.font)}, Inter, sans-serif`, fontWeight: t.weight, fontStyle: t.italic ? 'italic' : 'normal', textAlign: t.align }}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => e.key === 'Escape' && onClose()}
+      />
+      <div className="qt-row">
+        {multi && (
+          <div className="seg tb-align">
+            {(['left', 'center', 'right'] as const).map((a) => (
+              <button key={a} className={t.align === a ? 'on' : ''} onClick={() => onChange({ align: a }, true)} title={{ left: 'À gauche', center: 'Centré', right: 'À droite' }[a]}>
+                <AlignGlyph a={a} />
+              </button>
+            ))}
+          </div>
+        )}
+        <button className="qt-ok" onClick={onClose}>
+          OK
+        </button>
+      </div>
+    </div>
   );
 }

@@ -5,7 +5,7 @@ import { STAMPS, stampOf, stampSvg } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
-import { TextBar, type SwashTool } from './textbar';
+import { QuickText, TextBar, type SwashTool } from './textbar';
 import { PaletteEditor } from './colorpicker';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
@@ -345,8 +345,9 @@ export function App() {
   const [tool, setToolState] = useState<Tool>('paint');
   // Modifier rouvre la dernière section utilisée
   const lastEdit = useRef<EditTool>('transform');
-  const [coupeOpen, setCoupeOpen] = useState<{ key: string; n: number } | undefined>();
+  const [coupeOpen, setCoupeOpen] = useState<{ key: string; n: number; sec?: 'edge' | 'coat' | 'image' | 'transform' | 'support' } | undefined>();
   // glisser-déposer dans la liste des objets
+  const [quickText, setQuickText] = useState<string | null>(null);
   const listPress = useRef<{ id: string; y: number; moved: boolean } | null>(null);
   const [listDrag, setListDrag] = useState<{ id: string; over?: string; above?: boolean } | null>(null);
   const setTool = (t: Tool) => {
@@ -1254,8 +1255,14 @@ export function App() {
         live.current = { kind: null };
         // le premier toucher a pu poser un point de peinture : on le retire
         if (now - dotAt.current < 400) undo();
-        setTool('move');
         setSelected(hit.id);
+        // mode attributs : le texte se change dans une bulle, sans quitter le mode
+        if (hit.kind === 'text' && isEdit(tool)) {
+          setQuickText(hit.id);
+          redraw();
+          return;
+        }
+        setTool('move');
         if (hit.kind === 'text') setTextEditing(true);
         else setToast(`« ${hit.name} » : Disposer`);
         redraw();
@@ -2477,8 +2484,18 @@ export function App() {
           </aside>
 
           {(tool === 'move' || isEdit(tool)) && sel?.kind === 'text' && sel.text && !bubble && (
-            <TextBar layer={sel} editing={textEditing} setEditing={setTextEditing} onChange={(next, h) => patchText(sel, next, h)} swash={swash} setSwash={setSwash} toolsOnly={isEdit(tool)} />
+            <TextBar
+              layer={sel}
+              editing={textEditing}
+              setEditing={setTextEditing}
+              onChange={(next, h) => patchText(sel, next, h)}
+              swash={swash}
+              setSwash={setSwash}
+              toolsOnly={isEdit(tool)}
+              onStyle={() => setCoupeOpen((o) => ({ key: 'text', sec: 'image', n: (o?.n ?? 0) + 1 }))}
+            />
           )}
+          {isEdit(tool) && quickText && sel?.id === quickText && sel.text && <QuickText layer={sel} onChange={(next, h) => patchText(sel, next, h)} onClose={() => setQuickText(null)} />}
 
           {isEdit(tool) && !sel && (
             <aside className="coupe with-list" aria-label="Objets">

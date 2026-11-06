@@ -14,6 +14,8 @@ export interface TextStyle {
   /** Graisse 100..900 : réelle sur une police variable, épaissie ou amincie sinon. */
   weight: number;
   italic: boolean;
+  /** Inclinaison simulée, en degrés (positif : penche vers la droite), en plus de l'italique. */
+  slant?: number;
   align: 'left' | 'center' | 'right';
   /** Interlettrage, en fraction du corps. */
   tracking?: number;
@@ -456,7 +458,7 @@ interface Base {
   widest: number;
   fh: number;
 }
-const baseKey = (t: TextStyle) => JSON.stringify([t.content, t.font, t.weight, t.italic, t.align, t.tracking ?? 0, t.leading ?? 1.1, t.swashes ?? 0, fontEpoch]);
+const baseKey = (t: TextStyle) => JSON.stringify([t.content, t.font, t.weight, t.italic, t.slant ?? 0, t.align, t.tracking ?? 0, t.leading ?? 1.1, t.swashes ?? 0, fontEpoch]);
 const bases = new Map<string, Base>();
 function baseOf(t: TextStyle): Base {
   const key = baseKey(t);
@@ -540,7 +542,10 @@ function render(t: TextStyle, key: string): Base {
       const r = s.w * 1.2;
       [sx0, sy0, sx1, sy1] = [Math.min(sx0, x - r), Math.min(sy0, y - r), Math.max(sx1, x + r), Math.max(sy1, y + r)];
     }
-  const emW = Math.max(widest / size + 1.3, sx1 + 0.5) - Math.min(0, sx0 - 0.5);
+  // penché (italique simulé et inclinaison) : le haut des lignes se décale d'autant
+  const skew = Math.tan(((t.slant ?? 0) * Math.PI) / 180) + (t.italic && !ab.realItalic ? 0.2 : 0);
+  const lean = Math.abs(skew) * lines.length * lead;
+  const emW = Math.max(widest / size + 1.3 + lean, sx1 + 0.5) - Math.min(0, sx0 - 0.5);
   const emH = Math.max(lines.length * lead + 1, sy1 + 0.5) - Math.min(0, sy0 - 0.5);
   // un très long texte est rendu plus petit, pour rester dans un canevas raisonnable
   const k = Math.min(1, MAX_SIDE / (emW * size), MAX_SIDE / (emH * size));
@@ -551,9 +556,9 @@ function render(t: TextStyle, key: string): Base {
   const extra = ((t.weight - real) / 500) * size * 0.05;
   const pad = Math.ceil(size * 0.5 + Math.abs(extra));
   // coin du bloc de lignes dans le canevas : de la place à gauche et en haut pour les paraphes
-  const X0 = Math.max(pad, Math.ceil(-sx0 * size) + 4);
+  const X0 = Math.max(pad + (skew < 0 ? Math.ceil(lean * size) : 0), Math.ceil(-sx0 * size) + 4);
   const Y0 = Math.max(pad, Math.ceil(-sy0 * size) + 4);
-  const W = Math.ceil(Math.max(X0 + widest + pad + size * 0.3, X0 + sx1 * size + 4));
+  const W = Math.ceil(Math.max(X0 + widest + pad + (skew > 0 ? lean * size : 0), X0 + sx1 * size + 4));
   const H = Math.ceil(Math.max(Y0 + lines.length * lead * size + pad, Y0 + sy1 * size + 4));
   const cv = document.createElement('canvas');
   cv.width = W;
@@ -565,7 +570,8 @@ function render(t: TextStyle, key: string): Base {
   ctx.strokeStyle = '#000';
   ctx.lineJoin = 'round';
   // italique simulé : on penche les lettres
-  if (t.italic && !ab.realItalic) ctx.setTransform(1, 0, -0.2, 1, size * 0.3, 0);
+  // les lignes penchent autour de leur pied : le bas du bloc reste en place
+  if (skew) ctx.setTransform(1, 0, -skew, 1, skew * (Y0 + lines.length * lead * size), 0);
   const lineX = (line: string) => {
     const w = ctx.measureText(line).width;
     return X0 + (t.align === 'left' ? 0 : t.align === 'right' ? widest - w : (widest - w) / 2);
