@@ -41,6 +41,8 @@ export function PrefsPanel(p: {
   setPenTilt: (v: boolean) => void;
   theme: Theme;
   setTheme: (t: Theme) => void;
+  lefty: boolean;
+  setLefty: (v: boolean) => void;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('display');
@@ -132,6 +134,8 @@ export function PrefsPanel(p: {
           </div>
           <div className="pf-group">Aide</div>
           <Toggle label="Astuces" hint="Textes d'aide, sous-titres des menus et bandeau d'état" on={p.tips} set={p.setTips} />
+          <div className="pf-group">Main</div>
+          <Toggle label="Gaucher" hint="Les outils passent à gauche et leurs réglages à droite" on={p.lefty} set={p.setLefty} />
           <div className="pf-group">Stylet</div>
           <Toggle label="Rotation du stylet" hint="Tourner le crayon sur lui-même tourne les tampons" on={p.penRoll} set={p.setPenRoll} />
           <Toggle label="Inclinaison du stylet" hint="Pencher le crayon met les tampons en perspective" on={p.penTilt} set={p.setPenTilt} />

@@ -365,6 +365,22 @@ export function App() {
       return true;
     }
   });
+  /** Gaucher : les outils passent à gauche et leurs réglages à droite (l'inverse du droitier). */
+  const [lefty, setLeftyState] = useState(() => {
+    try {
+      return localStorage.getItem('ftd-atelier-hand') === 'left';
+    } catch {
+      return false;
+    }
+  });
+  const setLefty = (v: boolean) => {
+    setLeftyState(v);
+    try {
+      localStorage.setItem('ftd-atelier-hand', v ? 'left' : 'right');
+    } catch {
+      /* stockage indisponible */
+    }
+  };
   /** Thème : suit le système, ou clair ou sombre au choix. */
   const [theme, setThemeState] = useState<Theme>(() => {
     try {
@@ -485,8 +501,8 @@ export function App() {
       const actsOne = actKids.reduce((h, c) => h + c.offsetHeight, 0) + 8 * Math.max(0, actKids.length - 1);
       const rest = side.offsetHeight - pr.offsetHeight - (acts?.offsetHeight ?? 0) + actsOne;
       // place libre entre la barre d'outils et le bas de l'écran
-      const tools = document.querySelector('.side.tools-bar')?.getBoundingClientRect();
-      const room = window.innerHeight - (tools ? tools.bottom + 10 : 380) - 12;
+      // place libre sous le haut de la barre des réglages
+      const room = window.innerHeight - side.getBoundingClientRect().top - 12;
       const two = items.length > 2 && one + rest > room;
       if (two !== sideTwo) setSideTwo(two);
       // nombre impair : la case vide va en haut, la grille se remplit depuis le bas
@@ -617,8 +633,14 @@ export function App() {
   /** Recadre la vue sur un objet : il remplit la place libre entre les barres et l'éditeur d'objet. */
   const zoomOn = (l: Layer) => {
     const b = layerBox(l, f);
-    const left = (document.querySelector('.side.tools-bar')?.getBoundingClientRect().right ?? 70) + 12;
-    const right = (document.querySelector('.height-bar')?.getBoundingClientRect().left ?? vp.w - 12) - 12;
+    // place libre entre les barres posées à gauche et à droite (outils, réglages, hauteur)
+    let [left, right] = [12, vp.w - 12];
+    for (const el of document.querySelectorAll('.side, .height-bar')) {
+      const r = el.getBoundingClientRect();
+      if (!r.width) continue;
+      if (r.left + r.width / 2 < vp.w / 2) left = Math.max(left, r.right + 12);
+      else right = Math.min(right, r.left - 12);
+    }
     const bottom = (document.querySelector('aside.coupe')?.getBoundingClientRect().top ?? vp.h) - 12;
     const [aw, ah] = [Math.max(80, right - left), Math.max(80, bottom - top - 12)];
     setView((v) => {
@@ -2534,7 +2556,7 @@ export function App() {
   };
 
   return (
-    <div className={`atelier ${rendu ? 'rendu' : ''} ${tips ? '' : 'no-tips'}`}>
+    <div className={`atelier ${rendu ? 'rendu' : ''} ${tips ? '' : 'no-tips'} ${lefty ? 'hand-left' : 'hand-right'}`}>
       <canvas
         ref={canvasRef}
         className="stage"
@@ -3027,6 +3049,8 @@ export function App() {
               setPenTilt={setPenTilt}
               theme={theme}
               setTheme={setTheme}
+              lefty={lefty}
+              setLefty={setLefty}
               onClose={() => setBubble(null)}
             />
           )}

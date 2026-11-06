@@ -691,3 +691,12 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .dup-drop.armed { color: var(--accent); }
 .dup-drop.hot { background: var(--accent); color: #fff; transform: scale(1.25); }
 .bar .btn:disabled { opacity: 0.35; }
+/* droitier : réglages de l'outil en haut à gauche (sous la main gauche), outils à droite ; gaucher : l'inverse */
+.atelier .side:not(.tools-bar) { top: 64px; bottom: auto; }
+.atelier .side:not(.tools-bar) .mode-pop { top: 0; bottom: auto; }
+.hand-right .side.tools-bar { left: auto; right: max(8px, env(safe-area-inset-right, 0px)); }
+.hand-right .height-bar { right: calc(max(8px, env(safe-area-inset-right, 0px)) + 58px); }
+.hand-left .side:not(.tools-bar) { left: auto; right: max(8px, env(safe-area-inset-right, 0px)); }
+.hand-left .side:not(.tools-bar) .mode-pop { left: auto; right: calc(100% + 8px); }
+.hand-left .height-bar { right: auto; left: calc(max(8px, env(safe-area-inset-left, 0px)) + 58px); }
+.atelier .side:not(.tools-bar):not(:has(.side-params > *)) { display: none; }
