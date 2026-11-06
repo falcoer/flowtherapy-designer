@@ -1555,6 +1555,31 @@ export function App() {
   };
 
   /** Repère de survol : un rond de la taille du pinceau, ou l'empreinte du tampon. */
+  /** Empreinte en vraie grandeur au centre de l'écran, pendant le réglage de la taille sur la roue. */
+  const [sizing, setSizing] = useState<'on' | 'after' | null>(null);
+  useEffect(() => {
+    if (sizing !== 'after') return;
+    const t = setTimeout(() => setSizing(null), 900);
+    return () => clearTimeout(t);
+  }, [sizing]);
+  useEffect(() => {
+    const el = hoverRef.current;
+    if (!el) return;
+    if (!sizing) return void (el.style.display = 'none');
+    const m = Math.min(f.width, f.height) * scale;
+    const D = Math.max(
+      6,
+      tool === 'mold' ? (swash.mode === 'orn' ? (swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) : swash.r * 2) * MOLD_UNIT * m : tool === 'stamp' ? stampSize * 2 * m : size * 2 * m,
+    );
+    const tip = tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
+    const H = tip === 'flat' ? Math.max(3, D * 0.3) : D;
+    const ang = tool === 'stamp' ? stampRot : tip !== 'round' ? brushRot : 0;
+    el.dataset.tip = tip;
+    el.style.display = 'block';
+    el.style.width = `${D}px`;
+    el.style.height = `${H}px`;
+    el.style.transform = `translate(${window.innerWidth / 2 - D / 2}px, ${window.innerHeight / 2 - H / 2}px) rotate(${ang}rad)`;
+  });
   const showHover = (e: React.PointerEvent) => {
     const el = hoverRef.current;
     if (!el) return;
@@ -2955,6 +2980,7 @@ export function App() {
                   onSize={(v) => setSize(0.01 + v * 0.14)}
                   intensity={opacity}
                   onIntensity={(v) => setOpacity(Math.max(0.05, v))}
+                  onSizing={(on) => setSizing(on ? 'on' : 'after')}
                   {...(tipOn(brushKind) && brushTip !== 'round' ? { rotation: brushRot, onRotation: setBrushRot, tip: brushTip } : {})}
                 />
               )}
@@ -2967,6 +2993,7 @@ export function App() {
                   onIntensity={(v) => setDilution(Math.round((1 - v) * 100) / 100)}
                   rotation={stampRot}
                   onRotation={setStampRot}
+                  onSizing={(on) => setSizing(on ? 'on' : 'after')}
                   {...(stampSow ? {} : { tilt: stampTilt, onTilt: (x: number, y: number) => setStampTilt([x, y]) })}
                   stamp={`data:image/svg+xml,${encodeURIComponent(stampSvg(stampOf(stampId), guideColor(doc.guides[guide], 0.5)))}`}
                 />
@@ -2977,12 +3004,14 @@ export function App() {
                     size={((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) - 0.01) / 0.29}
                     sizeText={`${Math.round((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) * 100)}`}
                     onSize={(v) => setSwash({ ...swash, w: 0.01 + v * 0.29 })}
+                    onSizing={(on) => setSizing(on ? 'on' : 'after')}
                   />
                 ) : (
                   <BrushWheel
                     size={(swash.r - 0.06) / 0.94}
                     sizeText={`${Math.round(swash.r * 100)}`}
                     onSize={(v) => setSwash({ ...swash, r: 0.06 + v * 0.94 })}
+                    onSizing={(on) => setSizing(on ? 'on' : 'after')}
                     intensity={swash.k ?? 1}
                     onIntensity={(v) => setSwash({ ...swash, k: Math.max(0.05, v) })}
                   />

@@ -19,6 +19,8 @@ interface Props {
   /** Empreinte montrée au centre : une pointe, ou l'image d'un tampon. */
   tip?: Tip;
   stamp?: string;
+  /** Pendant le réglage de la taille (et au lâcher) : montrer l'empreinte en vraie grandeur sur la page. */
+  onSizing?: (on: boolean) => void;
 }
 
 const S = 176;
@@ -58,7 +60,7 @@ function stipple(tip: Tip, r: number, density: number) {
  * Roue du pinceau : une seule palette pour le modelage, le dessin et les tampons.
  * Gestes : faire glisser le long de l'anneau règle l'intensité ; tirer le bord de l'empreinte règle la taille
  * (vers l'extérieur ou l'intérieur) et la rotation (en tournant) ; pousser le point du centre l'incline.
- * Double toucher sur une zone : sa valeur revient au neutre.
+ * Double toucher : sur l'anneau, l'intensité revient au neutre ; ailleurs, la rotation et l'inclinaison reviennent à zéro.
  */
 export function BrushWheel(p: Props) {
   const ref = useRef<SVGSVGElement>(null);
@@ -98,6 +100,7 @@ export function BrushWheel(p: Props) {
         if (moved < 5) return;
         const radial = Math.abs((x - d.x) * d.x + (y - d.y) * d.y) / (Math.hypot(d.x, d.y) || 1);
         d.lock = p.onRotation && radial < moved * 0.6 ? 'rot' : 'size';
+        if (d.lock === 'size') p.onSizing?.(true);
       }
       if (d.lock === 'size') {
         const v = clamp((Math.hypot(x, y) - MINF) / (MAXF - MINF));
@@ -129,8 +132,11 @@ export function BrushWheel(p: Props) {
     if (now - lastTap.current.t < 320 && lastTap.current.zone === zone) {
       // double toucher : au neutre
       if (zone === 'ring') p.onIntensity?.(0.85);
-      else if (zone === 'tilt') p.onTilt?.(0, 0);
-      else p.onRotation?.(0);
+      else {
+        // ailleurs sur la roue : la pointe revient droite et à plat
+        p.onRotation?.(0);
+        p.onTilt?.(0, 0);
+      }
       lastTap.current = { t: 0, zone: '' };
       return;
     }
@@ -156,10 +162,12 @@ export function BrushWheel(p: Props) {
         onPointerDown={down}
         onPointerMove={(e) => e.buttons && apply(e)}
         onPointerUp={() => {
+          if (drag.current?.lock === 'size') p.onSizing?.(false);
           drag.current = null;
           setActive(null);
         }}
         onPointerCancel={() => {
+          if (drag.current?.lock === 'size') p.onSizing?.(false);
           drag.current = null;
           setActive(null);
         }}
