@@ -2614,6 +2614,20 @@ export function App() {
     else setDoc(fn);
   };
 
+  /**
+   * Hauteur d'un objet. Dans un objet en pièces, la pièce la plus basse porte les autres :
+   * la monter monte tout le groupe, chaque pièce gardant son écart ; une autre pièce bouge seule.
+   */
+  const setLevel = (l: Layer, v: number) =>
+    setDoc((d) => {
+      const mates = l.link ? d.layers.filter((x) => x.link === l.link && x.kind !== 'surface') : [];
+      const base = mates.reduce<Layer | null>((m, x) => (!m || levelOf(x) < levelOf(m) - 1e-6 ? x : m), null);
+      if (!base || base.id !== l.id) return { ...d, layers: d.layers.map((x) => (x.id === l.id ? { ...x, ...heightPatch(v) } : x)) };
+      const dv = v - levelOf(base);
+      const ids = new Set(mates.map((x) => x.id));
+      return { ...d, layers: d.layers.map((x) => (ids.has(x.id) ? { ...x, ...heightPatch(Math.round((levelOf(x) + dv) * 1000) / 1000) } : x)) };
+    });
+
   // raccourcis clavier (ordinateur)
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
@@ -2939,12 +2953,7 @@ export function App() {
           )}
           {isEdit(tool) && sel && sel.kind !== 'surface' && (
             <aside className="height-bar" title="Hauteur : au-dessus de 0 l'objet se soulève (ombre), en dessous il se creuse">
-              <VSlider
-                label="Hauteur"
-                center
-                value={0.5 + (sel.height - (sel.inner ?? 0)) / 2}
-                onChange={(v) => patchLayer(sel.id, heightPatch(Math.abs(v - 0.5) < 0.03 ? 0 : Math.round((v * 2 - 1) * 100) / 100), false)}
-              />
+              <VSlider label="Hauteur" center value={0.5 + (sel.height - (sel.inner ?? 0)) / 2} onChange={(v) => setLevel(sel, Math.abs(v - 0.5) < 0.03 ? 0 : Math.round((v * 2 - 1) * 100) / 100)} />
             </aside>
           )}
           {isEdit(tool) && sel && (
