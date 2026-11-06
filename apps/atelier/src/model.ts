@@ -125,8 +125,12 @@ export interface Layer {
   opacity?: number;
   /** Relief sculpté (outil Modeler, mode Relief) : carte de hauteurs éclairée par la lampe. */
   bump?: import('./bump').Bump;
-  /** Biseau (0..1) : liseré éclairé côté lumière, sombre à l'opposé. */
+  /** Biseau (0..1) : largeur du relief au bord, éclairé par la lampe (scene.ts drawBevel). */
   bevel?: number;
+  /** Profil du biseau : arrondi (par défaut) ou chanfrein. */
+  bevelProfile?: 'round' | 'chamfer';
+  /** Le biseau commence au bord ajouté (et non à la découpe). */
+  bevelBorder?: boolean;
   /** Rotation autour du centre de la boîte, en radians. */
   rot?: number;
   /** Centre de rotation en coordonnées de la couche ; absent = centre du cadre des poignées. */

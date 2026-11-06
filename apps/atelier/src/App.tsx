@@ -783,6 +783,8 @@ export function App() {
   const gesture = useRef<{ view: View; c: { x: number; y: number }; d: number; a: number; next?: View } | null>(null);
   const tap = useRef<{ n: number; t0: number; moved: boolean } | null>(null);
   const lampDrag = useRef<number | null>(null);
+  /** Souris : molette enfoncée, on fait glisser la feuille. */
+  const midPan = useRef<{ id: number; x: number; y: number; px: number; py: number } | null>(null);
   // doigt gardé posé sur un objet : il se solidarise avec celui du dessous
   const hold = useRef<{ timer: number; x: number; y: number } | null>(null);
   const stopHold = () => {
@@ -1275,6 +1277,11 @@ export function App() {
   const onDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     hideHover();
     (e.target as Element).setPointerCapture(e.pointerId);
+    if (e.pointerType === 'mouse' && e.button === 1) {
+      e.preventDefault();
+      midPan.current = { id: e.pointerId, x: e.clientX, y: e.clientY, px: view.px, py: view.py };
+      return;
+    }
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     // le panneau lumière reste ouvert : on règle la lampe en regardant la page
     if (bubble === 'light' && pointers.current.size === 1) {
@@ -1697,6 +1704,11 @@ export function App() {
   };
 
   const onMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const mp = midPan.current;
+    if (mp && mp.id === e.pointerId) {
+      setView((v) => ({ ...v, px: mp.px + e.clientX - mp.x, py: mp.py + e.clientY - mp.y }));
+      return;
+    }
     const pt = pointers.current.get(e.pointerId);
     // pointe au-dessus de l'écran, sans contact : on montre seulement où elle touchera
     if (!pt) return showHover(e);
@@ -1967,6 +1979,10 @@ export function App() {
   };
 
   const onUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (midPan.current?.id === e.pointerId) {
+      midPan.current = null;
+      return;
+    }
     pointers.current.delete(e.pointerId);
     stopHold();
     if (lampDrag.current === e.pointerId) {
@@ -2729,6 +2745,8 @@ export function App() {
         onPointerCancel={onUp}
         onPointerLeave={hideHover}
         onContextMenu={(e) => e.preventDefault()}
+        // molette enfoncée : pas de défilement automatique du navigateur
+        onMouseDown={(e) => e.button === 1 && e.preventDefault()}
         onWheel={(e) => {
           // ordinateur : molette = zoom, Maj + molette = rotation
           if (e.shiftKey) setView((v) => ({ ...v, rot: v.rot + e.deltaY * 0.002 }));

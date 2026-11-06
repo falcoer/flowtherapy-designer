@@ -107,10 +107,25 @@ const shaded = new Map<string, HTMLCanvasElement>();
 export function shadeBump(b: Bump, L: BumpLight, H = bumpHeights(b), live = false): HTMLCanvasElement {
   let hsh = 2166136261;
   for (let i = 0; i < b.data.length; i++) hsh = Math.imul(hsh ^ b.data.charCodeAt(i), 16777619);
-  const key = `${b.w}x${b.h}:${hsh >>> 0}:${L.lx.toFixed(2)},${L.ly.toFixed(2)},${L.elev.toFixed(2)},${L.shine},${L.spec},${L.color.join(',')}`;
+  const key = `${b.w}x${b.h}:${hsh >>> 0}:${lightKey(L)}`;
   const hit = !live && shaded.get(key);
   if (hit) return hit;
-  const { w, h } = b;
+  // pente : une bosse pleine sur une vingtaine de pixels penche d'environ 45°
+  const c = shadeField(b.w, b.h, H, L, 12);
+  if (!live) {
+    if (shaded.size > 30) shaded.clear();
+    shaded.set(key, c);
+  }
+  return c;
+}
+
+export const lightKey = (L: BumpLight) => `${L.lx.toFixed(2)},${L.ly.toFixed(2)},${L.elev.toFixed(2)},${L.shine},${L.spec},${L.color.join(',')}`;
+
+/**
+ * Cœur de l'éclairage, commun au relief sculpté et au biseau : hauteurs H (multipliées par A
+ * pour la pente, en pixels), masque facultatif (0..1) qui efface l'image hors de l'objet.
+ */
+export function shadeField(w: number, h: number, H: Float32Array, L: BumpLight, A: number, mask?: Float32Array, gain = 1): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
@@ -123,32 +138,111 @@ export function shadeBump(b: Bump, L: BumpLight, H = bumpHeights(b), live = fals
   const hn = Math.hypot(Lx, Ly, Lz + 1);
   const [Hx, Hy, Hz] = [Lx / hn, Ly / hn, (Lz + 1) / hn];
   const flatSpec = L.shine ? Math.pow(Hz, L.shine) : 0;
-  // pente : une bosse pleine sur une vingtaine de pixels penche d'environ 45°
-  const A = 12;
+  const lit = [255 * (0.6 + 0.4 * L.color[0]), 255 * (0.6 + 0.4 * L.color[1]), 255 * (0.6 + 0.4 * L.color[2])];
   for (let j = 0; j < h; j++)
     for (let i = 0; i < w; i++) {
+      const n = j * w + i;
+      const m = mask ? mask[n]! : 1;
+      if (m <= 0) continue;
       const hx = (H[j * w + Math.min(w - 1, i + 1)]! - H[j * w + Math.max(0, i - 1)]!) * 0.5 * A;
       const hy = (H[Math.min(h - 1, j + 1) * w + i]! - H[Math.max(0, j - 1) * w + i]!) * 0.5 * A;
       const nn = Math.hypot(hx, hy, 1);
       const [nx, ny, nz] = [-hx / nn, -hy / nn, 1 / nn];
       const diff = Math.max(0, nx * Lx + ny * Ly + nz * Lz) - Lz;
       const spec = L.shine ? (Math.pow(Math.max(0, nx * Hx + ny * Hy + nz * Hz), L.shine) - flatSpec) * L.spec : 0;
-      const v = diff * 1.3 + spec;
-      const o = (j * w + i) * 4;
+      const v = (diff * 1.3 + spec) * m * gain;
+      const o = n * 4;
       if (v >= 0) {
-        d[o] = 255 * (0.6 + 0.4 * L.color[0]);
-        d[o + 1] = 255 * (0.6 + 0.4 * L.color[1]);
-        d[o + 2] = 255 * (0.6 + 0.4 * L.color[2]);
+        d[o] = lit[0]!;
+        d[o + 1] = lit[1]!;
+        d[o + 2] = lit[2]!;
         d[o + 3] = Math.min(255, v * 255);
-      } else {
-        d[o] = d[o + 1] = d[o + 2] = 0;
-        d[o + 3] = Math.min(255, -v * 255 * 0.9);
-      }
+      } else d[o + 3] = Math.min(255, -v * 255 * 0.9);
     }
   ctx.putImageData(img, 0, 0);
-  if (!live) {
-    if (shaded.size > 30) shaded.clear();
-    shaded.set(key, c);
-  }
   return c;
+}
+
+/**
+ * Profil du biseau : à partir d'un masque (0..1), la distance au bord en pixels, puis une hauteur
+ * qui monte sur `width` pixels (arrondi : quart de rond ; chanfrein : pente droite).
+ */
+export function bevelField(w: number, h: number, mask: Float32Array, width: number, profile: 'round' | 'chamfer'): Float32Array {
+  // distance euclidienne exacte (Felzenszwalb), en deux passes séparées
+  const INF = 1e12;
+  const G = new Float64Array(w * h);
+  for (let n = 0; n < G.length; n++) G[n] = mask[n]! >= 0.5 ? INF : 0;
+  const N = Math.max(w, h);
+  const f = new Float64Array(N + 2);
+  const v = new Int32Array(N + 2);
+  const z = new Float64Array(N + 3);
+  const dt = (len: number, get: (i: number) => number, set: (i: number, x: number) => void) => {
+    for (let i = 0; i < len; i++) f[i] = get(i);
+    // bords de la carte : au-delà, c'est l'extérieur
+    let k = 0;
+    v[0] = -1;
+    f[len] = 0;
+    z[0] = -Infinity;
+    z[1] = Infinity;
+    const F = (q: number) => (q < 0 || q >= len ? 0 : f[q]!);
+    for (let q = 0; q <= len; q++) {
+      const fq = q === len ? 0 : F(q);
+      let sp = (fq + q * q - (F(v[k]!) + v[k]! * v[k]!)) / (2 * q - 2 * v[k]!);
+      while (sp <= z[k]!) {
+        k--;
+        sp = (fq + q * q - (F(v[k]!) + v[k]! * v[k]!)) / (2 * q - 2 * v[k]!);
+      }
+      k++;
+      v[k] = q;
+      z[k] = sp;
+      z[k + 1] = Infinity;
+    }
+    k = 0;
+    for (let q = 0; q < len; q++) {
+      while (z[k + 1]! < q) k++;
+      set(q, (q - v[k]!) ** 2 + F(v[k]!));
+    }
+  };
+  for (let i = 0; i < w; i++)
+    dt(
+      h,
+      (j) => G[j * w + i]!,
+      (j, x) => (G[j * w + i] = x),
+    );
+  for (let j = 0; j < h; j++)
+    dt(
+      w,
+      (i) => G[j * w + i]!,
+      (i, x) => (G[j * w + i] = x),
+    );
+  const D = new Float32Array(w * h);
+  for (let n = 0; n < D.length; n++) D[n] = Math.sqrt(G[n]!) * 3;
+  const W = Math.max(1, width);
+  const out = new Float32Array(w * h);
+  for (let n = 0; n < D.length; n++) {
+    // le bord doux du masque prolonge la distance d'une fraction de pixel
+    const t = Math.min(1, (D[n]! / 3 + mask[n]! - 0.5) / W);
+    if (t <= 0) continue;
+    out[n] = W * (profile === 'chamfer' ? t * 0.8 : 1 - (1 - t) * (1 - t));
+  }
+  // trois passages de lissage effacent les marches de la distance (rayons en éventail)
+  let cur = out;
+  for (let pass = 0; pass < 3; pass++) {
+    const sm = new Float32Array(w * h);
+    for (let j = 0; j < h; j++)
+      for (let i = 0; i < w; i++) {
+        let a = 0;
+        let k = 0;
+        for (let dj = -1; dj <= 1; dj++)
+          for (let di = -1; di <= 1; di++) {
+            const [x, y] = [i + di, j + dj];
+            if (x < 0 || y < 0 || x >= w || y >= h) continue;
+            a += cur[y * w + x]!;
+            k++;
+          }
+        sm[j * w + i] = a / k;
+      }
+    cur = sm;
+  }
+  return cur;
 }

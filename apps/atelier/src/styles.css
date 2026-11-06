@@ -848,3 +848,6 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .brush-wheel.away .bw-legend, .brush-wheel.away .bw-label.faint { opacity: 0; }
 .pf-row.pf-col { flex-direction: column; align-items: stretch; cursor: default; }
 .pf-row.pf-col .seg button { padding-inline: 4px; }
+/* biseau : profil arrondi / chanfrein */
+.cp-row .cp-seg { grid-column: 2 / 4; }
+.cp-row .cp-seg button { height: 26px; font-size: 12px; }

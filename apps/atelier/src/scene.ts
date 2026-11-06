@@ -1,4 +1,4 @@
-import { shadeBump } from './bump';
+import { bevelField, lightKey, shadeBump, shadeField, type BumpLight } from './bump';
 import { burnLayers, paintStroke, type Target } from './brush';
 import { rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
@@ -556,24 +556,9 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     ctx.restore();
     drawFxInside(ctx, l, doc, f, o, path);
 
-    // biseau : bord éclairé côté lumière, bord sombre à l'opposé
-    const bevel = l.bevel ?? 0;
-    if (bevel > 0.001 && l.kind !== 'surface') {
-      const { lx, ly } = lightAt(doc, f, b.cx, b.cy);
-      const r = Math.max(b.w, b.h) / 2;
-      const grad = ctx.createLinearGradient(b.cx + lx * r, b.cy + ly * r, b.cx - lx * r, b.cy - ly * r);
-      const [hr, hg, hb] = hexRGB(lampOf(doc).color).map((v) => Math.round(255 - (255 - v * 255) * 0.6));
-      grad.addColorStop(0, `rgba(${hr},${hg},${hb},${Math.min(0.9, 0.35 + 0.55 * bevel)})`);
-      grad.addColorStop(0.5, 'rgba(255,255,255,0)');
-      grad.addColorStop(0.5, 'rgba(0,0,0,0)');
-      grad.addColorStop(1, `rgba(0,0,0,${Math.min(0.75, 0.25 + 0.5 * bevel)})`);
-      ctx.strokeStyle = grad;
-      // amplitude : jusqu'à 35 % du petit côté (la moitié tombe dans la découpe)
-      ctx.lineWidth = 0.35 * bevel * minSide;
-      ctx.lineJoin = 'round';
-      ctx.stroke(path);
-    }
     ctx.restore();
+    // biseau : un relief au bord de la découpe (ou du bord ajouté), éclairé comme le relief sculpté
+    if ((l.bevel ?? 0) > 0.001 && l.kind !== 'surface') drawBevel(ctx, l, doc, f, path, b);
     drawGlow(ctx, l, doc, f, o, false);
     ctx.restore();
   }
@@ -1539,13 +1524,69 @@ function drawBump(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, 
   const r = -(l.rot ?? 0);
   const lx = li.lx * Math.cos(r) - li.ly * Math.sin(r);
   const ly = li.lx * Math.sin(r) + li.ly * Math.cos(r);
-  const ids = new Set((l.fx ?? []).map((x) => x.id));
-  const [shine, spec] = ids.has('gloss') ? [60, 0.9] : ids.has('satin') ? [18, 0.45] : ids.has('matte-varnish') ? [0, 0] : [8, 0.12];
-  const col = hexRGB(lampOf(doc).color) as [number, number, number];
-  const img = shadeBump(l.bump!, { lx, ly, elev: Math.atan2(1, Math.max(0.05, li.k)), color: col, shine, spec });
+  const img = shadeBump(l.bump!, { lx, ly, ...surfaceLight(l, doc, li.k) });
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(img, x0, y0, b.w, b.h);
+  ctx.restore();
+}
+
+/** Ce que la surface renvoie de la lampe : hauteur de la lampe, sa couleur, le reflet du vernis. */
+function surfaceLight(l: Layer, doc: Doc, k: number): Omit<BumpLight, 'lx' | 'ly'> {
+  const ids = new Set((l.fx ?? []).map((x) => x.id));
+  const [shine, spec] = ids.has('gloss') ? [60, 0.9] : ids.has('satin') ? [18, 0.45] : ids.has('matte-varnish') ? [0, 0] : [8, 0.12];
+  return { elev: Math.atan2(1, Math.max(0.05, k)), color: hexRGB(lampOf(doc).color) as [number, number, number], shine, spec };
+}
+
+/** Largeur du bord ajouté, vers l'extérieur de la découpe (unités de la page). */
+const borderOut = (l: Layer, f: Format) => (l.border && l.border.width > 0 ? l.border.width * Math.min(f.width, f.height) * (l.border.style === 'double' ? 2 : 1) : 0);
+
+const bevelCache = new Map<string, { key: string; c: HTMLCanvasElement; W: number; H: number }>();
+/**
+ * Biseau : la distance au bord de la découpe (bord ajouté compris si demandé) donne une hauteur,
+ * arrondie ou en chanfrein, puis le même éclairage que le relief sculpté.
+ */
+function drawBevel(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, path: Path2D, b: { cx: number; cy: number; w: number; h: number }) {
+  const minSide = Math.min(f.width, f.height);
+  const out = l.bevelBorder ? borderOut(l, f) : 0;
+  const width = 0.18 * (l.bevel ?? 0) * minSide;
+  const [W, H] = [b.w + 2 * out + 0.01 * minSide, b.h + 2 * out + 0.01 * minSide];
+  const s = 320 / Math.max(W, H);
+  const [gw, gh] = [Math.max(8, Math.round(W * s)), Math.max(8, Math.round(H * s))];
+  const li = lightAt(doc, f, b.cx, b.cy);
+  const r = -(l.rot ?? 0);
+  const L: BumpLight = { lx: li.lx * Math.cos(r) - li.ly * Math.sin(r), ly: li.lx * Math.sin(r) + li.ly * Math.cos(r), ...surfaceLight(l, doc, li.k) };
+  const profile = l.bevelProfile ?? 'round';
+  const key = JSON.stringify([cutId(l), b.w, b.h, l.rot ?? 0, l.trim, out, l.border?.style, width.toFixed(4), profile, gw, gh, lightKey(L)]);
+  let hit = bevelCache.get(l.id);
+  if (hit?.key !== key) {
+    const m = document.createElement('canvas');
+    m.width = gw;
+    m.height = gh;
+    const mx = m.getContext('2d')!;
+    mx.setTransform(s, 0, 0, s, gw / 2, gh / 2);
+    mx.rotate(r);
+    mx.translate(-b.cx, -b.cy);
+    mx.fill(path, 'evenodd');
+    if (out > 0) {
+      mx.lineWidth = 2 * out;
+      mx.lineJoin = 'round';
+      mx.stroke(path);
+    }
+    const px = mx.getImageData(0, 0, gw, gh).data;
+    const mask = new Float32Array(gw * gh);
+    for (let n = 0; n < mask.length; n++) mask[n] = px[n * 4 + 3]! / 255;
+    const Hf = bevelField(gw, gh, mask, width * s, profile);
+    hit = { key, c: shadeField(gw, gh, Hf, L, 1, mask, 0.65), W, H };
+    if (bevelCache.size > 64) bevelCache.clear();
+    bevelCache.set(l.id, hit);
+  }
+  ctx.save();
+  ctx.translate(b.cx, b.cy);
+  ctx.rotate(l.rot ?? 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(hit.c, -hit.W / 2, -hit.H / 2, hit.W, hit.H);
   ctx.restore();
 }

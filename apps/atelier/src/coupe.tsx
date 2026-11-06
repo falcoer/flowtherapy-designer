@@ -135,7 +135,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
 /** Ce qu'on retire quand on touche la croix d'un élément. */
 function removal(l: Layer, key: string): Partial<Layer> {
   if (key === 'border') return { border: undefined };
-  if (key === 'bevel') return { bevel: 0 };
+  if (key === 'bevel') return { bevel: 0, bevelProfile: undefined, bevelBorder: undefined };
   if (key === 'trim') return { trim: undefined };
   if (key === 'glow') return { glow: undefined };
   if (key === 'material') return { material: undefined };
@@ -621,7 +621,34 @@ function Attrs({
         {tr.zigzag > 0.01 && <Range label="Aléa" value={tr.chaos ?? 0.5} onChange={(v) => live({ trim: { ...tr, chaos: r2(v) } })} />}
       </>
     );
-  } else if (item.key === 'bevel') body = <Range label="Relief" value={l.bevel ?? 0} onChange={(v) => live({ bevel: Math.max(0.05, Math.round(v * 100) / 100) })} />;
+  } else if (item.key === 'bevel')
+    body = (
+      <>
+        <Range label="Largeur" value={l.bevel ?? 0} onChange={(v) => live({ bevel: Math.max(0.05, Math.round(v * 100) / 100) })} />
+        <label className="cp-row">
+          <span>Profil</span>
+          <span className="seg cp-seg">
+            {(
+              [
+                ['round', 'Arrondi'],
+                ['chamfer', 'Chanfrein'],
+              ] as const
+            ).map(([v, name]) => (
+              <button key={v} className={(l.bevelProfile ?? 'round') === v ? 'on' : ''} onClick={() => patch({ bevelProfile: v === 'round' ? undefined : v })}>
+                {name}
+              </button>
+            ))}
+          </span>
+        </label>
+        {l.border && (
+          <label className="cp-row">
+            <span>Inclure le bord</span>
+            <input type="checkbox" checked={!!l.bevelBorder} onChange={(e) => patch({ bevelBorder: e.target.checked || undefined })} />
+            <output>{l.bevelBorder ? 'oui' : 'non'}</output>
+          </label>
+        )}
+      </>
+    );
   else if (item.key === 'glow' && l.glow) {
     const gl = l.glow;
     body = (
