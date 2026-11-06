@@ -6,6 +6,7 @@ import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { GEN_DEFAULTS, type Doc, type Layer } from './model';
 import { fontFamily, fontList, fontOf, type TextStyle } from './text';
+import { TextContent, TextWarp } from './textbar';
 
 /**
  * Coupe de l'objet : ses couches lues comme l'objet posé, du dessus au dessous.
@@ -581,6 +582,7 @@ function Attrs({ layer: l, doc, item, patch, patchText }: { layer: Layer; doc: D
     const t = l.text;
     body = (
       <>
+        <TextContent key={l.id} text={t} onChange={patchText} />
         <Range label="Graisse" display={`${t.weight}`} value={(t.weight - 100) / 800} onChange={(v) => patchText({ weight: 100 + Math.round(v * 80) * 10 }, false)} />
         <Range label="Inclinaison" min={-1} display={`${Math.round(t.slant ?? 0)}°`} value={(t.slant ?? 0) / 30} onChange={(v) => patchText({ slant: Math.abs(v) < 0.04 ? 0 : Math.round(v * 30) }, false)} />
         <Range label="Espacement" display={`${Math.round((t.tracking ?? 0) * 100)}`} min={-0.2} value={(t.tracking ?? 0) / 0.5} onChange={(v) => patchText({ tracking: Math.round(v * 50) / 100 }, false)} />
@@ -589,6 +591,7 @@ function Attrs({ layer: l, doc, item, patch, patchText }: { layer: Layer; doc: D
           <input type="checkbox" checked={!!t.italic} onChange={(e) => patchText({ italic: e.target.checked }, true)} />
           <output>{t.italic ? 'oui' : 'non'}</output>
         </label>
+        <TextWarp text={t} onChange={patchText} />
       </>
     );
   } else if (item.key === 'shape') {

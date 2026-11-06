@@ -106,29 +106,31 @@ export function TextBar({
           ))}
         </div>
       )}
-      <div className="tb-row">
-        <button className={`tb-btn tb-italic ${t.italic ? 'on' : ''}`} onClick={() => change({ italic: !t.italic }, 'italic')} title="Italique">
-          I
-        </button>
-        <div className="seg tb-align">
-          {(['left', 'center', 'right'] as const).map((a) => (
-            <button key={a} className={t.align === a ? 'on' : ''} onClick={() => change({ align: a }, 'align')} title={{ left: 'À gauche', center: 'Centré', right: 'À droite' }[a]}>
-              <AlignGlyph a={a} />
-            </button>
-          ))}
+      {!toolsOnly && (
+        <div className="tb-row">
+          <button className={`tb-btn tb-italic ${t.italic ? 'on' : ''}`} onClick={() => change({ italic: !t.italic }, 'italic')} title="Italique">
+            I
+          </button>
+          <div className="seg tb-align">
+            {(['left', 'center', 'right'] as const).map((a) => (
+              <button key={a} className={t.align === a ? 'on' : ''} onClick={() => change({ align: a }, 'align')} title={{ left: 'À gauche', center: 'Centré', right: 'À droite' }[a]}>
+                <AlignGlyph a={a} />
+              </button>
+            ))}
+          </div>
+          <label className="tb-slider">
+            <span className="tb-label">
+              Graisse <b>{weightName(t.weight)}</b>
+              {!variable && <small> · simulée</small>}
+            </span>
+            <input type="range" min={100} max={900} step={10} value={t.weight} onChange={(e) => change({ weight: Number(e.target.value) }, 'weight')} />
+          </label>
+          <label className="tb-slider narrow">
+            <span className="tb-label">Espacement</span>
+            <input type="range" min={-0.1} max={0.5} step={0.01} value={t.tracking ?? 0} onChange={(e) => change({ tracking: Number(e.target.value) }, 'tracking')} />
+          </label>
         </div>
-        <label className="tb-slider">
-          <span className="tb-label">
-            Graisse <b>{weightName(t.weight)}</b>
-            {!variable && <small> · simulée</small>}
-          </span>
-          <input type="range" min={100} max={900} step={10} value={t.weight} onChange={(e) => change({ weight: Number(e.target.value) }, 'weight')} />
-        </label>
-        <label className="tb-slider narrow">
-          <span className="tb-label">Espacement</span>
-          <input type="range" min={-0.1} max={0.5} step={0.01} value={t.tracking ?? 0} onChange={(e) => change({ tracking: Number(e.target.value) }, 'tracking')} />
-        </label>
-      </div>
+      )}
       <div className="tb-row">
         {toolsOnly && (
           <>
@@ -205,7 +207,7 @@ export function TextBar({
               </button>
             )}
           </>
-        ) : (
+        ) : toolsOnly ? null : (
           <>
             <div className="seg tb-warps">
               {WARPS.map((w) => (
@@ -346,6 +348,72 @@ export function QuickText({ layer, onChange, onClose }: { layer: Layer; onChange
           OK
         </button>
       </div>
+    </div>
+  );
+}
+
+/** Bulle de contenu de la section Texte : saisie multiligne et alignement. */
+export function TextContent({ text: t, onChange }: { text: TextStyle; onChange: (next: Partial<TextStyle>, history: boolean) => void }) {
+  const first = useRef(true);
+  const [draft, setDraft] = useLazyText(t.content, (v) => {
+    onChange({ content: v }, first.current);
+    first.current = false;
+  });
+  const lines = draft.split('\n').length;
+  return (
+    <div className="text-bubble">
+      <textarea
+        className="tb-area"
+        rows={Math.min(5, Math.max(2, lines))}
+        value={draft}
+        spellCheck
+        placeholder="Votre texte (Entrée pour une nouvelle ligne)"
+        style={{ fontFamily: `${fontFamily(t.font)}, Inter, sans-serif`, fontWeight: t.weight, fontStyle: t.italic ? 'italic' : 'normal', textAlign: t.align }}
+        onFocus={() => (first.current = true)}
+        onChange={(e) => setDraft(e.target.value)}
+      />
+      <div className="seg tb-align" title={lines > 1 ? undefined : 'L’alignement agit sur un texte de plusieurs lignes'}>
+        {(['left', 'center', 'right'] as const).map((a) => (
+          <button key={a} className={t.align === a ? 'on' : ''} onClick={() => onChange({ align: a }, true)} title={{ left: 'À gauche', center: 'Centré', right: 'À droite' }[a]}>
+            <AlignGlyph a={a} />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Section Déformation du texte (volet des attributs) : enveloppe et courbure. */
+export function TextWarp({ text: t, onChange }: { text: TextStyle; onChange: (next: Partial<TextStyle>, history: boolean) => void }) {
+  const first = useRef(true);
+  return (
+    <div className="text-warp">
+      <span className="cp-sub">Déformation</span>
+      <div className="seg tb-warps">
+        {WARPS.map((w) => (
+          <button key={w.id} className={(t.warp?.kind ?? 'none') === w.id ? 'on' : ''} onClick={() => onChange({ warp: w.id === 'none' ? undefined : { kind: w.id, amount: t.warp?.amount || 0.5 } }, true)} title={w.name}>
+            <WarpGlyph k={w.id} />
+          </button>
+        ))}
+      </div>
+      {t.warp && (
+        <label className="cp-row">
+          <span>Courbure</span>
+          <input
+            type="range"
+            min={-1}
+            max={1}
+            step={0.02}
+            value={t.warp.amount}
+            onPointerDown={() => (first.current = true)}
+            onChange={(e) => {
+              onChange({ warp: { ...t.warp!, amount: Number(e.target.value) } }, first.current);
+              first.current = false;
+            }}
+          />
+          <output>{Math.round(t.warp.amount * 100)}</output>
+        </label>
+      )}
     </div>
   );
 }

@@ -641,3 +641,9 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .cp-view > .cp-tags .cp-tag.on { margin-right: 0; border-radius: 10px 0 0 10px; background: var(--chrome-solid); border-color: transparent; position: relative; z-index: 2; margin-right: -1px; }
 .cp-view > .cp-pane { background: var(--chrome-solid); border-radius: 0 14px 14px 14px; padding: 8px 30px 8px 8px; position: relative; z-index: 1; box-shadow: 0 0 0 1px var(--line); }
 .cp-view > .plies { margin-left: 22px; }
+.text-bubble { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 8px; margin-bottom: 4px; border-radius: 14px; background: var(--chrome-solid); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(40, 20, 90, 0.08); }
+.text-bubble .tb-area { width: 100%; resize: vertical; min-height: 0; }
+.text-bubble .tb-align { align-self: flex-start; }
+.text-warp { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; margin-top: 2px; border-top: 1px solid var(--line); }
+.text-warp .cp-sub { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.text-warp .tb-warps { align-self: flex-start; }
