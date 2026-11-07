@@ -14,8 +14,25 @@ describe('lissage du ciseau aimanté (steadyPath)', () => {
     expect(out).toHaveLength(pts.length);
     // chaque dent est ramenée à la tolérance au plus
     for (const i of [50, 51, 120]) expect(Math.abs(out[i]!.y)).toBeLessThanOrEqual(2.5 + 1e-9);
-    // le reste du bord ne bouge pas (loin des bouts du tracé)
-    for (const i of [90, 160]) expect(out[i]).toEqual(pts[i]);
+    // le reste du bord ne bouge pas, jusqu'aux bouts du tracé
+    for (const i of [0, 10, 90, 160, 199]) expect(out[i]).toEqual(pts[i]);
+  });
+
+  it('ramène aussi les dents d’un bord en biais (cercle, à toutes les orientations)', () => {
+    const pts = circle(100, 400);
+    const teeth = [25, 50, 51, 120, 200, 320, 375];
+    for (const i of teeth) pts[i] = { x: pts[i]!.x * 1.05, y: pts[i]!.y * 1.05 };
+    const out = steadyPath(pts, 30, 2.5, true);
+    for (const i of teeth) expect(radius(out[i]!) - 100).toBeLessThanOrEqual(2.5 + 0.2);
+    // les points sains autour restent sur le cercle
+    for (const i of [10, 100, 250]) expect(Math.abs(radius(out[i]!) - 100)).toBeLessThan(0.2);
+  });
+
+  it('les points d’un tracé ouvert ne glissent pas vers l’intérieur près des bouts', () => {
+    // un arc ouvert : le début et la fin restent en place, le tracé n'est pas raccourci
+    const pts = circle(100, 400).slice(0, 120);
+    const out = steadyPath(pts, 30, 2.5, false);
+    for (let i = 0; i < pts.length; i++) expect(Math.hypot(out[i]!.x - pts[i]!.x, out[i]!.y - pts[i]!.y)).toBeLessThan(0.2);
   });
 
   it('laisse les vraies courbes en place', () => {
@@ -30,10 +47,9 @@ describe('lissage du ciseau aimanté (steadyPath)', () => {
     const out = steadyPath(pts, 10, 2.5, false);
     const corner = out[60]!;
     expect(Math.hypot(corner.x - 60, corner.y)).toBeLessThanOrEqual(2.5 + 1e-9);
-    // les deux bouts du tracé ouvert restent sur leur ligne, à moins de la tolérance
-    expect(out[0]!.y).toBe(0);
-    expect(Math.abs(out[0]!.x)).toBeLessThanOrEqual(2.5 + 1e-9);
-    expect(out[out.length - 1]!.x).toBe(60);
+    // les deux bouts du tracé ouvert ne bougent pas
+    expect(out[0]).toEqual(pts[0]);
+    expect(out[out.length - 1]).toEqual(pts[pts.length - 1]);
   });
 
   it('ne touche pas un tracé trop court ou sans portée', () => {
