@@ -4,7 +4,7 @@ import { LEAN, paintStroke, previewStamps } from './brush';
 import { STAMPS, stampOf, stampSvg } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
-import { PrefsPanel, type Theme } from './prefs';
+import { PrefsPanel, type FingerMode, type Theme } from './prefs';
 import { BrushWheel } from './wheel';
 import { ParallaxView } from './parallax';
 import { kitFromSvg, nearestOf, SAME_COLOR, type Kit } from './kits';
@@ -555,6 +555,65 @@ export function App() {
       /* stockage indisponible */
     }
   };
+  /**
+   * Le doigt : « auto » le laisse dessiner tant qu'aucun stylet n'a touché cet appareil
+   * (téléphone, tablette sans crayon) et le rend au déplacement dès qu'un stylet se montre.
+   * « draw » et « move » le fixent ; un stylet qui revient rend « draw » à l'automatique.
+   */
+  const [fingerMode, setFingerModeState] = useState<FingerMode>(() => {
+    try {
+      const v = localStorage.getItem('ftd-atelier-finger');
+      return v === 'draw' || v === 'move' ? v : 'auto';
+    } catch {
+      return 'auto';
+    }
+  });
+  const setFingerMode = (v: FingerMode) => {
+    setFingerModeState(v);
+    try {
+      localStorage.setItem('ftd-atelier-finger', v);
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  /** Un stylet a déjà touché ou survolé l'écran de cet appareil (mémorisé). */
+  const [penSeen, setPenSeen] = useState(() => {
+    try {
+      return localStorage.getItem('ftd-atelier-pen') === 'seen';
+    } catch {
+      return false;
+    }
+  });
+  /** Souris ou pavé tactile branché : ils tiennent l'outil, le doigt peut rester au déplacement. */
+  const [finePointer] = useState(() => typeof matchMedia === 'function' && matchMedia('(any-pointer: fine)').matches);
+  /** Écran tactile : le bouton du doigt n'a de sens que là. */
+  const [touchScreen] = useState(() => (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) || (typeof matchMedia === 'function' && matchMedia('(any-pointer: coarse)').matches));
+  const fingerDraws = fingerMode === 'draw' || (fingerMode === 'auto' && !penSeen && !finePointer);
+  // le premier stylet vu (survol ou contact, n'importe où) : il prend l'outil, le doigt reprend le déplacement
+  const fingerRef = useRef({ fingerMode, fingerDraws });
+  fingerRef.current = { fingerMode, fingerDraws };
+  useEffect(() => {
+    const onPen = (e: PointerEvent) => {
+      if (e.pointerType !== 'pen') return;
+      const { fingerMode: m, fingerDraws: drew } = fingerRef.current;
+      if (!penSeen) {
+        setPenSeen(true);
+        try {
+          localStorage.setItem('ftd-atelier-pen', 'seen');
+        } catch {
+          /* stockage indisponible */
+        }
+      }
+      if (m === 'draw') setFingerMode('auto');
+      if (drew && m !== 'move') setToast('Stylet détecté : il dessine, le doigt reprend le déplacement');
+    };
+    window.addEventListener('pointerdown', onPen, true);
+    window.addEventListener('pointermove', onPen, true);
+    return () => {
+      window.removeEventListener('pointerdown', onPen, true);
+      window.removeEventListener('pointermove', onPen, true);
+    };
+  }, [penSeen]);
   const [burnChar, setBurnChar] = useState(0.3);
   const [branchCore, setBranchCore] = useState(1);
   const [burnHole, setBurnHole] = useState(true);
@@ -1345,6 +1404,8 @@ export function App() {
       midPan.current = { id: e.pointerId, x: e.clientX, y: e.clientY, px: view.px, py: view.py };
       return;
     }
+    // stylet posé : la paume et les doigts qui frôlent l'écran sont ignorés
+    if (e.pointerType === 'touch' && [...pointers.current.values()].some((p) => p.type === 'pen')) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     // le panneau lumière reste ouvert : on règle la lampe en regardant la page
     if (bubble === 'light' && pointers.current.size === 1) {
@@ -1363,13 +1424,19 @@ export function App() {
       // plusieurs doigts : on annule le geste à un doigt et on manipule la vue
       stopHold();
       stopCutStill();
-      if (live.current.kind === 'move' || live.current.kind === 'resize') {
-        const o = live.current.orig!;
-        const back = new Map([o, ...(live.current.mates ?? [])].map((x) => [x.id, x]));
+      // le premier doigt a pu commencer un geste (déplacer, ou dessiner quand le doigt tient l'outil) :
+      // il est retiré sans trace, l'objet revient tel qu'il était
+      const L0 = live.current;
+      if (swashFrame.current) cancelAnimationFrame(swashFrame.current);
+      swashFrame.current = 0;
+      cancelAnimationFrame(growTimer.current);
+      if (L0.orig && L0.kind && ['move', 'resize', 'rotate', 'pivot', 'mold', 'swash', 'bump'].includes(L0.kind)) {
+        const back = new Map([L0.orig, ...(L0.mates ?? [])].map((x) => [x.id, x]));
         setDoc((d) => ({ ...d, layers: d.layers.map((l) => back.get(l.id) ?? l) }));
         past.current.pop();
       }
       live.current = { kind: 'view' };
+      if (L0.kind === 'paint' || L0.kind === 'cut') redraw();
       const [a, b] = touches;
       gesture.current = {
         view: gesture.current?.next ?? view,
@@ -1384,9 +1451,9 @@ export function App() {
     if (rendu) return;
 
     const p = toPage(e.clientX, e.clientY);
-    // le doigt déplace, le stylet (ou la souris) utilise l'outil
-    // le doigt déplace ; le volet des attributs dispose aussi l'objet (poignées, glisser)
-    const t: Tool = e.pointerType === 'touch' || isEdit(tool) ? 'move' : tool;
+    // le doigt déplace, le stylet (ou la souris) utilise l'outil ; sans stylet, le doigt prend l'outil
+    // le volet des attributs dispose aussi l'objet (poignées, glisser)
+    const t: Tool = (e.pointerType === 'touch' && !fingerDraws) || isEdit(tool) ? 'move' : tool;
     const sel = doc.layers.find((l) => l.id === selected);
 
     // Modeler : le contour de l'objet choisi (ou touché) suit la pointe
@@ -2936,6 +3003,20 @@ export function App() {
         <>
           <header className="bar">
             <div className="bar-center">
+              {(touchScreen || fingerMode !== 'auto') && (
+                <button
+                  className={`btn finger-btn ${fingerDraws ? 'on' : ''}`}
+                  onClick={() => {
+                    const next = !fingerDraws;
+                    setFingerMode(next === (!penSeen && !finePointer) ? 'auto' : next ? 'draw' : 'move');
+                    setToast(next ? 'Le doigt tient l’outil ; deux doigts déplacent la vue' : 'Le doigt déplace les objets ; le stylet tient l’outil');
+                  }}
+                  aria-pressed={fingerDraws}
+                  title={fingerDraws ? 'Le doigt dessine (pas de stylet) : toucher pour qu’il déplace' : 'Le doigt déplace : toucher pour qu’il dessine comme le stylet'}
+                >
+                  <Icon name={fingerDraws ? 'finger-draw' : 'finger'} />
+                </button>
+              )}
               <button className="btn" onClick={undo} disabled={!past.current.length} title="Annuler (deux doigts)">
                 <Icon name="undo" />
               </button>
@@ -3487,6 +3568,10 @@ export function App() {
               setPenRoll={setPenRoll}
               penTilt={penTilt}
               setPenTilt={setPenTilt}
+              fingerMode={fingerMode}
+              setFingerMode={setFingerMode}
+              fingerAuto={!penSeen && !finePointer}
+              penSeen={penSeen}
               theme={theme}
               setTheme={setTheme}
               lefty={lefty}
