@@ -556,6 +556,48 @@ export function App() {
     }
   };
   const [burnChar, setBurnChar] = useState(0.3);
+  /**
+   * Aquarelle sur papier mouillé : la passe en cours (couche, numéro, dernier trait). Ses traits se
+   * mêlent ; « Sécher » la fige, et le séchage automatique (secondes, 0 = à la main) la ferme tout seul.
+   */
+  const wetPass = useRef<{ layer: string; id: number; at: number } | null>(null);
+  const [dryAfter, setDryAfterState] = useState(() => {
+    try {
+      return Number(localStorage.getItem('ftd-atelier-dry') ?? '0') || 0;
+    } catch {
+      return 0;
+    }
+  });
+  const setDryAfter = (v: number) => {
+    setDryAfterState(v);
+    try {
+      localStorage.setItem('ftd-atelier-dry', String(v));
+    } catch {
+      /* préférence non gardée */
+    }
+  };
+  /** Humidité de la passe (1 = trempée, 0 = sèche), pour la jauge du bouton Sécher. */
+  const [wetness, setWetness] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const w = wetPass.current;
+      const v = !w ? 0 : dryAfter > 0 ? Math.max(0, 1 - (Date.now() - w.at) / (dryAfter * 1000)) : 1;
+      if (w && v === 0) wetPass.current = null;
+      setWetness((o) => (Math.abs(o - v) > 0.02 || (v === 0) !== (o === 0) ? v : o));
+    }, 250);
+    return () => clearInterval(id);
+  }, [dryAfter]);
+  /** La passe humide d'un nouveau trait d'aquarelle sur cette couche (on la rejoint si elle n'a pas séché). */
+  const washFor = (layerId: string) => {
+    const w = wetPass.current;
+    const now = Date.now();
+    if (w && w.layer === layerId && (dryAfter <= 0 || now - w.at < dryAfter * 1000)) {
+      w.at = now;
+      return w.id;
+    }
+    wetPass.current = { layer: layerId, id: now, at: now };
+    return now;
+  };
   const [branchCore, setBranchCore] = useState(1);
   const [burnHole, setBurnHole] = useState(true);
   /** Survol du stylet (ou de la souris) : un repère montre où la pointe touchera. */
@@ -1587,6 +1629,7 @@ export function App() {
                   seed: Math.floor(Math.random() * 1e9),
                   ...(tipOn(brushKind) ? { tip: brushTip } : {}),
                   ...(brushKind === 'hair' ? { hairLen, curl } : {}),
+                  ...(brushKind === 'aquarelle' ? { wash: washFor(target.id) } : {}),
                   pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, target) } : {}), ...(leanOn(brushKind) ? brushLean(e, target) : {}) }],
                 },
     };
@@ -2123,6 +2166,8 @@ export function App() {
       const id = L.layer;
       live.current = { kind: null };
       if (s.pts.length === 1 && s.brush !== 'stamp') s.pts.push({ ...s.pts[0]!, x: s.pts[0]!.x + 0.001 });
+      // le papier reste mouillé à partir du dernier trait posé
+      if (s.wash !== undefined && wetPass.current?.id === s.wash) wetPass.current.at = Date.now();
       dotAt.current = s.pts.length <= 3 ? performance.now() : 0;
       update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, strokes: [...l.strokes, s] } : l)) }));
       return;
@@ -3121,6 +3166,28 @@ export function App() {
                   >
                     <Icon name="paint-reset" />
                   </button>
+                  {brushKind === 'aquarelle' && (
+                    <>
+                      <button
+                        className={`btn small dry-btn ${wetness > 0 ? 'wet' : ''}`}
+                        style={{ '--wet': wetness } as React.CSSProperties}
+                        disabled={wetness <= 0}
+                        onClick={() => {
+                          wetPass.current = null;
+                          setWetness(0);
+                          setToast('Papier séché : les traits suivants se posent en glacis par-dessus');
+                        }}
+                        title={wetness > 0 ? 'Sécher : le papier est encore mouillé, les traits s’y mêlent. Toucher pour figer la passe' : 'Papier sec : le prochain trait commence une nouvelle passe humide'}
+                      >
+                        <Icon name="dry" />
+                      </button>
+                      <VSlider
+                        label={dryAfter <= 0 ? 'Séchage · main' : `Séchage · ${dryAfter} s`}
+                        value={dryAfter <= 0 ? 0 : Math.sqrt(dryAfter / 60)}
+                        onChange={(v) => setDryAfter(v < 0.06 ? 0 : Math.max(1, Math.round(v * v * 60)))}
+                      />
+                    </>
+                  )}
                   {brushKind === 'branch' && (
                     <>
                       <VSlider label="Ramifications" value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />

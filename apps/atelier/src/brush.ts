@@ -46,8 +46,8 @@ function paperGrain(): HTMLCanvasElement {
   return s;
 }
 
-const scratch = { a: null as HTMLCanvasElement | null, b: null as HTMLCanvasElement | null };
-function buffer(key: 'a' | 'b', w: number, h: number) {
+const scratch = { a: null as HTMLCanvasElement | null, b: null as HTMLCanvasElement | null, c: null as HTMLCanvasElement | null };
+function buffer(key: 'a' | 'b' | 'c', w: number, h: number) {
   let c = scratch[key];
   if (!c) c = scratch[key] = document.createElement('canvas');
   if (c.width !== w || c.height !== h) {
@@ -173,12 +173,38 @@ export function paintStroke(dst: CanvasRenderingContext2D, s: Stroke, guides: Gu
 }
 
 function aquarelle(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
+  paintWash(dst, [s], guides, t);
+}
+
+/**
+ * Une passe d'aquarelle sur papier mouillé : tous ses traits se déposent dans la même eau.
+ * Les pigments fusent l'un dans l'autre (les couleurs se mêlent en dégradé), les recouvrements ne
+ * foncent pas, et un seul liseré borde l'ensemble. Seule, elle rend un trait d'aquarelle ordinaire.
+ */
+export function paintWash(dst: CanvasRenderingContext2D, list: Stroke[], guides: Guide[], t: Target) {
+  const s = list[list.length - 1]!;
+  const wet = list.length > 1;
   const { c: sil, ctx: sx } = buffer('a', t.pw, t.ph);
-  const g = guides[s.guide];
-  for (const st of stamps(s, t)) {
-    sx.fillStyle = guideColor(g, st.t);
-    tipShape(sx, s.tip, st.x, st.y, Math.max(0.5, st.r), st.a, st.K, st.d);
-    sx.fill();
+  for (const w of list) {
+    const g = guides[w.guide];
+    for (const st of stamps(w, t)) {
+      sx.fillStyle = guideColor(g, st.t);
+      tipShape(sx, w.tip, st.x, st.y, Math.max(0.5, st.r), st.a, st.K, st.d);
+      sx.fill();
+    }
+  }
+  if (wet) {
+    // les pigments migrent dans l'eau : la couleur se brouille à l'intérieur de la tache (sa forme ne bouge pas)
+    const Rw = Math.max(...list.map((w) => w.size)) * t.pxPerMin;
+    const { c: mix, ctx: mx } = buffer('c', t.pw, t.ph);
+    mx.filter = `blur(${Math.max(2, Rw * 0.55)}px)`;
+    mx.drawImage(sil, 0, 0);
+    mx.filter = 'none';
+    sx.save();
+    sx.globalCompositeOperation = 'source-atop';
+    sx.globalAlpha = 0.85;
+    sx.drawImage(mix, 0, 0);
+    sx.restore();
   }
   // grain : le pigment se dépose moins dans les creux du papier
   sx.globalCompositeOperation = 'destination-out';
@@ -187,8 +213,9 @@ function aquarelle(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
   sx.fillRect(0, 0, t.pw, t.ph);
 
   // peu d'intensité : plus d'eau, le pigment s'étale et se concentre sur les bords (comme la dilution des tampons)
-  const water = Math.max(0, Math.min(1, 1 - s.opacity));
-  const R = s.size * t.pxPerMin;
+  const opacity = list.reduce((a, w) => a + w.opacity, 0) / list.length;
+  const water = Math.max(0, Math.min(1, 1 - opacity + (wet ? 0.15 : 0)));
+  const R = Math.max(...list.map((w) => w.size)) * t.pxPerMin;
   // liseré : silhouette moins sa version floutée
   const { c: edge, ctx: ex } = buffer('b', t.pw, t.ph);
   ex.drawImage(sil, 0, 0);
@@ -199,10 +226,10 @@ function aquarelle(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
   dst.save();
   dst.globalCompositeOperation = 'multiply';
   if (water > 0.05) dst.filter = `blur(${R * 0.12 * water}px)`;
-  dst.globalAlpha = 0.42 * s.opacity;
+  dst.globalAlpha = 0.42 * opacity;
   dst.drawImage(sil, 0, 0);
   dst.filter = 'none';
-  dst.globalAlpha = 0.75 * Math.min(1, s.opacity + 0.3 * water);
+  dst.globalAlpha = 0.75 * Math.min(1, opacity + 0.3 * water);
   dst.drawImage(edge, 0, 0);
   dst.restore();
 }

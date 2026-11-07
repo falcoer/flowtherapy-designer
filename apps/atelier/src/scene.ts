@@ -1,5 +1,5 @@
 import { bevelField, distField, lightKey, shadeBump, shadeField, soften, volumeField, type BumpLight } from './bump';
-import { burnLayers, paintStroke, type Target } from './brush';
+import { burnLayers, paintStroke, paintWash, type Target } from './brush';
 import { rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
@@ -244,7 +244,12 @@ interface PaintCache {
   canvas: HTMLCanvasElement;
   key: string;
   done: number;
+  /** La peinture avant la dernière passe humide, et l'indice de son premier trait : la passe se refait d'un bloc quand un trait la rejoint. */
+  before?: HTMLCanvasElement;
+  from?: number;
 }
+/** Deux traits d'aquarelle consécutifs de la même passe humide se peignent ensemble. */
+const sameWash = (a: Stroke | undefined, b: Stroke | undefined) => !!a && !!b && a.wash !== undefined && a.wash === b.wash && (a.brush ?? 'aquarelle') === 'aquarelle' && (b.brush ?? 'aquarelle') === 'aquarelle';
 const paints = new Map<string, PaintCache>();
 
 export function paintTarget(l: Layer, f: Format, pxPerUnit: number): Target {
@@ -267,7 +272,29 @@ export function paintFor(l: Layer, doc: Doc, f: Format, pxPerUnit: number): HTML
     paints.set(l.id, c);
   }
   const ctx = c.canvas.getContext('2d')!;
-  for (; c.done < l.strokes.length; c.done++) paintStroke(ctx, l.strokes[c.done]!, doc.guides, t);
+  const S = l.strokes;
+  while (c.done < S.length) {
+    let i = c.done;
+    if (i > 0 && sameWash(S[i - 1], S[i]) && c.before && c.from !== undefined) {
+      // le trait rejoint la passe encore humide : on repart d'avant la passe et on la refait entière
+      i = c.from;
+      ctx.clearRect(0, 0, c.canvas.width, c.canvas.height);
+      ctx.drawImage(c.before, 0, 0);
+    } else if (S[i]!.wash !== undefined) {
+      // une nouvelle passe commence : on garde la peinture d'avant
+      const b = c.before ?? document.createElement('canvas');
+      b.width = c.canvas.width;
+      b.height = c.canvas.height;
+      b.getContext('2d')!.drawImage(c.canvas, 0, 0);
+      c.before = b;
+      c.from = i;
+    }
+    let j = i + 1;
+    while (j < S.length && sameWash(S[j - 1], S[j])) j++;
+    if (j - i > 1) paintWash(ctx, S.slice(i, j), doc.guides, t);
+    else paintStroke(ctx, S[i]!, doc.guides, t);
+    c.done = j;
+  }
   return c.canvas;
 }
 

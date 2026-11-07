@@ -58,6 +58,11 @@ export interface Stroke {
   opacity: number;
   seed: number;
   pts: Pt[];
+  /**
+   * Aquarelle : passe humide à laquelle appartient le trait. Les traits d'une même passe se
+   * mêlent sur le papier mouillé (couleurs fondues, un seul liseré) ; une passe séchée se recouvre en glacis.
+   */
+  wash?: number;
   /** Outil Tampons : motif posé à chaque point, et dilution de l'encre (0 = encre pleine, 1 = très diluée). */
   stamp?: string;
   dilution?: number;
