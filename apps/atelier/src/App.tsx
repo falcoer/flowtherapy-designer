@@ -20,7 +20,7 @@ import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers }
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { listAteliers, newAtelierId, readAtelier, removeAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta } from './server';
-import { anchorsOf, compact, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
+import { anchorsOf, compact, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
@@ -49,6 +49,8 @@ import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, isMaterial, MATER
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
 import { FanButton } from './fan';
+import { anchorKind, loadMarkColors, marksOfFrame, markColor, pinKind, saveMarkColors, setMarkColors, type MarkKind } from './marks';
+import { MarkLegend } from './marks-ui';
 import type { MultiPolygon } from 'polygon-clipping';
 import { maskImage, segmentSubject, setSubjectImage, SUBJECT_SIZE, subjectGeom, type SubjectCrop, type SubjectMask, type SubjectStroke } from './subject';
 import {
@@ -139,6 +141,51 @@ function steadyPath(pts: Pt[], reach: number, tol: number, closed: boolean): Pt[
 const TOP = 52;
 /** Rayon d'attraction des ancrages, en pixels écran. */
 const MAGNET = 30;
+
+/**
+ * Bords tenus d'un objet : la ligne de page ou de marge à laquelle il se tient
+ * est rappelée en fin trait sur toute la page, et le bord de l'objet qui la
+ * touche est souligné en gros, dans la couleur de cette ligne.
+ */
+function drawHeldEdges(ctx: CanvasRenderingContext2D, l: Layer, pins: NonNullable<Layer['pins']>, f: Format, px: number) {
+  const bb = pageBounds(l, f);
+  const hasMargin = !!edgeLines(f).margin;
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (const side of ['left', 'right', 'top', 'bottom'] as const) {
+    const p = pins[side];
+    if (!p) continue;
+    const c = markColor(pinKind(p, hasMargin));
+    const at = pinLine(f, side, p);
+    const v = side === 'left' || side === 'right';
+    const seg = (a: number, b: number) => {
+      ctx.beginPath();
+      if (v) {
+        ctx.moveTo(at, a);
+        ctx.lineTo(at, b);
+      } else {
+        ctx.moveTo(a, at);
+        ctx.lineTo(b, at);
+      }
+      ctx.stroke();
+    };
+    // la ligne tenue, d'un bout à l'autre de la page
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = c;
+    ctx.lineWidth = 1.5 * px;
+    seg(0, v ? f.height : f.width);
+    // le bord de l'objet qui s'y tient
+    ctx.globalAlpha = 1;
+    const [a, b] = v ? [bb.y0, bb.y1] : [bb.x0, bb.x1];
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.lineWidth = 8 * px;
+    seg(a, b);
+    ctx.strokeStyle = c;
+    ctx.lineWidth = 5 * px;
+    seg(a, b);
+  }
+  ctx.restore();
+}
 /** Rayon d'aimantation des ciseaux sur les contours détectés, en pixels écran. */
 const EDGE_RADIUS = 14;
 export const BORDER_TYPES: Array<[BorderStyle | null, string, string]> = [
@@ -819,7 +866,14 @@ export function App() {
   // les calculs d'ancrage suivent la densité du document ouvert
   setAnchorDensity(doc.density);
   setAnchorMargin(doc.margin);
-  /** Repères toujours visibles, et leur couleur : préférence de l'atelier, gardée d'une séance à l'autre. */
+  /** Couleurs caractéristiques des repères (marges, points) : préférence de l'atelier, par-dessus les couleurs d'origine. */
+  const [markColors, setMarkColorsRaw] = useState(loadMarkColors);
+  setMarkColors(markColors);
+  const changeMarkColors = (c: Partial<Record<MarkKind, string>>) => {
+    setMarkColorsRaw(c);
+    saveMarkColors(c);
+  };
+  /** Repères toujours visibles : préférence de l'atelier, gardée d'une séance à l'autre. */
   const [guidesOn, setGuidesOnRaw] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('ftd-atelier-guides') ?? 'null') ?? { on: false, color: '#7a5cff' };
@@ -935,7 +989,8 @@ export function App() {
     /** Objets solidaires de la couche tenue, dans leur état de départ. */
     mates?: Layer[];
     last?: { x: number; y: number; t: number; p: number };
-    snap?: { x: number; y: number } | null;
+    /** Point d'ancrage aimanté pendant un déplacement, avec sa sorte (sa couleur). */
+    snap?: { x: number; y: number; kind: MarkKind } | null;
     /** Contours aimantés (unités du format) et indices des points aimantés. */
     grid?: EdgeGrid | null;
     snapped?: number[];
@@ -1362,32 +1417,59 @@ export function App() {
       ctx.stroke();
       ctx.restore();
     }
-    // ancrages pendant un déplacement, et tant que le réglage d'ancrage est ouvert
+    // ancrages pendant un déplacement, et tant que le réglage d'ancrage est ouvert :
+    // chaque point et chaque ligne a sa couleur caractéristique (marks.ts)
     if (L.kind === 'move' || bubble === 'anchor' || guidesOn.on) {
       ctx.save();
-      ctx.globalAlpha = 0.6;
-      ctx.fillStyle = guidesOn.color;
+      ctx.globalAlpha = 0.7;
       // la marge des repères : un cadre pointillé, dedans ou autour de la page
       if (doc.margin) {
         const { mx, my } = marginOf(f);
-        ctx.strokeStyle = guidesOn.color;
+        ctx.strokeStyle = markColor('margin');
         ctx.lineWidth = 1.2 * px;
         ctx.setLineDash([6 * px, 5 * px]);
         ctx.strokeRect(mx * f.width, my * f.height, f.width * (1 - 2 * mx), f.height * (1 - 2 * my));
         ctx.setLineDash([]);
       }
+      ctx.lineWidth = 1 * px;
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
       for (const a of anchorsOf(doc.frame, f)) {
+        ctx.fillStyle = markColor(anchorKind(doc.frame, a.id));
         ctx.beginPath();
         ctx.arc(a.x * f.width, a.y * f.height, 3.5 * px, 0, Math.PI * 2);
         ctx.fill();
+        ctx.stroke();
       }
       ctx.restore();
-      if (L.snap) {
-        ctx.strokeStyle = '#7a5cff';
+      // l'objet déplacé (ou choisi) : ses bords tenus prennent la couleur de leur ligne, son contour celle de son point
+      const held = L.kind === 'move' ? doc.layers.find((x) => x.id === L.layer) : sel && sel.kind !== 'surface' ? sel : undefined;
+      if (held?.pins) drawHeldEdges(ctx, held, held.pins, f, px);
+      if (held && L.kind === 'move' && L.snap) {
+        const c = markColor(L.snap.kind);
+        const path = maskPath2D(held, f);
+        ctx.save();
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 5 * px;
+        ctx.stroke(path);
+        ctx.strokeStyle = c;
         ctx.lineWidth = 2.5 * px;
+        ctx.stroke(path);
+        for (const [w, col] of [
+          [5, 'rgba(255,255,255,0.85)'],
+          [2.5, c],
+        ] as const) {
+          ctx.strokeStyle = col;
+          ctx.lineWidth = w * px;
+          ctx.beginPath();
+          ctx.arc(L.snap.x, L.snap.y, 11 * px, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.fillStyle = c;
         ctx.beginPath();
-        ctx.arc(L.snap.x, L.snap.y, 11 * px, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.arc(L.snap.x, L.snap.y, 4 * px, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
       }
     }
     // tracé des ciseaux
@@ -2196,7 +2278,7 @@ export function App() {
       const near = anchorFor(doc.frame, f, cx, cy);
       const ax = near.at.x * f.width;
       const ay = near.at.y * f.height;
-      L.snap = Math.hypot(ax - cx, ay - cy) * scale < MAGNET ? { x: ax, y: ay } : null;
+      L.snap = Math.hypot(ax - cx, ay - cy) * scale < MAGNET ? { x: ax, y: ay, kind: anchorKind(doc.frame, near.at.id) } : null;
       if (L.snap) [cx, cy] = [ax, ay];
       // bords de la découpe aimantés sur les bords de la page
       const bb = pageBounds(o, f);
@@ -3998,6 +4080,8 @@ export function App() {
               setWheelHide={setWheelHide}
               guides={guidesOn}
               setGuides={setGuidesOn}
+              markColors={markColors}
+              setMarkColors={changeMarkColors}
               onClose={() => setBubble(null)}
             />
           )}
@@ -4203,12 +4287,14 @@ export function App() {
                 <button className={`pal-lib-save ${guidesOn.on ? 'on' : ''}`} onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}>
                   {guidesOn.on ? 'Toujours' : 'Au déplacement'}
                 </button>
-                <div className="guides-colors">
-                  {['#7a5cff', '#00b3c7', '#ff3b6b', '#1d1b22', '#ffffff'].map((c) => (
-                    <button key={c} className={guidesOn.color === c ? 'on' : ''} style={{ background: c }} onClick={() => setGuidesOn({ ...guidesOn, color: c })} aria-label={`Couleur des repères ${c}`} />
-                  ))}
-                </div>
               </div>
+              <MarkLegend
+                kinds={(() => {
+                  const seen = new Set(anchorsOf(doc.frame, f).map((a) => anchorKind(doc.frame, a.id)));
+                  return marksOfFrame(doc.frame).filter((k) => (k === 'margin' ? !!doc.margin : k === 'page' || seen.has(k)));
+                })()}
+                colors={markColors}
+              />
             </div>
           )}
 
