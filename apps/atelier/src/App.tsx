@@ -349,7 +349,6 @@ export function App() {
     const ctx = c.getContext('2d')!;
     ctx.setTransform(k, 0, 0, k, 0, 0);
     drawLayers(ctx, d, ff, { scale: k, onImage: () => {} });
-    forgetPaint();
     return c.toDataURL('image/png');
   };
   const saveNow = async (p = project, d = docRef.current) => {

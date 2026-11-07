@@ -250,12 +250,20 @@ interface PaintCache {
 }
 /** Deux traits d'aquarelle consécutifs de la même passe humide se peignent ensemble. */
 const sameWash = (a: Stroke | undefined, b: Stroke | undefined) => !!a && !!b && a.wash !== undefined && a.wash === b.wash && (a.brush ?? 'aquarelle') === 'aquarelle' && (b.brush ?? 'aquarelle') === 'aquarelle';
-const paints = new Map<string, PaintCache>();
+/**
+ * Par couche, une peinture par taille (la plus récente d'abord) : la vignette de l'enregistrement
+ * automatique, la Vue 3D ou l'export peignent à une autre taille sans effacer celle de l'écran,
+ * qui sinon se repeignait en entier (toutes les passes d'aquarelle) après chaque enregistrement.
+ */
+const paints = new Map<string, PaintCache[]>();
+const PAINT_SIZES = 3;
 
 export function paintTarget(l: Layer, f: Format, pxPerUnit: number): Target {
   const b = layerBox(l, f);
-  // au plus 2048 px de côté
-  const k = Math.min(pxPerUnit, 2048 / Math.max(b.w, b.h));
+  // résolution arrondie au quart d'octave au-dessus : pendant un zoom, la peinture ne se refait
+  // qu'en passant un palier (et non à chaque image) ; au plus 2048 px de côté
+  const step = 2 ** (Math.ceil(Math.log2(Math.max(1e-6, pxPerUnit)) * 4) / 4);
+  const k = Math.min(step, 2048 / Math.max(b.w, b.h));
   return { pw: Math.max(1, Math.round(b.w * k)), ph: Math.max(1, Math.round(b.h * k)), pxPerMin: Math.min(f.width, f.height) * k };
 }
 
@@ -263,14 +271,18 @@ export function paintFor(l: Layer, doc: Doc, f: Format, pxPerUnit: number): HTML
   if (!l.strokes.length) return null;
   const t = paintTarget(l, f, pxPerUnit);
   const key = `${t.pw}x${t.ph}:${JSON.stringify(doc.guides)}`;
-  let c = paints.get(l.id);
-  if (!c || c.key !== key || c.done > l.strokes.length) {
-    const canvas = c?.canvas ?? document.createElement('canvas');
+  const list = paints.get(l.id) ?? [];
+  paints.set(l.id, list);
+  const at = list.findIndex((x) => x.key === key);
+  let c = at >= 0 ? list.splice(at, 1)[0]! : undefined;
+  if (!c || c.done > l.strokes.length) {
+    // nouvelle taille : on reprend le canevas de la plus ancienne quand il y en a assez
+    const canvas = c?.canvas ?? (list.length >= PAINT_SIZES ? list.pop()!.canvas : document.createElement('canvas'));
     canvas.width = t.pw;
     canvas.height = t.ph;
     c = { canvas, key, done: 0 };
-    paints.set(l.id, c);
   }
+  list.unshift(c);
   const ctx = c.canvas.getContext('2d')!;
   const S = l.strokes;
   while (c.done < S.length) {
