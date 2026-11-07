@@ -46,8 +46,98 @@ function paperGrain(): HTMLCanvasElement {
   return s;
 }
 
-const scratch = { a: null as HTMLCanvasElement | null, b: null as HTMLCanvasElement | null };
-function buffer(key: 'a' | 'b', w: number, h: number) {
+const scratch = { a: null as HTMLCanvasElement | null, b: null as HTMLCanvasElement | null, c: null as HTMLCanvasElement | null, d: null as HTMLCanvasElement | null };
+let canFilter: boolean | null = null;
+/** Le flou des canevas (ctx.filter) : absent de Safari, donc de l'iPad. */
+function filterOK() {
+  if ((globalThis as { __ftdNoFilter?: boolean }).__ftdNoFilter) return false;
+  if (canFilter === null) {
+    // Safari accepte la propriété sans rien flouter : on vérifie sur un vrai dessin
+    try {
+      const c = document.createElement('canvas');
+      c.width = c.height = 9;
+      const x = c.getContext('2d', { willReadFrequently: true })!;
+      x.filter = 'blur(2px)';
+      x.fillStyle = '#000';
+      x.fillRect(4, 3, 3, 3);
+      canFilter = x.getImageData(1, 4, 1, 1).data[3]! > 0;
+    } catch {
+      canFilter = false;
+    }
+  }
+  return canFilter;
+}
+const shrink: { a: HTMLCanvasElement | null } = { a: null };
+/**
+ * Dessine src flouté d'environ r px, avec l'opacité et le mode de fusion du contexte.
+ * Sans ctx.filter (Safari) : réduction, moyenne des voisins, puis agrandissement lissé.
+ */
+export function drawBlurred(ctx: CanvasRenderingContext2D, src: HTMLCanvasElement, r: number) {
+  if (r < 0.4) {
+    ctx.drawImage(src, 0, 0);
+    return;
+  }
+  if (filterOK()) {
+    const f = ctx.filter;
+    ctx.filter = `blur(${r}px)`;
+    ctx.drawImage(src, 0, 0);
+    ctx.filter = f;
+    return;
+  }
+  const k = Math.max(1, r / 1.4);
+  const P = 4; // marge : le flou déborde de la forme
+  const sw = Math.max(1, Math.ceil(src.width / k)) + 2 * P;
+  const sh = Math.max(1, Math.ceil(src.height / k)) + 2 * P;
+  const grab = (key: 'a') => {
+    const c = (shrink[key] ??= document.createElement('canvas'));
+    if (c.width !== sw || c.height !== sh) {
+      c.width = sw;
+      c.height = sh;
+    }
+    const x = c.getContext('2d', { willReadFrequently: true })!;
+    x.setTransform(1, 0, 0, 1, 0, 0);
+    x.globalAlpha = 1;
+    x.globalCompositeOperation = 'source-over';
+    x.imageSmoothingEnabled = true;
+    x.imageSmoothingQuality = 'high';
+    x.clearRect(0, 0, sw, sh);
+    return { c, x };
+  };
+  const A = grab('a');
+  A.x.drawImage(src, P, P, src.width / k, src.height / k);
+  // sur la petite image : trois passes de moyenne glissante (presque gaussien), en flottants
+  const img = A.x.getImageData(0, 0, sw, sh);
+  const d = img.data;
+  const f = Float32Array.from(d);
+  const g = new Float32Array(f.length);
+  const run = (from: Float32Array, to: Float32Array, horiz: boolean) => {
+    const n = horiz ? sw : sh;
+    const m = horiz ? sh : sw;
+    const st = horiz ? 4 : sw * 4;
+    for (let j = 0; j < m; j++) {
+      const o = horiz ? j * sw * 4 : j * 4;
+      for (let c = 0; c < 4; c++)
+        for (let i = 0; i < n; i++) {
+          const a = from[o + Math.max(0, i - 1) * st + c]!;
+          const b = from[o + i * st + c]!;
+          const e = from[o + Math.min(n - 1, i + 1) * st + c]!;
+          to[o + i * st + c] = (a + b + e) / 3;
+        }
+    }
+  };
+  for (let pass = 0; pass < 3; pass++) {
+    run(f, g, true);
+    run(g, f, false);
+  }
+  for (let i = 0; i < d.length; i++) d[i] = f[i]!;
+  A.x.putImageData(img, 0, 0);
+  const smooth = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(A.c, -P * k, -P * k, sw * k, sh * k);
+  ctx.imageSmoothingEnabled = smooth;
+}
+
+function buffer(key: 'a' | 'b' | 'c' | 'd', w: number, h: number) {
   let c = scratch[key];
   if (!c) c = scratch[key] = document.createElement('canvas');
   if (c.width !== w || c.height !== h) {
@@ -91,6 +181,33 @@ function stamps(s: Stroke, t: Target) {
   for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
   let along = 0;
   const base = s.size * t.pxPerMin;
+  // l'aquarelle suit une courbe lisse : pression et tracé moyennés sur la largeur du pinceau
+  // (sinon chaque à-coup du stylet gonfle le bord en bourrelet)
+  const wash = (s.brush ?? 'aquarelle') === 'aquarelle';
+  if (wash && pts.length > 2) {
+    const ease = (tau: number, keys: Array<'p' | 'x' | 'y'>) => {
+      for (const dir of [1, -1]) {
+        const order = dir > 0 ? pts.keys() : [...pts.keys()].reverse();
+        let prev: (typeof pts)[number] | null = null;
+        for (const i of order) {
+          const q = pts[i]!;
+          if (prev) {
+            const k = 1 - Math.exp(-Math.hypot(q.x - prev.x, q.y - prev.y) / tau);
+            for (const key of keys) q[key] = prev[key] + (q[key] - prev[key]) * k;
+          }
+          prev = q;
+        }
+      }
+    };
+    const first = { ...pts[0]! };
+    const last = { ...pts[pts.length - 1]! };
+    ease(base * 1.6, ['p']);
+    ease(base * 0.35, ['x', 'y']);
+    // les extrémités restent où le stylet s'est posé et levé
+    Object.assign(pts[0]!, { x: first.x, y: first.y });
+    Object.assign(pts[pts.length - 1]!, { x: last.x, y: last.y });
+  }
+  const wob = wash ? 0.25 : 1;
   let phase = r() * 10;
   for (let i = 0; i < pts.length; i++) {
     const a = pts[i]!;
@@ -102,11 +219,11 @@ function stamps(s: Stroke, t: Target) {
     for (let k = 0; k < n; k++) {
       const f = k / n;
       phase += 0.21;
-      const wobble = 1 + 0.16 * Math.sin(phase) + 0.1 * Math.sin(phase * 2.7 + 1) + (r() - 0.5) * 0.14;
+      const wobble = 1 + wob * (0.16 * Math.sin(phase) + 0.1 * Math.sin(phase * 2.7 + 1) + (r() - 0.5) * 0.14);
       const p = a.p + (b.p - a.p) * f;
       out.push({
-        x: a.x + (b.x - a.x) * f + (r() - 0.5) * rad0 * 0.25,
-        y: a.y + (b.y - a.y) * f + (r() - 0.5) * rad0 * 0.25,
+        x: a.x + (b.x - a.x) * f + (r() - 0.5) * rad0 * 0.25 * wob,
+        y: a.y + (b.y - a.y) * f + (r() - 0.5) * rad0 * 0.25 * wob,
         r: base * (0.35 + 0.65 * p) * wobble,
         t: total ? (along + d * f) / total : 0,
         a: a.a + (b.a - a.a) * f,
@@ -173,12 +290,55 @@ export function paintStroke(dst: CanvasRenderingContext2D, s: Stroke, guides: Gu
 }
 
 function aquarelle(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
+  paintWash(dst, [s], guides, t);
+}
+
+/**
+ * Une passe d'aquarelle sur papier mouillé : tous ses traits se déposent dans la même eau.
+ * Les pigments fusent l'un dans l'autre (les couleurs se mêlent en dégradé), les recouvrements ne
+ * foncent pas, et un seul liseré borde l'ensemble. Seule, elle rend un trait d'aquarelle ordinaire.
+ */
+export function paintWash(dst: CanvasRenderingContext2D, list: Stroke[], guides: Guide[], t: Target) {
+  const s = list[list.length - 1]!;
+  const wet = list.length > 1;
   const { c: sil, ctx: sx } = buffer('a', t.pw, t.ph);
-  const g = guides[s.guide];
-  for (const st of stamps(s, t)) {
-    sx.fillStyle = guideColor(g, st.t);
-    tipShape(sx, s.tip, st.x, st.y, Math.max(0.5, st.r), st.a, st.K, st.d);
-    sx.fill();
+  const Rw = Math.max(...list.map((w) => w.size)) * t.pxPerMin;
+  list.forEach((w, i) => {
+    const g = guides[w.guide];
+    // chaque trait dans sa propre eau, puis versé dans la tache commune
+    const one = wet ? buffer('d', t.pw, t.ph) : { c: sil, ctx: sx };
+    for (const st of stamps(w, t)) {
+      one.ctx.fillStyle = guideColor(g, st.t);
+      tipShape(one.ctx, w.tip, st.x, st.y, Math.max(0.5, st.r), st.a, st.K, st.d);
+      one.ctx.fill();
+    }
+    if (!wet) return;
+    if (i === 0) {
+      sx.drawImage(one.c, 0, 0);
+      return;
+    }
+    // là où l'eau est déjà colorée, les deux pigments se partagent la place (moyenne, pas recouvrement) ;
+    // ailleurs le nouveau trait se pose tel quel
+    sx.save();
+    sx.globalCompositeOperation = 'source-atop';
+    sx.globalAlpha = 1 / (1 + Math.min(i, 1));
+    sx.drawImage(one.c, 0, 0);
+    sx.globalCompositeOperation = 'destination-over';
+    sx.globalAlpha = 1;
+    sx.drawImage(one.c, 0, 0);
+    sx.restore();
+  });
+  if (wet) {
+    // les pigments migrent dans l'eau : la couleur se brouille à l'intérieur de la tache (sa forme ne bouge pas)
+    const { c: mix, ctx: mx } = buffer('c', t.pw, t.ph);
+    drawBlurred(mx, sil, Math.max(3, Rw * 0.9));
+    // le flou dilue la couleur vers les bords : on la renforce pour garder la teinte pleine
+    mx.globalCompositeOperation = 'source-over';
+    mx.drawImage(mix, 0, 0);
+    sx.save();
+    sx.globalCompositeOperation = 'source-atop';
+    sx.drawImage(mix, 0, 0);
+    sx.restore();
   }
   // grain : le pigment se dépose moins dans les creux du papier
   sx.globalCompositeOperation = 'destination-out';
@@ -187,23 +347,22 @@ function aquarelle(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
   sx.fillRect(0, 0, t.pw, t.ph);
 
   // peu d'intensité : plus d'eau, le pigment s'étale et se concentre sur les bords (comme la dilution des tampons)
-  const water = Math.max(0, Math.min(1, 1 - s.opacity));
-  const R = s.size * t.pxPerMin;
+  const opacity = list.reduce((a, w) => a + w.opacity, 0) / list.length;
+  const water = Math.max(0, Math.min(1, 1 - opacity + (wet ? 0.15 : 0)));
+  const R = Math.max(...list.map((w) => w.size)) * t.pxPerMin;
   // liseré : silhouette moins sa version floutée
   const { c: edge, ctx: ex } = buffer('b', t.pw, t.ph);
   ex.drawImage(sil, 0, 0);
   ex.globalCompositeOperation = 'destination-out';
-  ex.filter = `blur(${Math.max(1, R * (0.18 + 0.22 * water))}px)`;
-  ex.drawImage(sil, 0, 0);
+  drawBlurred(ex, sil, Math.max(1, R * (0.18 + 0.22 * water)));
 
   dst.save();
   dst.globalCompositeOperation = 'multiply';
-  if (water > 0.05) dst.filter = `blur(${R * 0.12 * water}px)`;
-  dst.globalAlpha = 0.42 * s.opacity;
-  dst.drawImage(sil, 0, 0);
-  dst.filter = 'none';
-  dst.globalAlpha = 0.75 * Math.min(1, s.opacity + 0.3 * water);
-  dst.drawImage(edge, 0, 0);
+  // le pigment boit le papier au-delà du trait : bord fondu, puis un liseré léger et adouci
+  dst.globalAlpha = 0.42 * opacity;
+  drawBlurred(dst, sil, R * (0.16 + 0.14 * water));
+  dst.globalAlpha = 0.5 * Math.min(1, opacity + 0.3 * water);
+  drawBlurred(dst, edge, R * 0.05);
   dst.restore();
 }
 
@@ -424,17 +583,14 @@ function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: 
   if (dil > 0.02) {
     // l'eau étale l'encre : un lavis flou plus clair, et un liseré sur les bords
     const { c: wash, ctx: wx } = buffer('b', t.pw, t.ph);
-    wx.filter = `blur(${Math.max(0.5, big * (0.04 * dil + 0.16 * dil * dil))}px)`;
-    wx.drawImage(sil, 0, 0);
-    wx.filter = 'none';
+    drawBlurred(wx, sil, Math.max(0.5, big * (0.04 * dil + 0.16 * dil * dil)));
     dst.globalAlpha = s.opacity * (1 - 0.8 * dil);
     dst.drawImage(wash, 0, 0);
     // liseré : la silhouette moins sa version floutée
     const { c: edge, ctx: ex } = buffer('b', t.pw, t.ph);
     ex.drawImage(sil, 0, 0);
     ex.globalCompositeOperation = 'destination-out';
-    ex.filter = `blur(${Math.max(1, big * (0.03 + 0.05 * dil))}px)`;
-    ex.drawImage(sil, 0, 0);
+    drawBlurred(ex, sil, Math.max(1, big * (0.03 + 0.05 * dil)));
     dst.globalAlpha = s.opacity * Math.min(1, 0.9 * dil);
     dst.drawImage(edge, 0, 0);
     // peu diluée, l'empreinte reste nette

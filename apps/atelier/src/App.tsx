@@ -556,6 +556,25 @@ export function App() {
     }
   };
   const [burnChar, setBurnChar] = useState(0.3);
+  /**
+   * Aquarelle sur papier mouillé : la passe en cours (couche, numéro, dernier trait). Ses traits se
+   * mêlent jusqu'à ce qu'on touche « Sécher » ou qu'on peigne une autre couche.
+   */
+  const wetPass = useRef<{ layer: string; id: number; at: number } | null>(null);
+  /** Papier mouillé (1) ou sec (0), pour la jauge du bouton Sécher. */
+  const [wetness, setWetness] = useState(0);
+  /** La passe humide d'un nouveau trait d'aquarelle sur cette couche : on la rejoint tant qu'on n'a pas séché ni changé de couche. */
+  const washFor = (layerId: string) => {
+    const w = wetPass.current;
+    const now = Date.now();
+    setWetness(1);
+    if (w && w.layer === layerId) {
+      w.at = now;
+      return w.id;
+    }
+    wetPass.current = { layer: layerId, id: now, at: now };
+    return now;
+  };
   const [branchCore, setBranchCore] = useState(1);
   const [burnHole, setBurnHole] = useState(true);
   /** Survol du stylet (ou de la souris) : un repère montre où la pointe touchera. */
@@ -1587,6 +1606,7 @@ export function App() {
                   seed: Math.floor(Math.random() * 1e9),
                   ...(tipOn(brushKind) ? { tip: brushTip } : {}),
                   ...(brushKind === 'hair' ? { hairLen, curl } : {}),
+                  ...(brushKind === 'aquarelle' ? { wash: washFor(target.id) } : {}),
                   pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, target) } : {}), ...(leanOn(brushKind) ? brushLean(e, target) : {}) }],
                 },
     };
@@ -2123,6 +2143,8 @@ export function App() {
       const id = L.layer;
       live.current = { kind: null };
       if (s.pts.length === 1 && s.brush !== 'stamp') s.pts.push({ ...s.pts[0]!, x: s.pts[0]!.x + 0.001 });
+      // le papier reste mouillé à partir du dernier trait posé
+      if (s.wash !== undefined && wetPass.current?.id === s.wash) wetPass.current.at = Date.now();
       dotAt.current = s.pts.length <= 3 ? performance.now() : 0;
       update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, strokes: [...l.strokes, s] } : l)) }));
       return;
@@ -2701,7 +2723,12 @@ export function App() {
   };
 
   const patchLayer = (id: string, patch: Partial<Layer>, history = true) => {
-    const fn = (d: Doc) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, ...patch } : l)) });
+    // l'extrusion épaissit l'objet entier : toutes ses pièces solidaires la partagent
+    const fn = (d: Doc) => {
+      const me = d.layers.find((l) => l.id === id);
+      const group = 'extrude' in patch && me?.link ? me.link : null;
+      return { ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, ...patch } : group && l.link === group ? { ...l, extrude: patch.extrude } : l)) };
+    };
     if (history) update(fn);
     else setDoc(fn);
   };
@@ -3116,6 +3143,23 @@ export function App() {
                   >
                     <Icon name="paint-reset" />
                   </button>
+                  {brushKind === 'aquarelle' && (
+                    <>
+                      <button
+                        className={`btn small dry-btn ${wetness > 0 ? 'wet' : ''}`}
+                        style={{ '--wet': wetness } as React.CSSProperties}
+                        disabled={wetness <= 0}
+                        onClick={() => {
+                          wetPass.current = null;
+                          setWetness(0);
+                          setToast('Papier séché : les traits suivants se posent en glacis par-dessus');
+                        }}
+                        title={wetness > 0 ? 'Sécher : le papier est encore mouillé, les traits s’y mêlent. Toucher pour figer la passe' : 'Papier sec : le prochain trait commence une nouvelle passe humide'}
+                      >
+                        <Icon name="dry" />
+                      </button>
+                    </>
+                  )}
                   {brushKind === 'branch' && (
                     <>
                       <VSlider label="Ramifications" value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />

@@ -58,6 +58,11 @@ export interface Stroke {
   opacity: number;
   seed: number;
   pts: Pt[];
+  /**
+   * Aquarelle : passe humide à laquelle appartient le trait. Les traits d'une même passe se
+   * mêlent sur le papier mouillé (couleurs fondues, un seul liseré) ; une passe séchée se recouvre en glacis.
+   */
+  wash?: number;
   /** Outil Tampons : motif posé à chaque point, et dilution de l'encre (0 = encre pleine, 1 = très diluée). */
   stamp?: string;
   dilution?: number;
@@ -130,6 +135,8 @@ export interface Layer {
   bump?: import('./bump').Bump;
   /** Biseau (0..1) : largeur du relief au bord, éclairé par la lampe (scene.ts drawBevel). */
   bevel?: number;
+  /** Extrusion (0..1) : l'objet prend de l'épaisseur, comme un bloc découpé ; toutes ses pièces solidaires la partagent. */
+  extrude?: number;
   /** Volume de la forme, tiré de son contour (indépendant du matériau). */
   volume?: Volume;
   /** Profil du biseau : arrondi (par défaut) ou chanfrein. */

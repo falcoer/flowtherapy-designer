@@ -1,15 +1,16 @@
 /**
  * Vue 3D : chaque couche devient une plaque posée à sa hauteur au-dessus de la feuille.
  * On fait pivoter le document (souris, doigt, inclinaison de la tablette) et les couches glissent
- * les unes sur les autres. Le navigateur fait la perspective (CSS 3D) ; au passage à WebGL, les
- * plaques et leurs hauteurs se reprennent telles quelles.
+ * les unes sur les autres. Rendu WebGL 2 (gl3d.ts : vraie épaisseur, lumière de la lampe, ombres
+ * portées) ; sans WebGL 2, le navigateur fait la perspective en CSS 3D.
  */
 import type { Format } from '@ftd/core';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Doc, Layer } from './model';
-import { opacityOf } from './fx';
-import { drawLampTint, drawLayers, forgetPaint, levelOf, renderOrder, shadowVector } from './scene';
+import { hexRGB, opacityOf } from './fx';
+import { drawLampTint, drawLayers, drawRelief, forgetPaint, lampOf, levelOf, renderOrder, shadowVector } from './scene';
+import { Gl3d, hasWebGL2, type GlView } from './gl3d';
 import { layerBox } from './model';
 
 interface Plate {
@@ -21,6 +22,9 @@ interface Plate {
   /** Hauteur au-dessus de la feuille (0..1). */
   h: number;
   l?: Layer;
+  /** Relief (volume, biseau) aligné sur l'image : hauteur en opacité, et sa hauteur maximale. */
+  relief?: HTMLCanvasElement;
+  rh?: number;
 }
 
 /** Ce que couvre une image : le plus petit cadre des pixels non transparents. */
@@ -62,14 +66,25 @@ function buildPlates(doc: Doc, f: Format, r: number): Plate[] {
     if (l.kind === 'surface') continue;
     // la couche seule, sans son ombre : l'ombre est posée à part, sur les plaques du dessous
     const one = page();
-    drawLayers(one.ctx, { ...doc, layers: [{ ...l, height: 0, inner: 0 }] }, f, { scale: r, onImage: () => {} });
+    drawLayers(one.ctx, { ...doc, layers: [{ ...l, height: 0, inner: 0, extrude: 0 }] }, f, { scale: r, onImage: () => {} });
     const b = crop(one.c);
     if (!b) continue;
     const c = document.createElement('canvas');
     c.width = b.w;
     c.height = b.h;
     c.getContext('2d')!.drawImage(one.c, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
-    plates.push({ c, x: b.x, y: b.y, h: Math.max(0, levelOf(l)), l });
+    const plate: Plate = { c, x: b.x, y: b.y, h: topOf(l), l };
+    // dôme, cylindre, biseau… : la carte de hauteurs pour soulever le dessus en 3D
+    const rel = (l.bevel ?? 0) > 0.001 || (l.volume?.amount ?? 0) > 0.001 ? page() : null;
+    const rh = rel ? drawRelief(rel.ctx, l, doc, f) : 0;
+    if (rel && rh > 0) {
+      const rc = document.createElement('canvas');
+      rc.width = b.w;
+      rc.height = b.h;
+      rc.getContext('2d')!.drawImage(rel.c, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+      Object.assign(plate, { relief: rc, rh });
+    }
+    plates.push(plate);
   }
   forgetPaint();
   return plates;
@@ -139,8 +154,12 @@ function buildShadows(doc: Doc, f: Format, r: number, plates: Plate[]): ShadowPi
 const SLICES = 10;
 /** Épaisseur d'un objet découpé (en hauteur de page) : un carton, plus son volume et son biseau. */
 function thicknessOf(l: Layer): number {
-  return 0.035 + (l.volume ? l.volume.amount * 0.07 : 0) + (l.bevel ?? 0) * 0.025;
+  return 0.035 + (l.volume ? l.volume.amount * 0.07 : 0) + (l.bevel ?? 0) * 0.025 + (l.extrude ?? 0) * EXTRUDE;
 }
+/** Extrusion à 1, en hauteur de page : le dessus monte d'autant, la tranche descend jusqu'à la feuille. */
+const EXTRUDE = 0.5;
+/** Hauteur du dessus d'une plaque. */
+const topOf = (l: Layer) => Math.max(0, levelOf(l)) + (l.extrude ?? 0) * EXTRUDE;
 
 /** Une plaque posée dans la vue : son image, ses tranches, et de quoi la retrouver sous le doigt. */
 interface Placed {
@@ -177,6 +196,17 @@ export function ParallaxView({
   // ouverte d'un geste (molette, trois doigts) : revenir de face la referme
   const peek = useRef(!!start);
   const [zoom, setZoom] = useState(1);
+  /** Déplacement de la vue (deux doigts, clic droit ou molette du milieu), en pixels. */
+  const [pan, setPan] = useState<[number, number]>([0, 0]);
+  const tiltRef = useRef<[number, number]>([0, 0]);
+  const zoomRef = useRef(1);
+  const panRef = useRef<[number, number]>([0, 0]);
+  tiltRef.current = tilt;
+  zoomRef.current = zoom;
+  panRef.current = pan;
+  /** Doigts posés : un seul tourne (ou choisit d'un toucher), deux déplacent et zooment, trois tournent. */
+  const fingers = useRef(new Map<number, { x: number; y: number }>());
+  const gesture = useRef<{ n: number; cx: number; cy: number; d: number; t: [number, number]; z: number; p: [number, number] } | null>(null);
   // écartement des plaques : la hauteur réelle, exagérée pour bien voir
   const [spread, setSpread] = useState(2);
   const [gyro, setGyro] = useState(false);
@@ -185,74 +215,201 @@ export function ParallaxView({
   const drag = useRef<{ x: number; y: number; t: [number, number] } | null>(null);
   const lastTap = useRef(0);
   const [dragging, setDragging] = useState(false);
+  // WebGL 2 si l'appareil le permet ; sinon les plaques CSS
+  const [useGl] = useState(hasWebGL2);
+  const glCanvas = useRef<HTMLCanvasElement>(null);
+  const gl = useRef<Gl3d | null>(null);
+  /** Vue affichée (elle rejoint en douceur la vue demandée) et vue demandée. */
+  const shown = useRef<GlView & { z: Map<string, number> }>({ tilt: [0, 0], zoom: 1, lift: 0, pan: [0, 0], z: new Map() });
+  const wanted = useRef<GlView & { z: Map<string, number>; t: Map<string, number> }>({ tilt: [0, 0], zoom: 1, lift: 0, pan: [0, 0], z: new Map(), t: new Map() });
+  const kick = useRef<() => void>(() => {});
+  const heightRef = useRef(false);
+  heightRef.current = heightDrag;
 
-  // le document se construit une fois à l'ouverture
-  useEffect(() => {
+  /** Les plaques du document : à l'ouverture, puis à chaque changement de contenu (ajout, retouche, peinture). */
+  const docRef = useRef(doc);
+  docRef.current = doc;
+  const build = (first: boolean) => {
+    const doc = docRef.current;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const k = Math.min((vw * 0.72) / f.width, (vh * 0.7) / f.height);
     const r = k * Math.min(2, window.devicePixelRatio || 1);
-    setSize([f.width * k, f.height * k]);
-    const id = window.setTimeout(() => {
-      const el = stage.current;
-      if (!el) return;
+    if (first) setSize([f.width * k, f.height * k]);
+    if (useGl && glCanvas.current) {
       const plates = buildPlates(doc, f, r);
-      const shadows = buildShadows(doc, f, r, plates);
-      el.replaceChildren();
-      const put = (c: HTMLCanvasElement, x: number, y: number, z: number, cls: string, scale = 1) => {
-        c.className = cls;
-        c.style.left = `${(x / r) * k}px`;
-        c.style.top = `${(y / r) * k}px`;
-        c.style.width = `${(c.width / r / scale) * k}px`;
-        c.style.height = `${(c.height / r / scale) * k}px`;
-        c.style.setProperty('--z', String(z));
-        el.appendChild(c);
-      };
-      geo.current = { r, k, put };
-      placed.current = [];
-      plates.forEach((p, i) => {
-        const slices: HTMLCanvasElement[] = [];
-        // la tranche : des copies assombries empilées sous la plaque, comme un carton découpé
-        if (i && p.l) {
-          const t = thicknessOf(p.l);
-          const n = SLICES;
-          for (let j = 0; j < n; j++) {
-            const c = document.createElement('canvas');
-            c.width = p.c.width;
-            c.height = p.c.height;
-            const x = c.getContext('2d')!;
-            x.filter = `brightness(${0.42 + (0.4 * j) / n})`;
-            x.drawImage(p.c, 0, 0);
-            put(c, p.x, p.y, Math.max(0.0004, p.h - t + (t * j) / n) + i * 0.0015, 'px-plate px-slice');
-            slices.push(c);
-          }
+      let g = gl.current;
+      if (!g) {
+        try {
+          g = new Gl3d(glCanvas.current);
+        } catch {
+          return;
         }
-        put(p.c, p.x, p.y, p.h + i * 0.0015, i ? 'px-plate' : 'px-plate px-page');
-        placed.current.push({ p, i, el: p.c, slices });
-      });
-      shadowEls.current = [];
-      for (const s of shadows) {
-        put(s.c, s.x, s.y, plates[s.on]!.h + s.on * 0.0015 + 0.0008, 'px-plate px-shadow', 0.5);
-        shadowEls.current.push(s.c);
+        gl.current = g;
       }
+      const L = lampOf(doc);
+      g.light = { x: L.x, y: L.y, z: L.z, color: hexRGB(L.color) };
+      g.setPlates(
+        [f.width, f.height],
+        plates.map((p, i) => ({ img: p.c, x: p.x / r, y: p.y / r, w: p.c.width / r, h: p.c.height / r, z: p.h, t: i && p.l ? thicknessOf(p.l) : 0, page: !i, id: p.l?.id, relief: p.relief, rh: p.rh })),
+      );
+      for (const p of plates) if (p.l && !shown.current.z.has(p.l.id)) shown.current.z.set(p.l.id, p.h);
+      placed.current = plates.map((p, i) => ({ p, i, el: p.c, slices: [] }));
+      geo.current = { r, k, put: () => {} };
       setBusy(false);
-      // une légère inclinaison d'entrée montre tout de suite l'épaisseur
-      if (!start) requestAnimationFrame(() => setTilt([-14, 10]));
-    }, 30);
-    return () => clearTimeout(id);
+      if (first && !start) requestAnimationFrame(() => setTilt([-14, 10]));
+      kick.current();
+      return;
+    }
+    const el = stage.current;
+    if (!el) return;
+    const plates = buildPlates(doc, f, r);
+    const shadows = buildShadows(doc, f, r, plates);
+    el.replaceChildren();
+    const put = (c: HTMLCanvasElement, x: number, y: number, z: number, cls: string, scale = 1) => {
+      c.className = cls;
+      c.style.left = `${(x / r) * k}px`;
+      c.style.top = `${(y / r) * k}px`;
+      c.style.width = `${(c.width / r / scale) * k}px`;
+      c.style.height = `${(c.height / r / scale) * k}px`;
+      c.style.setProperty('--z', String(z));
+      el.appendChild(c);
+    };
+    geo.current = { r, k, put };
+    placed.current = [];
+    plates.forEach((p, i) => {
+      const slices: HTMLCanvasElement[] = [];
+      // la tranche : des copies assombries empilées sous la plaque, comme un carton découpé
+      if (i && p.l) {
+        const t = thicknessOf(p.l);
+        const n = SLICES;
+        for (let j = 0; j < n; j++) {
+          const c = document.createElement('canvas');
+          c.width = p.c.width;
+          c.height = p.c.height;
+          const x = c.getContext('2d')!;
+          x.filter = `brightness(${0.42 + (0.4 * j) / n})`;
+          x.drawImage(p.c, 0, 0);
+          put(c, p.x, p.y, Math.max(0.0004, p.h - t + (t * j) / n) + i * 0.0015, 'px-plate px-slice');
+          slices.push(c);
+        }
+      }
+      put(p.c, p.x, p.y, p.h + i * 0.0015, i ? 'px-plate' : 'px-plate px-page');
+      placed.current.push({ p, i, el: p.c, slices });
+    });
+    shadowEls.current = [];
+    for (const s of shadows) {
+      put(s.c, s.x, s.y, plates[s.on]!.h + s.on * 0.0015 + 0.0008, 'px-plate px-shadow', 0.5);
+      shadowEls.current.push(s.c);
+    }
+    setBusy(false);
+    // une légère inclinaison d'entrée montre tout de suite l'épaisseur
+    if (first && !start) requestAnimationFrame(() => setTilt([-14, 10]));
+  };
+  useEffect(() => {
+    const id = window.setTimeout(() => build(true), 30);
+    return () => {
+      clearTimeout(id);
+      gl.current?.dispose();
+      gl.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // le contenu change pendant la vue (objet ajouté, retouché, peint) : on refait les plaques ;
+  // la hauteur seule ne compte pas, elle se règle en direct
+  const contentKey = JSON.stringify([doc.layers.map(({ height: _h, inner: _i, ...rest }) => rest), doc.guides, doc.lamp, doc.light]);
+  const builtKey = useRef(contentKey);
+  useEffect(() => {
+    if (busy || builtKey.current === contentKey) return;
+    const id = window.setTimeout(() => {
+      builtKey.current = contentKey;
+      build(false);
+    }, 250);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentKey, busy]);
+
+  // WebGL : le canevas suit la taille de la vue ; l'image rejoint en douceur la vue demandée
+  useEffect(() => {
+    if (!useGl) return;
+    const c = glCanvas.current;
+    if (!c) return;
+    let raf = 0;
+    const frame = () => {
+      raf = 0;
+      const g = gl.current;
+      if (!g) return;
+      const S = shown.current;
+      const T = wanted.current;
+      let moving = false;
+      const step = (a: number, b: number, k: number) => {
+        if (Math.abs(b - a) < 1e-3) return b;
+        moving = true;
+        return a + (b - a) * k;
+      };
+      const k = drag.current ? 0.55 : 0.14;
+      S.tilt = [step(S.tilt[0], T.tilt[0], k), step(S.tilt[1], T.tilt[1], k)];
+      S.zoom = step(S.zoom, T.zoom, k > 0.5 ? 0.6 : 0.2);
+      S.pan = [step(S.pan![0], T.pan![0], k > 0.5 ? 0.6 : 0.2), step(S.pan![1], T.pan![1], k > 0.5 ? 0.6 : 0.2)];
+      S.lift = S.lift ? step(S.lift, T.lift, 0.2) : T.lift;
+      for (const [id, z] of T.z) {
+        const v = step(S.z.get(id) ?? z, z, heightRef.current ? 0.5 : 0.15);
+        S.z.set(id, v);
+        g.setLevel(id, v, T.t.get(id) ?? 0);
+      }
+      g.render({ tilt: S.tilt, zoom: S.zoom, pan: S.pan, lift: S.lift, selected: T.selected });
+      if (moving) raf = requestAnimationFrame(frame);
+    };
+    kick.current = () => {
+      if (!raf) raf = requestAnimationFrame(frame);
+    };
+    const fit = () => {
+      const b = c.getBoundingClientRect();
+      const d = Math.min(2, window.devicePixelRatio || 1);
+      c.width = Math.max(1, Math.round(b.width * d));
+      c.height = Math.max(1, Math.round(b.height * d));
+      kick.current();
+    };
+    const ro = new ResizeObserver(fit);
+    ro.observe(c);
+    fit();
+    return () => {
+      ro.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // la vue demandée suit l'inclinaison, le zoom et l'écartement
+  useEffect(() => {
+    const T = wanted.current;
+    T.tilt = tilt;
+    T.zoom = zoom;
+    T.pan = pan;
+    T.lift = Math.min(f.width, f.height) * 0.12 * spread;
+    kick.current();
+  }, [tilt, zoom, pan, spread, busy, f]);
 
   // les hauteurs suivent le document (réglage en direct) ; les ombres se refont au repos
   useEffect(() => {
     if (busy) return;
+    if (gl.current) {
+      const T = wanted.current;
+      for (const l of doc.layers) {
+        if (l.kind === 'surface') continue;
+        T.z.set(l.id, topOf(l));
+        T.t.set(l.id, thicknessOf(l));
+      }
+      T.selected = selected ?? null;
+      kick.current();
+      return;
+    }
     const byId = new Map(doc.layers.map((l) => [l.id, l]));
     for (const P of placed.current) {
       if (!P.p.l) continue;
       const l = byId.get(P.p.l.id);
       if (!l) continue;
       P.p.l = l;
-      P.p.h = Math.max(0, levelOf(l));
+      P.p.h = topOf(l);
       P.el.style.setProperty('--z', String(P.p.h + P.i * 0.0015));
       const t = thicknessOf(l);
       P.slices.forEach((c, j) => c.style.setProperty('--z', String(Math.max(0.0004, P.p.h - t + (t * j) / P.slices.length) + P.i * 0.0015)));
@@ -278,12 +435,19 @@ export function ParallaxView({
    * la première dont le pixel touché est plein l'emporte.
    */
   const pickAt = (cx: number, cy: number): string | null => {
+    const g3 = gl.current;
+    const cv = glCanvas.current;
+    if (g3 && cv) {
+      const b = cv.getBoundingClientRect();
+      const S = shown.current;
+      return g3.pickAt(((cx - b.left) / b.width) * cv.width, ((cy - b.top) / b.height) * cv.height, { tilt: S.tilt, zoom: S.zoom, pan: S.pan, lift: S.lift });
+    }
     const host = stage.current?.parentElement;
     const g = geo.current;
     if (!host || !g) return null;
     const box = host.getBoundingClientRect();
     const P = 1800;
-    const [sx, sy] = [cx - (box.left + box.width / 2), cy - (box.top + box.height / 2)];
+    const [sx, sy] = [cx - (box.left + box.width / 2) - pan[0], cy - (box.top + box.height / 2) - pan[1]];
     const [ax, ay] = [(tilt[1] * Math.PI) / 180, (tilt[0] * Math.PI) / 180];
     // M = échelle · rotateX · rotateY (repère CSS : y vers le bas, z vers l'œil)
     const M = (x: number, y: number, z: number): [number, number, number] => {
@@ -319,16 +483,47 @@ export function ParallaxView({
     return null;
   };
   const tapAt = useRef<{ x: number; y: number } | null>(null);
+  const centroid = () => {
+    const pts = [...fingers.current.values()];
+    return { x: pts.reduce((a, p) => a + p.x, 0) / pts.length, y: pts.reduce((a, p) => a + p.y, 0) / pts.length };
+  };
+  const spreadOf = () => {
+    const pts = [...fingers.current.values()];
+    return pts.length < 2 ? 0 : Math.hypot(pts[0]!.x - pts[1]!.x, pts[0]!.y - pts[1]!.y);
+  };
+  /** (Re)part d'un geste à n doigts depuis la vue actuelle : poser ou lever un doigt ne fait pas sauter la vue. */
+  const startGesture = (n: number) => {
+    const c = centroid();
+    gesture.current = { n, cx: c.x, cy: c.y, d: spreadOf(), t: tiltRef.current, z: zoomRef.current, p: panRef.current };
+  };
 
   // tablette : on penche l'appareil, le document suit
   useEffect(() => {
     if (!gyro) return;
+    // Les angles bêta/gamma du capteur basculent d'un coup près de la verticale (gamma passe de +90 à −90
+    // et bêta saute de 180°). On passe donc par la direction du haut vue depuis l'écran, qui varie sans
+    // à-coup, en tenant compte de l'orientation de l'écran (portrait, paysage).
+    const rad = Math.PI / 180;
+    const upOnScreen = (e: DeviceOrientationEvent): [number, number, number] => {
+      const [b, g] = [e.beta! * rad, e.gamma! * rad];
+      const [ux, uy, uz] = [-Math.cos(b) * Math.sin(g), Math.sin(b), Math.cos(b) * Math.cos(g)];
+      const th = ((screen.orientation?.angle ?? (window as unknown as { orientation?: number }).orientation ?? 0) as number) * rad;
+      return [ux * Math.cos(th) - uy * Math.sin(th), ux * Math.sin(th) + uy * Math.cos(th), uz];
+    };
+    const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
     let ref: [number, number] | null = null;
+    let cur: [number, number] = [0, 0];
     const on = (e: DeviceOrientationEvent) => {
       if (e.beta == null || e.gamma == null) return;
-      ref ??= [e.beta, e.gamma];
+      const [x, y, z] = upOnScreen(e);
+      // pente gauche-droite et avant-arrière, chacune dans son plan
+      const a: [number, number] = [Math.atan2(x, z), Math.atan2(y, z)];
+      ref ??= a;
       const clamp = (v: number) => Math.max(-50, Math.min(50, v));
-      setTilt([clamp((e.gamma - ref[1]) * 1.2), clamp(-(e.beta - ref[0]) * 1.2)]);
+      const next: [number, number] = [clamp((-wrap(a[0] - ref[0]) / rad) * 1.2), clamp((-wrap(a[1] - ref[1]) / rad) * 1.2)];
+      // un peu de lissage : le capteur tremble
+      cur = [cur[0] + (next[0] - cur[0]) * 0.35, cur[1] + (next[1] - cur[1]) * 0.35];
+      setTilt([Math.round(cur[0] * 10) / 10, Math.round(cur[1] * 10) / 10]);
     };
     window.addEventListener('deviceorientation', on);
     return () => window.removeEventListener('deviceorientation', on);
@@ -359,28 +554,52 @@ export function ParallaxView({
   const view = (
     <div
       className={`px3d ${inline ? 'px-inline' : ''} ${dragging || gyro ? 'dragging' : ''}`}
+      onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         if ((e.target as Element).closest('.px-bar')) return;
-        const now = performance.now();
-        if (now - lastTap.current < 300) {
-          setTilt([0, 0]);
-          setZoom(1);
-          lastTap.current = 0;
-          return;
-        }
-        lastTap.current = now;
-        tapAt.current = { x: e.clientX, y: e.clientY };
         (e.currentTarget as Element).setPointerCapture(e.pointerId);
+        fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        const n = fingers.current.size;
+        if (n === 1) {
+          const now = performance.now();
+          if (now - lastTap.current < 300) {
+            setTilt([0, 0]);
+            setZoom(1);
+            setPan([0, 0]);
+            lastTap.current = 0;
+            return;
+          }
+          lastTap.current = now;
+          tapAt.current = { x: e.clientX, y: e.clientY };
+        } else tapAt.current = null;
+        // souris : clic droit ou bouton du milieu déplacent, comme deux doigts
+        const panMouse = e.pointerType === 'mouse' && (e.button === 1 || e.button === 2);
+        startGesture(panMouse ? 2 : n);
         drag.current = { x: e.clientX, y: e.clientY, t: tilt };
         setDragging(true);
       }}
       onPointerMove={(e) => {
-        const d = drag.current;
-        if (!d) return;
+        if (!fingers.current.has(e.pointerId)) return;
+        fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        const g = gesture.current;
+        if (!g) return;
+        const c = centroid();
         const clamp = (v: number) => Math.max(-70, Math.min(70, v));
-        setTilt([clamp(d.t[0] + (e.clientX - d.x) * 0.3), clamp(d.t[1] - (e.clientY - d.y) * 0.3)]);
+        if (g.n === 2) {
+          // deux doigts : la vue suit leur milieu, l'écart des doigts zoome
+          const d = spreadOf();
+          setPan([g.p[0] + c.x - g.cx, g.p[1] + c.y - g.cy]);
+          if (g.d > 20 && d > 20) setZoom(Math.max(0.4, Math.min(4, (g.z * d) / g.d)));
+        } else setTilt([clamp(g.t[0] + (c.x - g.cx) * 0.3), clamp(g.t[1] - (c.y - g.cy) * 0.3)]);
       }}
       onPointerUp={(e) => {
+        fingers.current.delete(e.pointerId);
+        if (fingers.current.size) {
+          // un doigt se lève : le geste continue avec ceux qui restent, sans saut
+          startGesture(fingers.current.size);
+          return;
+        }
+        gesture.current = null;
         drag.current = null;
         setDragging(false);
         const t0 = tapAt.current;
@@ -392,7 +611,13 @@ export function ParallaxView({
         }
         if (peek.current && Math.abs(tilt[0]) < 3 && Math.abs(tilt[1]) < 3) onClose();
       }}
-      onPointerCancel={() => ((drag.current = null), setDragging(false))}
+      onPointerCancel={(e) => {
+        fingers.current.delete(e.pointerId);
+        if (fingers.current.size) return startGesture(fingers.current.size);
+        gesture.current = null;
+        drag.current = null;
+        setDragging(false);
+      }}
       onWheel={(e) => {
         // Maj + molette ou défilement horizontal : tourner ; molette : zoomer
         if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
@@ -402,9 +627,13 @@ export function ParallaxView({
             if (peek.current && Math.abs(nx) < 1.5 && Math.abs(y) < 1.5) onClose();
             return [nx, y];
           });
-        } else setZoom((z) => Math.max(0.4, Math.min(3, z * Math.exp(-e.deltaY * 0.0015))));
+        } else if (!e.ctrlKey && e.deltaMode === 0 && Math.abs(e.deltaY) < 40 && e.altKey) {
+          // Alt + défilement du trackpad : déplacer
+          setPan(([x, y]) => [x - e.deltaX, y - e.deltaY]);
+        } else setZoom((z) => Math.max(0.4, Math.min(4, z * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)))));
       }}
     >
+      {useGl && <canvas ref={glCanvas} className="px-gl" />}
       <div
         ref={stage}
         className="px-stage"
@@ -413,7 +642,7 @@ export function ParallaxView({
             width: size[0],
             height: size[1],
             '--lift': `${minPx * 0.12 * spread}px`,
-            transform: `scale(${zoom}) rotateX(${tilt[1]}deg) rotateY(${tilt[0]}deg)`,
+            transform: `translate(${pan[0]}px, ${pan[1]}px) scale(${zoom}) rotateX(${tilt[1]}deg) rotateY(${tilt[0]}deg)`,
           } as React.CSSProperties
         }
       />
@@ -449,7 +678,7 @@ export function ParallaxView({
               Inclinaison
             </button>
           )}
-          <button className="chip" onClick={() => (setTilt([0, 0]), setZoom(1))} title="Revenir de face (ou toucher deux fois)">
+          <button className="chip" onClick={() => (setTilt([0, 0]), setZoom(1), setPan([0, 0]))} title="Revenir de face, au centre (ou toucher deux fois)">
             De face
           </button>
           <button className="chip" onClick={onClose}>

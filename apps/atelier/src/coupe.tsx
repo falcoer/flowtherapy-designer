@@ -100,6 +100,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
     if (l.border) out.push({ sec: 'edge', key: 'border', name: BORDER_TYPES.find((x) => x[0] === l.border!.style)![1], bg: g(l.border.guide), removable: true });
     if (l.trim) out.push({ sec: 'edge', key: 'trim', name: 'Rognage', bg: 'repeating-linear-gradient(135deg,#c9c3d6 0 3px,transparent 3px 6px)', removable: true });
     // le volume : forme bombée, biseau, relief sculpté
+    if ((l.extrude ?? 0) > 0.001) out.push({ sec: 'depth', key: 'extrude', name: 'Extrusion', bg: 'linear-gradient(160deg,#d8d3e4 0 45%,#6f6880 45%)', removable: true });
     if ((l.bevel ?? 0) > 0.001) out.push({ sec: 'depth', key: 'bevel', name: 'Biseau', bg: 'linear-gradient(135deg,#fff,#8a849a)', removable: true });
     if (l.glow) out.push({ sec: 'edge', key: 'glow', name: GLOW_TYPES.find((x) => x[0] === l.glow!.style)![1], bg: `radial-gradient(circle, #fff 20%, ${swatch(doc.guides[l.glow.guide])} 60%)`, removable: true });
   }
@@ -139,6 +140,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
 function removal(l: Layer, key: string): Partial<Layer> {
   if (key === 'border') return { border: undefined };
   if (key === 'bevel') return { bevel: 0, bevelProfile: undefined, bevelBorder: undefined };
+  if (key === 'extrude') return { extrude: undefined };
   if (key === 'trim') return { trim: undefined };
   if (key === 'volume') return { volume: undefined };
   if (key === 'relief') return { bump: undefined };
@@ -197,6 +199,7 @@ function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; pa
             ? []
             : VOLUMES.map(([kind, name]) => ({ id: `v-${kind}`, name: `Volume ${name.toLowerCase()}`, patch: { volume: { kind, amount: kind === 'cone' ? 0.5 : 0.7 } } as Partial<Layer>, focus: 'volume' }))),
           ...((l.bevel ?? 0) > 0.001 ? [] : [{ id: 'bevel', name: 'Biseau', patch: { bevel: 0.5 } as Partial<Layer>, focus: 'bevel' }]),
+          ...((l.extrude ?? 0) > 0.001 ? [] : [{ id: 'extrude', name: 'Extrusion', patch: { extrude: 0.5 } as Partial<Layer>, focus: 'extrude' }]),
         ];
   return imageChoices(l);
 }
@@ -328,7 +331,7 @@ export function CoupePanel({
   const choices = adding ? choicesOf(l, adding) : [];
   const hintOf = (id: string) => HINTS[id] ?? HINTS[id.replace(/^[bg]-/, '')] ?? ['', ''];
   const edgeGroup = (id: string) => (id.startsWith('b-') ? 'Bord' : id === 'trim' ? 'Rognage' : 'Lueur');
-  const depthGroup = (id: string) => (id.startsWith('v-') ? 'Volume' : 'Relief');
+  const depthGroup = (id: string) => (id.startsWith('v-') || id === 'extrude' ? 'Volume' : 'Relief');
   const thumbs = useMemo(() => {
     const out: Record<string, string> = {};
     for (const c of choices) if (!c.font) out[c.id] = fxPreview(l, doc, f, l.fx, `add-${c.id}`, reload, c.patch);
@@ -695,7 +698,14 @@ function Attrs({
         )}
       </>
     );
-  } else if (item.key === 'bevel')
+  } else if (item.key === 'extrude')
+    body = (
+      <>
+        <Range label="Épaisseur" value={l.extrude ?? 0} onChange={(v) => live({ extrude: Math.max(0.02, Math.round(v * 100) / 100) })} />
+        {l.link && <p className="cp-note">Toutes les pièces de l’objet prennent la même épaisseur.</p>}
+      </>
+    );
+  else if (item.key === 'bevel')
     body = (
       <>
         <Range label="Largeur" value={l.bevel ?? 0} onChange={(v) => live({ bevel: Math.max(0.05, Math.round(v * 100) / 100) })} />

@@ -1,5 +1,5 @@
 import { bevelField, distField, lightKey, shadeBump, shadeField, soften, volumeField, type BumpLight } from './bump';
-import { burnLayers, paintStroke, type Target } from './brush';
+import { burnLayers, paintStroke, paintWash, type Target } from './brush';
 import { rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
@@ -244,7 +244,12 @@ interface PaintCache {
   canvas: HTMLCanvasElement;
   key: string;
   done: number;
+  /** La peinture avant la dernière passe humide, et l'indice de son premier trait : la passe se refait d'un bloc quand un trait la rejoint. */
+  before?: HTMLCanvasElement;
+  from?: number;
 }
+/** Deux traits d'aquarelle consécutifs de la même passe humide se peignent ensemble. */
+const sameWash = (a: Stroke | undefined, b: Stroke | undefined) => !!a && !!b && a.wash !== undefined && a.wash === b.wash && (a.brush ?? 'aquarelle') === 'aquarelle' && (b.brush ?? 'aquarelle') === 'aquarelle';
 const paints = new Map<string, PaintCache>();
 
 export function paintTarget(l: Layer, f: Format, pxPerUnit: number): Target {
@@ -267,7 +272,29 @@ export function paintFor(l: Layer, doc: Doc, f: Format, pxPerUnit: number): HTML
     paints.set(l.id, c);
   }
   const ctx = c.canvas.getContext('2d')!;
-  for (; c.done < l.strokes.length; c.done++) paintStroke(ctx, l.strokes[c.done]!, doc.guides, t);
+  const S = l.strokes;
+  while (c.done < S.length) {
+    let i = c.done;
+    if (i > 0 && sameWash(S[i - 1], S[i]) && c.before && c.from !== undefined) {
+      // le trait rejoint la passe encore humide : on repart d'avant la passe et on la refait entière
+      i = c.from;
+      ctx.clearRect(0, 0, c.canvas.width, c.canvas.height);
+      ctx.drawImage(c.before, 0, 0);
+    } else if (S[i]!.wash !== undefined) {
+      // une nouvelle passe commence : on garde la peinture d'avant
+      const b = c.before ?? document.createElement('canvas');
+      b.width = c.canvas.width;
+      b.height = c.canvas.height;
+      b.getContext('2d')!.drawImage(c.canvas, 0, 0);
+      c.before = b;
+      c.from = i;
+    }
+    let j = i + 1;
+    while (j < S.length && sameWash(S[j - 1], S[j])) j++;
+    if (j - i > 1) paintWash(ctx, S.slice(i, j), doc.guides, t);
+    else paintStroke(ctx, S[i]!, doc.guides, t);
+    c.done = j;
+  }
   return c.canvas;
 }
 
@@ -410,6 +437,31 @@ function castShadow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format
   ctx.restore();
 }
 
+/** Profondeur de l'extrusion à 1, en fraction du petit côté, et sa part dans la hauteur d'ombre. */
+export const EXTRUDE_DEPTH = 0.05;
+const shadowLevel = (l: Layer) => l.height + (l.extrude ?? 0) * 0.4;
+
+/**
+ * Extrusion à plat : le flanc de l'objet, sa silhouette répétée vers l'ombre (à l'opposé de la
+ * lampe) dans sa couleur assombrie, avant de poser l'objet lui-même par-dessus.
+ */
+function drawExtrude(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, path: Path2D) {
+  const e = l.extrude ?? 0;
+  if (e < 0.005 || l.kind === 'surface') return;
+  const b = layerBox(l, f);
+  const li = lightAt(doc, f, b.cx, b.cy);
+  const D = e * EXTRUDE_DEPTH * Math.min(f.width, f.height) * (0.6 + 0.4 * Math.min(1.5, li.k));
+  const n = Math.max(2, Math.min(48, Math.ceil(D * o.scale)));
+  const side = new Path2D();
+  for (let i = n; i >= 1; i--) side.addPath(path, new DOMMatrix().translate((-li.lx * D * i) / n, (-li.ly * D * i) / n));
+  ctx.save();
+  ctx.fillStyle = guideColor(doc.guides[l.guide], 0.5);
+  ctx.fill(side, 'nonzero');
+  ctx.fillStyle = 'rgba(20, 16, 30, 0.42)';
+  ctx.fill(side, 'nonzero');
+  ctx.restore();
+}
+
 export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o: DrawOptions) {
   const minSide = Math.min(f.width, f.height);
   ctx.save();
@@ -427,7 +479,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     // les couches plus basses les recouvrent là où elles sont
     if (!pageShadows && l.kind !== 'surface') {
       pageShadows = true;
-      for (const x of order) if (x.kind !== 'surface' && x.height > 0.001 && opacityOf(x) >= 1) castShadow(ctx, x, doc, f, o, maskPath2D(x, f), x.height);
+      for (const x of order) if (x.kind !== 'surface' && shadowLevel(x) > 0.001 && opacityOf(x) >= 1) castShadow(ctx, x, doc, f, o, maskPath2D(x, f), shadowLevel(x));
     }
     // couche translucide ou brûlée : rendue à part, puis posée d'un bloc (son ombre ne transparaît pas)
     const burnt = !flattening.has(l.id) && l.kind !== 'surface' ? ((burnGuides = doc.guides), burnFor(l, f, o)) : null;
@@ -517,9 +569,9 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
 
     // ombre sur les couches plus basses : seulement la différence de hauteur,
     // et seulement sur la partie visible de chacune (les couches posées après la cachent)
-    if (l.kind !== 'surface' && l.height > 0.001) {
+    if (l.kind !== 'surface' && shadowLevel(l) > 0.001) {
       below.forEach((B, i) => {
-        const dh = l.height - Math.max(0, levelOf(B.l));
+        const dh = shadowLevel(l) - Math.max(0, levelOf(B.l));
         if (dh <= 0.001) return;
         ctx.save();
         ctx.clip(B.path, 'evenodd');
@@ -535,6 +587,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     if (l.kind !== 'surface') below.push({ l, path });
 
     drawGlow(ctx, l, doc, f, o, true);
+    drawExtrude(ctx, l, doc, f, o, path);
     // bord : à l'extérieur de la découpe, en débordement de l'objet
     if (l.border && l.border.width > 0) borderSprite(ctx, l, doc, f, o, path);
 
@@ -1542,12 +1595,12 @@ function surfaceLight(l: Layer, doc: Doc, k: number): Omit<BumpLight, 'lx' | 'ly
 /** Largeur du bord ajouté, vers l'extérieur de la découpe (unités de la page). */
 const borderOut = (l: Layer, f: Format) => (l.border && l.border.width > 0 ? l.border.width * Math.min(f.width, f.height) * (l.border.style === 'double' ? 2 : 1) : 0);
 
-const bevelCache = new Map<string, { key: string; c: HTMLCanvasElement; W: number; H: number }>();
+const bevelCache = new Map<string, { key: string; c: HTMLCanvasElement; W: number; H: number; field: Float32Array; gw: number; gh: number; s: number }>();
 /**
  * Biseau : la distance au bord de la découpe (bord ajouté compris si demandé) donne une hauteur,
  * arrondie ou en chanfrein, puis le même éclairage que le relief sculpté.
  */
-function drawBevel(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, path: Path2D, b: { cx: number; cy: number; w: number; h: number }) {
+function bevelFor(l: Layer, doc: Doc, f: Format, path: Path2D, b: { cx: number; cy: number; w: number; h: number }) {
   const minSide = Math.min(f.width, f.height);
   const out = l.bevelBorder ? borderOut(l, f) : 0;
   const width = (l.bevel ?? 0) > 0.001 ? 0.18 * (l.bevel ?? 0) * minSide : 0;
@@ -1586,10 +1639,15 @@ function drawBevel(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format,
       for (let n = 0; n < Hf.length; n++) Hf[n] += V[n]!;
     }
     const Hs = soften(Hf, gw, gh, 3);
-    hit = { key, c: shadeField(gw, gh, Hs, L, 1, mask, 0.65), W, H };
+    hit = { key, c: shadeField(gw, gh, Hs, L, 1, mask, 0.65), W, H, field: Hs, gw, gh, s };
     if (bevelCache.size > 64) bevelCache.clear();
     bevelCache.set(l.id, hit);
   }
+  return hit;
+}
+
+function drawBevel(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, path: Path2D, b: { cx: number; cy: number; w: number; h: number }) {
+  const hit = bevelFor(l, doc, f, path, b);
   ctx.save();
   ctx.translate(b.cx, b.cy);
   ctx.rotate(l.rot ?? 0);
@@ -1597,6 +1655,33 @@ function drawBevel(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format,
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(hit.c, -hit.W / 2, -hit.H / 2, hit.W, hit.H);
   ctx.restore();
+}
+
+/**
+ * Relief d'une couche (volume et biseau) pour la Vue 3D : la carte de hauteurs en niveaux d'opacité
+ * (1 = le plus haut), posée sur la page comme le biseau, et sa hauteur maximale en unités du format.
+ */
+export function drawRelief(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format): number {
+  if (l.kind === 'surface' || !((l.bevel ?? 0) > 0.001 || (l.volume && l.volume.amount > 0.001))) return 0;
+  const b = layerBox(l, f);
+  const hit = bevelFor(l, doc, f, maskPath2D(l, f), b);
+  let max = 0;
+  for (let n = 0; n < hit.field.length; n++) if (hit.field[n]! > max) max = hit.field[n]!;
+  if (max <= 0) return 0;
+  const c = document.createElement('canvas');
+  c.width = hit.gw;
+  c.height = hit.gh;
+  const x = c.getContext('2d')!;
+  const img = x.createImageData(hit.gw, hit.gh);
+  for (let n = 0; n < hit.field.length; n++) img.data[n * 4 + 3] = Math.round((hit.field[n]! / max) * 255);
+  x.putImageData(img, 0, 0);
+  ctx.save();
+  ctx.translate(b.cx, b.cy);
+  ctx.rotate(l.rot ?? 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(c, -hit.W / 2, -hit.H / 2, hit.W, hit.H);
+  ctx.restore();
+  return max / hit.s;
 }
 
 /** Masque de la seule découpe, sur la grille du biseau (quand le bord ajouté est compris). */
