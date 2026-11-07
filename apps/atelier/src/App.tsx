@@ -63,6 +63,7 @@ import {
   renderOrder,
   cutOf,
   holdPins,
+  linkShapes,
   imageFor,
   localBounds,
   layerMatrix,
@@ -4302,7 +4303,7 @@ export function App() {
             <div className="bubble format-bubble">
               <div className="b-title">Format</div>
               {FORMATS.map((x) => (
-                <button key={x.id} className={`row ${x.id === f.id ? 'on' : ''}`} onClick={() => setDoc((d) => holdPins({ ...d, formatId: x.id }, x))}>
+                <button key={x.id} className={`row ${x.id === f.id ? 'on' : ''}`} onClick={() => setDoc((d) => holdPins({ ...d, formatId: x.id }, x, linkShapes(d, formatOf(d.formatId))))}>
                   <FormatGlyph w={x.width} h={x.height} big />
                   <span>{x.title}</span>
                   <small>
@@ -4488,8 +4489,10 @@ export function App() {
                     const v = Number(e.target.value);
                     const m = Math.abs(v) < 0.015 ? 0 : v;
                     // les objets tenus à la marge la suivent
+                    // les pièces solidaires gardent leur place entre elles
+                    const links = linkShapes(docRef.current, f);
                     setAnchorMargin(m);
-                    setDoc((d) => holdPins({ ...d, margin: m }, f));
+                    setDoc((d) => holdPins({ ...d, margin: m }, f, links));
                   }}
                 />
                 <span>+</span>

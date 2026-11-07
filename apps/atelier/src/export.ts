@@ -1,6 +1,6 @@
 import type { Format } from '@ftd/core';
-import { type Doc, type Layer } from './model';
-import { drawLampTint, drawLayers, forgetPaint, holdPins, pageBounds } from './scene';
+import { formatOf, type Doc, type Layer } from './model';
+import { drawLampTint, drawLayers, forgetPaint, holdPins, linkShapes, pageBounds } from './scene';
 
 /** Taille de l'image exportée : 300 dpi pour l'imprimé, la taille native pour les écrans. */
 export function exportSize(f: Format): { w: number; h: number } {
@@ -12,7 +12,7 @@ export function exportSize(f: Format): { w: number; h: number } {
 }
 
 /** Le document décliné dans un autre format : les ancrages et les bords tenus suivent. */
-export const docIn = (doc: Doc, f: Format): Doc => (doc.formatId === f.id ? doc : holdPins({ ...doc, formatId: f.id }, f));
+export const docIn = (doc: Doc, f: Format): Doc => (doc.formatId === f.id ? doc : holdPins({ ...doc, formatId: f.id }, f, linkShapes(doc, formatOf(doc.formatId))));
 
 /**
  * Rendu final d'un format, à sa taille d'export. Les photos se chargent en différé :

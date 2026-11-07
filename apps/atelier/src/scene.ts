@@ -6,6 +6,8 @@ import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
 import { blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, type Doc, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
+import { keepLinks, type LinkShapes } from './links';
+export { linkShapes } from './links';
 import { applyLook, lookGuides, lookOf } from './looks';
 import { applyPixelFx, hasPixelFx, hexRGB, opacityOf, type Fx, type FxId } from './fx';
 
@@ -1037,8 +1039,8 @@ export function drawChecker(ctx: CanvasRenderingContext2D, f: Format) {
  * la page y restent : deux bords opposés aimantés gardent le remplissage
  * (mise à l'échelle sans déformation), un seul bord garde son appui.
  */
-export function holdPins(doc: Doc, f: Format): Doc {
-  return {
+export function holdPins(doc: Doc, f: Format, links?: LinkShapes): Doc {
+  const held: Doc = {
     ...doc,
     layers: doc.layers.map((l) => {
       const p = l.pins;
@@ -1060,6 +1062,7 @@ export function holdPins(doc: Doc, f: Format): Doc {
       return n;
     }),
   };
+  return links ? keepLinks(held, f, links) : held;
 }
 
 /** Bords de la découpe posés sur un bord de page ou sur la marge (à `tol` près, unités du format). */
