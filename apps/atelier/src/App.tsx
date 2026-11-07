@@ -1,6 +1,7 @@
 import { FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format } from '@ftd/core';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive } from './brush';
+import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive, type Target } from './brush';
+import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
 import { STAMPS, stampOf, stampSvg } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
@@ -10,7 +11,7 @@ import { ParallaxView } from './parallax';
 import { kitFromSvg, nearestOf, SAME_COLOR, type Kit } from './kits';
 import { KITS } from './kit-samples';
 import { blankBump, bumpHeights, dab, encodeBump, smoothBump } from './bump';
-import { currentPx, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
+import { currentPx, growPatch, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
 import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
 import { QuickText, TextBar, type SwashTool } from './textbar';
 import { PaletteEditor } from './colorpicker';
@@ -622,6 +623,8 @@ export function App() {
   /** Semis : le cadran Inclinaison de la roue règle la force de la perspective (le sens varie d'une copie à l'autre). */
   const [sowPad, setSowPad] = useState<[number, number]>([0.21, -0.21]);
   const [stampFilled, setStampFilled] = useState(false);
+  /** Déborder : tampons, poils et ramures sortent de la forme et repoussent sa découpe. */
+  const [spill, setSpill] = useState(false);
   /** Rotation du tampon (radians), fixée au curseur : Safari ne transmet pas la rotation du crayon. */
   const [stampRot, setStampRot] = useState(0);
   /** Inclinaison réglée à la main (sans stylet) : le tampon se met en perspective dans cette direction. */
@@ -1032,6 +1035,9 @@ export function App() {
     layer?: string;
     stroke?: Stroke;
     wet?: HTMLCanvasElement;
+    /** Encre qui déborde : fenêtre du canevas humide dans la boîte de la couche, et sa cible de peinture. */
+    win?: Win;
+    wtg?: Target;
     drawn?: number;
     /** Semis de tampons en cours : la silhouette des empreintes déjà posées. */
     ink?: InkLive;
@@ -1153,7 +1159,7 @@ export function App() {
       scale: scale * dpr,
       rot: view.rot,
       onImage: redraw,
-      wet: L.kind === 'paint' && L.wet && L.layer ? { id: L.layer, canvas: L.wet } : undefined,
+      wet: L.kind === 'paint' && L.wet && L.layer ? { id: L.layer, canvas: L.wet, win: L.win } : undefined,
       burning: L.kind === 'paint' && L.stroke?.brush === 'burn' && L.layer ? { id: L.layer, stroke: L.stroke } : undefined,
     });
     drawLampTint(ctx, doc, f);
@@ -1935,19 +1941,25 @@ export function App() {
       return;
     }
     // peinture : dans la couche sélectionnée, sinon celle sous le stylet
-    const target = sel && insideRings(maskRings(sel, f), p.x, p.y) ? sel : layerAt(p.x, p.y);
+    const under = layerAt(p.x, p.y);
+    // Déborder : parti du fond tout près, le trait reste à l'objet choisi
+    const spills = spill && (t === 'stamp' || brushKind === 'hair' || brushKind === 'branch');
+    const target = sel && insideRings(maskRings(sel, f), p.x, p.y) ? sel : spills && sel && sel.kind !== 'surface' && (!under || under.kind === 'surface') ? sel : under;
     if (!target) return;
     if (target.id !== selected) setSelected(target.id);
-    const tg = paintTarget(target, f, scale * dpr);
+    const sw = spills && target.kind !== 'surface' ? spillWindow(target, f, scale * dpr) : null;
+    const tg = sw?.t ?? paintTarget(target, f, scale * dpr);
     const wet = document.createElement('canvas');
     wet.width = tg.pw;
     wet.height = tg.ph;
+    const wetOf = (s: Stroke) => (sw ? inWin(s, sw.win) : s);
     const pr = pressure(e, null);
     const q = toLocal(target, p.x, p.y);
     live.current = {
       kind: 'paint',
       layer: target.id,
       wet,
+      ...(sw ? { win: sw.win, wtg: sw.t } : {}),
       drawn: 0,
       last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
       stroke:
@@ -1990,7 +2002,7 @@ export function App() {
         L0.stroke.grow = Math.min(1, (brushKind === 'burn' ? 0.15 : 0.12) + (performance.now() - t0) / (brushKind === 'burn' ? 2200 : 1400));
         const wx = wet.getContext('2d')!;
         wx.clearRect(0, 0, wet.width, wet.height);
-        paintStroke(wx, L0.stroke, doc.guides, tg);
+        paintStroke(wx, wetOf(L0.stroke), doc.guides, tg);
         redraw();
         if (L0.stroke.grow < 1) growTimer.current = requestAnimationFrame(tick);
       };
@@ -1999,7 +2011,7 @@ export function App() {
     }
     // le tampon s'imprime dès le contact
     if (t === 'stamp') {
-      paintStroke(wet.getContext('2d')!, live.current.stroke!, doc.guides, tg);
+      paintStroke(wet.getContext('2d')!, wetOf(live.current.stroke!), doc.guides, tg);
       redraw();
     }
   };
@@ -2296,13 +2308,14 @@ export function App() {
       }
       // rien de nouveau sous la pointe : on ne repeint pas
       if (L.stroke.pts.length !== had) {
-        const tg = paintTarget(l, f, scale * dpr);
-        if (stamping) L.ink = previewStampInk(L.wet!.getContext('2d')!, L.stroke, doc.guides, tg, L.ink);
+        const tg = L.wtg ?? paintTarget(l, f, scale * dpr);
+        const ws = L.win ? inWin(L.stroke, L.win) : L.stroke;
+        if (stamping) L.ink = previewStampInk(L.wet!.getContext('2d')!, ws, doc.guides, tg, L.ink);
         else if (branching) {
           const wx = L.wet!.getContext('2d')!;
           wx.clearRect(0, 0, L.wet!.width, L.wet!.height);
-          paintStroke(wx, L.stroke, doc.guides, tg);
-        } else L.drawn = previewStamps(L.wet!.getContext('2d')!, L.stroke, doc.guides, tg, L.drawn ?? 0);
+          paintStroke(wx, ws, doc.guides, tg);
+        } else L.drawn = previewStamps(L.wet!.getContext('2d')!, ws, doc.guides, tg, L.drawn ?? 0);
         redraw();
       }
     } else if (L.kind === 'subject' && L.lasso) {
@@ -2549,7 +2562,10 @@ export function App() {
       // le papier reste mouillé à partir du dernier trait posé
       if (s.wash !== undefined && wetPass.current?.id === s.wash) wetPass.current.at = Date.now();
       dotAt.current = s.pts.length <= 3 ? performance.now() : 0;
-      update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, strokes: [...l.strokes, s] } : l)) }));
+      // Déborder : l'encre sortie de la découpe la repousse, comme un modelage
+      const l0 = doc.layers.find((x) => x.id === id);
+      const grown = L.win && L.wet && l0 && canSpill(s) ? growPatch({ ...l0, strokes: [...l0.strokes, s] }, f, inkRings(l0, f, s, doc.guides, scale * dpr, L.wet, L.win)) : {};
+      update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, strokes: [...l.strokes, s], ...grown } : l)) }));
       return;
     }
     if (L.kind === 'subject' && L.lasso) {
@@ -3202,6 +3218,11 @@ export function App() {
     if (!l.molded) return;
     patchLayer(l.id, moldPatch(l, f, currentPx(l), pristinePx(l), { pts: [], r: 0, smooth: 0.035 * unitPx(l) }), true);
   };
+  const toggleSpill = () => {
+    setSpill(!spill);
+    setToast(spill ? 'L’encre reste dans la forme' : 'Déborder : l’encre sort de la forme et repousse son contour (« Revenir à la forme » pour l’annuler)');
+    setToastUndo(false);
+  };
   const unmold = (l: Layer) => {
     if (!l.molded) return;
     patchLayer(l.id, unmoldPatch(l, f), true);
@@ -3753,6 +3774,11 @@ export function App() {
                   >
                     <Icon name="paint-reset" />
                   </button>
+                  {(brushKind === 'hair' || brushKind === 'branch') && (
+                    <button className={`btn small ${spill ? 'on' : ''}`} onClick={toggleSpill} title={spill ? 'Déborder : l’encre sort de la forme et repousse son contour, comme le modelage (« Revenir à la forme » le rend). Toucher pour rester dans la forme' : 'Dans la forme : l’encre reste dans la découpe. Toucher pour la laisser déborder et repousser le contour'}>
+                      <Icon name="spill" />
+                    </button>
+                  )}
                   {brushKind === 'aquarelle' && (
                     <>
                       <button
@@ -3868,6 +3894,9 @@ export function App() {
                   <button className={`btn small ${stampFilled ? 'on' : ''}`} onClick={() => setStampFilled(!stampFilled)} title="Motif rempli : ses formes prennent le dégradé du guide">
                     <Icon name="stamp-fill" />
                   </button>
+                  <button className={`btn small ${spill ? 'on' : ''}`} onClick={toggleSpill} title={spill ? 'Déborder : l’encre sort de la forme et repousse son contour, comme le modelage (« Revenir à la forme » le rend). Toucher pour rester dans la forme' : 'Dans la forme : l’encre reste dans la découpe. Toucher pour la laisser déborder et repousser le contour'}>
+                      <Icon name="spill" />
+                    </button>
                   {stampSow && (
                     <>
                       <VSlider label="Densité" value={sowDensity} onChange={(v) => setSowDensity(Math.round(v * 100) / 100)} />
