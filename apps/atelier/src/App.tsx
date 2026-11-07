@@ -20,7 +20,7 @@ import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers }
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { listAteliers, newAtelierId, readAtelier, removeAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta } from './server';
-import { anchorsOf, compact, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
+import { ANCHOR_EXTRAS, anchorsOf, compact, extraOn, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
@@ -874,6 +874,7 @@ export function App() {
   // les calculs d'ancrage suivent la densité du document ouvert
   setAnchorDensity(doc.density);
   setAnchorMargin(doc.margin);
+  setAnchorExtras(doc.points);
   /** Couleurs caractéristiques des repères (marges, points) : préférence de l'atelier, par-dessus les couleurs d'origine. */
   const [markColors, setMarkColorsRaw] = useState(loadMarkColors);
   setMarkColors(markColors);
@@ -4376,6 +4377,26 @@ export function App() {
                 <span>+</span>
               </label>
               <small className="fx-hint">Les repères se répartissent à cette distance du bord, dedans (+) ou au-delà (−) ; elle suit le format quand il change.</small>
+              <div className="b-title">Points à ajouter</div>
+              <div className="anchor-extras">
+                {ANCHOR_EXTRAS.map((x) => {
+                  const off = !!x.frame && x.frame !== doc.frame;
+                  return (
+                    <label key={x.key} className={off ? 'off' : ''} title={off ? 'Avec la répartition ½ ⅓ seulement' : x.hint}>
+                      <input
+                        type="checkbox"
+                        disabled={off}
+                        checked={extraOn(doc.points, x.key)}
+                        onChange={(e) => setDoc((d) => ({ ...d, points: { ...d.points, [x.key]: e.target.checked } }))}
+                      />
+                      <span>
+                        {x.label}
+                        <small>{x.hint}</small>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
               <div className="b-title">Repères visibles</div>
               <div className="guides-look">
                 <button className={`pal-lib-save ${guidesOn.on ? 'on' : ''}`} onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}>

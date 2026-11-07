@@ -1,6 +1,6 @@
 import type { LookSettings } from './looks';
 import type { Fx } from './fx';
-import { anchorsFor, formatFraction, nearestAnchor, resolveAnchor, type AnchorFrame, type Format } from '@ftd/core';
+import { anchorsFor, formatFraction, nearestAnchor, parseFraction, resolveAnchor, type AnchorFrame, type AnchorPoint, type Format } from '@ftd/core';
 
 /**
  * Modèle de l'atelier : un document est une pile de couches. Chaque couche a
@@ -188,6 +188,8 @@ export interface Doc {
   density?: number;
   /** Marge des repères autour du bord du format, en fraction du petit côté (-0.25..0.25) : positive vers l'intérieur. */
   margin?: number;
+  /** Points d'ancrage ajoutables (cases à cocher), tous présents par défaut : sommets et milieux des côtés de la page et de la marge, points des bords en répartition. */
+  points?: AnchorExtras;
   guides: Guide[];
   /** Lumière unique : direction d'où elle vient (degrés, 0 = haut, sens horaire). */
   light: number;
@@ -213,7 +215,7 @@ export function layerBox(l: Layer, f: Format): { cx: number; cy: number; w: numb
   if (l.kind === 'surface') return { cx: f.width / 2, cy: f.height / 2, w: f.width + 2 * BLEED * m, h: f.height + 2 * BLEED * m };
   let a = { x: 0.5, y: 0.5 };
   try {
-    a = inset(resolveAnchor(l.anchor.frame, l.anchor.point, f), f);
+    a = resolvePoint(l.anchor.frame, l.anchor.point, f);
   } catch {
     /* ancrage absent de ce format : centre */
   }
@@ -255,11 +257,68 @@ function inset<T extends { x: number; y: number }>(a: T, f: Format): T {
   return { ...a, x: mx + a.x * (1 - 2 * mx), y: my + a.y * (1 - 2 * my) };
 }
 
-/** Points d'ancrage du référentiel ; la répartition suit la densité (les fractions y sont libres). */
+/** Familles de points qu'on coche en plus de ceux du référentiel. */
+export interface AnchorExtras {
+  /** Sommets : les coins de la page, et ceux de la marge. */
+  corners?: boolean;
+  /** Milieux des côtés de la page, et ceux de la marge. */
+  sides?: boolean;
+  /** Répartition : les lignes de partage prolongées jusqu'aux bords extérieurs. */
+  edges?: boolean;
+}
+export const ANCHOR_EXTRAS: Array<{ key: keyof AnchorExtras; label: string; hint: string; frame?: AnchorFrame }> = [
+  { key: 'corners', label: 'Sommets', hint: 'Les coins de la page et de la marge' },
+  { key: 'sides', label: 'Milieux des côtés', hint: 'Le milieu de chaque côté de la page et de la marge' },
+  { key: 'edges', label: 'Points des bords', hint: 'Les lignes de partage (½, ⅓…) touchent les bords extérieurs', frame: 'repartition' },
+];
+// familles cochées du document ouvert (absentes = cochées)
+let extras: AnchorExtras = {};
+export const setAnchorExtras = (e: AnchorExtras | undefined) => (extras = e ?? {});
+export const extraOn = (e: AnchorExtras | undefined, k: keyof AnchorExtras) => e?.[k] !== false;
+
+// sommets et milieux posés sur la page (« page h0 v1/2 ») ou sur le cadre des marges (« marge h1 v0 »)
+const FRAME_PT = /^(page|marge)\s+h(\S+)\s+v(\S+)$/;
+
+/** Position (0..1) d'un point d'ancrage nommé, marge comprise. */
+export function resolvePoint(frame: AnchorFrame, id: string, f: Format): { x: number; y: number } {
+  const m = FRAME_PT.exec(id.trim());
+  if (m) {
+    const p = { x: parseFraction(m[2]!), y: parseFraction(m[3]!) };
+    return m[1] === 'marge' ? inset(p, f) : p;
+  }
+  return inset(resolveAnchor(frame, id, f), f);
+}
+
+/** Points d'ancrage du référentiel ; la répartition suit la densité (les fractions y sont libres). Puis les familles cochées. */
 export function anchorsOf(frame: AnchorFrame, f: Format) {
-  if (frame !== 'repartition') return anchorsFor(frame, f).map((a) => inset(a, f));
-  const fr = [...new Set(DENSITY_STEPS[density - 1]!.flatMap((n) => Array.from({ length: n - 1 }, (_, i) => (i + 1) / n)))].sort((a, b) => a - b);
-  return fr.flatMap((x) => fr.map((y) => inset({ id: `h${formatFraction(x, 24)} v${formatFraction(y, 24)}`, frame, x, y }, f)));
+  let pts: AnchorPoint[];
+  if (frame !== 'repartition') pts = anchorsFor(frame, f).map((a) => inset(a, f));
+  else {
+    const fr = [...new Set(DENSITY_STEPS[density - 1]!.flatMap((n) => Array.from({ length: n - 1 }, (_, i) => (i + 1) / n)))].sort((a, b) => a - b);
+    const id = (x: number, y: number) => `h${formatFraction(x, 24)} v${formatFraction(y, 24)}`;
+    pts = fr.flatMap((x) => fr.map((y) => inset({ id: id(x, y), frame, x, y }, f)));
+    // les lignes de partage prolongées jusqu'au cadre extérieur (la marge, sinon la page)
+    if (extraOn(extras, 'edges'))
+      for (const t of fr) for (const e of [0, 1]) pts.push(inset({ id: id(t, e), frame, x: t, y: e }, f), inset({ id: id(e, t), frame, x: e, y: t }, f));
+  }
+  const frames: Array<'page' | 'marge'> = margin ? ['marge', 'page'] : ['page'];
+  const add = (u: number[][]) => {
+    for (const box of frames)
+      for (const [x, y] of u) {
+        const a = { id: `${box} h${formatFraction(x!)} v${formatFraction(y!)}`, frame, x: x!, y: y! };
+        pts.push(box === 'marge' ? inset(a, f) : a);
+      }
+  };
+  if (extraOn(extras, 'sides')) add([[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]]);
+  if (extraOn(extras, 'corners')) add([[0, 0], [1, 0], [1, 1], [0, 1]]);
+  // un même endroit ne garde que son premier nom (le point du référentiel avant le sommet ajouté)
+  const seen = new Set<string>();
+  return pts.filter((a) => {
+    const k = `${Math.round(a.x * 1e6)},${Math.round(a.y * 1e6)}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 /** Ancrage le plus proche d'un point du format, avec le décalage qui garde la position exacte. */
