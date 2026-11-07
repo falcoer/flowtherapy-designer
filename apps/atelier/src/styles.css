@@ -942,3 +942,5 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .dry-btn { position: relative; overflow: hidden; }
 .dry-btn.wet::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--wet) * 100%); background: color-mix(in srgb, #5aa7e6 28%, transparent); transition: height 0.25s linear; pointer-events: none; }
 .dry-btn.wet { color: #2f7fc4; }
+/* un éventail ou un menu ouvert depuis la barre d'outils passe devant la barre du haut et sa pastille (téléphone) */
+.side:has(.fan-at, .mode-pop) { z-index: 6; }

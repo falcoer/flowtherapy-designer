@@ -2,12 +2,12 @@
 
 Cible : `https://designer.flowtherapymusic.com`, Node.js 22 derrière le reverse proxy déjà en place.
 
-Le VPS héberge déjà Odoo (ports 8069/8072 en général) : FT Designer écoute seulement sur `127.0.0.1:4310` et passe par le même nginx qu'Odoo, dans un bloc `server` à part. N'installe pas Caddy sur ce serveur : il voudrait les ports 80/443 déjà pris par nginx.
+Le VPS héberge déjà Odoo dans Docker (`/opt/flowtherapy-odoo`), derrière un **Caddy lui aussi dans Docker** qui tient les ports 80/443. Il n'y a pas de nginx. FT Designer tourne hors Docker (systemd) et écoute sur `172.18.0.1:4310`, la passerelle du réseau Docker `flowtherapy-odoo_default`, pour que le conteneur Caddy puisse le joindre. Odoo est servi sur `gestion.flowtherapymusic.com`.
 
 Pour vérifier ce qui tourne avant de commencer :
 ```bash
-sudo ss -tlnp | grep -E ':(80|443|4310)\b'   # qui écoute sur 80/443, et 4310 doit être libre
-docker ps 2>/dev/null                          # si Odoo tourne dans Docker, le proxy peut être un conteneur
+sudo ss -tlnp | grep -E ':(80|443|4310)\b'   # 80/443 pris par docker-proxy (Caddy), 4310 libre
+docker ps                                      # flowtherapy-odoo-caddy-1, Odoo, Postgres
 node -v                                        # Node 22.13 ou plus récent requis (SQLite intégré)
 ```
 
@@ -31,20 +31,33 @@ node -v                                        # Node 22.13 ou plus récent requ
 
    Chromium va dans `/opt/ft-designer/.browsers`, le chemin que le service systemd déclare. On peut aussi pointer vers un Chromium existant avec `FTD_CHROMIUM_PATH`.
 4. **Connexion** : configure Google et/ou Apple en suivant [AUTH.md](AUTH.md). En dépannage seulement, un mot de passe unique reste possible avec `FTD_PASSWORD` (utilisateur `ft`), utilisé quand aucun fournisseur n'est configuré.
-5. **Service** :
+5. **Service** : dans `/etc/ft-designer.env` (droits 600), mettre `HOST=172.18.0.1`, `FTD_SESSION_SECRET`, `FTD_PUBLIC_URL=https://designer.flowtherapymusic.com` et la connexion (étape 4).
    ```bash
    sudo cp deploy/ft-designer.service /etc/systemd/system/
    sudo systemctl daemon-reload && sudo systemctl enable --now ft-designer
-   sudo cp deploy/nginx.conf /etc/nginx/sites-available/ft-designer
-   sudo ln -s /etc/nginx/sites-available/ft-designer /etc/nginx/sites-enabled/
-   sudo nginx -t && sudo systemctl reload nginx
-   sudo certbot --nginx -d designer.flowtherapymusic.com
    ```
-   `nginx -t` vérifie la configuration avant de recharger : Odoo n'est pas interrompu si une erreur s'y glisse.
+6. **Caddy** : ajouter ce bloc à `/opt/flowtherapy-odoo/caddy/Caddyfile` (garder une copie avant), puis recharger sans couper Odoo :
+   ```
+   designer.flowtherapymusic.com {
+   	encode zstd gzip
+   	reverse_proxy 172.18.0.1:4310
+   	request_body {
+   		max_size 200MB
+   	}
+   }
+   ```
+   ```bash
+   docker exec flowtherapy-odoo-caddy-1 caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+   ```
+   Le certificat HTTPS est obtenu automatiquement. Dans Cloudflare, l'enregistrement `designer` reste en « DNS only ».
 
 L'atelier est servi à la racine (`https://designer.flowtherapymusic.com/`) ; l'ancien éditeur YAML reste sous `/editeur/`.
 
-`deploy/Caddyfile` reste fourni pour un serveur sans reverse proxy existant.
-6. **Mise à jour** : `git pull && npm ci && npm run build && sudo systemctl restart ft-designer`.
+`deploy/Caddyfile` sert pour un serveur sans reverse proxy existant ; `deploy/nginx.conf` pour un serveur qui a déjà nginx.
 
-Taille des imports : nginx limite à 200 Mo par requête (`client_max_body_size`), comme le serveur.
+7. **Mise à jour** :
+   ```bash
+   cd /opt/ft-designer && sudo git pull && sudo npm ci && sudo npm run build && sudo systemctl restart ft-designer
+   ```
+
+Taille des imports : Caddy limite à 200 Mo par requête (`request_body max_size`), comme le serveur.

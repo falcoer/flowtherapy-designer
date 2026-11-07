@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { fetchMe, fetchSystem, reindexLibrary, restartServer, serverOnline, type Me, type SystemInfo } from './server';
 
 export type Theme = 'auto' | 'light' | 'dark';
+/** Le doigt : automatique (dessine tant qu'aucun stylet n'est vu), dessine toujours, ou déplace toujours. */
+export type FingerMode = 'auto' | 'draw' | 'move';
 type Tab = 'display' | 'account' | 'system';
 
 const MODES: Record<Me['mode'], string> = { compte: 'Compte Google ou Apple', 'mot-de-passe': 'Accès partagé (mot de passe du groupe)', local: 'Poste local' };
@@ -41,6 +43,11 @@ export function PrefsPanel(p: {
   setPenRoll: (v: boolean) => void;
   penTilt: boolean;
   setPenTilt: (v: boolean) => void;
+  fingerMode: FingerMode;
+  setFingerMode: (v: FingerMode) => void;
+  /** Ce que ferait le doigt en automatique sur cet appareil : dessiner (aucun stylet vu, pas de souris). */
+  fingerAuto: boolean;
+  penSeen: boolean;
   theme: Theme;
   setTheme: (t: Theme) => void;
   lefty: boolean;
@@ -178,6 +185,36 @@ export function PrefsPanel(p: {
           <Toggle label="Astuces" hint="Textes d'aide, sous-titres des menus et bandeau d'état" on={p.tips} set={p.setTips} />
           <div className="pf-group">Main</div>
           <Toggle label="Gaucher" hint="Les outils passent à gauche et leurs réglages à droite" on={p.lefty} set={p.setLefty} />
+          <div className="pf-group">Doigt</div>
+          <div className="pf-row pf-col">
+            <span className="pf-txt">
+              <b>Le doigt tient l'outil</b>
+              <small>
+                {p.fingerMode === 'auto'
+                  ? p.fingerAuto
+                    ? 'Aucun stylet vu sur cet appareil : le doigt dessine, découpe et tamponne ; deux doigts déplacent la vue. Dès qu’un stylet touche l’écran, le doigt reprend le déplacement.'
+                    : p.penSeen
+                      ? 'Un stylet a été vu sur cet appareil : il tient l’outil et le doigt déplace les objets.'
+                      : 'Souris ou pavé tactile : ils tiennent l’outil et le doigt déplace les objets.'
+                  : p.fingerMode === 'draw'
+                    ? 'Le doigt dessine comme le stylet, jusqu’au retour du stylet ; deux doigts déplacent la vue.'
+                    : 'Le doigt déplace toujours les objets ; seuls le stylet et la souris tiennent l’outil.'}
+              </small>
+            </span>
+            <div className="seg pf-theme">
+              {(
+                [
+                  ['auto', 'Auto'],
+                  ['draw', 'Dessine'],
+                  ['move', 'Déplace'],
+                ] as const
+              ).map(([k, n]) => (
+                <button key={k} className={p.fingerMode === k ? 'on' : ''} onClick={() => p.setFingerMode(k)}>
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="pf-group">Stylet</div>
           <Toggle label="Rotation du stylet" hint="Tourner le crayon sur lui-même tourne les tampons" on={p.penRoll} set={p.setPenRoll} />
           <Toggle label="Inclinaison du stylet" hint="Pencher le crayon met les tampons en perspective" on={p.penTilt} set={p.setPenTilt} />
