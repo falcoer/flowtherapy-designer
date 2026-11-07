@@ -219,6 +219,8 @@ export const DENSITY_STEPS: number[][] = [[2], [2, 3], [2, 3, 4], [2, 3, 4, 6], 
 export const DEFAULT_DENSITY = 4;
 let density = DEFAULT_DENSITY;
 export const setAnchorDensity = (d: number | undefined) => (density = Math.max(1, Math.min(DENSITY_STEPS.length, d ?? DEFAULT_DENSITY)));
+/** Marge des repères d'une page neuve : 5 % du petit côté. */
+export const DEFAULT_MARGIN = 0.05;
 // marge des repères du document ouvert : les points se répartissent dans le format rentré (ou agrandi) de cette marge
 let margin = 0;
 export const setAnchorMargin = (m: number | undefined) => (margin = Math.max(-0.25, Math.min(0.25, m ?? 0)));
