@@ -270,7 +270,8 @@ export function paintTarget(l: Layer, f: Format, pxPerUnit: number): Target {
 export function paintFor(l: Layer, doc: Doc, f: Format, pxPerUnit: number): HTMLCanvasElement | null {
   if (!l.strokes.length) return null;
   const t = paintTarget(l, f, pxPerUnit);
-  const key = `${t.pw}x${t.ph}:${JSON.stringify(doc.guides)}`;
+  // cadre du modelage : quand il change, les points de la peinture ont été repris dans la nouvelle boîte
+  const key = `${t.pw}x${t.ph}:${l.molded?.frame.join(',') ?? ''}:${JSON.stringify(doc.guides)}`;
   const list = paints.get(l.id) ?? [];
   paints.set(l.id, list);
   const at = list.findIndex((x) => x.key === key);
@@ -386,7 +387,8 @@ export interface DrawOptions {
   rot?: number;
   onImage: () => void;
   /** Couche peinte en direct : aperçu dessiné par-dessus, dans sa découpe. */
-  wet?: { id: string; canvas: HTMLCanvasElement };
+  /** `win` : fenêtre du canevas dans la boîte (0..1) quand l'encre déborde de la découpe. */
+  wet?: { id: string; canvas: HTMLCanvasElement; win?: [number, number, number, number] };
   /** Brûlure en cours sur une couche : prise en compte avant d'être enregistrée. */
   burning?: { id: string; stroke: Stroke };
 }
@@ -616,12 +618,24 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     const buf = hasPixelFx(pixelFx(l)) ? fxBuffer(l, doc, f, o) : null;
     if (buf) ctx.drawImage(buf, x0, y0, b.w, b.h);
     else drawMaterial(ctx, l, doc, f, o);
-    if (o.wet?.id === l.id) ctx.drawImage(o.wet.canvas, x0, y0, b.w, b.h);
+    if (o.wet?.id === l.id && !o.wet.win) ctx.drawImage(o.wet.canvas, x0, y0, b.w, b.h);
     if (l.bump) drawBump(ctx, l, doc, f, b, x0, y0);
     ctx.restore();
     drawFxInside(ctx, l, doc, f, o, path);
 
     ctx.restore();
+    // encre qui déborde : vue en entier, dedans comme dehors, jusqu'à ce que la découpe s'élargisse
+    if (o.wet?.id === l.id && o.wet.win) {
+      const [u0, v0, u1, v1] = o.wet.win;
+      ctx.save();
+      if (l.rot) {
+        ctx.translate(b.cx, b.cy);
+        ctx.rotate(l.rot);
+        ctx.translate(-b.cx, -b.cy);
+      }
+      ctx.drawImage(o.wet.canvas, x0 + u0 * b.w, y0 + v0 * b.h, (u1 - u0) * b.w, (v1 - v0) * b.h);
+      ctx.restore();
+    }
     // volume et biseau : un relief tiré du contour (ou du bord ajouté), éclairé comme le relief sculpté
     if (((l.bevel ?? 0) > 0.001 || (l.volume && l.volume.amount > 0.001)) && l.kind !== 'surface') drawBevel(ctx, l, doc, f, path, b);
     drawGlow(ctx, l, doc, f, o, false);

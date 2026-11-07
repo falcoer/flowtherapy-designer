@@ -175,6 +175,9 @@ function geom(rings: Ring[]): MultiPolygon {
 export function intersect(a: Ring[], b: Ring[]): MultiPolygon {
   return polygonClipping.intersection(geom(a), geom(b));
 }
+export function union(a: Ring[], b: Ring[]): MultiPolygon {
+  return polygonClipping.union(geom(a), geom(b));
+}
 export function subtract(a: Ring[], b: Ring[]): MultiPolygon {
   return polygonClipping.difference(geom(a), geom(b));
 }
