@@ -506,6 +506,16 @@ export function App() {
     if (isEdit(t)) lastEdit.current = t;
     setToolState(t);
   };
+  /** Ranger l'outil en cours : plus aucun outil actif, le stylet déplace et choisit les objets. */
+  const leaveTool = () => {
+    window.clearTimeout(bgLeave.current);
+    setTool('move');
+  };
+  /** Toucher un outil déjà actif le range. */
+  const pickTool = (t: Tool) => (tool === t || (isEdit(t) && isEdit(tool)) ? leaveTool() : setTool(t));
+  /** Toucher le fond autour de la page (sans glisser) : l'outil se range, sauf si un second toucher en fait un double toucher. */
+  const bgTap = useRef<{ id: number; x: number; y: number; t: number } | null>(null);
+  const bgLeave = useRef(0);
   const [bubble, setBubble] = useState<Bubble>(null);
   // astuces (textes d'aide, sous-titres des menus, bandeau d'état) : masquables pour gagner de la place
   const [tips, setTipsState] = useState(() => {
@@ -1704,6 +1714,9 @@ export function App() {
     // stylet posé : la paume et les doigts qui frôlent l'écran sont ignorés
     if (e.pointerType === 'touch' && [...pointers.current.values()].some((p) => p.type === 'pen')) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+    // un nouveau toucher : le rangement d'outil en attente attend de voir si c'est un double toucher
+    window.clearTimeout(bgLeave.current);
+    bgTap.current = null;
     // le panneau lumière reste ouvert : on règle la lampe en regardant la page
     if (bubble === 'light' && pointers.current.size === 1) {
       const q = toPage(e.clientX, e.clientY);
@@ -1752,9 +1765,12 @@ export function App() {
     // le volet des attributs dispose aussi l'objet (poignées, glisser)
     const t: Tool = (e.pointerType === 'touch' && !fingerDraws) || isEdit(tool) ? 'move' : tool;
     const sel = doc.layers.find((l) => l.id === selected);
+    // posé sur le fond, hors de la page et de tout objet, un outil actif : un simple toucher le rangera
+    const offBg = tool !== 'move' && pointers.current.size === 1 && (p.x < 0 || p.y < 0 || p.x > f.width || p.y > f.height) && !layerAt(p.x, p.y);
+    if (offBg) bgTap.current = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now() };
 
     // Modeler : le contour de l'objet choisi (ou touché) suit la pointe
-    if (t === 'mold') {
+    if (t === 'mold' && !offBg) {
       const hit = layerAt(p.x, p.y);
       const target = sel && sel.kind !== 'surface' ? sel : hit && hit.kind !== 'surface' ? hit : null;
       if (!target) return setToast('Choisis d’abord un objet à modeler');
@@ -1790,7 +1806,7 @@ export function App() {
     }
 
     // Prolonger : le trait part d'une lettre et devient une partie du texte
-    if (swash.on && (tool === 'move' || isEdit(tool)) && sel?.kind === 'text' && sel.text) {
+    if (swash.on && !offBg && (tool === 'move' || isEdit(tool)) && sel?.kind === 'text' && sel.text) {
       const loc = toLocal(sel, p.x, p.y);
       const pr = pressure(e, null);
       update((d) => d);
@@ -1851,11 +1867,15 @@ export function App() {
         lastTap.current = null;
         live.current = { kind: null };
         if (now - dotAt.current < 400) undo();
+        // double toucher : la vue se recadre, l'outil reste en main
+        bgTap.current = null;
         fitPage();
         return;
       }
       lastTap.current = { t: now, id: hit?.id, x: p.x, y: p.y };
     }
+    // hors de la page, la peinture, le tampon et le modelage n'ont rien à toucher ; le ciseau peut partir de là
+    if (offBg && t !== 'cut' && t !== 'move') return;
 
     if (t === 'move') {
       // poignée de taille de la couche sélectionnée
@@ -2149,6 +2169,9 @@ export function App() {
     const pt = pointers.current.get(e.pointerId);
     // pointe au-dessus de l'écran, sans contact : on montre seulement où elle touchera
     if (!pt) return showHover(e);
+    // le toucher sur le fond devient un glissé : ce n'est plus un toucher pour ranger l'outil
+    const bt = bgTap.current;
+    if (bt && bt.id === e.pointerId && Math.hypot(e.clientX - bt.x, e.clientY - bt.y) > 10) bgTap.current = null;
     if (lampDrag.current === e.pointerId) {
       const q = toPage(e.clientX, e.clientY);
       const lp = lampOf(doc);
@@ -2457,6 +2480,22 @@ export function App() {
     }
     const remaining = pointers.current.size;
     const L = live.current;
+    // simple toucher sur le fond : l'outil se range (un instant plus tard, pour laisser place au double toucher)
+    const bt = bgTap.current;
+    if (bt && bt.id === e.pointerId) {
+      bgTap.current = null;
+      if (e.type !== 'pointercancel' && remaining === 0 && L.kind !== 'view' && performance.now() - bt.t < 500) {
+        if (L.kind === 'cut') {
+          stopCutStill();
+          live.current = { kind: null };
+          redraw();
+        }
+        tap.current = null;
+        window.clearTimeout(bgLeave.current);
+        bgLeave.current = window.setTimeout(() => setTool('move'), 320);
+        return;
+      }
+    }
     if (L.kind === 'view') {
       if (remaining === 0) {
         const t = tap.current;
@@ -3512,7 +3551,13 @@ export function App() {
 
       {!rendu && (
         <>
-          <header className="bar">
+          <header
+            className="bar"
+            onClick={(e) => {
+              // toucher la barre en dehors de ses boutons : l'outil en cours se range
+              if (!(e.target as HTMLElement).closest('button, input, select, textarea, a')) leaveTool();
+            }}
+          >
             <div className="bar-center">
               {(touchScreen || fingerMode !== 'auto') && (
                 <button
@@ -3611,20 +3656,20 @@ export function App() {
               <Icon name="plus" />
             </button>
             <span className="side-sep" />
-            <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => setTool(lastEdit.current)} title="Créateur de matériaux (T) : forme, bords, vernis, image, transformations, support">
+            <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => pickTool(lastEdit.current)} title="Créateur de matériaux (T) : forme, bords, vernis, image, transformations, support">
               <Icon name="matter" />
             </button>
-            <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => setTool('cut')} title="Découper (C) : trace un contour au stylet">
+            <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => pickTool('cut')} title="Découper (C) : trace un contour au stylet">
               <Icon name="scissors" />
             </button>
-            <button className={`btn small ${tool === 'mold' ? 'on' : ''}`} onClick={() => setTool('mold')} title="Modeler (G) : tirer ou repousser le contour de l'objet, à la plume ou au doigt de glaise">
+            <button className={`btn small ${tool === 'mold' ? 'on' : ''}`} onClick={() => pickTool('mold')} title="Modeler (G) : tirer ou repousser le contour de l'objet, à la plume ou au doigt de glaise">
               <Icon name="mold" />
             </button>
 
-            <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => setTool('paint')} title="Peindre (B) : aquarelle, acrylique, pistolet, paillettes, poils">
+            <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => pickTool('paint')} title="Peindre (B) : aquarelle, acrylique, pistolet, paillettes, poils">
               <Icon name="brush" />
             </button>
-            <button className={`btn small ${tool === 'stamp' ? 'on' : ''}`} onClick={() => setTool('stamp')} title="Tampons (S) : motifs à la couleur courante, intensité et rotation">
+            <button className={`btn small ${tool === 'stamp' ? 'on' : ''}`} onClick={() => pickTool('stamp')} title="Tampons (S) : motifs à la couleur courante, intensité et rotation">
               <Icon name="stamp" />
             </button>
           </aside>
