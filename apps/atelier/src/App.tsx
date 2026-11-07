@@ -874,10 +874,8 @@ export function App() {
     return { x: p.x, y: p.y };
   };
   const scale = fit * view.zoom;
-  /** Recadre la vue sur un objet : il remplit la place libre entre les barres et l'éditeur d'objet. */
-  const zoomOn = (l: Layer) => {
-    const b = layerBox(l, f);
-    // place libre entre les barres posées à gauche et à droite (outils, réglages, hauteur)
+  /** Place réellement visible à l'écran : entre la barre du haut, les barres posées à gauche et à droite (outils, réglages, hauteur) et l'éditeur d'objet en bas. */
+  const freeArea = () => {
     let [left, right] = [12, vp.w - 12];
     for (const el of document.querySelectorAll('.side, .height-bar')) {
       const r = el.getBoundingClientRect();
@@ -886,19 +884,56 @@ export function App() {
       else right = Math.min(right, r.left - 12);
     }
     const bottom = (document.querySelector('aside.coupe')?.getBoundingClientRect().top ?? vp.h) - 12;
-    const [aw, ah] = [Math.max(80, right - left), Math.max(80, bottom - top - 12)];
-    setView((v) => {
-      const a = (l.rot ?? 0) + v.rot;
-      const ew = Math.abs(b.w * Math.cos(a)) + Math.abs(b.h * Math.sin(a));
-      const eh = Math.abs(b.w * Math.sin(a)) + Math.abs(b.h * Math.cos(a));
-      const zoom = Math.max(0.3, Math.min(6, (Math.min(aw / ew, ah / eh) * 0.8) / fit));
-      const k = fit * zoom;
-      const [dx, dy] = [(b.cx - f.width / 2) * k, (b.cy - f.height / 2) * k];
-      const [c, sn] = [Math.cos(v.rot), Math.sin(v.rot)];
-      const [rx, ry] = [dx * c - dy * sn, dx * sn + dy * c];
-      return { ...v, zoom, px: left + aw / 2 - vp.w / 2 - rx, py: top + 12 + ah / 2 - (top + (vp.h - top) / 2) - ry };
-    });
+    return { left, top: top + 12, w: Math.max(80, right - left), h: Math.max(80, bottom - top - 12) };
   };
+  /** Vue qui place la boîte b (coordonnées de la page, tournée de rot) au centre de la place libre, remplie à la part fill. */
+  const frameView = (b: { cx: number; cy: number; w: number; h: number }, rot: number, a: number, fill: number): View => {
+    const area = freeArea();
+    const ew = Math.abs(b.w * Math.cos(a)) + Math.abs(b.h * Math.sin(a));
+    const eh = Math.abs(b.w * Math.sin(a)) + Math.abs(b.h * Math.cos(a));
+    const zoom = Math.max(0.3, Math.min(6, (Math.min(area.w / ew, area.h / eh) * fill) / fit));
+    const k = fit * zoom;
+    const [dx, dy] = [(b.cx - f.width / 2) * k, (b.cy - f.height / 2) * k];
+    const [c, sn] = [Math.cos(rot), Math.sin(rot)];
+    const [rx, ry] = [dx * c - dy * sn, dx * sn + dy * c];
+    return { zoom, rot, px: area.left + area.w / 2 - vp.w / 2 - rx, py: area.top + area.h / 2 - (top + (vp.h - top) / 2) - ry };
+  };
+  /** Recadre la vue sur un objet : il remplit la place libre entre les barres et l'éditeur d'objet. */
+  const zoomOn = (l: Layer) => {
+    const b = layerBox(l, f);
+    fitted.current = false;
+    setView((v) => frameView(b, v.rot, (l.rot ?? 0) + v.rot, 0.8));
+  };
+  /** Vue « page entière » : la page tient dans la place réellement visible (éditeur d'objet ouvert compris). */
+  const pageView = () => frameView({ cx: f.width / 2, cy: f.height / 2, w: f.width, h: f.height }, 0, 0, 1);
+  const fitPage = () => {
+    fitted.current = true;
+    setView(pageView());
+  };
+  /** La vue montre la page entière : elle se réajuste quand la place visible change (éditeur d'objet ouvert ou fermé, barres, fenêtre). */
+  const fitted = useRef(true);
+  useLayoutEffect(() => {
+    if (!fitted.current) return;
+    const refit = () => {
+      if (!fitted.current) return;
+      const pv = pageView();
+      setView((v) => (Math.abs(v.zoom - pv.zoom) < 1e-3 && Math.abs(v.px - pv.px) < 0.5 && Math.abs(v.py - pv.py) < 0.5 && !v.rot ? v : pv));
+    };
+    refit();
+    // l'éditeur d'objet s'ouvre en glissant et change de hauteur selon la section choisie
+    let ro: ResizeObserver | null = null;
+    const id = requestAnimationFrame(() => {
+      refit();
+      const el = document.querySelector('aside.coupe');
+      if (!el) return;
+      ro = new ResizeObserver(refit);
+      ro.observe(el);
+    });
+    return () => {
+      cancelAnimationFrame(id);
+      ro?.disconnect();
+    };
+  }, [vp.w, vp.h, tool, selected, rendu, f.width, f.height, lefty]);
 
   const lastTap = useRef<{ t: number; id?: string; x: number; y: number } | null>(null);
   const dotAt = useRef(0);
@@ -1721,11 +1756,11 @@ export function App() {
         return;
       }
       // double toucher hors des objets (fond, autour de la page) : la vue revient sur la page entière
-      if ((!hit || hit.kind === 'surface') && lt && lt.id === hit?.id && now - lt.t < 350 && Math.hypot(p.x - lt.x, p.y - lt.y) * scale < 24 && (view.zoom !== 1 || view.rot || view.px || view.py)) {
+      if ((!hit || hit.kind === 'surface') && lt && lt.id === hit?.id && now - lt.t < 350 && Math.hypot(p.x - lt.x, p.y - lt.y) * scale < 24 && !fitted.current) {
         lastTap.current = null;
         live.current = { kind: null };
         if (now - dotAt.current < 400) undo();
-        setView({ zoom: 1, rot: 0, px: 0, py: 0 });
+        fitPage();
         return;
       }
       lastTap.current = { t: now, id: hit?.id, x: p.x, y: p.y };
@@ -2016,6 +2051,7 @@ export function App() {
   const onMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const mp = midPan.current;
     if (mp && mp.id === e.pointerId) {
+      fitted.current = false;
       setView((v) => ({ ...v, px: mp.px + e.clientX - mp.x, py: mp.py + e.clientY - mp.y }));
       return;
     }
@@ -2343,7 +2379,10 @@ export function App() {
         const next = gesture.current?.next;
         gesture.current = null;
         // la vue est appliquée : la page est repeinte nette et la transformation provisoire retirée
-        if (next) setView(next);
+        if (next) {
+          fitted.current = false;
+          setView(next);
+        }
       }
       return;
     }
@@ -3365,8 +3404,13 @@ export function App() {
           if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
             const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
             setView3d({ start: [Math.max(-40, Math.min(40, d * 0.15)), 0] });
-          } else if (e.altKey) setView((v) => ({ ...v, rot: v.rot + e.deltaY * 0.002 }));
-          else setView((v) => ({ ...v, zoom: Math.max(0.3, Math.min(6, v.zoom * Math.exp(-e.deltaY * 0.0015))) }));
+          } else if (e.altKey) {
+            fitted.current = false;
+            setView((v) => ({ ...v, rot: v.rot + e.deltaY * 0.002 }));
+          } else {
+            fitted.current = false;
+            setView((v) => ({ ...v, zoom: Math.max(0.3, Math.min(6, v.zoom * Math.exp(-e.deltaY * 0.0015))) }));
+          }
         }}
       />
       <div
