@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Doc, Layer } from './model';
 import { hexRGB, opacityOf } from './fx';
-import { drawLampTint, drawLayers, drawRelief, forgetPaint, lampOf, levelOf, renderOrder, shadowVector } from './scene';
+import { drawLampTint, drawLayers, drawRelief, lampOf, levelOf, renderOrder, shadowVector } from './scene';
 import { Gl3d, hasWebGL2, type GlView } from './gl3d';
 import { layerBox } from './model';
 
@@ -53,7 +53,6 @@ function buildPlates(doc: Doc, f: Format, r: number): Plate[] {
     ctx.setTransform(r, 0, 0, r, 0, 0);
     return { c, ctx };
   };
-  forgetPaint();
   const order = renderOrder(doc.layers).filter((l) => l.visible && opacityOf(l) > 0);
   // la feuille : les fonds, et la teinte de la lampe
   const base = page();
@@ -86,7 +85,6 @@ function buildPlates(doc: Doc, f: Format, r: number): Plate[] {
     }
     plates.push(plate);
   }
-  forgetPaint();
   return plates;
 }
 

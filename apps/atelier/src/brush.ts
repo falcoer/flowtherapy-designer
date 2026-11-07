@@ -68,9 +68,13 @@ function filterOK() {
   return canFilter;
 }
 const shrink: { a: HTMLCanvasElement | null } = { a: null };
+/** Pixels au plus de l'image réduite où se fait le flou sans ctx.filter. */
+const BLUR_BUDGET = 250_000;
 /**
  * Dessine src flouté d'environ r px, avec l'opacité et le mode de fusion du contexte.
  * Sans ctx.filter (Safari) : réduction, moyenne des voisins, puis agrandissement lissé.
+ * La petite image reste sous BLUR_BUDGET pixels : sur iPad, un petit rayon sur toute la couche
+ * coûtait plusieurs centaines de millisecondes à chaque trait (et à chaque mouvement d'un tampon dilué).
  */
 export function drawBlurred(ctx: CanvasRenderingContext2D, src: HTMLCanvasElement, r: number) {
   if (r < 0.4) {
@@ -84,7 +88,11 @@ export function drawBlurred(ctx: CanvasRenderingContext2D, src: HTMLCanvasElemen
     ctx.filter = f;
     return;
   }
-  const k = Math.max(1, r / 1.4);
+  // trois passes de moyenne sur 3 voisins ≈ un flou de 1,4 px : on réduit d'autant, et davantage
+  // si l'image réduite dépasse le budget (l'agrandissement lissé floute alors un peu plus que demandé)
+  const k = Math.max(1, r / 1.4, Math.sqrt((src.width * src.height) / BLUR_BUDGET));
+  // chaque passe ajoute une variance de 2/3 px² : autant de passes qu'il en faut pour le rayon restant
+  const passes = Math.min(3, Math.round(1.5 * (r / k) ** 2));
   const P = 4; // marge : le flou déborde de la forme
   const sw = Math.max(1, Math.ceil(src.width / k)) + 2 * P;
   const sh = Math.max(1, Math.ceil(src.height / k)) + 2 * P;
@@ -105,8 +113,16 @@ export function drawBlurred(ctx: CanvasRenderingContext2D, src: HTMLCanvasElemen
   };
   const A = grab('a');
   A.x.drawImage(src, P, P, src.width / k, src.height / k);
-  // sur la petite image : trois passes de moyenne glissante (presque gaussien), en flottants
-  const img = A.x.getImageData(0, 0, sw, sh);
+  if (passes > 0) blurSmall(A.x, sw, sh, passes);
+  const smooth = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(A.c, -P * k, -P * k, sw * k, sh * k);
+  ctx.imageSmoothingEnabled = smooth;
+}
+
+/** Sur la petite image : passes de moyenne glissante (presque gaussien), en flottants. */
+function blurSmall(x: CanvasRenderingContext2D, sw: number, sh: number, passes: number) {
+  const img = x.getImageData(0, 0, sw, sh);
   const d = img.data;
   const f = Float32Array.from(d);
   const g = new Float32Array(f.length);
@@ -125,16 +141,12 @@ export function drawBlurred(ctx: CanvasRenderingContext2D, src: HTMLCanvasElemen
         }
     }
   };
-  for (let pass = 0; pass < 3; pass++) {
+  for (let pass = 0; pass < passes; pass++) {
     run(f, g, true);
     run(g, f, false);
   }
   for (let i = 0; i < d.length; i++) d[i] = f[i]!;
-  A.x.putImageData(img, 0, 0);
-  const smooth = ctx.imageSmoothingEnabled;
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(A.c, -P * k, -P * k, sw * k, sh * k);
-  ctx.imageSmoothingEnabled = smooth;
+  x.putImageData(img, 0, 0);
 }
 
 function buffer(key: 'a' | 'b' | 'c' | 'd', w: number, h: number) {
