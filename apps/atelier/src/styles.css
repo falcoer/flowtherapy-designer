@@ -944,3 +944,20 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .dry-btn.wet { color: #2f7fc4; }
 /* un éventail ou un menu ouvert depuis la barre d'outils passe devant la barre du haut et sa pastille (téléphone) */
 .side:has(.fan-at, .mode-pop) { z-index: 6; }
+
+/* légende des repères : une couleur caractéristique par sorte de point ou de ligne */
+.mark-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 4px 4px 2px; font-size: 12px; }
+.mark-legend .mark { display: inline-flex; align-items: center; gap: 5px; }
+.mark-legend .mark-dot { position: relative; flex: none; width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 0 1.5px #fff, 0 0 0 2.5px rgba(0, 0, 0, 0.15); }
+.mark-legend .mark-dot.line { width: 14px; height: 4px; border-radius: 2px; }
+.mark-legend.edit { flex-direction: column; flex-wrap: nowrap; gap: 8px; font-size: 13px; }
+.mark-legend.edit .mark { gap: 10px; cursor: pointer; }
+.mark-legend.edit .mark-dot { width: 22px; height: 22px; }
+.mark-legend.edit .mark-dot.line { width: 22px; height: 8px; border-radius: 4px; margin: 7px 0; }
+.mark-legend.edit .mark-dot input { position: absolute; inset: -6px; opacity: 0; cursor: pointer; width: auto; height: auto; }
+.mark-legend.edit .mark-name { display: flex; flex-direction: column; }
+.mark-legend.edit .mark-name small { opacity: 0.6; font-size: 11px; }
+.mark-legend .mark.soon { opacity: 0.55; }
+.pf-marks { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.pf-marks-title { font-size: 11px; font-weight: 600; color: var(--muted); margin-top: 4px; }
+.pf-reset { align-self: flex-start; font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }

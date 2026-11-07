@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react';
 import { fetchMe, fetchSystem, reindexLibrary, restartServer, serverOnline, type Me, type SystemInfo } from './server';
+import { MARK_KINDS, MARKS, type MarkGroup, type MarkKind } from './marks';
+import { MarkLegend } from './marks-ui';
+
+const MARK_GROUPS: Array<[MarkGroup, string]> = [
+  ['page', 'Page'],
+  ['repartition', 'Répartition'],
+  ['or', 'Nombre d’or'],
+  ['armature', 'Armature harmonique'],
+  ['objets', 'Repères des objets'],
+];
 
 export type Theme = 'auto' | 'light' | 'dark';
 /** Le doigt : automatique (dessine tant qu'aucun stylet n'est vu), dessine toujours, ou déplace toujours. */
@@ -56,6 +66,8 @@ export function PrefsPanel(p: {
   setWheelHide: (v: number | null) => void;
   guides: { on: boolean; color: string };
   setGuides: (v: { on: boolean; color: string }) => void;
+  markColors: Partial<Record<MarkKind, string>>;
+  setMarkColors: (c: Partial<Record<MarkKind, string>>) => void;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('display');
@@ -169,15 +181,22 @@ export function PrefsPanel(p: {
           </div>
           <div className="pf-group">Repères</div>
           <Toggle label="Repères toujours visibles" hint="Sinon, ils n'apparaissent que pendant un déplacement" on={p.guides.on} set={(on) => p.setGuides({ ...p.guides, on })} />
-          <div className="pf-row">
+          <div className="pf-row pf-col">
             <span className="pf-txt">
-              <b>Couleur des repères</b>
+              <b>Couleurs des repères</b>
+              <small>Chaque ligne et chaque sorte de point a sa couleur ; un objet tenu à une marge ou posé sur un point en prend la couleur sur son bord</small>
             </span>
-            <div className="guides-colors">
-              {['#7a5cff', '#00b3c7', '#ff3b6b', '#1d1b22', '#ffffff'].map((c) => (
-                <button key={c} className={p.guides.color === c ? 'on' : ''} style={{ background: c }} onClick={() => p.setGuides({ ...p.guides, color: c })} aria-label={`Couleur des repères ${c}`} />
-              ))}
-            </div>
+            {MARK_GROUPS.map(([g, title]) => (
+              <div key={g} className="pf-marks">
+                <span className="pf-marks-title">{title}</span>
+                <MarkLegend kinds={MARK_KINDS.filter((k) => MARKS[k].group === g)} colors={p.markColors} onChange={p.setMarkColors} />
+              </div>
+            ))}
+            {Object.keys(p.markColors).length > 0 && (
+              <button className="pf-reset" onClick={() => p.setMarkColors({})}>
+                Couleurs d’origine
+              </button>
+            )}
           </div>
           <div className="pf-group">Outils</div>
           <Toggle label="Mode simplifié" hint="Les réglages rares (Transformations, Rognage, Lueur, Semis) attendent un toucher sur « Plus » ; tous les outils restent là" on={p.simple} set={p.setSimple} />
