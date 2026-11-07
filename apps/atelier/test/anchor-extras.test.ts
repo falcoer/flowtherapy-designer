@@ -41,3 +41,25 @@ describe('points d’ancrage cochables', () => {
     expect(anchorsOf('repartition', f).map((p) => p.id)).toEqual(['h1/2 v1/2']);
   });
 });
+
+describe('objet accroché par un sommet', () => {
+  it('le sommet reste sur son ancrage quand l’objet change de taille ou de format', async () => {
+    const { layerBox, anchorPointOf, ungrip, objectGrips } = await import('../src/model');
+    setAnchorMargin(0);
+    const l = { anchor: { frame: 'repartition', point: 'page h0 v0' }, dx: 0, dy: 0, w: 0.4, h: 0.2, grip: { x: -0.5, y: -0.5 }, kind: 'shape' } as never;
+    for (const id of ['a4', 'carre', 'banniere']) {
+      const g = formatOf(id);
+      const b = layerBox(l, g);
+      expect(b.cx - b.w / 2).toBeCloseTo(0);
+      expect(b.cy - b.h / 2).toBeCloseTo(0);
+      expect(anchorPointOf(l, g).x).toBeCloseTo(0);
+      const big = layerBox({ ...(l as object), w: 0.8 } as never, g);
+      expect(big.cx - big.w / 2).toBeCloseTo(0);
+      const u = ungrip(l, g);
+      expect(u.grip).toBeUndefined();
+      expect(layerBox(u, g).cx).toBeCloseTo(b.cx);
+    }
+    expect(objectGrips({ objCorners: false, objSides: false })).toEqual([{ x: 0, y: 0 }]);
+    expect(objectGrips(undefined)).toHaveLength(9);
+  });
+});

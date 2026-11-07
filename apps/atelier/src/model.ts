@@ -105,6 +105,8 @@ export interface Layer {
   /** Décalage du centre par rapport à l'ancrage, en fraction du format. */
   dx: number;
   dy: number;
+  /** Point de l'objet posé sur l'ancrage (un sommet ou un milieu de côté) : décalage depuis le centre, en fraction de la largeur et de la hauteur de la boîte. Absent = le centre. */
+  grip?: { x: number; y: number };
   /** Taille de la boîte en fraction du petit côté (ignorée pour la surface de fond). */
   w: number;
   h: number;
@@ -219,7 +221,23 @@ export function layerBox(l: Layer, f: Format): { cx: number; cy: number; w: numb
   } catch {
     /* ancrage absent de ce format : centre */
   }
-  return { cx: (a.x + l.dx) * f.width, cy: (a.y + l.dy) * f.height, w: l.w * m, h: l.h * m };
+  const gx = (l.grip?.x ?? 0) * l.w * m;
+  const gy = (l.grip?.y ?? 0) * l.h * m;
+  return { cx: (a.x + l.dx) * f.width - gx, cy: (a.y + l.dy) * f.height - gy, w: l.w * m, h: l.h * m };
+}
+
+/** Point d'ancrage d'une couche sur la page : son centre décalé de dx, dy, ou le sommet / milieu de côté qui s'y accroche. */
+export function anchorPointOf(l: Layer, f: Format) {
+  const b = layerBox(l, f);
+  const m = Math.min(f.width, f.height);
+  return { x: b.cx + (l.grip?.x ?? 0) * l.w * m - l.dx * f.width, y: b.cy + (l.grip?.y ?? 0) * l.h * m - l.dy * f.height };
+}
+
+/** La même couche sans point d'accroche : le décalage dx, dy garde la boîte en place. */
+export function ungrip(l: Layer, f: Format): Layer {
+  if (!l.grip) return l;
+  const m = Math.min(f.width, f.height);
+  return { ...l, grip: undefined, dx: l.dx - (l.grip.x * l.w * m) / f.width, dy: l.dy - (l.grip.y * l.h * m) / f.height };
 }
 
 /** Dénominateurs de la répartition selon la densité choisie. */
@@ -265,8 +283,14 @@ export interface AnchorExtras {
   sides?: boolean;
   /** Répartition : les lignes de partage prolongées jusqu'aux bords extérieurs. */
   edges?: boolean;
+  /** L'objet s'accroche aussi par ses sommets… */
+  objCorners?: boolean;
+  /** … et par le milieu de ses côtés (le centre s'accroche toujours). */
+  objSides?: boolean;
 }
-export const ANCHOR_EXTRAS: Array<{ key: keyof AnchorExtras; label: string; hint: string; frame?: AnchorFrame }> = [
+export const ANCHOR_EXTRAS: Array<{ key: keyof AnchorExtras; label: string; hint: string; frame?: AnchorFrame; obj?: boolean }> = [
+  { key: 'objCorners', label: 'Sommets de l’objet', hint: 'Un coin de l’objet s’accroche aux repères', obj: true },
+  { key: 'objSides', label: 'Milieux des côtés de l’objet', hint: 'Le milieu d’un côté de l’objet s’accroche aux repères', obj: true },
   { key: 'corners', label: 'Sommets', hint: 'Les coins de la page et de la marge' },
   { key: 'sides', label: 'Milieux des côtés', hint: 'Le milieu de chaque côté de la page et de la marge' },
   { key: 'edges', label: 'Points des bords', hint: 'Les lignes de partage (½, ⅓…) touchent les bords extérieurs', frame: 'repartition' },
@@ -275,6 +299,14 @@ export const ANCHOR_EXTRAS: Array<{ key: keyof AnchorExtras; label: string; hint
 let extras: AnchorExtras = {};
 export const setAnchorExtras = (e: AnchorExtras | undefined) => (extras = e ?? {});
 export const extraOn = (e: AnchorExtras | undefined, k: keyof AnchorExtras) => e?.[k] !== false;
+
+/** Points de l'objet qui peuvent s'accrocher, en fraction de sa boîte depuis le centre : le centre, puis les familles cochées. */
+export function objectGrips(e: AnchorExtras | undefined): Array<{ x: number; y: number }> {
+  const out = [{ x: 0, y: 0 }];
+  if (extraOn(e, 'objSides')) out.push({ x: 0, y: -0.5 }, { x: 0.5, y: 0 }, { x: 0, y: 0.5 }, { x: -0.5, y: 0 });
+  if (extraOn(e, 'objCorners')) out.push({ x: -0.5, y: -0.5 }, { x: 0.5, y: -0.5 }, { x: 0.5, y: 0.5 }, { x: -0.5, y: 0.5 });
+  return out;
+}
 
 // sommets et milieux posés sur la page (« page h0 v1/2 ») ou sur le cadre des marges (« marge h1 v0 »)
 const FRAME_PT = /^(page|marge)\s+h(\S+)\s+v(\S+)$/;
