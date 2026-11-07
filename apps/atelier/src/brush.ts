@@ -67,7 +67,7 @@ function filterOK() {
   }
   return canFilter;
 }
-const shrink: { a: HTMLCanvasElement | null; b: HTMLCanvasElement | null } = { a: null, b: null };
+const shrink: { a: HTMLCanvasElement | null } = { a: null };
 /**
  * Dessine src flouté d'environ r px, avec l'opacité et le mode de fusion du contexte.
  * Sans ctx.filter (Safari) : réduction, moyenne des voisins, puis agrandissement lissé.
@@ -84,17 +84,17 @@ export function drawBlurred(ctx: CanvasRenderingContext2D, src: HTMLCanvasElemen
     ctx.filter = f;
     return;
   }
-  const k = Math.max(1, r / 1.6);
-  const P = 3; // marge : le flou déborde de la forme
+  const k = Math.max(1, r / 1.4);
+  const P = 4; // marge : le flou déborde de la forme
   const sw = Math.max(1, Math.ceil(src.width / k)) + 2 * P;
   const sh = Math.max(1, Math.ceil(src.height / k)) + 2 * P;
-  const grab = (key: 'a' | 'b') => {
+  const grab = (key: 'a') => {
     const c = (shrink[key] ??= document.createElement('canvas'));
     if (c.width !== sw || c.height !== sh) {
       c.width = sw;
       c.height = sh;
     }
-    const x = c.getContext('2d')!;
+    const x = c.getContext('2d', { willReadFrequently: true })!;
     x.setTransform(1, 0, 0, 1, 0, 0);
     x.globalAlpha = 1;
     x.globalCompositeOperation = 'source-over';
@@ -105,18 +105,32 @@ export function drawBlurred(ctx: CanvasRenderingContext2D, src: HTMLCanvasElemen
   };
   const A = grab('a');
   A.x.drawImage(src, P, P, src.width / k, src.height / k);
-  // deux passes de moyenne 3×3 : un flou presque gaussien
-  const B = grab('b');
-  const box = (from: HTMLCanvasElement, to: CanvasRenderingContext2D) => {
-    to.globalCompositeOperation = 'lighter';
-    to.globalAlpha = 1 / 9;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) to.drawImage(from, dx, dy);
-    to.globalCompositeOperation = 'source-over';
-    to.globalAlpha = 1;
+  // sur la petite image : trois passes de moyenne glissante (presque gaussien), en flottants
+  const img = A.x.getImageData(0, 0, sw, sh);
+  const d = img.data;
+  const f = Float32Array.from(d);
+  const g = new Float32Array(f.length);
+  const run = (from: Float32Array, to: Float32Array, horiz: boolean) => {
+    const n = horiz ? sw : sh;
+    const m = horiz ? sh : sw;
+    const st = horiz ? 4 : sw * 4;
+    for (let j = 0; j < m; j++) {
+      const o = horiz ? j * sw * 4 : j * 4;
+      for (let c = 0; c < 4; c++)
+        for (let i = 0; i < n; i++) {
+          const a = from[o + Math.max(0, i - 1) * st + c]!;
+          const b = from[o + i * st + c]!;
+          const e = from[o + Math.min(n - 1, i + 1) * st + c]!;
+          to[o + i * st + c] = (a + b + e) / 3;
+        }
+    }
   };
-  box(A.c, B.x);
-  A.x.clearRect(0, 0, sw, sh);
-  box(B.c, A.x);
+  for (let pass = 0; pass < 3; pass++) {
+    run(f, g, true);
+    run(g, f, false);
+  }
+  for (let i = 0; i < d.length; i++) d[i] = f[i]!;
+  A.x.putImageData(img, 0, 0);
   const smooth = ctx.imageSmoothingEnabled;
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(A.c, -P * k, -P * k, sw * k, sh * k);
@@ -167,6 +181,33 @@ function stamps(s: Stroke, t: Target) {
   for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
   let along = 0;
   const base = s.size * t.pxPerMin;
+  // l'aquarelle suit une courbe lisse : pression et tracé moyennés sur la largeur du pinceau
+  // (sinon chaque à-coup du stylet gonfle le bord en bourrelet)
+  const wash = (s.brush ?? 'aquarelle') === 'aquarelle';
+  if (wash && pts.length > 2) {
+    const ease = (tau: number, keys: Array<'p' | 'x' | 'y'>) => {
+      for (const dir of [1, -1]) {
+        const order = dir > 0 ? pts.keys() : [...pts.keys()].reverse();
+        let prev: (typeof pts)[number] | null = null;
+        for (const i of order) {
+          const q = pts[i]!;
+          if (prev) {
+            const k = 1 - Math.exp(-Math.hypot(q.x - prev.x, q.y - prev.y) / tau);
+            for (const key of keys) q[key] = prev[key] + (q[key] - prev[key]) * k;
+          }
+          prev = q;
+        }
+      }
+    };
+    const first = { ...pts[0]! };
+    const last = { ...pts[pts.length - 1]! };
+    ease(base * 1.6, ['p']);
+    ease(base * 0.35, ['x', 'y']);
+    // les extrémités restent où le stylet s'est posé et levé
+    Object.assign(pts[0]!, { x: first.x, y: first.y });
+    Object.assign(pts[pts.length - 1]!, { x: last.x, y: last.y });
+  }
+  const wob = wash ? 0.25 : 1;
   let phase = r() * 10;
   for (let i = 0; i < pts.length; i++) {
     const a = pts[i]!;
@@ -178,11 +219,11 @@ function stamps(s: Stroke, t: Target) {
     for (let k = 0; k < n; k++) {
       const f = k / n;
       phase += 0.21;
-      const wobble = 1 + 0.16 * Math.sin(phase) + 0.1 * Math.sin(phase * 2.7 + 1) + (r() - 0.5) * 0.14;
+      const wobble = 1 + wob * (0.16 * Math.sin(phase) + 0.1 * Math.sin(phase * 2.7 + 1) + (r() - 0.5) * 0.14);
       const p = a.p + (b.p - a.p) * f;
       out.push({
-        x: a.x + (b.x - a.x) * f + (r() - 0.5) * rad0 * 0.25,
-        y: a.y + (b.y - a.y) * f + (r() - 0.5) * rad0 * 0.25,
+        x: a.x + (b.x - a.x) * f + (r() - 0.5) * rad0 * 0.25 * wob,
+        y: a.y + (b.y - a.y) * f + (r() - 0.5) * rad0 * 0.25 * wob,
         r: base * (0.35 + 0.65 * p) * wobble,
         t: total ? (along + d * f) / total : 0,
         a: a.a + (b.a - a.a) * f,
@@ -317,10 +358,11 @@ export function paintWash(dst: CanvasRenderingContext2D, list: Stroke[], guides:
 
   dst.save();
   dst.globalCompositeOperation = 'multiply';
+  // le pigment boit le papier au-delà du trait : bord fondu, puis un liseré léger et adouci
   dst.globalAlpha = 0.42 * opacity;
-  drawBlurred(dst, sil, water > 0.05 ? R * 0.12 * water : 0);
-  dst.globalAlpha = 0.75 * Math.min(1, opacity + 0.3 * water);
-  dst.drawImage(edge, 0, 0);
+  drawBlurred(dst, sil, R * (0.16 + 0.14 * water));
+  dst.globalAlpha = 0.5 * Math.min(1, opacity + 0.3 * water);
+  drawBlurred(dst, edge, R * 0.05);
   dst.restore();
 }
 
