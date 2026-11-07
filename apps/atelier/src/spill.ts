@@ -40,20 +40,36 @@ export function inWin(s: Stroke, win: Win): Stroke {
   return { ...s, pts: s.pts.map((p) => ({ ...p, x: (p.x - win[0]) / sx, y: (p.y - win[1]) / sy })) };
 }
 
-/** Rectangle de l'encre posée sur un canevas (pixels), ou null s'il est vide. */
+/**
+ * Rectangle de l'encre posée sur un canevas (pixels), ou null s'il est vide. Le canevas du geste
+ * peut faire 2048 px de côté : on le lit réduit (256 px au plus), ce qui suffit à situer l'encre,
+ * avec un pixel réduit de marge tout autour.
+ */
 function inkBox(c: HTMLCanvasElement, th: number) {
   const { width: W, height: H } = c;
-  const a = c.getContext('2d')!.getImageData(0, 0, W, H).data;
-  let [x0, y0, x1, y1] = [W, H, -1, -1];
-  for (let y = 0; y < H; y++)
-    for (let x = 0; x < W; x++)
-      if (a[(y * W + x) * 4 + 3]! >= th) {
+  const q = Math.min(1, 256 / Math.max(W, H));
+  const [w, h] = [Math.max(1, Math.ceil(W * q)), Math.max(1, Math.ceil(H * q))];
+  const s = document.createElement('canvas');
+  s.width = w;
+  s.height = h;
+  const sx = s.getContext('2d', { willReadFrequently: true })!;
+  sx.drawImage(c, 0, 0, w, h);
+  const a = sx.getImageData(0, 0, w, h).data;
+  s.width = s.height = 0;
+  // réduite, une encre fine s'éclaircit : seuil abaissé d'autant
+  const t = q < 1 ? Math.max(1, Math.floor(th * q)) : th;
+  let [x0, y0, x1, y1] = [w, h, -1, -1];
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++)
+      if (a[(y * w + x) * 4 + 3]! >= t) {
         if (x < x0) x0 = x;
         if (x > x1) x1 = x;
         if (y < y0) y0 = y;
         if (y > y1) y1 = y;
       }
-  return x1 < 0 ? null : { x0, y0, x1: x1 + 1, y1: y1 + 1 };
+  if (x1 < 0) return null;
+  const pad = q < 1 ? 1 : 0;
+  return { x0: Math.max(0, Math.floor((x0 - pad) / q)), y0: Math.max(0, Math.floor((y0 - pad) / q)), x1: Math.min(W, Math.ceil((x1 + 1 + pad) / q)), y1: Math.min(H, Math.ceil((y1 + 1 + pad) / q)) };
 }
 
 function ringArea(r: Ring) {
@@ -83,6 +99,7 @@ export function inkRings(l: Layer, f: Format, s: Stroke, guides: Guide[], pxPerU
   const ctx = c.getContext('2d', { willReadFrequently: true })!;
   paintStroke(ctx, inWin(s, tight), guides, t);
   const rings = contours(ctx.getImageData(0, 0, t.pw, t.ph).data, t.pw, t.ph, INK);
+  c.width = c.height = 0;
   // poussières de grain : trop petites pour compter
   const dust = Math.max(4, (t.pxPerMin * 0.0015) ** 2);
   const [ux, uy] = [(tight[2] - tight[0]) / t.pw, (tight[3] - tight[1]) / t.ph];

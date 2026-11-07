@@ -71,6 +71,7 @@ import {
   drawChecker,
   drawLayers,
   forgetPaint,
+  prunePaints,
   localRings,
   maskPath2D,
   maskRings,
@@ -362,6 +363,9 @@ export function App() {
   const future = useRef<string[]>([]);
   const [, force] = useState(0);
   const redraw = useCallback(() => force((n) => n + 1), []);
+  // la peinture en cache des couches retirées est lâchée (mémoire des canevas, limitée sur iPad)
+  const layerIds = doc.layers.map((l) => l.id).join(' ');
+  useEffect(() => prunePaints(layerIds.split(' ')), [layerIds]);
   // polices : la liste d'abord, puis les fichiers des polices utilisées par les textes
   useEffect(() => onFontReady(redraw), [redraw]);
   const usedFonts = doc.layers
@@ -1087,6 +1091,8 @@ export function App() {
     drawn?: number;
     /** Semis de tampons en cours : la silhouette des empreintes déjà posées. */
     ink?: InkLive;
+    /** Ramures : repeinture du trait entier attendue à la prochaine image (une par image, pas une par mouvement du stylet). */
+    branchFrame?: number;
     lasso?: Pt[];
     /** Ciseaux partis de l'extérieur de la forme choisie : un chemin qui la sépare en morceaux. */
     path?: boolean;
@@ -1106,6 +1112,13 @@ export function App() {
     /** Forme reconnue (rond, carré…) : le contour est figé jusqu'au lâcher. */
     shaped?: boolean;
   }>({ kind: null });
+  /** Ramures : le trait entier repeint sur le canevas du geste (dans sa fenêtre quand l'encre déborde). */
+  const repaintBranch = (L: typeof live.current, tg: Target) => {
+    if (!L.wet || !L.stroke) return;
+    const wx = L.wet.getContext('2d')!;
+    wx.clearRect(0, 0, L.wet.width, L.wet.height);
+    paintStroke(wx, L.win ? inWin(L.stroke, L.win) : L.stroke, docRef.current.guides, tg);
+  };
   // pointe immobile 2 s pendant une découpe : passage en ligne droite (puis un nouveau coin à chaque arrêt)
   const cutStill = useRef<{ timer: number; x: number; y: number } | null>(null);
   const armCutStill = (x: number, y: number) => {
@@ -2379,9 +2392,13 @@ export function App() {
         const ws = L.win ? inWin(L.stroke, L.win) : L.stroke;
         if (stamping) L.ink = previewStampInk(L.wet!.getContext('2d')!, ws, doc.guides, tg, L.ink);
         else if (branching) {
-          const wx = L.wet!.getContext('2d')!;
-          wx.clearRect(0, 0, L.wet!.width, L.wet!.height);
-          paintStroke(wx, ws, doc.guides, tg);
+          // les ramures se repeignent en entier : au plus une fois par image
+          L.branchFrame ||= requestAnimationFrame(() => {
+            L.branchFrame = 0;
+            if (live.current !== L) return;
+            repaintBranch(L, tg);
+            redraw();
+          });
         } else L.drawn = previewStamps(L.wet!.getContext('2d')!, ws, doc.guides, tg, L.drawn ?? 0);
         redraw();
       }
@@ -2656,7 +2673,15 @@ export function App() {
       dotAt.current = s.pts.length <= 3 ? performance.now() : 0;
       // Déborder : l'encre sortie de la découpe la repousse, comme un modelage
       const l0 = doc.layers.find((x) => x.id === id);
+      if (L.branchFrame) {
+        // la dernière repeinture des ramures n'a pas eu lieu : l'aperçu doit situer toute l'encre
+        cancelAnimationFrame(L.branchFrame);
+        L.branchFrame = 0;
+        if (L.win && L.wtg) repaintBranch(L, L.wtg);
+      }
       const grown = L.win && L.wet && l0 && canSpill(s) ? growPatch({ ...l0, strokes: [...l0.strokes, s] }, f, inkRings(l0, f, s, doc.guides, scale * dpr, L.wet, L.win)) : {};
+      // le canevas du geste (jusqu'à 2048 px quand l'encre déborde) n'est plus montré : sa mémoire est rendue
+      if (L.wet) L.wet.width = L.wet.height = 0;
       update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, strokes: [...l.strokes, s], ...grown } : l)) }));
       return;
     }

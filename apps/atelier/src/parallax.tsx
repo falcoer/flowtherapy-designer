@@ -61,10 +61,21 @@ function buildPlates(doc: Doc, f: Format, r: number): Plate[] {
   drawLayers(base.ctx, { ...doc, layers: order.filter((l) => l.kind === 'surface') }, f, { scale: r, onImage: () => {} });
   drawLampTint(base.ctx, doc, f);
   const plates: Plate[] = [{ c: base.c, x: 0, y: 0, h: 0 }];
+  // deux canevas de brouillon à la taille de la page, réutilisés pour chaque couche puis rendus
+  // (un par couche gardait des centaines de Mo en vie sur iPad jusqu'au ramasse-miettes)
+  let scratch: ReturnType<typeof page> | null = null;
+  let scratchRel: ReturnType<typeof page> | null = null;
+  const fresh = (s: ReturnType<typeof page> | null) => {
+    if (!s) return page();
+    s.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    s.ctx.clearRect(0, 0, W, H);
+    s.ctx.setTransform(r, 0, 0, r, 0, 0);
+    return s;
+  };
   for (const l of order) {
     if (l.kind === 'surface') continue;
     // la couche seule, sans son ombre : l'ombre est posée à part, sur les plaques du dessous
-    const one = page();
+    const one = (scratch = fresh(scratch));
     drawLayers(one.ctx, { ...doc, layers: [{ ...l, height: 0, inner: 0, extrude: 0 }] }, f, { scale: r, onImage: () => {} });
     const b = crop(one.c);
     if (!b) continue;
@@ -74,7 +85,7 @@ function buildPlates(doc: Doc, f: Format, r: number): Plate[] {
     c.getContext('2d')!.drawImage(one.c, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
     const plate: Plate = { c, x: b.x, y: b.y, h: topOf(l), l };
     // dôme, cylindre, biseau… : la carte de hauteurs pour soulever le dessus en 3D
-    const rel = (l.bevel ?? 0) > 0.001 || (l.volume?.amount ?? 0) > 0.001 ? page() : null;
+    const rel = (l.bevel ?? 0) > 0.001 || (l.volume?.amount ?? 0) > 0.001 ? (scratchRel = fresh(scratchRel)) : null;
     const rh = rel ? drawRelief(rel.ctx, l, doc, f) : 0;
     if (rel && rh > 0) {
       const rc = document.createElement('canvas');
@@ -85,6 +96,7 @@ function buildPlates(doc: Doc, f: Format, r: number): Plate[] {
     }
     plates.push(plate);
   }
+  for (const s of [scratch, scratchRel]) if (s) s.c.width = s.c.height = 0;
   return plates;
 }
 
@@ -158,6 +170,29 @@ function thicknessOf(l: Layer): number {
 const EXTRUDE = 0.5;
 /** Hauteur du dessus d'une plaque. */
 const topOf = (l: Layer) => Math.max(0, levelOf(l)) + (l.extrude ?? 0) * EXTRUDE;
+
+/**
+ * Clé du contenu montré par la vue (sans les hauteurs, réglées en direct). Elle se calcule à chaque
+ * rendu (inclinaison, gyroscope : des dizaines de fois par seconde) : chaque couche garde la sienne
+ * tant qu'elle n'a pas changé, et ses traits (souvent l'essentiel du document) ne comptent que par leur identité.
+ */
+const layerKeys = new WeakMap<Layer, string>();
+const strokeIds = new WeakMap<object, number>();
+let strokeSeq = 0;
+function layerKey(l: Layer): string {
+  let k = layerKeys.get(l);
+  if (k === undefined) {
+    const { height: _h, inner: _i, strokes, ...rest } = l;
+    let sid = strokeIds.get(strokes);
+    if (sid === undefined) strokeIds.set(strokes, (sid = ++strokeSeq));
+    k = `${JSON.stringify(rest)}#${sid}`;
+    layerKeys.set(l, k);
+  }
+  return k;
+}
+function contentKeyOf(doc: Doc): string {
+  return `${doc.layers.map(layerKey).join('|')}|${JSON.stringify([doc.guides, doc.lamp, doc.light])}`;
+}
 
 /** Une plaque posée dans la vue : son image, ses tranches, et de quoi la retrouver sous le doigt. */
 interface Placed {
@@ -315,7 +350,7 @@ export function ParallaxView({
   }, []);
   // le contenu change pendant la vue (objet ajouté, retouché, peint) : on refait les plaques ;
   // la hauteur seule ne compte pas, elle se règle en direct
-  const contentKey = JSON.stringify([doc.layers.map(({ height: _h, inner: _i, ...rest }) => rest), doc.guides, doc.lamp, doc.light]);
+  const contentKey = contentKeyOf(doc);
   const builtKey = useRef(contentKey);
   useEffect(() => {
     if (busy || builtKey.current === contentKey) return;
@@ -326,6 +361,26 @@ export function ParallaxView({
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contentKey, busy]);
+
+  // Safari (iPad) reprend le contexte WebGL d'une page passée en arrière-plan : on le redemande,
+  // puis on refait les plaques quand il revient, au lieu de laisser la vue noire
+  useEffect(() => {
+    if (!useGl) return;
+    const c = glCanvas.current;
+    if (!c) return;
+    const lost = (e: Event) => {
+      e.preventDefault();
+      gl.current = null;
+    };
+    const restored = () => build(false);
+    c.addEventListener('webglcontextlost', lost);
+    c.addEventListener('webglcontextrestored', restored);
+    return () => {
+      c.removeEventListener('webglcontextlost', lost);
+      c.removeEventListener('webglcontextrestored', restored);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // WebGL : le canevas suit la taille de la vue ; l'image rejoint en douceur la vue demandée
   useEffect(() => {

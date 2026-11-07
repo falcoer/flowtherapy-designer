@@ -247,6 +247,27 @@ interface PaintCache {
   /** La peinture avant la dernière passe humide, et l'indice de son premier trait : la passe se refait d'un bloc quand un trait la rejoint. */
   before?: HTMLCanvasElement;
   from?: number;
+  /** Dernier usage (ms) : le moins récemment servi part en premier quand la mémoire manque. */
+  used: number;
+  /** Pixels par unité du format, repères de la clé, et point du repère d'origine de la couche sous le pixel (0, 0). */
+  k?: number;
+  guides?: string;
+  ox?: number;
+  oy?: number;
+  /** Taille de la boîte d'origine (avant modelage) : si elle change, la couche a été agrandie ou réduite. */
+  w0?: number;
+  h0?: number;
+}
+
+/**
+ * Coin de la boîte dans le repère d'origine de la couche (unités du format, sans rotation) : un modelage
+ * ou un débordement déplace ce coin, la peinture déjà posée reste au même endroit de ce repère.
+ */
+function boxOrigin(l: Layer, f: Format): { x: number; y: number; w0: number; h0: number } {
+  const b = layerBox(l, f);
+  const fr = l.molded?.frame ?? [0, 0, 1, 1];
+  const [w0, h0] = [b.w / (fr[2] - fr[0] || 1), b.h / (fr[3] - fr[1] || 1)];
+  return { x: fr[0] * w0, y: fr[1] * h0, w0, h0 };
 }
 /** Deux traits d'aquarelle consécutifs de la même passe humide se peignent ensemble. */
 const sameWash = (a: Stroke | undefined, b: Stroke | undefined) => !!a && !!b && a.wash !== undefined && a.wash === b.wash && (a.brush ?? 'aquarelle') === 'aquarelle' && (b.brush ?? 'aquarelle') === 'aquarelle';
@@ -257,6 +278,52 @@ const sameWash = (a: Stroke | undefined, b: Stroke | undefined) => !!a && !!b &&
  */
 const paints = new Map<string, PaintCache[]>();
 const PAINT_SIZES = 3;
+/**
+ * Mémoire des peintures en cache, toutes couches confondues (octets RGBA). Safari sur iPad
+ * plafonne la mémoire de tous les canevas de la page : au-delà, des canevas restent blancs.
+ * Les peintures les moins récemment servies sont lâchées d'abord (refaites au besoin) ; celles
+ * servies il y a moins de PAINT_KEEP ms restent, pour ne jamais repeindre l'écran en boucle.
+ */
+const PAINT_BUDGET = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0 ? 200e6 : 600e6;
+const PAINT_KEEP = 2000;
+const bytesOf = (c: HTMLCanvasElement | undefined) => (c ? c.width * c.height * 4 : 0);
+/** Rend la mémoire d'un canevas tout de suite (Safari la garde sinon jusqu'au ramasse-miettes). */
+const release = (c: HTMLCanvasElement | undefined) => {
+  if (c) c.width = c.height = 0;
+};
+
+/** Tient le cache dans son budget, sans toucher à la peinture `keep` qu'on est en train de servir. */
+function trimPaints(keep: PaintCache) {
+  const now = performance.now();
+  const all: Array<{ id: string; c: PaintCache }> = [];
+  let total = 0;
+  for (const [id, list] of paints)
+    for (const c of list) {
+      all.push({ id, c });
+      total += bytesOf(c.canvas) + bytesOf(c.before);
+    }
+  if (total <= PAINT_BUDGET) return;
+  all.sort((a, b) => a.c.used - b.c.used);
+  // d'abord les copies « avant la passe » des autres peintures (une passe qui les rejoint se refait), puis les peintures
+  for (const { c } of all) {
+    if (total <= PAINT_BUDGET) return;
+    if (c === keep || !c.before || now - c.used < PAINT_KEEP) continue;
+    total -= bytesOf(c.before);
+    release(c.before);
+    c.before = undefined;
+    c.from = undefined;
+  }
+  for (const { id, c } of all) {
+    if (total <= PAINT_BUDGET) return;
+    if (c === keep || now - c.used < PAINT_KEEP) continue;
+    total -= bytesOf(c.canvas) + bytesOf(c.before);
+    release(c.canvas);
+    release(c.before);
+    const list = paints.get(id)!;
+    list.splice(list.indexOf(c), 1);
+    if (!list.length) paints.delete(id);
+  }
+}
 
 export function paintTarget(l: Layer, f: Format, pxPerUnit: number): Target {
   const b = layerBox(l, f);
@@ -271,23 +338,58 @@ export function paintFor(l: Layer, doc: Doc, f: Format, pxPerUnit: number): HTML
   if (!l.strokes.length) return null;
   const t = paintTarget(l, f, pxPerUnit);
   // cadre du modelage : quand il change, les points de la peinture ont été repris dans la nouvelle boîte
-  const key = `${t.pw}x${t.ph}:${l.molded?.frame.join(',') ?? ''}:${JSON.stringify(doc.guides)}`;
+  const guides = JSON.stringify(doc.guides);
+  const key = `${t.pw}x${t.ph}:${l.molded?.frame.join(',') ?? ''}:${guides}`;
+  const k = t.pxPerMin / Math.min(f.width, f.height);
+  const o = boxOrigin(l, f);
   const list = paints.get(l.id) ?? [];
   paints.set(l.id, list);
   const at = list.findIndex((x) => x.key === key);
   let c = at >= 0 ? list.splice(at, 1)[0]! : undefined;
+  // la boîte vient de changer (modelage, débordement) à la même résolution : la peinture déjà posée
+  // est reprise telle quelle, décalée d'un nombre entier de pixels, et seuls les nouveaux traits se peignent
+  const near = (a: number | undefined, b: number) => a !== undefined && Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b));
+  const moved = !c ? list.find((x) => x.k === k && x.guides === guides && x.ox !== undefined && x.done <= l.strokes.length && near(x.w0, o.w0) && near(x.h0, o.h0)) : undefined;
+  if (moved) {
+    const dx = Math.round((moved.ox! - o.x) * k);
+    const dy = Math.round((moved.oy! - o.y) * k);
+    const shift = (src: HTMLCanvasElement, dst?: HTMLCanvasElement) => {
+      const out = dst ?? document.createElement('canvas');
+      out.width = t.pw;
+      out.height = t.ph;
+      out.getContext('2d')!.drawImage(src, dx, dy);
+      return out;
+    };
+    const canvas = shift(moved.canvas);
+    const before = moved.before ? shift(moved.before) : undefined;
+    // l'ancienne taille n'est plus montrée : sa mémoire est rendue
+    list.splice(list.indexOf(moved), 1);
+    release(moved.canvas);
+    release(moved.before);
+    c = { canvas, key, done: moved.done, used: 0, before, from: before ? moved.from : undefined, k, guides, ox: moved.ox! - dx / k, oy: moved.oy! - dy / k, w0: o.w0, h0: o.h0 };
+  }
   if (!c || c.done > l.strokes.length) {
     // nouvelle taille : on reprend le canevas de la plus ancienne quand il y en a assez
     const canvas = c?.canvas ?? (list.length >= PAINT_SIZES ? list.pop()!.canvas : document.createElement('canvas'));
     canvas.width = t.pw;
     canvas.height = t.ph;
-    c = { canvas, key, done: 0 };
+    release(c?.before);
+    c = { canvas, key, done: 0, used: 0, k, guides, ox: o.x, oy: o.y, w0: o.w0, h0: o.h0 };
   }
+  c.used = performance.now();
   list.unshift(c);
   const ctx = c.canvas.getContext('2d')!;
   const S = l.strokes;
   while (c.done < S.length) {
     let i = c.done;
+    if (i > 0 && sameWash(S[i - 1], S[i]) && !c.before) {
+      // la copie d'avant la passe a été lâchée (mémoire) : on repeint la couche depuis le début
+      ctx.clearRect(0, 0, c.canvas.width, c.canvas.height);
+      c.done = 0;
+      c.ox = o.x;
+      c.oy = o.y;
+      continue;
+    }
     if (i > 0 && sameWash(S[i - 1], S[i]) && c.before && c.from !== undefined) {
       // le trait rejoint la passe encore humide : on repart d'avant la passe et on la refait entière
       i = c.from;
@@ -308,12 +410,25 @@ export function paintFor(l: Layer, doc: Doc, f: Format, pxPerUnit: number): HTML
     else paintStroke(ctx, S[i]!, doc.guides, t);
     c.done = j;
   }
+  trimPaints(c);
   return c.canvas;
 }
 
 export function forgetPaint(id?: string) {
-  if (id) paints.delete(id);
-  else paints.clear();
+  for (const [k, list] of paints) {
+    if (id && k !== id) continue;
+    for (const c of list) {
+      release(c.canvas);
+      release(c.before);
+    }
+    paints.delete(k);
+  }
+}
+
+/** Lâche la peinture des couches qui ne sont plus dans le document (supprimées, document changé). */
+export function prunePaints(ids: Iterable<string>) {
+  const keep = new Set(ids);
+  for (const k of [...paints.keys()]) if (!keep.has(k)) forgetPaint(k);
 }
 
 /** La lampe du document ; les anciens documents n'ont qu'une direction : lampe posée dans cette direction. */
