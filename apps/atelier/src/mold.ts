@@ -1,5 +1,5 @@
 import type { Format } from '@ftd/core';
-import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
+import { geomArea, pathToRings, ringsOfGeom, ringsToPath, simplifyRing, subtract, union, type Ring } from './cut';
 import type { Layer } from './model';
 import { cutOf } from './scene';
 import { moldPx, type Mold } from './text';
@@ -59,11 +59,20 @@ function rebox(l: Layer, f: Format, a: Frame, b: Frame) {
 export function moldPatch(l: Layer, f: Format, base: Ring[], pristine: Ring[], m: Mold): Partial<Layer> {
   const { fr, KX, KY } = space(l);
   let rings = moldPx(base, m, pristine);
-  const keep = l.kind === 'photo';
-  if (keep) {
+  if (l.kind === 'photo') {
     const [x0, y0, x1, y1] = [fr[0] * KX, fr[1] * KY, fr[2] * KX, fr[3] * KY];
     rings = rings.map((r) => r.map((p) => ({ x: Math.max(x0, Math.min(x1, p.x)), y: Math.max(y0, Math.min(y1, p.y)) })));
   }
+  return bake(l, f, rings, m.live ? 0.6 : 0.35);
+}
+
+/**
+ * Pose des contours (pixels de travail) comme nouvelle découpe : la boîte suit leur emprise et la
+ * peinture reste en place sur la page (ses points sont repris dans la nouvelle boîte).
+ */
+function bake(l: Layer, f: Format, rings: Ring[], eps: number): Partial<Layer> {
+  const { fr, KX, KY } = space(l);
+  const keep = l.kind === 'photo';
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
   for (const r of rings)
     for (const p of r) {
@@ -75,12 +84,45 @@ export function moldPatch(l: Layer, f: Format, base: Ring[], pristine: Ring[], m
   if (!isFinite(x0)) return {};
   const b: Frame = keep ? fr : [x0 / KX, y0 / KY, x1 / KX, y1 / KY];
   const [bw, bh] = [(b[2] - b[0]) * KX || 1, (b[3] - b[1]) * KY || 1];
-  const norm = rings.map((r) => simplifyRing(r, m.live ? 0.6 : 0.35).map((p) => ({ x: (p.x - b[0] * KX) / bw, y: (p.y - b[1] * KY) / bh })));
-  return { cut: ringsToPath(norm, 1e-6, 55, false), molded: { cut: l.molded ? l.molded.cut : l.cut, frame: b }, ...(keep ? {} : rebox(l, f, fr, b)) };
+  const norm = rings.map((r) => simplifyRing(r, eps).map((p) => ({ x: (p.x - b[0] * KX) / bw, y: (p.y - b[1] * KY) / bh })));
+  return { cut: ringsToPath(norm, 1e-6, 55, false), molded: { cut: l.molded ? l.molded.cut : l.cut, frame: b }, ...(keep ? {} : { ...rebox(l, f, fr, b), strokes: restroke(l, fr, b) }) };
+}
+
+/** Points de peinture du cadre `a` vers le cadre `b` (repère d'origine) : la peinture ne bouge pas sur la page. */
+function restroke(l: Layer, a: Frame, b: Frame) {
+  if (a.every((v, i) => v === b[i])) return l.strokes;
+  const [sx, sy] = [(a[2] - a[0]) / (b[2] - b[0] || 1), (a[3] - a[1]) / (b[3] - b[1] || 1)];
+  const [ox, oy] = [(a[0] - b[0]) / (b[2] - b[0] || 1), (a[1] - b[1]) / (b[3] - b[1] || 1)];
+  return l.strokes.map((s) => ({ ...s, pts: s.pts.map((p) => ({ ...p, x: ox + p.x * sx, y: oy + p.y * sy })) }));
+}
+
+/**
+ * Déborder : l'encre d'un tampon, des poils ou des ramures sort de la découpe et la repousse.
+ * `ink` : contours de l'encre dans la boîte actuelle (0..1, ils peuvent en sortir). La découpe
+ * devient leur union avec l'ancienne, comme un modelage (« Revenir à la forme » la rend).
+ */
+export function growPatch(l: Layer, f: Format, ink: Ring[]): Partial<Layer> {
+  const { fr, KX, KY } = space(l);
+  const px = ink.map((r) => r.map((p) => ({ x: (fr[0] + p.x * (fr[2] - fr[0])) * KX, y: (fr[1] + p.y * (fr[3] - fr[1])) * KY })));
+  if (!px.length) return {};
+  const base = currentPx(l);
+  let rings: Ring[];
+  try {
+    // encre restée dans la découpe : rien à repousser (un texte reste un texte)
+    if (geomArea(subtract(px, base)) < 4) return {};
+    rings = ringsOfGeom(union(base, px));
+  } catch {
+    return {};
+  }
+  if (l.kind === 'photo') {
+    const [x0, y0, x1, y1] = [fr[0] * KX, fr[1] * KY, fr[2] * KX, fr[3] * KY];
+    rings = rings.map((r) => r.map((p) => ({ x: Math.max(x0, Math.min(x1, p.x)), y: Math.max(y0, Math.min(y1, p.y)) })));
+  }
+  return bake(l, f, rings, 0.35);
 }
 
 /** Retour à la forme, au texte ou au cadre d'avant le modelage, à la même place. */
 export function unmoldPatch(l: Layer, f: Format): Partial<Layer> {
   if (!l.molded) return {};
-  return { cut: l.molded.cut, molded: undefined, ...rebox(l, f, l.molded.frame, NONE) };
+  return { cut: l.molded.cut, molded: undefined, ...(l.kind === 'photo' ? {} : { ...rebox(l, f, l.molded.frame, NONE), strokes: restroke(l, l.molded.frame, NONE) }) };
 }
