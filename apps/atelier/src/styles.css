@@ -961,3 +961,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .pf-marks { display: flex; flex-direction: column; gap: 4px; width: 100%; }
 .pf-marks-title { font-size: 11px; font-weight: 600; color: var(--muted); margin-top: 4px; }
 .pf-reset { align-self: flex-start; font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
+/* bulles posées à gauche : à côté des barres de gauche (réglages d'outil, Hauteur), jamais dessous */
+.atelier .format-bubble, .atelier .anchor-bubble, .atelier .projects-bubble { left: max(10px, env(safe-area-inset-left, 0px), var(--bubble-left, 0px)); }
+.atelier .format-bubble, .atelier .anchor-bubble { width: min(290px, calc(100vw - max(10px, var(--bubble-left, 0px)) - 10px)); }
+.atelier .projects-bubble { width: min(360px, calc(100vw - max(10px, var(--bubble-left, 0px)) - 10px)); }
