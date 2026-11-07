@@ -1,6 +1,7 @@
 import { FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format } from '@ftd/core';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive } from './brush';
+import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive, type Target } from './brush';
+import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
 import { STAMPS, stampOf, stampSvg } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
@@ -9,8 +10,8 @@ import { BrushWheel } from './wheel';
 import { ParallaxView } from './parallax';
 import { kitFromSvg, nearestOf, SAME_COLOR, type Kit } from './kits';
 import { KITS } from './kit-samples';
-import { blankBump, bumpHeights, dab, encodeBump, smoothBump } from './bump';
-import { currentPx, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
+import { blankBump, bumpHeights, dab, encodeBump, heightUnder, smoothBump } from './bump';
+import { currentPx, growPatch, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
 import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
 import { QuickText, TextBar, type SwashTool } from './textbar';
 import { PaletteEditor } from './colorpicker';
@@ -229,6 +230,51 @@ const MOLD_MODES = [
     ),
   },
 ];
+type TipKind = 'round' | 'flat' | 'triangle';
+/** Pointe du mode de modelage en cours, et son angle à l'écran : chaque mode garde la sienne (Plume : plate, bec à 45°). */
+const moldTip = (s: SwashTool): { tip: TipKind; rot: number } =>
+  s.mode === 'orn' ? { tip: s.ornTip ?? 'flat', rot: s.ornRot ?? -Math.PI / 4 } : s.mode === 'relief' ? { tip: s.reliefTip ?? 'round', rot: s.reliefRot ?? 0 } : { tip: s.tip ?? 'round', rot: s.rot ?? 0 };
+const withMoldTip = (s: SwashTool, t: { tip?: TipKind; rot?: number }): SwashTool => {
+  const [tk, rk] = s.mode === 'orn' ? (['ornTip', 'ornRot'] as const) : s.mode === 'relief' ? (['reliefTip', 'reliefRot'] as const) : (['tip', 'rot'] as const);
+  return { ...s, ...(t.tip ? { [tk]: t.tip } : {}), ...(t.rot !== undefined ? { [rk]: t.rot } : {}) };
+};
+/** Relief : bosser, creuser, niveler. */
+const SCULPT_MODES = [
+  {
+    key: 'raise',
+    label: 'Bosser',
+    hint: 'la pointe soulève la surface',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 16c4 0 5-7 9-7s5 7 9 7" />
+        <path d="M12 20v-6m-2.5 2.5L12 14l2.5 2.5" />
+      </svg>
+    ),
+  },
+  {
+    key: 'dig',
+    label: 'Creuser',
+    hint: 'la pointe enfonce la surface',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 9c4 0 5 7 9 7s5-7 9-7" />
+        <path d="M12 4v6m-2.5-2.5L12 10l2.5-2.5" />
+      </svg>
+    ),
+  },
+  {
+    key: 'level',
+    label: 'Niveler',
+    hint: 'aplanit bosses et creux à la hauteur où le geste commence',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 13h4c1 0 1.5-3 3-3h4c1.5 0 2 6 3.5 6S19 13 21 13" strokeDasharray="2 2" opacity="0.6" />
+        <path d="M3 13h18" />
+        <path d="M12 4v5m-2.5-2.5L12 9l2.5-2.5M12 20v-3.5" />
+      </svg>
+    ),
+  },
+] as const;
 const BRUSHES: Array<[BrushKind, string, string]> = [
   ['aquarelle', 'Aquarelle', 'lavis transparent'],
   ['acrylic', 'Acrylique pinceau', 'pâte couvrante striée'],
@@ -622,6 +668,8 @@ export function App() {
   /** Semis : le cadran Inclinaison de la roue règle la force de la perspective (le sens varie d'une copie à l'autre). */
   const [sowPad, setSowPad] = useState<[number, number]>([0.21, -0.21]);
   const [stampFilled, setStampFilled] = useState(false);
+  /** Déborder : tampons, poils et ramures sortent de la forme et repoussent sa découpe. */
+  const [spill, setSpill] = useState(false);
   /** Rotation du tampon (radians), fixée au curseur : Safari ne transmet pas la rotation du crayon. */
   const [stampRot, setStampRot] = useState(0);
   /** Inclinaison réglée à la main (sans stylet) : le tampon se met en perspective dans cette direction. */
@@ -1015,7 +1063,7 @@ export function App() {
   const live = useRef<{
     kind: 'paint' | 'cut' | 'subject' | 'move' | 'resize' | 'rotate' | 'pivot' | 'view' | 'swash' | 'mold' | 'bump' | null;
     /** Relief en cours de sculpture : hauteurs de travail et dernière touche (pixels de la carte). */
-    bump?: { w: number; h: number; H: Float32Array; at: [number, number] };
+    bump?: { w: number; h: number; H: Float32Array; at: [number, number]; level?: number };
     /** Outil Modeler : découpe de départ et découpe d'origine, en pixels de travail. */
     base?: Ring[];
     pristine?: Ring[];
@@ -1033,6 +1081,9 @@ export function App() {
     layer?: string;
     stroke?: Stroke;
     wet?: HTMLCanvasElement;
+    /** Encre qui déborde : fenêtre du canevas humide dans la boîte de la couche, et sa cible de peinture. */
+    win?: Win;
+    wtg?: Target;
     drawn?: number;
     /** Semis de tampons en cours : la silhouette des empreintes déjà posées. */
     ink?: InkLive;
@@ -1155,7 +1206,7 @@ export function App() {
       scale: scale * dpr,
       rot: view.rot,
       onImage: redraw,
-      wet: L.kind === 'paint' && L.wet && L.layer ? { id: L.layer, canvas: L.wet } : undefined,
+      wet: L.kind === 'paint' && L.wet && L.layer ? { id: L.layer, canvas: L.wet, win: L.win } : undefined,
       burning: L.kind === 'paint' && L.stroke?.brush === 'burn' && L.layer ? { id: L.layer, stroke: L.stroke } : undefined,
     });
     drawLampTint(ctx, doc, f);
@@ -1802,7 +1853,9 @@ export function App() {
         const cur = target.bump ? { w: target.bump.w, h: target.bump.h, H: bumpHeights(target.bump).slice() } : blankBump(bb.w, bb.h);
         update((d) => d);
         const at: [number, number] = [loc.x * cur.w, loc.y * cur.h];
-        live.current = { kind: 'bump', layer: target.id, orig: target, bump: { ...cur, at }, last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pressure(e, null) } };
+        // Niveler garde la hauteur trouvée sous la pointe au départ du geste
+        const level = swash.sculpt === 'level' ? heightUnder(cur.H, cur.w, cur.h, at[0], at[1], reliefRadius(target, cur.w), reliefTip(target)) : undefined;
+        live.current = { kind: 'bump', layer: target.id, orig: target, bump: { ...cur, at, level }, last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pressure(e, null) } };
         sculpt(at, pressure(e, null));
         return;
       }
@@ -1818,7 +1871,7 @@ export function App() {
         pristine: pristinePx(target),
         mold:
           swash.mode === 'orn'
-            ? { pts: [], r: 0, orn: { pts: [[x, y, pr]], w: (swash.w ?? (target.text ? swashWidth(target.text.weight) * 0.8 : 0.08)) * U, end: 'fine', nib: -Math.PI / 4 } }
+            ? { pts: [], r: 0, orn: { pts: [[x, y, pr]], w: (swash.w ?? (target.text ? swashWidth(target.text.weight) * 0.8 : 0.08)) * U, end: 'fine', ...ornNib(target) } }
             : { pts: [[x, y]], r: swash.r * U, k: swash.k ?? 1, ...(swash.tip && swash.tip !== 'round' ? { tip: swash.tip, rot: (swash.rot ?? 0) - view.rot - (target.rot ?? 0) } : {}) },
         last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
       };
@@ -1844,7 +1897,7 @@ export function App() {
                   pts: [[...swashPoint(sel.text, loc.x, loc.y), pr] as [number, number, number]],
                   w: swash.w ?? swashWidth(sel.text.weight) * 0.8,
                   end: 'fine',
-                  nib: -Math.PI / 4,
+                  ...ornNib(sel),
                 },
               },
             }
@@ -1955,19 +2008,25 @@ export function App() {
       return;
     }
     // peinture : dans la couche sélectionnée, sinon celle sous le stylet
-    const target = sel && insideRings(maskRings(sel, f), p.x, p.y) ? sel : layerAt(p.x, p.y);
+    const under = layerAt(p.x, p.y);
+    // Déborder : parti du fond tout près, le trait reste à l'objet choisi
+    const spills = spill && (t === 'stamp' || brushKind === 'hair' || brushKind === 'branch');
+    const target = sel && insideRings(maskRings(sel, f), p.x, p.y) ? sel : spills && sel && sel.kind !== 'surface' && (!under || under.kind === 'surface') ? sel : under;
     if (!target) return;
     if (target.id !== selected) setSelected(target.id);
-    const tg = paintTarget(target, f, scale * dpr);
+    const sw = spills && target.kind !== 'surface' ? spillWindow(target, f, scale * dpr) : null;
+    const tg = sw?.t ?? paintTarget(target, f, scale * dpr);
     const wet = document.createElement('canvas');
     wet.width = tg.pw;
     wet.height = tg.ph;
+    const wetOf = (s: Stroke) => (sw ? inWin(s, sw.win) : s);
     const pr = pressure(e, null);
     const q = toLocal(target, p.x, p.y);
     live.current = {
       kind: 'paint',
       layer: target.id,
       wet,
+      ...(sw ? { win: sw.win, wtg: sw.t } : {}),
       drawn: 0,
       last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pr },
       stroke:
@@ -2010,7 +2069,7 @@ export function App() {
         L0.stroke.grow = Math.min(1, (brushKind === 'burn' ? 0.15 : 0.12) + (performance.now() - t0) / (brushKind === 'burn' ? 2200 : 1400));
         const wx = wet.getContext('2d')!;
         wx.clearRect(0, 0, wet.width, wet.height);
-        paintStroke(wx, L0.stroke, doc.guides, tg);
+        paintStroke(wx, wetOf(L0.stroke), doc.guides, tg);
         redraw();
         if (L0.stroke.grow < 1) growTimer.current = requestAnimationFrame(tick);
       };
@@ -2019,7 +2078,7 @@ export function App() {
     }
     // le tampon s'imprime dès le contact
     if (t === 'stamp') {
-      paintStroke(wet.getContext('2d')!, live.current.stroke!, doc.guides, tg);
+      paintStroke(wet.getContext('2d')!, wetOf(live.current.stroke!), doc.guides, tg);
       redraw();
     }
   };
@@ -2108,9 +2167,9 @@ export function App() {
       6,
       tool === 'mold' ? (swash.mode === 'orn' ? (swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) : swash.r * 2) * MOLD_UNIT * m : tool === 'stamp' ? stampSize * 2 * m : size * 2 * m,
     );
-    const tip = tool === 'paint' && tipOn(brushKind) ? brushTip : tool === 'mold' && swash.mode === 'mold' ? (swash.tip ?? 'round') : 'round';
+    const tip = tool === 'paint' && tipOn(brushKind) ? brushTip : tool === 'mold' ? moldTip(swash).tip : 'round';
     const H = tip === 'flat' ? Math.max(3, D * 0.3) : D;
-    const ang = tool === 'stamp' ? stampRot : tool === 'mold' && swash.mode === 'mold' ? (swash.rot ?? 0) : tip !== 'round' ? brushRot : 0;
+    const ang = tool === 'stamp' ? stampRot : tool === 'mold' ? moldTip(swash).rot : tip !== 'round' ? brushRot : 0;
     el.dataset.tip = tip;
     el.style.display = 'block';
     el.style.width = `${D}px`;
@@ -2149,11 +2208,11 @@ export function App() {
     el.style.display = 'block';
     const D = Math.max(6, d);
     // brosse plate ou triangle : la silhouette de la touche, tournée comme elle peindra
-    const tip = molding && swash.mode === 'mold' ? (swash.tip ?? 'round') : !shaping && !molding && tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
+    const tip = molding ? moldTip(swash).tip : shaping && swash.mode === 'orn' ? moldTip(swash).tip : !shaping && tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
     el.dataset.tip = tip;
     el.style.width = `${D}px`;
     el.style.height = `${tip === 'flat' ? Math.max(3, D * 0.3) : D}px`;
-    const ang = tool === 'stamp' ? stampScreenAngle(e) : molding && tip !== 'round' ? (swash.rot ?? 0) : tip !== 'round' ? brushRot + penTwist(e) : view.rot;
+    const ang = tool === 'stamp' ? stampScreenAngle(e) : (molding || shaping) && tip !== 'round' ? moldTip(swash).rot : tip !== 'round' ? brushRot + penTwist(e) : view.rot;
     // pinceau penché à la main : le repère s'allonge comme la touche
     const kb = tool === 'paint' && !shaping && leanOn(brushKind) ? Math.min(0.9, Math.hypot(brushTilt[0], brushTilt[1]) * 0.9) : 0;
     const db = Math.atan2(brushTilt[1], brushTilt[0]);
@@ -2316,13 +2375,14 @@ export function App() {
       }
       // rien de nouveau sous la pointe : on ne repeint pas
       if (L.stroke.pts.length !== had) {
-        const tg = paintTarget(l, f, scale * dpr);
-        if (stamping) L.ink = previewStampInk(L.wet!.getContext('2d')!, L.stroke, doc.guides, tg, L.ink);
+        const tg = L.wtg ?? paintTarget(l, f, scale * dpr);
+        const ws = L.win ? inWin(L.stroke, L.win) : L.stroke;
+        if (stamping) L.ink = previewStampInk(L.wet!.getContext('2d')!, ws, doc.guides, tg, L.ink);
         else if (branching) {
           const wx = L.wet!.getContext('2d')!;
           wx.clearRect(0, 0, L.wet!.width, L.wet!.height);
-          paintStroke(wx, L.stroke, doc.guides, tg);
-        } else L.drawn = previewStamps(L.wet!.getContext('2d')!, L.stroke, doc.guides, tg, L.drawn ?? 0);
+          paintStroke(wx, ws, doc.guides, tg);
+        } else L.drawn = previewStamps(L.wet!.getContext('2d')!, ws, doc.guides, tg, L.drawn ?? 0);
         redraw();
       }
     } else if (L.kind === 'subject' && L.lasso) {
@@ -2594,7 +2654,10 @@ export function App() {
       // le papier reste mouillé à partir du dernier trait posé
       if (s.wash !== undefined && wetPass.current?.id === s.wash) wetPass.current.at = Date.now();
       dotAt.current = s.pts.length <= 3 ? performance.now() : 0;
-      update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, strokes: [...l.strokes, s] } : l)) }));
+      // Déborder : l'encre sortie de la découpe la repousse, comme un modelage
+      const l0 = doc.layers.find((x) => x.id === id);
+      const grown = L.win && L.wet && l0 && canSpill(s) ? growPatch({ ...l0, strokes: [...l0.strokes, s] }, f, inkRings(l0, f, s, doc.guides, scale * dpr, L.wet, L.win)) : {};
+      update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, strokes: [...l.strokes, s], ...grown } : l)) }));
       return;
     }
     if (L.kind === 'subject' && L.lasso) {
@@ -3203,18 +3266,31 @@ export function App() {
     }
   }, [swash.on, swash.mode]);
   /** Pose le modelage en cours sur la découpe (en direct pendant le geste). */
+  /** Relief : rayon de la pointe en pixels de la carte, le même que le repère qui suit le stylet (swash.r unités de modelage). */
+  const reliefRadius = (l: Layer, mapW: number) => (swash.r * MOLD_UNIT * Math.min(f.width, f.height) * mapW) / layerBox(l, f).w;
+  /** Relief : forme de la pointe, tournée dans le repère de la carte (celui de l'objet). */
+  const reliefTip = (l: Layer) => {
+    const { tip, rot } = moldTip(swash);
+    return tip === 'round' ? {} : { tip, rot: rot - view.rot - (l.rot ?? 0) };
+  };
+  /** Plume : la pointe choisie et son angle dans le repère de l'objet (ronde : un trait égal). */
+  const ornNib = (l: Layer) => {
+    const { tip, rot } = moldTip(swash);
+    return tip === 'round' ? {} : { tip, nib: rot - view.rot - (l.rot ?? 0) };
+  };
   /** Relief : touches de sculpteur le long du geste, de la dernière touche jusqu'à `to` (pixels de la carte). */
   const sculpt = (to: [number, number], pr: number) => {
     const L = live.current;
     if (L.kind !== 'bump' || !L.bump || !L.orig) return;
-    const bb = layerBox(L.orig, f);
     const B = L.bump;
-    // même rayon que le rond qui suit la pointe : swash.r unités de modelage
-    const rad = (swash.r * MOLD_UNIT * Math.min(f.width, f.height) * B.w) / bb.w;
-    const k = (swash.dig ? -1 : 1) * 0.06 * (swash.k ?? 1) * (0.4 + 0.8 * pr);
+    const rad = reliefRadius(L.orig, B.w);
+    const t = reliefTip(L.orig);
+    const force = (swash.k ?? 1) * (0.4 + 0.8 * pr);
+    // Niveler : chaque touche fait une part du chemin vers la hauteur gardée
+    const k = B.level !== undefined ? 0.2 * force : (swash.sculpt === 'dig' ? -1 : 1) * 0.06 * force;
     const [x0, y0] = B.at;
     const n = Math.max(1, Math.ceil(Math.hypot(to[0] - x0, to[1] - y0) / Math.max(1, rad * 0.25)));
-    for (let i = 1; i <= n; i++) dab(B.H, B.w, B.h, x0 + ((to[0] - x0) * i) / n, y0 + ((to[1] - y0) * i) / n, rad, k);
+    for (let i = 1; i <= n; i++) dab(B.H, B.w, B.h, x0 + ((to[0] - x0) * i) / n, y0 + ((to[1] - y0) * i) / n, rad, k, t, B.level);
     B.at = to;
     if (!swashFrame.current)
       swashFrame.current = requestAnimationFrame(() => {
@@ -3247,6 +3323,11 @@ export function App() {
   const smoothMold = (l: Layer) => {
     if (!l.molded) return;
     patchLayer(l.id, moldPatch(l, f, currentPx(l), pristinePx(l), { pts: [], r: 0, smooth: 0.035 * unitPx(l) }), true);
+  };
+  const toggleSpill = () => {
+    setSpill(!spill);
+    setToast(spill ? 'L’encre reste dans la forme' : 'Déborder : l’encre sort de la forme et repousse son contour (« Revenir à la forme » pour l’annuler)');
+    setToastUndo(false);
   };
   const unmold = (l: Layer) => {
     if (!l.molded) return;
@@ -3801,6 +3882,11 @@ export function App() {
                   >
                     <Icon name="paint-reset" />
                   </button>
+                  {(brushKind === 'hair' || brushKind === 'branch') && (
+                    <button className={`btn small ${spill ? 'on' : ''}`} onClick={toggleSpill} title={spill ? 'Déborder : l’encre sort de la forme et repousse son contour, comme le modelage (« Revenir à la forme » le rend). Toucher pour rester dans la forme' : 'Dans la forme : l’encre reste dans la découpe. Toucher pour la laisser déborder et repousser le contour'}>
+                      <Icon name="spill" />
+                    </button>
+                  )}
                   {brushKind === 'aquarelle' && (
                     <>
                       <button
@@ -3864,16 +3950,13 @@ export function App() {
                       >
                         <Icon name="paint-reset" />
                       </button>
-                      <button
-                        className={`btn small ${swash.dig ? 'on' : ''}`}
-                        onClick={() => setSwash({ ...swash, dig: !swash.dig })}
-                        title={swash.dig ? 'Creuser : la pointe enfonce la surface (toucher pour bosser)' : 'Bosser : la pointe soulève la surface (toucher pour creuser)'}
-                      >
-                        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                          {swash.dig ? <path d="M3 9c4 0 5 7 9 7s5-7 9-7" /> : <path d="M3 16c4 0 5-7 9-7s5 7 9 7" />}
-                          <path d={swash.dig ? 'M12 4v6m-2.5-2.5L12 10l2.5-2.5' : 'M12 20v-6m-2.5 2.5L12 14l2.5 2.5'} />
-                        </svg>
-                      </button>
+                      <FanButton
+                        dir={lefty ? 'left' : 'right'}
+                        face={SCULPT_MODES.find((m) => m.key === (swash.sculpt ?? 'raise'))!.icon}
+                        title={`Relief : ${SCULPT_MODES.find((m) => m.key === (swash.sculpt ?? 'raise'))!.label} (toucher pour changer)`}
+                        items={SCULPT_MODES.map((m) => ({ ...m, on: (swash.sculpt ?? 'raise') === m.key }))}
+                        onPick={(k) => setSwash({ ...swash, sculpt: k as 'raise' | 'dig' | 'level' })}
+                      />
                       <button className="btn small" disabled={!sel?.bump} onClick={() => sel && smoothRelief(sel)} title="Lisser le relief (à répéter pour lisser plus)">
                         <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M3 16c2-1 2.5-3 4-3s2 2.5 3.5 2.5S12 12 13.5 12 15 14 16.5 14" strokeDasharray="2 2" />
@@ -3916,6 +3999,9 @@ export function App() {
                   <button className={`btn small ${stampFilled ? 'on' : ''}`} onClick={() => setStampFilled(!stampFilled)} title="Motif rempli : ses formes prennent le dégradé du guide">
                     <Icon name="stamp-fill" />
                   </button>
+                  <button className={`btn small ${spill ? 'on' : ''}`} onClick={toggleSpill} title={spill ? 'Déborder : l’encre sort de la forme et repousse son contour, comme le modelage (« Revenir à la forme » le rend). Toucher pour rester dans la forme' : 'Dans la forme : l’encre reste dans la découpe. Toucher pour la laisser déborder et repousser le contour'}>
+                      <Icon name="spill" />
+                    </button>
                   {stampSow && (
                     <>
                       <VSlider label="Densité" value={sowDensity} onChange={(v) => setSowDensity(Math.round(v * 100) / 100)} />
@@ -4062,7 +4148,9 @@ export function App() {
                       size={((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) - 0.01) / 0.29}
                       sizeText={`${Math.round((swash.w ?? (sel?.text ? swashWidth(sel.text.weight) * 0.8 : 0.08)) * 100)}`}
                       onSize={(v) => setSwash({ ...swash, w: 0.01 + v * 0.29 })}
-                      pick={{ face: <Icon name="tip-round" />, title: 'Plume : un trait plein et délié' }}
+                      tip={moldTip(swash).tip}
+                      pick={tipPick(moldTip(swash).tip, (tip) => setSwash(withMoldTip(swash, { tip })))}
+                      {...(moldTip(swash).tip !== 'round' ? { rotation: moldTip(swash).rot, onRotation: (rot: number) => setSwash(withMoldTip(swash, { rot })) } : {})}
                       onSizing={(on) => setSizing(on ? 'on' : 'after')}
                     />
                   ) : (
@@ -4077,9 +4165,9 @@ export function App() {
                       onSizing={(on) => setSizing(on ? 'on' : 'after')}
                       intensity={swash.k ?? 1}
                       onIntensity={(v) => setSwash({ ...swash, k: Math.max(0.05, v) })}
-                      tip={swash.mode === 'relief' ? 'round' : (swash.tip ?? 'round')}
-                      pick={swash.mode === 'relief' ? { face: <Icon name="tip-round" />, title: 'Relief : pointe ronde, en cloche' } : tipPick(swash.tip ?? 'round', (tip) => setSwash({ ...swash, tip }))}
-                      {...(swash.mode !== 'relief' && (swash.tip ?? 'round') !== 'round' ? { rotation: swash.rot ?? 0, onRotation: (rot: number) => setSwash({ ...swash, rot }) } : {})}
+                      tip={moldTip(swash).tip}
+                      pick={tipPick(moldTip(swash).tip, (tip) => setSwash(withMoldTip(swash, { tip })))}
+                      {...(moldTip(swash).tip !== 'round' ? { rotation: moldTip(swash).rot, onRotation: (rot: number) => setSwash(withMoldTip(swash, { rot })) } : {})}
                     />
                   )),
               ]}
