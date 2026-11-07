@@ -558,40 +558,17 @@ export function App() {
   const [burnChar, setBurnChar] = useState(0.3);
   /**
    * Aquarelle sur papier mouillé : la passe en cours (couche, numéro, dernier trait). Ses traits se
-   * mêlent ; « Sécher » la fige, et le séchage automatique (secondes, 0 = à la main) la ferme tout seul.
+   * mêlent jusqu'à ce qu'on touche « Sécher » ou qu'on peigne une autre couche.
    */
   const wetPass = useRef<{ layer: string; id: number; at: number } | null>(null);
-  const [dryAfter, setDryAfterState] = useState(() => {
-    try {
-      return Number(localStorage.getItem('ftd-atelier-dry') ?? '0') || 0;
-    } catch {
-      return 0;
-    }
-  });
-  const setDryAfter = (v: number) => {
-    setDryAfterState(v);
-    try {
-      localStorage.setItem('ftd-atelier-dry', String(v));
-    } catch {
-      /* préférence non gardée */
-    }
-  };
-  /** Humidité de la passe (1 = trempée, 0 = sèche), pour la jauge du bouton Sécher. */
+  /** Papier mouillé (1) ou sec (0), pour la jauge du bouton Sécher. */
   const [wetness, setWetness] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      const w = wetPass.current;
-      const v = !w ? 0 : dryAfter > 0 ? Math.max(0, 1 - (Date.now() - w.at) / (dryAfter * 1000)) : 1;
-      if (w && v === 0) wetPass.current = null;
-      setWetness((o) => (Math.abs(o - v) > 0.02 || (v === 0) !== (o === 0) ? v : o));
-    }, 250);
-    return () => clearInterval(id);
-  }, [dryAfter]);
-  /** La passe humide d'un nouveau trait d'aquarelle sur cette couche (on la rejoint si elle n'a pas séché). */
+  /** La passe humide d'un nouveau trait d'aquarelle sur cette couche : on la rejoint tant qu'on n'a pas séché ni changé de couche. */
   const washFor = (layerId: string) => {
     const w = wetPass.current;
     const now = Date.now();
-    if (w && w.layer === layerId && (dryAfter <= 0 || now - w.at < dryAfter * 1000)) {
+    setWetness(1);
+    if (w && w.layer === layerId) {
       w.at = now;
       return w.id;
     }
@@ -3181,11 +3158,6 @@ export function App() {
                       >
                         <Icon name="dry" />
                       </button>
-                      <VSlider
-                        label={dryAfter <= 0 ? 'Séchage · main' : `Séchage · ${dryAfter} s`}
-                        value={dryAfter <= 0 ? 0 : Math.sqrt(dryAfter / 60)}
-                        onChange={(v) => setDryAfter(v < 0.06 ? 0 : Math.max(1, Math.round(v * v * 60)))}
-                      />
                     </>
                   )}
                   {brushKind === 'branch' && (
