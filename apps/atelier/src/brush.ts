@@ -47,6 +47,73 @@ function paperGrain(): HTMLCanvasElement {
 }
 
 const scratch = { a: null as HTMLCanvasElement | null, b: null as HTMLCanvasElement | null, c: null as HTMLCanvasElement | null, d: null as HTMLCanvasElement | null };
+let canFilter: boolean | null = null;
+/** Le flou des canevas (ctx.filter) : absent de Safari, donc de l'iPad. */
+function filterOK() {
+  if ((globalThis as { __ftdNoFilter?: boolean }).__ftdNoFilter) return false;
+  if (canFilter === null) {
+    const x = document.createElement('canvas').getContext('2d')!;
+    x.filter = 'blur(2px)';
+    canFilter = x.filter === 'blur(2px)';
+  }
+  return canFilter;
+}
+const shrink: { a: HTMLCanvasElement | null; b: HTMLCanvasElement | null } = { a: null, b: null };
+/**
+ * Dessine src flouté d'environ r px, avec l'opacité et le mode de fusion du contexte.
+ * Sans ctx.filter (Safari) : réduction, moyenne des voisins, puis agrandissement lissé.
+ */
+export function drawBlurred(ctx: CanvasRenderingContext2D, src: HTMLCanvasElement, r: number) {
+  if (r < 0.4) {
+    ctx.drawImage(src, 0, 0);
+    return;
+  }
+  if (filterOK()) {
+    const f = ctx.filter;
+    ctx.filter = `blur(${r}px)`;
+    ctx.drawImage(src, 0, 0);
+    ctx.filter = f;
+    return;
+  }
+  const k = Math.max(1, r / 1.6);
+  const P = 3; // marge : le flou déborde de la forme
+  const sw = Math.max(1, Math.ceil(src.width / k)) + 2 * P;
+  const sh = Math.max(1, Math.ceil(src.height / k)) + 2 * P;
+  const grab = (key: 'a' | 'b') => {
+    const c = (shrink[key] ??= document.createElement('canvas'));
+    if (c.width !== sw || c.height !== sh) {
+      c.width = sw;
+      c.height = sh;
+    }
+    const x = c.getContext('2d')!;
+    x.setTransform(1, 0, 0, 1, 0, 0);
+    x.globalAlpha = 1;
+    x.globalCompositeOperation = 'source-over';
+    x.imageSmoothingEnabled = true;
+    x.imageSmoothingQuality = 'high';
+    x.clearRect(0, 0, sw, sh);
+    return { c, x };
+  };
+  const A = grab('a');
+  A.x.drawImage(src, P, P, src.width / k, src.height / k);
+  // deux passes de moyenne 3×3 : un flou presque gaussien
+  const B = grab('b');
+  const box = (from: HTMLCanvasElement, to: CanvasRenderingContext2D) => {
+    to.globalCompositeOperation = 'lighter';
+    to.globalAlpha = 1 / 9;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) to.drawImage(from, dx, dy);
+    to.globalCompositeOperation = 'source-over';
+    to.globalAlpha = 1;
+  };
+  box(A.c, B.x);
+  A.x.clearRect(0, 0, sw, sh);
+  box(B.c, A.x);
+  const smooth = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(A.c, -P * k, -P * k, sw * k, sh * k);
+  ctx.imageSmoothingEnabled = smooth;
+}
+
 function buffer(key: 'a' | 'b' | 'c' | 'd', w: number, h: number) {
   let c = scratch[key];
   if (!c) c = scratch[key] = document.createElement('canvas');
@@ -214,9 +281,7 @@ export function paintWash(dst: CanvasRenderingContext2D, list: Stroke[], guides:
   if (wet) {
     // les pigments migrent dans l'eau : la couleur se brouille à l'intérieur de la tache (sa forme ne bouge pas)
     const { c: mix, ctx: mx } = buffer('c', t.pw, t.ph);
-    mx.filter = `blur(${Math.max(3, Rw * 0.9)}px)`;
-    mx.drawImage(sil, 0, 0);
-    mx.filter = 'none';
+    drawBlurred(mx, sil, Math.max(3, Rw * 0.9));
     // le flou dilue la couleur vers les bords : on la renforce pour garder la teinte pleine
     mx.globalCompositeOperation = 'source-over';
     mx.drawImage(mix, 0, 0);
@@ -239,15 +304,12 @@ export function paintWash(dst: CanvasRenderingContext2D, list: Stroke[], guides:
   const { c: edge, ctx: ex } = buffer('b', t.pw, t.ph);
   ex.drawImage(sil, 0, 0);
   ex.globalCompositeOperation = 'destination-out';
-  ex.filter = `blur(${Math.max(1, R * (0.18 + 0.22 * water))}px)`;
-  ex.drawImage(sil, 0, 0);
+  drawBlurred(ex, sil, Math.max(1, R * (0.18 + 0.22 * water)));
 
   dst.save();
   dst.globalCompositeOperation = 'multiply';
-  if (water > 0.05) dst.filter = `blur(${R * 0.12 * water}px)`;
   dst.globalAlpha = 0.42 * opacity;
-  dst.drawImage(sil, 0, 0);
-  dst.filter = 'none';
+  drawBlurred(dst, sil, water > 0.05 ? R * 0.12 * water : 0);
   dst.globalAlpha = 0.75 * Math.min(1, opacity + 0.3 * water);
   dst.drawImage(edge, 0, 0);
   dst.restore();
@@ -470,17 +532,14 @@ function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: 
   if (dil > 0.02) {
     // l'eau étale l'encre : un lavis flou plus clair, et un liseré sur les bords
     const { c: wash, ctx: wx } = buffer('b', t.pw, t.ph);
-    wx.filter = `blur(${Math.max(0.5, big * (0.04 * dil + 0.16 * dil * dil))}px)`;
-    wx.drawImage(sil, 0, 0);
-    wx.filter = 'none';
+    drawBlurred(wx, sil, Math.max(0.5, big * (0.04 * dil + 0.16 * dil * dil)));
     dst.globalAlpha = s.opacity * (1 - 0.8 * dil);
     dst.drawImage(wash, 0, 0);
     // liseré : la silhouette moins sa version floutée
     const { c: edge, ctx: ex } = buffer('b', t.pw, t.ph);
     ex.drawImage(sil, 0, 0);
     ex.globalCompositeOperation = 'destination-out';
-    ex.filter = `blur(${Math.max(1, big * (0.03 + 0.05 * dil))}px)`;
-    ex.drawImage(sil, 0, 0);
+    drawBlurred(ex, sil, Math.max(1, big * (0.03 + 0.05 * dil)));
     dst.globalAlpha = s.opacity * Math.min(1, 0.9 * dil);
     dst.drawImage(edge, 0, 0);
     // peu diluée, l'empreinte reste nette
