@@ -568,7 +568,7 @@ export function App() {
     if (theme === 'auto') delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = theme;
   }, [theme]);
-  // mode simplifié (par défaut) : les réglages rares (Transformations, Rognage, Lueur, Semis) restent derrière « Plus »
+  // mode simplifié (par défaut) : les réglages rares (Transformations, Rognage, Lueur) restent derrière « Plus »
   const [simple, setSimpleState] = useState(() => {
     try {
       return localStorage.getItem('ftd-atelier-simple') !== 'off';
@@ -606,8 +606,6 @@ export function App() {
   const [dilution, setDilution] = useState(0.15);
   /** Tampon : essuyé (une empreinte qui s'étire) ou semé (copies éparpillées le long du geste). */
   const [stampSow, setStampSow] = useState(false);
-  /** « Plus » des tampons : le semis se montre d'un toucher. */
-  const [stampMore, setStampMore] = useState(false);
   const [sowDensity, setSowDensity] = useState(0.5);
   const [sowSpread, setSowSpread] = useState(0.4);
   const [sowPersp, setSowPersp] = useState(0.3);
@@ -3801,20 +3799,16 @@ export function App() {
               )}
               {tool === 'stamp' && (
                 <>
-                  {simple && !stampMore && !stampSow && (
-                    <button className="btn small" onClick={() => setStampMore(true)} title="Plus : semis (copies du motif éparpillées le long du geste)">
-                      <Icon name="more" />
-                    </button>
-                  )}
-                  {(!simple || stampMore || stampSow) && (
-                    <button
-                      className="btn small"
-                      onClick={() => setStampSow(!stampSow)}
-                      title={stampSow ? 'Semis : des copies du motif s’éparpillent le long du geste (toucher pour l’essuyé)' : 'Essuyé : l’empreinte s’étire quand on glisse (toucher pour le semis)'}
-                    >
-                      <Icon name={stampSow ? 'stamp-sow' : 'stamp-wipe'} />
-                    </button>
-                  )}
+                  <FanButton
+                    dir={lefty ? 'left' : 'right'}
+                    face={<Icon name={stampSow ? 'stamp-sow' : 'stamp-wipe'} />}
+                    title={`Mode du tampon : ${stampSow ? 'semis' : 'normal'} (toucher pour changer)`}
+                    items={[
+                      { key: 'normal', icon: <Icon name="stamp-wipe" />, label: 'Normal', hint: 'Une empreinte au toucher, l’encre s’étire quand on glisse', on: !stampSow },
+                      { key: 'sow', icon: <Icon name="stamp-sow" />, label: 'Semis', hint: 'Des copies du motif s’éparpillent le long du geste', on: stampSow },
+                    ]}
+                    onPick={(k) => setStampSow(k === 'sow')}
+                  />
                   <button className={`btn small ${stampFilled ? 'on' : ''}`} onClick={() => setStampFilled(!stampFilled)} title="Motif rempli : ses formes prennent le dégradé du guide">
                     <Icon name="stamp-fill" />
                   </button>
