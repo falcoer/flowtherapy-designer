@@ -2,6 +2,8 @@ import { FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format } from '@ftd
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive, type Target } from './brush';
 import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
+import { steadyPath } from './steady';
+import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
 import { STAMPS, stampOf, stampSvg } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
@@ -95,51 +97,6 @@ type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc-v2';
 
-/**
- * Tracé redressé : chaque point est comparé à la médiane de ses voisins sur `reach` (longueur
- * de tracé de part et d'autre) ; s'il s'en écarte de plus de `tol`, il y est ramené. Trois passes :
- * les dents et crochets qu'un aimant prend sur les contours voisins disparaissent, les vraies
- * courbes restent.
- */
-function steadyPath(pts: Pt[], reach: number, tol: number, closed: boolean): Pt[] {
-  const n = pts.length;
-  if (n < 5 || reach <= 0) return pts;
-  // abscisse curviligne (prise sur le tracé d'origine)
-  const at = new Float64Array(n);
-  for (let i = 1; i < n; i++) at[i] = at[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
-  const total = at[n - 1]! + (closed ? Math.hypot(pts[0]!.x - pts[n - 1]!.x, pts[0]!.y - pts[n - 1]!.y) : 0);
-  const median = (v: number[]) => {
-    v.sort((a, b) => a - b);
-    const h = v.length >> 1;
-    return v.length % 2 ? v[h]! : (v[h - 1]! + v[h]!) / 2;
-  };
-  let cur = pts;
-  for (let pass = 0; pass < 3; pass++) {
-    const out: Pt[] = [];
-    for (let i = 0; i < n; i++) {
-      const xs = [cur[i]!.x];
-      const ys = [cur[i]!.y];
-      for (const dir of [-1, 1]) {
-        for (let k = 1; k < n; k++) {
-          let j = i + dir * k;
-          if (!closed && (j < 0 || j >= n)) break;
-          j = ((j % n) + n) % n;
-          let d = Math.abs(at[j]! - at[i]!);
-          if (closed) d = Math.min(d, total - d);
-          if (d > reach) break;
-          xs.push(cur[j]!.x);
-          ys.push(cur[j]!.y);
-        }
-      }
-      const p = cur[i]!;
-      const m = { x: median(xs), y: median(ys) };
-      const dev = Math.hypot(p.x - m.x, p.y - m.y);
-      out.push(dev > tol ? { x: m.x + ((p.x - m.x) * tol) / dev, y: m.y + ((p.y - m.y) * tol) / dev } : p);
-    }
-    cur = out;
-  }
-  return cur;
-}
 const TOP = 52;
 /** Rayon d'attraction des ancrages, en pixels écran. */
 const MAGNET = 30;
@@ -743,7 +700,7 @@ export function App() {
   const [finePointer] = useState(() => typeof matchMedia === 'function' && matchMedia('(any-pointer: fine)').matches);
   /** Écran tactile : le bouton du doigt n'a de sens que là. */
   const [touchScreen] = useState(() => (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) || (typeof matchMedia === 'function' && matchMedia('(any-pointer: coarse)').matches));
-  const fingerDraws = fingerMode === 'draw' || (fingerMode === 'auto' && !penSeen && !finePointer);
+  const fingerDraws = fingerDrawsFor(fingerMode, penSeen, finePointer);
   // le premier stylet vu (survol ou contact, n'importe où) : il prend l'outil, le doigt reprend le déplacement
   const fingerRef = useRef({ fingerMode, fingerDraws });
   fingerRef.current = { fingerMode, fingerDraws };
@@ -759,8 +716,9 @@ export function App() {
           /* stockage indisponible */
         }
       }
-      if (m === 'draw') setFingerMode('auto');
-      if (drew && m !== 'move') setToast('Stylet détecté : il dessine, le doigt reprend le déplacement');
+      const next = afterPen(m, drew);
+      if (next.mode !== m) setFingerMode(next.mode);
+      if (next.toast) setToast('Stylet détecté : il dessine, le doigt reprend le déplacement');
     };
     window.addEventListener('pointerdown', onPen, true);
     window.addEventListener('pointermove', onPen, true);
@@ -1796,7 +1754,7 @@ export function App() {
       return;
     }
     // stylet posé : la paume et les doigts qui frôlent l'écran sont ignorés
-    if (e.pointerType === 'touch' && [...pointers.current.values()].some((p) => p.type === 'pen')) return;
+    if (ignoreTouch(e.pointerType, pointers.current.values())) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     // un nouveau toucher : le rangement d'outil en attente attend de voir si c'est un double toucher
     window.clearTimeout(bgLeave.current);
@@ -1847,7 +1805,7 @@ export function App() {
     const p = toPage(e.clientX, e.clientY);
     // le doigt déplace, le stylet (ou la souris) utilise l'outil ; sans stylet, le doigt prend l'outil
     // le volet des attributs dispose aussi l'objet (poignées, glisser)
-    const t: Tool = (e.pointerType === 'touch' && !fingerDraws) || isEdit(tool) ? 'move' : tool;
+    const t: Tool = pointerTool(e.pointerType, fingerDraws, tool, isEdit(tool));
     const sel = doc.layers.find((l) => l.id === selected);
     // posé sur le fond, hors de la page et de tout objet, un outil actif : un simple toucher le rangera
     const offBg = tool !== 'move' && pointers.current.size === 1 && (p.x < 0 || p.y < 0 || p.x > f.width || p.y > f.height) && !layerAt(p.x, p.y);
