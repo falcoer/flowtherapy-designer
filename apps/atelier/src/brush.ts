@@ -52,9 +52,18 @@ let canFilter: boolean | null = null;
 function filterOK() {
   if ((globalThis as { __ftdNoFilter?: boolean }).__ftdNoFilter) return false;
   if (canFilter === null) {
-    const x = document.createElement('canvas').getContext('2d')!;
-    x.filter = 'blur(2px)';
-    canFilter = x.filter === 'blur(2px)';
+    // Safari accepte la propriété sans rien flouter : on vérifie sur un vrai dessin
+    try {
+      const c = document.createElement('canvas');
+      c.width = c.height = 9;
+      const x = c.getContext('2d', { willReadFrequently: true })!;
+      x.filter = 'blur(2px)';
+      x.fillStyle = '#000';
+      x.fillRect(4, 3, 3, 3);
+      canFilter = x.getImageData(1, 4, 1, 1).data[3]! > 0;
+    } catch {
+      canFilter = false;
+    }
   }
   return canFilter;
 }
