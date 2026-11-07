@@ -138,6 +138,31 @@ describe('dans le navigateur', () => {
       expect(r.w1).toBeGreaterThan(r.w0 * 1.15);
     });
 
+    t('les poils ne sont pas tranchés par la fenêtre de l’aperçu', async () => {
+      // pendant le geste, l'aperçu des poils n'est fait que de pastilles : les brins vont au-delà
+      const r = await run<{ preview: number[]; full: number[] }>(`
+        const s = { brush: 'hair', guide: 2, size: 0.04, opacity: 1, seed: 9, hairLen: 0.8, pts: line(0.5, 0.6, 1.3, 20) };
+        const l = shape([]);
+        const box = (wetPaint) => {
+          const { win, t } = spill.spillWindow(l, f, 6);
+          const wet = document.createElement('canvas');
+          wet.width = t.pw;
+          wet.height = t.ph;
+          wetPaint(wet.getContext('2d'), spill.inWin(s, win), t);
+          const pts = spill.inkRings(l, f, s, doc.guides, 6, wet, win).flat();
+          return [Math.min(...pts.map((p) => p.x)), Math.min(...pts.map((p) => p.y)), Math.max(...pts.map((p) => p.x)), Math.max(...pts.map((p) => p.y))];
+        };
+        return {
+          preview: box((ctx, ws, t) => brush.previewStamps(ctx, ws, doc.guides, t, 0)),
+          full: box((ctx, ws, t) => brush.paintStroke(ctx, ws, doc.guides, t)),
+        };
+      `);
+      // même encre, que l'aperçu soit fait de pastilles ou des vrais brins
+      r.full.forEach((v, i) => expect(Math.abs(r.preview[i]! - v)).toBeLessThan(0.01));
+      // les brins dépassent nettement le bout du geste
+      expect(r.full[2]).toBeGreaterThan(1.4);
+    });
+
     t('l’encre restée dans la découpe ne change rien', async () => {
       const r = await run<{ rings: number; patch: string[] }>(`${SPILL}
         const s = { brush: 'stamp', stamp: 'dot', guide: 2, size: 0.03, opacity: 1, seed: 6, pts: line(0.5, 0.4, 0.6, 6) };

@@ -78,6 +78,33 @@ function ringArea(r: Ring) {
   return Math.abs(s / 2);
 }
 
+/** Le trait peint seul dans la fenêtre `win`, en pixels RGBA. */
+function paintIn(s: Stroke, guides: Guide[], win: Win, t: Target) {
+  const c = document.createElement('canvas');
+  c.width = t.pw;
+  c.height = t.ph;
+  const ctx = c.getContext('2d', { willReadFrequently: true })!;
+  paintStroke(ctx, inWin(s, win), guides, t);
+  const px = ctx.getImageData(0, 0, t.pw, t.ph).data;
+  c.width = c.height = 0;
+  return px;
+}
+
+/** Bords du canevas que l'encre (alpha ≥ th) touche. */
+function edges(px: Uint8ClampedArray, W: number, H: number, th: number) {
+  const at = (x: number, y: number) => px[(y * W + x) * 4 + 3]! >= th;
+  const e = { l: false, t: false, r: false, b: false };
+  for (let x = 0; x < W; x++) {
+    e.t ||= at(x, 0);
+    e.b ||= at(x, H - 1);
+  }
+  for (let y = 0; y < H; y++) {
+    e.l ||= at(0, y);
+    e.r ||= at(W - 1, y);
+  }
+  return e;
+}
+
 /** Seuil d'encre (alpha sur 255) : en dessous, un voile trop léger pour pousser le bord. */
 const INK = 40;
 
@@ -91,15 +118,21 @@ export function inkRings(l: Layer, f: Format, s: Stroke, guides: Guide[], pxPerU
   const [sx, sy] = [(win[2] - win[0]) / wet.width, (win[3] - win[1]) / wet.height];
   // fenêtre serrée sur l'encre, avec une marge de quelques pixels de l'aperçu
   const m = 4;
-  const tight: Win = [win[0] + (box.x0 - m) * sx, win[1] + (box.y0 - m) * sy, win[0] + (box.x1 + m) * sx, win[1] + (box.y1 + m) * sy];
-  const t = winTarget(l, f, tight, stepOf(pxPerUnit));
-  const c = document.createElement('canvas');
-  c.width = t.pw;
-  c.height = t.ph;
-  const ctx = c.getContext('2d', { willReadFrequently: true })!;
-  paintStroke(ctx, inWin(s, tight), guides, t);
-  const rings = contours(ctx.getImageData(0, 0, t.pw, t.ph).data, t.pw, t.ph, INK);
-  c.width = c.height = 0;
+  let tight: Win = [win[0] + (box.x0 - m) * sx, win[1] + (box.y0 - m) * sy, win[0] + (box.x1 + m) * sx, win[1] + (box.y1 + m) * sy];
+  // L'aperçu ne montre pas toute l'encre : pour les poils, des pastilles le long du geste, alors que
+  // les brins partent bien au-delà. Une encre coupée par le bord de la fenêtre donnerait un contour
+  // droit (et des poils tranchés net) : tant qu'elle touche un bord, la fenêtre s'agrandit de ce côté.
+  let t = winTarget(l, f, tight, stepOf(pxPerUnit));
+  let px = paintIn(s, guides, tight, t);
+  for (let k = 0; k < 6; k++) {
+    const e = edges(px, t.pw, t.ph, INK);
+    if (!e.l && !e.t && !e.r && !e.b) break;
+    const [w, h] = [tight[2] - tight[0], tight[3] - tight[1]];
+    tight = [tight[0] - (e.l ? w : 0), tight[1] - (e.t ? h : 0), tight[2] + (e.r ? w : 0), tight[3] + (e.b ? h : 0)];
+    t = winTarget(l, f, tight, stepOf(pxPerUnit));
+    px = paintIn(s, guides, tight, t);
+  }
+  const rings = contours(px, t.pw, t.ph, INK);
   // poussières de grain : trop petites pour compter
   const dust = Math.max(4, (t.pxPerMin * 0.0015) ** 2);
   const [ux, uy] = [(tight[2] - tight[0]) / t.pw, (tight[3] - tight[1]) / t.ph];
