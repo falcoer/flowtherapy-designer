@@ -4,6 +4,7 @@
  * les unes sur les autres. Rendu WebGL 2 (gl3d.ts : vraie épaisseur, lumière de la lampe, ombres
  * portées) ; sans WebGL 2, le navigateur fait la perspective en CSS 3D.
  */
+import { tiltStep, wheelAction, wheelDevice, zoomFactor } from './shift';
 import type { Format } from '@ftd/core';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -210,11 +211,14 @@ export function ParallaxView({
   selected,
   onSelect,
   onLevel,
+  shift = false,
 }: {
   doc: Doc;
   f: Format;
   onClose: () => void;
   start?: [number, number];
+  /** Maj tenue (touche ou bouton de la barre) : deux doigts tournent au lieu de déplacer. */
+  shift?: boolean;
   /** Objet choisi : il se règle en hauteur sans quitter la vue. */
   selected?: string | null;
   onSelect?: (id: string | null) => void;
@@ -545,6 +549,57 @@ export function ParallaxView({
     return pts.length < 2 ? 0 : Math.hypot(pts[0]!.x - pts[1]!.x, pts[0]!.y - pts[1]!.y);
   };
   /** (Re)part d'un geste à n doigts depuis la vue actuelle : poser ou lever un doigt ne fait pas sauter la vue. */
+  // molette et trackpad : écouteurs natifs, pour que le navigateur ne zoome pas la page entière
+  const root = useRef<HTMLDivElement>(null);
+  const wheelDev = useRef<{ mouse: boolean; t: number } | null>(null);
+  const pinch = useRef<number | null>(null);
+  const onWheel = useRef<(e: WheelEvent) => void>(() => {});
+  onWheel.current = (e) => {
+    e.preventDefault();
+    if (pinch.current !== null) return;
+    wheelDev.current = wheelDevice(wheelDev.current, e, performance.now());
+    const act = wheelAction(e, shift, wheelDev.current.mouse);
+    if (act === 'tilt' || act === 'rotate') {
+      // Maj + deux doigts, ou Maj + molette : tourner
+      const [dx, dy] = tiltStep(e);
+      setTilt(([x, y]) => {
+        const nx = Math.max(-70, Math.min(70, x + dx));
+        const ny = Math.max(-70, Math.min(70, y + dy));
+        if (peek.current && Math.abs(nx) < 1.5 && Math.abs(ny) < 1.5) onClose();
+        return [nx, ny];
+      });
+    } else if (act === 'pan') setPan(([x, y]) => [x - e.deltaX, y - e.deltaY]);
+    else setZoom((z) => Math.max(0.4, Math.min(4, z * zoomFactor(e))));
+  };
+  useEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const wheel = (e: WheelEvent) => onWheel.current(e);
+    // Safari sur Mac : pincer le trackpad ; sur iPad les doigts passent déjà par les pointeurs
+    const gs = (e: Event) => {
+      e.preventDefault();
+      if (!fingers.current.size) pinch.current = zoomRef.current;
+    };
+    const gc = (e: Event) => {
+      e.preventDefault();
+      const k = (e as Event & { scale?: number }).scale;
+      if (pinch.current !== null && k) setZoom(Math.max(0.4, Math.min(4, pinch.current * k)));
+    };
+    const ge = (e: Event) => {
+      e.preventDefault();
+      pinch.current = null;
+    };
+    el.addEventListener('wheel', wheel, { passive: false });
+    el.addEventListener('gesturestart', gs);
+    el.addEventListener('gesturechange', gc);
+    el.addEventListener('gestureend', ge);
+    return () => {
+      el.removeEventListener('wheel', wheel);
+      el.removeEventListener('gesturestart', gs);
+      el.removeEventListener('gesturechange', gc);
+      el.removeEventListener('gestureend', ge);
+    };
+  }, []);
   const startGesture = (n: number) => {
     const c = centroid();
     gesture.current = { n, cx: c.x, cy: c.y, d: spreadOf(), t: tiltRef.current, z: zoomRef.current, p: panRef.current };
@@ -606,6 +661,7 @@ export function ParallaxView({
   const inline = !!start;
   const view = (
     <div
+      ref={root}
       className={`px3d ${inline ? 'px-inline' : ''} ${dragging || gyro ? 'dragging' : ''}`}
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
@@ -638,7 +694,7 @@ export function ParallaxView({
         if (!g) return;
         const c = centroid();
         const clamp = (v: number) => Math.max(-70, Math.min(70, v));
-        if (g.n === 2) {
+        if (g.n === 2 && !shift) {
           // deux doigts : la vue suit leur milieu, l'écart des doigts zoome
           const d = spreadOf();
           setPan([g.p[0] + c.x - g.cx, g.p[1] + c.y - g.cy]);
@@ -670,20 +726,6 @@ export function ParallaxView({
         gesture.current = null;
         drag.current = null;
         setDragging(false);
-      }}
-      onWheel={(e) => {
-        // Maj + molette ou défilement horizontal : tourner ; molette : zoomer
-        if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-          const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-          setTilt(([x, y]) => {
-            const nx = Math.max(-70, Math.min(70, x + d * 0.15));
-            if (peek.current && Math.abs(nx) < 1.5 && Math.abs(y) < 1.5) onClose();
-            return [nx, y];
-          });
-        } else if (!e.ctrlKey && e.deltaMode === 0 && Math.abs(e.deltaY) < 40 && e.altKey) {
-          // Alt + défilement du trackpad : déplacer
-          setPan(([x, y]) => [x - e.deltaX, y - e.deltaY]);
-        } else setZoom((z) => Math.max(0.4, Math.min(4, z * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)))));
       }}
     >
       {useGl && <canvas ref={glCanvas} className="px-gl" />}
