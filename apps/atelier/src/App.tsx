@@ -1,5 +1,5 @@
 import { FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format } from '@ftd/core';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive, type Target } from './brush';
 import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
 import { STAMPS, stampOf, stampSvg } from './stamps';
@@ -21,7 +21,7 @@ import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers }
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { listAteliers, newAtelierId, readAtelier, removeAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta } from './server';
-import { anchorsOf, compact, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
+import { ANCHOR_EXTRAS, anchorPointOf, anchorsOf, objectGrips, ungrip, compact, extraOn, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
@@ -922,6 +922,7 @@ export function App() {
   // les calculs d'ancrage suivent la densité du document ouvert
   setAnchorDensity(doc.density);
   setAnchorMargin(doc.margin);
+  setAnchorExtras(doc.points);
   /** Couleurs caractéristiques des repères (marges, points) : préférence de l'atelier, par-dessus les couleurs d'origine. */
   const [markColors, setMarkColorsRaw] = useState(loadMarkColors);
   setMarkColors(markColors);
@@ -1095,7 +1096,8 @@ export function App() {
     mates?: Layer[];
     last?: { x: number; y: number; t: number; p: number };
     /** Point d'ancrage aimanté pendant un déplacement, avec sa sorte (sa couleur). */
-    snap?: { x: number; y: number; kind: MarkKind } | null;
+    /** Accroche en cours : l'ancrage visé, et le point de l'objet qui s'y pose (décalage depuis le centre). */
+    snap?: { x: number; y: number; kind: MarkKind; anchor: Layer['anchor']; grip?: Layer['grip']; ox: number; oy: number } | null;
     /** Contours aimantés (unités du format) et indices des points aimantés. */
     grid?: EdgeGrid | null;
     snapped?: number[];
@@ -1549,6 +1551,24 @@ export function App() {
       // l'objet déplacé (ou choisi) : ses bords tenus prennent la couleur de leur ligne, son contour celle de son point
       const held = L.kind === 'move' ? doc.layers.find((x) => x.id === L.layer) : sel && sel.kind !== 'surface' ? sel : undefined;
       if (held?.pins) drawHeldEdges(ctx, held, held.pins, f, px);
+      // pendant un déplacement : les points de l'objet qui peuvent s'accrocher (centre, sommets, milieux des côtés)
+      if (held && L.kind === 'move') {
+        const bb = pageBounds(held, f);
+        ctx.save();
+        ctx.lineWidth = 1.5 * px;
+        for (const g of objectGrips(doc.points)) {
+          const x = (bb.x0 + bb.x1) / 2 + g.x * (bb.x1 - bb.x0);
+          const y = (bb.y0 + bb.y1) / 2 + g.y * (bb.y1 - bb.y0);
+          const r = 3.2 * px;
+          ctx.fillStyle = 'rgba(255,255,255,0.95)';
+          ctx.strokeStyle = 'rgba(20,16,30,0.6)';
+          ctx.beginPath();
+          ctx.rect(x - r, y - r, 2 * r, 2 * r);
+          ctx.fill();
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
       if (held && L.kind === 'move' && L.snap) {
         const c = markColor(L.snap.kind);
         const path = maskPath2D(held, f);
@@ -1667,8 +1687,8 @@ export function App() {
     const off = 34 / scale;
     let pv = l.pivot;
     if (!pv) {
-      const b = layerBox(l, f);
-      const q = pageToLocal(l, f, b.cx - l.dx * f.width, b.cy - l.dy * f.height);
+      const A = anchorPointOf(l, f);
+      const q = pageToLocal(l, f, A.x, A.y);
       pv = { u: Math.max(k.u0, Math.min(k.u1, q.x)), v: Math.max(k.v0, Math.min(k.v1, q.y)) };
     }
     const corners = [
@@ -1693,7 +1713,7 @@ export function App() {
       const cx = O.x + vx * Math.cos(dr) - vy * Math.sin(dr) + tx;
       const cy = O.y + vx * Math.sin(dr) + vy * Math.cos(dr) + ty;
       const a = anchorFor(doc.frame, f, cx, cy);
-      out.set(m.id, { ...m, w: m.w * k, h: m.h * k, rot: dr ? Math.atan2(Math.sin((m.rot ?? 0) + dr), Math.cos((m.rot ?? 0) + dr)) : m.rot, anchor: a.anchor, dx: a.dx, dy: a.dy, pins: undefined });
+      out.set(m.id, { ...m, w: m.w * k, h: m.h * k, rot: dr ? Math.atan2(Math.sin((m.rot ?? 0) + dr), Math.cos((m.rot ?? 0) + dr)) : m.rot, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined, pins: undefined });
     }
     return out;
   };
@@ -2402,14 +2422,28 @@ export function App() {
       const b = layerBox(o, f);
       let cx = b.cx + p.x - L.start.x;
       let cy = b.cy + p.y - L.start.y;
-      // aimant : le centre est attiré par l'ancrage le plus proche
-      const near = anchorFor(doc.frame, f, cx, cy);
-      const ax = near.at.x * f.width;
-      const ay = near.at.y * f.height;
-      L.snap = Math.hypot(ax - cx, ay - cy) * scale < MAGNET ? { x: ax, y: ay, kind: anchorKind(doc.frame, near.at.id) } : null;
-      if (L.snap) [cx, cy] = [ax, ay];
-      // bords de la découpe aimantés sur les bords de la page
+      // aimant : le centre, et les sommets et milieux de côtés cochés, sont attirés par l'ancrage le plus proche
       const bb = pageBounds(o, f);
+      const m0 = Math.min(f.width, f.height);
+      L.snap = null;
+      let bestD = MAGNET / scale;
+      for (const g of objectGrips(doc.points)) {
+        // le point de l'objet, d'après sa découpe, relatif au centre de sa boîte
+        const ox = g.x || g.y ? (bb.x0 + bb.x1) / 2 + g.x * (bb.x1 - bb.x0) - b.cx : 0;
+        const oy = g.x || g.y ? (bb.y0 + bb.y1) / 2 + g.y * (bb.y1 - bb.y0) - b.cy : 0;
+        const near = anchorFor(doc.frame, f, cx + ox, cy + oy);
+        const ax = near.at.x * f.width;
+        const ay = near.at.y * f.height;
+        // à distance égale, le centre l'emporte
+        const d = Math.hypot(ax - cx - ox, ay - cy - oy) * (g.x || g.y ? 1.15 : 1);
+        if (d < bestD) {
+          bestD = d;
+          const grip = g.x || g.y ? { x: ox / (o.w * m0), y: oy / (o.h * m0) } : undefined;
+          L.snap = { x: ax, y: ay, kind: anchorKind(doc.frame, near.at.id), anchor: near.anchor, grip, ox, oy };
+        }
+      }
+      if (L.snap) [cx, cy] = [L.snap.x - L.snap.ox, L.snap.y - L.snap.oy];
+      // bords de la découpe aimantés sur les bords de la page
       const tol = MAGNET / scale;
       const ex = { l: bb.x0 - b.cx, r: bb.x1 - b.cx, t: bb.y0 - b.cy, b: bb.y1 - b.cy };
       const pins: NonNullable<Layer['pins']> = {};
@@ -2441,13 +2475,19 @@ export function App() {
       L.pins = edge ? pins : undefined;
       const a = anchorFor(doc.frame, f, cx, cy);
       const carried = carryMates(L.mates, { x: 0, y: 0 }, 1, 0, cx - b.cx, cy - b.cy);
-      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, anchor: a.anchor, dx: L.snap ? 0 : a.dx, dy: L.snap ? 0 : a.dy, pins: L.pins } : (carried.get(x.id) ?? x))) }));
+      const sn = L.snap;
+      setDoc((d) => ({
+        ...d,
+        layers: d.layers.map((x) =>
+          x.id === o.id ? (sn ? { ...x, anchor: sn.anchor, dx: 0, dy: 0, grip: sn.grip, pins: L.pins } : { ...x, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined, pins: L.pins }) : (carried.get(x.id) ?? x),
+        ),
+      }));
     } else if (L.kind === 'resize' && L.orig && L.start && L.opp) {
       // agrandir depuis un coin : le coin opposé reste en place
       const o = L.orig;
       const b = layerBox(o, f);
       // posé par son centre sur son ancrage : il grandit autour de ce centre, sinon le coin opposé reste en place
-      const O = L.centered ? { x: b.cx, y: b.cy } : localToPage(o, f, L.opp.u, L.opp.v);
+      const O = L.centered ? anchorPointOf(o, f) : localToPage(o, f, L.opp.u, L.opp.v);
       let k = Math.max(0.05, Math.hypot(p.x - O.x, p.y - O.y) / Math.max(1e-9, Math.hypot(L.start.x - O.x, L.start.y - O.y)));
       // aimant : un bord de la découpe qui approche un bord de page s'y pose
       const bb = pageBounds(o, f);
@@ -2483,14 +2523,19 @@ export function App() {
         const cx = O.x + vx * c - vy * sn;
         const cy = O.y + vx * sn + vy * c;
         const a = anchorFor(doc.frame, f, cx, cy);
-        setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, w: o.w * kx, h: o.h * ky, anchor: a.anchor, dx: a.dx, dy: a.dy } : x)) }));
+        setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, w: o.w * kx, h: o.h * ky, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined } : x)) }));
         return;
       }
       const cx = O.x + (b.cx - O.x) * k;
       const cy = O.y + (b.cy - O.y) * k;
       const a = anchorFor(doc.frame, f, cx, cy);
       const carried = carryMates(L.mates, O, k, 0, 0, 0);
-      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, w: o.w * k, h: o.h * k, anchor: a.anchor, dx: a.dx, dy: a.dy } : (carried.get(x.id) ?? x))) }));
+      // accroché par un sommet ou un côté : ce point reste sur son ancrage, seule la taille change
+      const keep = L.centered && o.grip;
+      setDoc((d) => ({
+        ...d,
+        layers: d.layers.map((x) => (x.id === o.id ? (keep ? { ...x, w: o.w * k, h: o.h * k } : { ...x, w: o.w * k, h: o.h * k, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined }) : (carried.get(x.id) ?? x))),
+      }));
     } else if (L.kind === 'pivot' && L.orig) {
       // le centre de rotation reste dans le cadre des poignées
       const o = L.orig;
@@ -2523,7 +2568,7 @@ export function App() {
       const cy = P.y + vx * Math.sin(dr) + vy * Math.cos(dr);
       const a = anchorFor(doc.frame, f, cx, cy);
       const carried = carryMates(L.mates, P, 1, dr, 0, 0);
-      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, rot: r, anchor: a.anchor, dx: a.dx, dy: a.dy } : (carried.get(x.id) ?? x))) }));
+      setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, rot: r, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined } : (carried.get(x.id) ?? x))) }));
     }
   };
 
@@ -3194,7 +3239,8 @@ export function App() {
     patchLayer(l.id, resizeHeld(l, Math.max(0.01, b.bw * k), Math.max(0.01, b.bh * k), { text: t, cut: undefined }), history);
   };
   /** Nouvelle boîte d'un texte dont les lettres ne bougent pas sur la page (seule l'encre autour change). */
-  const placeText = (l: Layer, t: TextStyle): Partial<Layer> => {
+  const placeText = (l0: Layer, t: TextStyle): Partial<Layer> => {
+    const l = ungrip(l0, f);
     const [a, b] = [textCut(l.text!), textCut(t)];
     const m = Math.min(f.width, f.height);
     const k = l.h / (a.bh || 1);
@@ -3202,7 +3248,7 @@ export function App() {
     const uy = (b.oy + b.bh / 2 - (a.oy + a.bh / 2)) * k * m;
     const r = l.rot ?? 0;
     const [c, sn] = [Math.cos(r), Math.sin(r)];
-    return { text: t, cut: undefined, w: Math.max(0.01, b.bw * k), h: Math.max(0.01, b.bh * k), dx: l.dx + (ux * c - uy * sn) / f.width, dy: l.dy + (ux * sn + uy * c) / f.height };
+    return { text: t, cut: undefined, grip: undefined, w: Math.max(0.01, b.bw * k), h: Math.max(0.01, b.bh * k), dx: l.dx + (ux * c - uy * sn) / f.width, dy: l.dy + (ux * sn + uy * c) / f.height };
   };
   const swashFrame = useRef(0);
   // Prolonger se range quand on change de texte ou d'outil
@@ -3312,7 +3358,9 @@ export function App() {
    * sa place relative dans la boîte (ancré à gauche, le texte s'allonge vers la droite), puis les
    * bords tenus sur une marge ou un bord de page y restent, quitte à réduire l'ensemble.
    */
-  const resizeHeld = (l: Layer, w: number, h: number, extra: Partial<Layer>, depth = 0): Partial<Layer> => {
+  const resizeHeld = (l0: Layer, w: number, h: number, extra: Partial<Layer>, depth = 0): Partial<Layer> => {
+    // accroché par un sommet : le point d'ancrage devient un décalage, il garde sa place relative dans la boîte
+    const l = ungrip(l0, f);
     const m = Math.min(f.width, f.height);
     const b = layerBox(l, f);
     const ax = b.cx - l.dx * f.width;
@@ -3343,7 +3391,7 @@ export function App() {
       const sy = bb.y0 < z.top ? z.top - bb.y0 : bb.y1 > z.bottom ? z.bottom - bb.y1 : 0;
       held = { ...held, dx: held.dx + sx / f.width, dy: held.dy + sy / f.height };
     }
-    return { ...extra, w: held.w, h: held.h, dx: held.dx, dy: held.dy };
+    return { ...extra, grip: undefined, w: held.w, h: held.h, dx: held.dx, dy: held.dy };
   };
   /** Pose un élément de la bibliothèque : centré, ou là où il a été lâché sur la page. */
   const insertItem = async (it: LibItem, client?: { x: number; y: number }) => {
@@ -4464,6 +4512,39 @@ export function App() {
                 <span>+</span>
               </label>
               <small className="fx-hint">Les repères se répartissent à cette distance du bord, dedans (+) ou au-delà (−) ; elle suit le format quand il change.</small>
+              {([
+                ['Points de l’objet qui s’accrochent', true],
+                ['Points de la page', false],
+              ] as const).map(([title, obj]) => (
+                <Fragment key={title}>
+                  <div className="b-title">{title}</div>
+                  <div className="anchor-extras">
+                    {obj && (
+                      <label className="off" title="Le centre s’accroche toujours">
+                        <input type="checkbox" checked disabled />
+                        <span>Centre</span>
+                      </label>
+                    )}
+                    {ANCHOR_EXTRAS.filter((x) => !!x.obj === obj).map((x) => {
+                      const off = !!x.frame && x.frame !== doc.frame;
+                      return (
+                        <label key={x.key} className={off ? 'off' : ''} title={off ? 'Avec la répartition ½ ⅓ seulement' : x.hint}>
+                          <input
+                            type="checkbox"
+                            disabled={off}
+                            checked={extraOn(doc.points, x.key)}
+                            onChange={(e) => setDoc((d) => ({ ...d, points: { ...d.points, [x.key]: e.target.checked } }))}
+                          />
+                          <span>
+                            {x.label}
+                            <small>{x.hint}</small>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </Fragment>
+              ))}
               <div className="b-title">Repères visibles</div>
               <div className="guides-look">
                 <button className={`pal-lib-save ${guidesOn.on ? 'on' : ''}`} onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}>

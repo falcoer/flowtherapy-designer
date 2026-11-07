@@ -80,6 +80,9 @@ const denKind = (frac: string): MarkKind => {
  * marquante (rabattement, puis diagonale, puis réciproque).
  */
 export function anchorKind(frame: AnchorFrame, id: string): MarkKind {
+  // sommets et milieux des côtés : la couleur de leur cadre
+  if (id.startsWith('page ')) return 'page';
+  if (id.startsWith('marge ')) return 'margin';
   if (frame === 'or') return 'golden';
   if (frame === 'repartition') {
     const m = /^h(\S+)\s+v(\S+)$/.exec(id);
