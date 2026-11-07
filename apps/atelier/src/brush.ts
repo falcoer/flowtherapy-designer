@@ -496,99 +496,118 @@ function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: 
   const def = stampOf(s.stamp);
   const ps = stampPaths(def);
   const g = guides[s.guide];
-  const dil = Math.max(0, Math.min(1, s.dilution ?? 0));
   const r = rng(s.seed);
   const { c: sil, ctx: sx } = buffer('a', t.pw, t.ph);
-  const sow = s.sow;
-  const wipe = s.wipe && !sow;
-  const prints: Array<Pt & { R: number; flip?: boolean }> = sow ? sowPrints(s, t, r, def) : (wipe ? s.pts.slice(0, 1) : s.pts).map((p) => ({ ...p, R: s.size * t.pxPerMin * 2 * (0.75 + 0.35 * (p.p ?? 0.7)) }));
+  const prints = stampPrints(s, t, r, def);
   const n = prints.length;
   let big = 0;
   prints.forEach((p, i) => {
-    const R = p.R;
-    big = Math.max(big, R);
-    const k = R / Math.max(def.w, def.h);
-    // la rotation du stylet oriente le tampon ; sans elle, un léger hasard
-    const jitter = (r() - 0.5) * 0.35;
-    const ang = p.r ?? jitter;
-    // chaque empreinte se forme à part : penché, le tampon n'imprime franchement que d'un côté
-    const S = Math.ceil(R * 1.6) + 2;
-    const tmp = stampTmp(S);
-    const sx0 = sx;
-    {
-      const sx = tmp.getContext('2d')!;
-      sx.save();
-      sx.translate(S / 2, S / 2);
-      sx.rotate(ang);
-      sx.scale(p.flip ? -k : k, k);
-      sx.translate(-def.w / 2, -def.h / 2);
-      // un dégradé traverse le motif ; le long d'une traînée, chaque tampon prend sa teinte
-      let style: string | CanvasGradient = guideColor(g, n > 1 ? i / (n - 1) : 0);
-      if (g?.type === 'gradient' && (n === 1 || s.filled)) {
-        const lg = sx.createLinearGradient(0, 0, def.w, 0);
-        for (let q = 0; q <= 8; q++) lg.addColorStop(q / 8, guideColor(g, q / 8));
-        style = lg;
-      }
-      def.parts.forEach((part, j) => {
-        sx.globalAlpha = (part.alpha ?? 1) * (0.92 + 0.08 * r());
-        if (part.fill) {
-          sx.fillStyle = style;
-          sx.fill(ps[j]!);
-        } else {
-          // rempli : le trait referme sa forme et la peint
-          if (s.filled) {
-            sx.fillStyle = style;
-            sx.globalAlpha *= 0.85;
-            sx.fill(ps[j]!, 'evenodd');
-            sx.globalAlpha /= 0.85;
-          }
-          sx.strokeStyle = style;
-          sx.lineWidth = part.width ?? 4;
-          sx.lineCap = 'round';
-          sx.lineJoin = 'round';
-          sx.stroke(ps[j]!);
-        }
-      });
-      sx.restore();
-      // penché, le tampon se met en perspective : écrasé dans le sens où le crayon penche,
-      // et plus petit de ce côté-là, comme un motif posé sur une surface qui fuit (un bras, une joue)
-      if (p.k) perspective(tmp, S, p.d ?? 0, p.k);
-    }
-    sx0.drawImage(tmp, 0, 0, S, S, p.x * t.pw - S / 2, p.y * t.ph - S / 2, S, S);
-    // essuyé : le tampon glisse sans quitter le papier, l'encre s'étire et s'épuise le long du geste
-    if (wipe && s.pts.length > 1) {
-      const x0 = p.x * t.pw;
-      const y0 = p.y * t.ph;
-      const step = Math.max(1, R * 0.035);
-      let L = 0;
-      let carry = 0;
-      for (let j = 1; j < s.pts.length; j++) {
-        const a = s.pts[j - 1]!;
-        const b = s.pts[j]!;
-        const ax = a.x * t.pw;
-        const ay = a.y * t.ph;
-        const seg = Math.hypot(b.x * t.pw - ax, b.y * t.ph - ay);
-        for (let d = carry; d < seg; d += step) {
-          const u = d / seg;
-          const cx = ax + (b.x * t.pw - ax) * u;
-          const cy = ay + (b.y * t.ph - ay) * u;
-          const ink = Math.exp(-(L + d) / (R * 1.1));
-          if (ink < 0.02) break;
-          sx0.globalAlpha = 0.16 * ink * (0.8 + 0.4 * r());
-          sx0.drawImage(tmp, 0, 0, S, S, cx - S / 2 + (cx - x0) * 0.04, cy - S / 2 + (cy - y0) * 0.04, S, S);
-        }
-        carry = Math.max(0, carry + Math.ceil((seg - carry) / step) * step - seg);
-        L += seg;
-      }
-      sx0.globalAlpha = 1;
-    }
+    big = Math.max(big, p.R);
+    inkPrint(sx, s, p, i, n, def, ps, g, r, t);
   });
+  finishInk(dst, sil, sx, s, t, big);
+}
+
+type Print = Pt & { R: number; flip?: boolean };
+
+/** Les empreintes du geste : semées autour du tracé, ou une par point (une seule, essuyée). */
+function stampPrints(s: Stroke, t: Target, r: () => number, def: StampDef): Print[] {
+  if (s.sow) return sowPrints(s, t, r, def);
+  return (s.wipe ? s.pts.slice(0, 1) : s.pts).map((p) => ({ ...p, R: s.size * t.pxPerMin * 2 * (0.75 + 0.35 * (p.p ?? 0.7)) }));
+}
+
+/** Une empreinte posée sur la silhouette (et, essuyée, l'encre étirée derrière elle). */
+function inkPrint(sx0: CanvasRenderingContext2D, s: Stroke, p: Print, i: number, n: number, def: StampDef, ps: Path2D[], g: Guide | undefined, r: () => number, t: Target) {
+  const wipe = s.wipe && !s.sow;
+  const R = p.R;
+  const k = R / Math.max(def.w, def.h);
+  // la rotation du stylet oriente le tampon ; sans elle, un léger hasard
+  const jitter = (r() - 0.5) * 0.35;
+  const ang = p.r ?? jitter;
+  // chaque empreinte se forme à part : penché, le tampon n'imprime franchement que d'un côté
+  const S = Math.ceil(R * 1.6) + 2;
+  const tmp = stampTmp(S);
+  {
+    const sx = tmp.getContext('2d')!;
+    sx.save();
+    sx.translate(S / 2, S / 2);
+    sx.rotate(ang);
+    sx.scale(p.flip ? -k : k, k);
+    sx.translate(-def.w / 2, -def.h / 2);
+    // un dégradé traverse le motif ; le long d'une traînée, chaque tampon prend sa teinte
+    let style: string | CanvasGradient = guideColor(g, n > 1 ? i / (n - 1) : 0);
+    if (g?.type === 'gradient' && (n === 1 || s.filled)) {
+      const lg = sx.createLinearGradient(0, 0, def.w, 0);
+      for (let q = 0; q <= 8; q++) lg.addColorStop(q / 8, guideColor(g, q / 8));
+      style = lg;
+    }
+    def.parts.forEach((part, j) => {
+      sx.globalAlpha = (part.alpha ?? 1) * (0.92 + 0.08 * r());
+      if (part.fill) {
+        sx.fillStyle = style;
+        sx.fill(ps[j]!);
+      } else {
+        // rempli : le trait referme sa forme et la peint
+        if (s.filled) {
+          sx.fillStyle = style;
+          sx.globalAlpha *= 0.85;
+          sx.fill(ps[j]!, 'evenodd');
+          sx.globalAlpha /= 0.85;
+        }
+        sx.strokeStyle = style;
+        sx.lineWidth = part.width ?? 4;
+        sx.lineCap = 'round';
+        sx.lineJoin = 'round';
+        sx.stroke(ps[j]!);
+      }
+    });
+    sx.restore();
+    // penché, le tampon se met en perspective : écrasé dans le sens où le crayon penche,
+    // et plus petit de ce côté-là, comme un motif posé sur une surface qui fuit (un bras, une joue)
+    if (p.k) perspective(tmp, S, p.d ?? 0, p.k);
+  }
+  sx0.drawImage(tmp, 0, 0, S, S, p.x * t.pw - S / 2, p.y * t.ph - S / 2, S, S);
+  // essuyé : le tampon glisse sans quitter le papier, l'encre s'étire et s'épuise le long du geste
+  if (wipe && s.pts.length > 1) {
+    const x0 = p.x * t.pw;
+    const y0 = p.y * t.ph;
+    const step = Math.max(1, R * 0.035);
+    let L = 0;
+    let carry = 0;
+    for (let j = 1; j < s.pts.length; j++) {
+      const a = s.pts[j - 1]!;
+      const b = s.pts[j]!;
+      const ax = a.x * t.pw;
+      const ay = a.y * t.ph;
+      const seg = Math.hypot(b.x * t.pw - ax, b.y * t.ph - ay);
+      for (let d = carry; d < seg; d += step) {
+        const u = d / seg;
+        const cx = ax + (b.x * t.pw - ax) * u;
+        const cy = ay + (b.y * t.ph - ay) * u;
+        const ink = Math.exp(-(L + d) / (R * 1.1));
+        if (ink < 0.02) break;
+        sx0.globalAlpha = 0.16 * ink * (0.8 + 0.4 * r());
+        sx0.drawImage(tmp, 0, 0, S, S, cx - S / 2 + (cx - x0) * 0.04, cy - S / 2 + (cy - y0) * 0.04, S, S);
+      }
+      carry = Math.max(0, carry + Math.ceil((seg - carry) / step) * step - seg);
+      L += seg;
+    }
+    sx0.globalAlpha = 1;
+  }
+}
+
+/** Grain du papier, puis l'eau de la dilution, et la silhouette posée sur la couche. */
+function finishInk(dst: CanvasRenderingContext2D, sil: HTMLCanvasElement, sx: CanvasRenderingContext2D, s: Stroke, t: Target, big: number, ox = 0, oy = 0) {
+  const dil = Math.max(0, Math.min(1, s.dilution ?? 0));
   sx.globalAlpha = 1;
   // encre pressée : le papier ne prend pas tout, même pleine
+  // (ox, oy : coin d'un morceau de la couche, pour que le grain tombe au même endroit)
   sx.globalCompositeOperation = 'destination-out';
   sx.globalAlpha = 0.18 + 0.6 * dil;
   sx.fillStyle = sx.createPattern(paperGrain(), 'repeat')!;
-  sx.fillRect(0, 0, t.pw, t.ph);
+  sx.setTransform(1, 0, 0, 1, -ox, -oy);
+  sx.fillRect(ox, oy, t.pw, t.ph);
+  sx.setTransform(1, 0, 0, 1, 0, 0);
   sx.globalCompositeOperation = 'source-over';
   sx.globalAlpha = 1;
   dst.save();
@@ -613,6 +632,72 @@ function stampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: 
     dst.drawImage(sil, 0, 0);
   }
   dst.restore();
+}
+
+/** Aperçu d'un semis en cours de geste : silhouette gardée d'un mouvement à l'autre. */
+export interface InkLive {
+  sil: HTMLCanvasElement;
+  done: number;
+  big: number;
+}
+
+/**
+ * Aperçu d'un tampon pendant le geste. Un semis compte vite des centaines d'empreintes :
+ * le repeindre en entier à chaque mouvement figeait la tablette. Ici seules les nouvelles
+ * empreintes sont posées (leur place est celle du rendu final ; leur légère variation d'encre
+ * vient d'un hasard propre à l'aperçu), puis le grain et l'eau sont refaits sur l'ensemble.
+ * Les autres tampons, courts, sont repeints en entier.
+ */
+export function previewStampInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target, live?: InkLive): InkLive | undefined {
+  const g = guides[s.guide];
+  // un dégradé le long d'un semis non rempli change la teinte de chaque empreinte quand le geste s'allonge
+  if (s.brush !== 'stamp' || !s.sow || (g?.type === 'gradient' && !s.filled)) {
+    dst.clearRect(0, 0, dst.canvas.width, dst.canvas.height);
+    paintStroke(dst, s, guides, t);
+    return undefined;
+  }
+  const def = stampOf(s.stamp);
+  const ps = stampPaths(def);
+  const prints = stampPrints(s, t, rng(s.seed), def);
+  if (!live || live.sil.width !== t.pw || live.sil.height !== t.ph) {
+    const c = live?.sil ?? document.createElement('canvas');
+    c.width = t.pw;
+    c.height = t.ph;
+    live = { sil: c, done: 0, big: 0 };
+  }
+  const lx = live.sil.getContext('2d')!;
+  // zone touchée par les nouvelles empreintes
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (let i = live.done; i < prints.length; i++) {
+    const p = prints[i]!;
+    live.big = Math.max(live.big, p.R);
+    inkPrint(lx, s, p, i, prints.length, def, ps, g, rng(s.seed + 7919 * (i + 1)), t);
+    const h = p.R * 0.8 + 2;
+    x0 = Math.min(x0, p.x * t.pw - h);
+    y0 = Math.min(y0, p.y * t.ph - h);
+    x1 = Math.max(x1, p.x * t.pw + h);
+    y1 = Math.max(y1, p.y * t.ph + h);
+  }
+  const first = live.done === 0;
+  live.done = prints.length;
+  if (first) dst.clearRect(0, 0, dst.canvas.width, dst.canvas.height);
+  if (x1 < x0) return live;
+  // grain et eau refaits seulement autour : le flou de l'eau porte à m pixels, et lit m pixels plus loin
+  const dil = Math.max(0, Math.min(1, s.dilution ?? 0));
+  const m = dil > 0.02 ? Math.ceil(live.big * 0.6) + 4 : 1;
+  const clip = (v: number, hi: number) => Math.max(0, Math.min(hi, Math.round(v)));
+  const [ix0, iy0, ix1, iy1] = [clip(x0 - m, t.pw), clip(y0 - m, t.ph), clip(x1 + m, t.pw), clip(y1 + m, t.ph)];
+  const [rx0, ry0, rx1, ry1] = [clip(x0 - 2 * m, t.pw), clip(y0 - 2 * m, t.ph), clip(x1 + 2 * m, t.pw), clip(y1 + 2 * m, t.ph)];
+  const rw = rx1 - rx0;
+  const rh = ry1 - ry0;
+  if (rw < 1 || rh < 1 || ix1 <= ix0 || iy1 <= iy0) return live;
+  const { c: sil, ctx: sx } = buffer('a', rw, rh);
+  sx.drawImage(live.sil, -rx0, -ry0);
+  const { c: out, ctx: ox } = buffer('d', rw, rh);
+  finishInk(ox, sil, sx, s, { ...t, pw: rw, ph: rh }, live.big, rx0, ry0);
+  dst.clearRect(ix0, iy0, ix1 - ix0, iy1 - iy0);
+  dst.drawImage(out, ix0 - rx0, iy0 - ry0, ix1 - ix0, iy1 - iy0, ix0, iy0, ix1 - ix0, iy1 - iy0);
+  return live;
 }
 
 /**
