@@ -704,7 +704,7 @@ function drawSwash(ctx: CanvasRenderingContext2D, s: Swash, X0: number, Y0: numb
  * Contours de l'encre (marching squares avec interpolation) : anneaux fermés en pixels.
  * Les extérieurs et les trous (o, a, e…) sortent tous : la découpe est remplie en pair-impair.
  */
-function contours(px: Uint8ClampedArray, W: number, H: number, th: number): Ring[] {
+export function contours(px: Uint8ClampedArray, W: number, H: number, th: number): Ring[] {
   const a = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= H ? 0 : px[(y * W + x) * 4 + 3]!);
   // arêtes : horizontales (x, y)→(x+1, y) id = 2*(y*(W+1)+x), verticales (x, y)→(x, y+1) id = 2*(...)+1
   const hid = (x: number, y: number) => 2 * ((y + 1) * (W + 2) + (x + 1));

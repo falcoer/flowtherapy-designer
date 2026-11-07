@@ -49,6 +49,8 @@ import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, isMaterial, MATER
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
 import { FanButton } from './fan';
+import type { MultiPolygon } from 'polygon-clipping';
+import { maskImage, segmentSubject, setSubjectImage, SUBJECT_SIZE, subjectGeom, type SubjectCrop, type SubjectMask, type SubjectStroke } from './subject';
 import {
   drawLampTint,
   lampOf,
@@ -58,6 +60,7 @@ import {
   holdPins,
   imageFor,
   localBounds,
+  layerMatrix,
   localToPage,
   pageBounds,
   pageToLocal,
@@ -87,6 +90,52 @@ type Bubble = 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'anc
 type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc-v2';
+
+/**
+ * Tracé redressé : chaque point est comparé à la médiane de ses voisins sur `reach` (longueur
+ * de tracé de part et d'autre) ; s'il s'en écarte de plus de `tol`, il y est ramené. Trois passes :
+ * les dents et crochets qu'un aimant prend sur les contours voisins disparaissent, les vraies
+ * courbes restent.
+ */
+function steadyPath(pts: Pt[], reach: number, tol: number, closed: boolean): Pt[] {
+  const n = pts.length;
+  if (n < 5 || reach <= 0) return pts;
+  // abscisse curviligne (prise sur le tracé d'origine)
+  const at = new Float64Array(n);
+  for (let i = 1; i < n; i++) at[i] = at[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
+  const total = at[n - 1]! + (closed ? Math.hypot(pts[0]!.x - pts[n - 1]!.x, pts[0]!.y - pts[n - 1]!.y) : 0);
+  const median = (v: number[]) => {
+    v.sort((a, b) => a - b);
+    const h = v.length >> 1;
+    return v.length % 2 ? v[h]! : (v[h - 1]! + v[h]!) / 2;
+  };
+  let cur = pts;
+  for (let pass = 0; pass < 3; pass++) {
+    const out: Pt[] = [];
+    for (let i = 0; i < n; i++) {
+      const xs = [cur[i]!.x];
+      const ys = [cur[i]!.y];
+      for (const dir of [-1, 1]) {
+        for (let k = 1; k < n; k++) {
+          let j = i + dir * k;
+          if (!closed && (j < 0 || j >= n)) break;
+          j = ((j % n) + n) % n;
+          let d = Math.abs(at[j]! - at[i]!);
+          if (closed) d = Math.min(d, total - d);
+          if (d > reach) break;
+          xs.push(cur[j]!.x);
+          ys.push(cur[j]!.y);
+        }
+      }
+      const p = cur[i]!;
+      const m = { x: median(xs), y: median(ys) };
+      const dev = Math.hypot(p.x - m.x, p.y - m.y);
+      out.push(dev > tol ? { x: m.x + ((p.x - m.x) * tol) / dev, y: m.y + ((p.y - m.y) * tol) / dev } : p);
+    }
+    cur = out;
+  }
+  return cur;
+}
 const TOP = 52;
 /** Rayon d'attraction des ancrages, en pixels écran. */
 const MAGNET = 30;
@@ -586,6 +635,25 @@ export function App() {
   const [magnet, setMagnet] = useState(true);
   /** Ciseaux : le morceau se détache. Scalpel : il reste en place, lié à son objet. */
   const [blade, setBlade] = useState<'scissors' | 'scalpel'>('scissors');
+  /** Découper › Sujet : toucher le sujet d'une image pour le détourer (MediaPipe, dans le navigateur). */
+  const [subjectOn, setSubjectOn] = useState(false);
+  /** Sujet : les traits retirent au lieu d'ajouter. */
+  const [subjectErase, setSubjectErase] = useState(false);
+  const subject = useRef<{
+    /** Couche analysée, recadrage de l'analyse et zone tracée (coordonnées de la couche). */
+    layer: string;
+    crop: SubjectCrop;
+    zone: Pt[] | null;
+    state: 'busy' | 'ready' | 'error';
+    error?: string;
+    strokes: SubjectStroke[];
+    mask: SubjectMask | null;
+    img: HTMLCanvasElement | null;
+    geom: MultiPolygon | null;
+    /** Un décodage est en cours ; `again` : les traits ont changé depuis. */
+    running?: boolean;
+    again?: boolean;
+  } | null>(null);
   /** Détection des contours de l'image sélectionnée : critère et seuil (0..1). */
   const [edgeMode, setEdgeMode] = useState<EdgeMode>('both');
   const [edgeThreshold, setEdgeThreshold] = useState(0.35);
@@ -778,7 +846,7 @@ export function App() {
   const dotAt = useRef(0);
   // --- état des gestes en cours ---
   const live = useRef<{
-    kind: 'paint' | 'cut' | 'move' | 'resize' | 'rotate' | 'pivot' | 'view' | 'swash' | 'mold' | 'bump' | null;
+    kind: 'paint' | 'cut' | 'subject' | 'move' | 'resize' | 'rotate' | 'pivot' | 'view' | 'swash' | 'mold' | 'bump' | null;
     /** Relief en cours de sculpture : hauteurs de travail et dernière touche (pixels de la carte). */
     bump?: { w: number; h: number; H: Float32Array; at: [number, number] };
     /** Outil Modeler : découpe de départ et découpe d'origine, en pixels de travail. */
@@ -1115,7 +1183,7 @@ export function App() {
     }
     // contours détectés dans l'image sélectionnée : pointillés en couleur complémentaire
     // masqués pendant un déplacement ou un geste de vue : seulement pour découper
-    if (tool === 'cut' && magnet && sel && (L.kind === null || L.kind === 'cut')) {
+    if (tool === 'cut' && magnet && !subject.current && sel && (L.kind === null || L.kind === 'cut')) {
       const m = edgesFor(sel);
       if (m) {
         const b = layerBox(sel, f);
@@ -1150,6 +1218,89 @@ export function App() {
         ctx.drawImage(o, 0, 0);
         ctx.restore();
       }
+    }
+    // Sujet : le sujet trouvé teinté, son contour en pointillés, les traits posés
+    const S = subject.current;
+    if (tool === 'cut' && subjectOn && S && sel && S.layer === sel.id) {
+      if (S.img) {
+        ctx.save();
+        ctx.clip(maskPath2D(sel, f), 'evenodd');
+        const M = layerMatrix(sel, f);
+        ctx.transform(M.a, M.b, M.c, M.d, M.e, M.f);
+        ctx.globalAlpha = 0.38;
+        ctx.drawImage(S.img, S.crop.u0, S.crop.v0, S.crop.u1 - S.crop.u0, S.crop.v1 - S.crop.v0);
+        ctx.restore();
+      }
+      if (S.geom?.length) {
+        const path = new Path2D();
+        for (const ring of ringsOfGeom(S.geom))
+          ring.forEach((q, i) => {
+            const P = localToPage(sel, f, q.x, q.y);
+            if (i) path.lineTo(P.x, P.y);
+            else path.moveTo(P.x, P.y);
+          });
+        ctx.save();
+        ctx.lineWidth = 3 * px;
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke(path);
+        ctx.lineWidth = 1.6 * px;
+        ctx.setLineDash([6 * px, 4 * px]);
+        ctx.strokeStyle = '#7a5cff';
+        ctx.stroke(path);
+        ctx.restore();
+      }
+      // zone tracée : pointillés fins
+      if (S.zone) {
+        ctx.save();
+        ctx.lineWidth = 1.2 * px;
+        ctx.setLineDash([4 * px, 4 * px]);
+        ctx.strokeStyle = 'rgba(29,27,34,0.7)';
+        ctx.beginPath();
+        S.zone.forEach((q, i) => {
+          const P = localToPage(sel, f, q.x, q.y);
+          if (i) ctx.lineTo(P.x, P.y);
+          else ctx.moveTo(P.x, P.y);
+        });
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+      }
+      // vert pour ajouter, rouge pour retirer
+      for (const st of S.strokes) {
+        if (st.mode === 'zone') continue;
+        ctx.save();
+        ctx.strokeStyle = ctx.fillStyle = st.mode === 'add' ? 'rgba(46,170,90,0.9)' : 'rgba(220,60,60,0.9)';
+        ctx.lineWidth = 3 * px;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        const pts = st.pts.map((q) => localToPage(sel, f, q.x, q.y));
+        ctx.beginPath();
+        if (pts.length === 1) {
+          ctx.arc(pts[0]!.x, pts[0]!.y, 4 * px, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          pts.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+    if (L.kind === 'subject' && L.lasso) {
+      ctx.save();
+      ctx.strokeStyle = subjectErase ? 'rgba(220,60,60,0.9)' : 'rgba(46,170,90,0.9)';
+      ctx.fillStyle = 'rgba(122,92,255,0.08)';
+      if (L.lasso.length > 2) {
+        ctx.beginPath();
+        L.lasso.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+        ctx.fill();
+      }
+      ctx.lineWidth = 3 * px;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      L.lasso.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+      ctx.stroke();
+      ctx.restore();
     }
     // ancrages pendant un déplacement, et tant que le réglage d'ancrage est ouvert
     if (L.kind === 'move' || bubble === 'anchor' || guidesOn.on) {
@@ -1552,6 +1703,12 @@ export function App() {
       setSelected(l?.id ?? null);
       return;
     }
+    if (t === 'cut' && subjectOn && subject.current) {
+      // sujet en cours d'ajustement : un toucher ou un trait ajoute ou retire, un nouveau contour refait la zone
+      live.current = { kind: 'subject', lasso: [p] };
+      redraw();
+      return;
+    }
     if (t === 'cut') {
       // lignes magnétiques : contours des couches visibles et bords du format
       const grid = magnet && sel ? edgeGrid(sel) : null;
@@ -1925,6 +2082,10 @@ export function App() {
         paintStroke(wx, L.stroke, doc.guides, tg);
       } else L.drawn = previewStamps(L.wet!.getContext('2d')!, L.stroke, doc.guides, tg, L.drawn ?? 0);
       redraw();
+    } else if (L.kind === 'subject' && L.lasso) {
+      const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
+      for (const ev of events) L.lasso.push(toPage(ev.clientX, ev.clientY));
+      redraw();
     } else if (L.kind === 'cut' && L.shaped) {
       // forme reconnue : elle reste telle quelle jusqu'au lâcher
     } else if (L.kind === 'cut' && L.lasso && L.lineAt !== undefined) {
@@ -2149,11 +2310,18 @@ export function App() {
       update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, strokes: [...l.strokes, s] } : l)) }));
       return;
     }
+    if (L.kind === 'subject' && L.lasso) {
+      live.current = { kind: null };
+      subjectGesture(L.lasso);
+      return;
+    }
     if (L.kind === 'cut' && L.lasso) {
       live.current = { kind: null };
       stopCutStill();
       // en mode ligne, les segments droits gardent leurs extrémités exactes
-      const pts = L.shaped ? L.lasso : L.lineAt !== undefined ? [...simplify(L.lasso.slice(0, Math.max(1, L.lineAt)), 1.2 / scale), L.lasso[L.lasso.length - 1]!] : simplify(L.lasso, 1.2 / scale);
+      // Lissage au-delà de la moitié : le tracé aimanté ne suit plus les petits écarts des contours détectés
+      const steady = magnet && !L.shaped && L.lineAt === undefined && edgeSmooth > 0.5 ? steadyPath(L.lasso, (30 + (edgeSmooth - 0.5) * 2 * 60) / scale, 2.5 / scale, !L.path) : L.lasso;
+      const pts = L.shaped ? L.lasso : L.lineAt !== undefined ? [...simplify(L.lasso.slice(0, Math.max(1, L.lineAt)), 1.2 / scale), L.lasso[L.lasso.length - 1]!] : simplify(steady, 1.2 / scale);
       if (L.path) finishPath(pts);
       else finishCut(pts);
       return;
@@ -2217,6 +2385,166 @@ export function App() {
     if (mapCache.current?.key !== mk) mapCache.current = { key: mk, m: edgeMap(analysisCache.current.a, edgeMode, edgeThreshold, edgeSmooth) };
     return mapCache.current.m;
   };
+  // --- Découper › Sujet : détourage par le modèle Magic Touch ---
+  /**
+   * Analyse une couche, recadrée sur `crop` (coordonnées de la couche) : le modèle ne
+   * se charge qu'à ce moment-là, au premier geste en mode Sujet.
+   */
+  const startSubject = (l: Layer, crop: SubjectCrop, zone: Pt[] | null, first: SubjectStroke[]) => {
+    if (l.kind === 'photo' && l.src && !imageFor(l.src, redraw)) return;
+    const b = layerBox(l, f);
+    const [cw, ch] = [b.w * (crop.u1 - crop.u0), b.h * (crop.v1 - crop.v0)];
+    const k = SUBJECT_SIZE / Math.max(cw, ch);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(cw * k));
+    c.height = Math.max(1, Math.round(ch * k));
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.setTransform(k, 0, 0, k, -(b.cx - b.w / 2 + crop.u0 * b.w) * k, -(b.cy - b.h / 2 + crop.v0 * b.h) * k);
+    // la photo entière, à plat : le modèle voit tout le contexte, même hors de la découpe
+    const flat: Layer = { ...l, height: 0, bevel: 0, border: undefined, rot: 0, visible: true, ...(l.kind === 'photo' ? { cut: undefined, molded: undefined } : {}) };
+    drawLayers(ctx, { ...doc, layers: [flat] }, f, { scale: k, onImage: redraw });
+    const S: NonNullable<typeof subject.current> = { layer: l.id, crop, zone, state: 'busy', strokes: first, mask: null, img: null, geom: null };
+    subject.current = S;
+    redraw();
+    setSubjectImage(c)
+      .then(() => {
+        if (subject.current !== S) return;
+        S.state = 'ready';
+        runSubject();
+      })
+      .catch((e) => {
+        if (subject.current !== S) return;
+        S.state = 'error';
+        S.error = e instanceof Error ? e.message : String(e);
+        redraw();
+      });
+  };
+  /** Décode les traits en cours ; un seul décodage à la fois, le dernier état des traits gagne. */
+  const runSubject = () => {
+    const S = subject.current;
+    if (!S || S.state !== 'ready') return;
+    if (S.running) {
+      S.again = true;
+      return;
+    }
+    S.running = true;
+    S.again = false;
+    const { u0, v0, u1, v1 } = S.crop;
+    // traits en coordonnées de l'image analysée (le recadrage)
+    const strokes = S.strokes.map((x) => ({ ...x, pts: x.pts.map((q) => ({ x: (q.x - u0) / (u1 - u0), y: (q.y - v0) / (v1 - v0) })) }));
+    segmentSubject(strokes)
+      .then((m) => {
+        if (subject.current !== S) return;
+        const l = doc.layers.find((x) => x.id === S.layer);
+        S.mask = m;
+        S.img = m ? maskImage(m, [122, 92, 255]) : null;
+        if (m && l) {
+          // la découpe suit le contour du modèle (dans la forme de la couche), même là où il
+          // déborde du tracé ; on ne garde que les morceaux que le tracé touche
+          const g = subjectGeom(m, localRings(l), S.crop);
+          const zone = S.zone;
+          S.geom = zone ? g.filter((poly) => geomArea(intersect(ringsOfGeom([poly]), [zone])) > 0) : g;
+        } else S.geom = null;
+        // après le tracé, la lame déjà choisie coupe tout de suite (Annuler, en haut, revient en arrière)
+        if (S.zone && S.strokes.length === 1) {
+          if (S.geom?.length) detachSubject(blade);
+          else {
+            subject.current = null;
+            setToast('Aucun sujet trouvé dans ce tracé : rien n’est coupé');
+          }
+        }
+      })
+      .catch((e) => {
+        if (subject.current !== S) return;
+        setToast(`Détourage impossible : ${e instanceof Error ? e.message : e}`);
+      })
+      .finally(() => {
+        S.running = false;
+        if (S.again && subject.current === S) runSubject();
+        redraw();
+      });
+  };
+  /** Contour fermé (coordonnées de la couche) : le sujet est cherché dans cette zone, sur une analyse recadrée. */
+  const subjectZone = (l: Layer, line: Pt[]) => {
+    const zone = simplifyRing(line, 0.002);
+    const us = zone.map((q) => q.x);
+    const vs = zone.map((q) => q.y);
+    // large marge : le sujet peut déborder du tracé, la découpe suivra le modèle
+    const [mu, mv] = [(Math.max(...us) - Math.min(...us)) * 0.5, (Math.max(...vs) - Math.min(...vs)) * 0.5];
+    const crop = {
+      u0: Math.max(0, Math.min(...us) - mu),
+      v0: Math.max(0, Math.min(...vs) - mv),
+      u1: Math.min(1, Math.max(...us) + mu),
+      v1: Math.min(1, Math.max(...vs) + mv),
+    };
+    if (crop.u1 - crop.u0 < 0.01 || crop.v1 - crop.v0 < 0.01) return redraw();
+    const few = zone.length > 64 ? zone.filter((_, i) => i % Math.ceil(zone.length / 64) === 0) : zone;
+    startSubject(l, crop, zone, [{ mode: 'zone', pts: few }]);
+  };
+  /**
+   * Fin d'un geste en mode Sujet. Un contour fermé est une zone : le sujet y est cherché
+   * (analyse recadrée sur la zone). Un toucher ou un trait ajoute ce qui manque, ou retire
+   * ce qui déborde ; sans zone, il cherche le sujet dans toute l'image.
+   */
+  const subjectGesture = (pts: Pt[]) => {
+    const sel = doc.layers.find((x) => x.id === selected);
+    const xs = pts.map((q) => q.x);
+    const ys = pts.map((q) => q.y);
+    const [w, h] = [Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
+    const tap = Math.max(w, h) * scale < 8;
+    // toucher une autre image la choisit
+    if (tap && !(sel && insideRings(maskRings(sel, f), pts[0]!.x, pts[0]!.y))) {
+      const hit = layerAt(pts[0]!.x, pts[0]!.y);
+      if (hit && hit.kind !== 'surface' && hit.id !== sel?.id) {
+        subject.current = null;
+        setSelected(hit.id);
+      }
+      return redraw();
+    }
+    if (!sel || sel.kind === 'surface') return redraw();
+    const line = simplify(pts, 2 / scale).map((q) => toLocal(sel, q.x, q.y));
+    const few = (r: Pt[]) => (r.length > 64 ? r.filter((_, i) => i % Math.ceil(r.length / 64) === 0) : r);
+    const closed = !tap && Math.min(w, h) * scale > 30 && Math.hypot(pts[0]!.x - pts[pts.length - 1]!.x, pts[0]!.y - pts[pts.length - 1]!.y) < 0.35 * Math.hypot(w, h);
+    if (closed) return subjectZone(sel, line);
+    const stroke: SubjectStroke = { mode: subjectErase ? 'remove' : 'add', pts: few(line) };
+    const S = subject.current;
+    if (!S || S.layer !== sel.id) {
+      if (stroke.mode === 'add') startSubject(sel, { u0: 0, v0: 0, u1: 1, v1: 1 }, null, [stroke]);
+      return redraw();
+    }
+    S.strokes.push(stroke);
+    runSubject();
+    redraw();
+  };
+  /** Bandeau d'état du mode Sujet. */
+  const subjectStatus = (l: Layer) => {
+    const S = subject.current;
+    if (l.kind === 'surface') return 'Touche une photo : son sujet sera détouré';
+    if (!S || S.layer !== l.id) return `Entoure le sujet de « ${l.name} » : il sera détouré dans cette zone (ou touche-le)`;
+    if (S.state === 'busy') return `Analyse de « ${l.name} »… (la première fois, le modèle de 30 Mo se télécharge)`;
+    if (S.state === 'error') return `Détourage indisponible : ${S.error}`;
+    if (S.running) return S.geom ? 'Mise à jour du sujet…' : 'Recherche du sujet…';
+    if (!S.geom?.length) return 'Aucun sujet trouvé : touche le sujet, ou entoure-le de plus près';
+    return subjectErase ? 'Retirer : glisse sur ce qui déborde du sujet' : 'Sujet trouvé : touche ce qui manque pour l’ajouter, puis coupe aux ciseaux ou au scalpel';
+  };
+  /** Détache le sujet détouré : un morceau posé au-dessus (ciseaux) ou en place (scalpel). */
+  const detachSubject = (how: 'scissors' | 'scalpel') => {
+    const S = subject.current;
+    const l = S && doc.layers.find((x) => x.id === S.layer);
+    if (!S || !l || !S.geom?.length) return;
+    const rest = subtract(localRings(l), ringsOfGeom(S.geom));
+    const b = layerBox(l, f);
+    if (geomArea(rest) * b.w * b.h * scale * scale < 30) {
+      setToast(`Le sujet couvre toute « ${l.name} »`);
+      return;
+    }
+    detach(l, S.geom, rest, 'sujet', how);
+    subject.current = null;
+    setSubjectErase(false);
+  };
+
   /** Couches visibles posées au-dessus d'une couche (elles la cachent). */
   const coveringLayers = (l: Layer) => {
     const ord = renderOrder(doc.layers);
@@ -2312,6 +2640,39 @@ export function App() {
     setToast(`« ${sel.name} » séparée en ${parts.length} morceaux : glisse-les pour les placer`);
   };
 
+  /**
+   * Sépare une couche en deux : le morceau (géométrie en coordonnées de la couche), posé
+   * au-dessus, et le reste qui garde la place. Ciseaux : le morceau est un peu décalé ;
+   * scalpel : il reste en place, lié à son objet.
+   */
+  const detach = (l: Layer, piece: MultiPolygon, rest: MultiPolygon, label = 'morceau', how: 'scissors' | 'scalpel' = blade) => {
+    const b = layerBox(l, f);
+    const eps = 0.6 / (scale * Math.max(b.w, b.h));
+    const pieceCut = ringsToPath(ringsOfGeom(piece), eps);
+    const restCut = ringsToPath(ringsOfGeom(rest), eps);
+    const m = Math.min(f.width, f.height);
+    const scalpel = how === 'scalpel';
+    const group = scalpel ? (l.link ?? uid()) : undefined;
+    const morceau: Layer = {
+      ...structuredClone(l),
+      id: uid(),
+      name: `${l.name} · ${label}`,
+      cut: pieceCut,
+      height: l.height,
+      // ciseaux : légèrement décalé, comme un morceau qu'on vient de détacher ; scalpel : en place, lié
+      dx: scalpel ? l.dx : l.dx + (0.012 * m) / f.width,
+      dy: scalpel ? l.dy : l.dy + (0.012 * m) / f.height,
+      ...(scalpel ? { link: group } : {}),
+    };
+    update((d) => {
+      const layers = d.layers.map((x) => (x.id === l.id ? { ...x, cut: restCut, ...(scalpel ? { link: group } : {}) } : x));
+      layers.splice(layers.findIndex((x) => x.id === l.id) + 1, 0, morceau);
+      return { ...d, layers };
+    });
+    setSelected(morceau.id);
+    setToast(scalpel ? `« ${l.name} » incisée : le morceau reste en place, lié à son objet` : `« ${l.name} » découpée : le morceau est posé dessus`);
+  };
+
   const finishCut = (raw: Pt[]) => {
     const lasso = simplifyRing(raw, 0.8 / scale);
     if (lasso.length < 4) return redraw();
@@ -2331,35 +2692,17 @@ export function App() {
       const pa = geomArea(piece) * b.w * b.h;
       // une couche à peine effleurée n'est découpée que si elle est choisie
       if (pa < lassoArea * 1e-4 || (l !== sel && pa < lassoArea * 0.03)) continue;
+      // option Sujet : le tracé n'est qu'une zone, la découpe collera au sujet trouvé dedans
+      if (subjectOn) {
+        if (l.id !== selected) setSelected(l.id);
+        return subjectZone(l, local);
+      }
       const rest = subtract(shape, [local]);
       if (geomArea(rest) * b.w * b.h < lassoArea * 1e-4) {
         setToast(`Le tracé englobe toute « ${l.name} »`);
         return redraw();
       }
-      const eps = 0.6 / (scale * Math.max(b.w, b.h));
-      const pieceCut = ringsToPath(ringsOfGeom(piece), eps);
-      const restCut = ringsToPath(ringsOfGeom(rest), eps);
-      const m = Math.min(f.width, f.height);
-      const scalpel = blade === 'scalpel';
-      const group = scalpel ? (l.link ?? uid()) : undefined;
-      const morceau: Layer = {
-        ...structuredClone(l),
-        id: uid(),
-        name: `${l.name} · morceau`,
-        cut: pieceCut,
-        height: l.height,
-        // ciseaux : légèrement décalé, comme un morceau qu'on vient de détacher ; scalpel : en place, lié
-        dx: scalpel ? l.dx : l.dx + (0.012 * m) / f.width,
-        dy: scalpel ? l.dy : l.dy + (0.012 * m) / f.height,
-        ...(scalpel ? { link: group } : {}),
-      };
-      update((d) => {
-        const layers = d.layers.map((x) => (x.id === l.id ? { ...x, cut: restCut, ...(scalpel ? { link: group } : {}) } : x));
-        layers.splice(layers.findIndex((x) => x.id === l.id) + 1, 0, morceau);
-        return { ...d, layers };
-      });
-      setSelected(morceau.id);
-      setToast(scalpel ? `« ${l.name} » incisée : le morceau reste en place, lié à son objet` : `« ${l.name} » découpée : le morceau est posé dessus`);
+      detach(l, piece, rest);
       return;
     }
     const m = Math.min(f.width, f.height);
@@ -3279,10 +3622,35 @@ export function App() {
                   >
                     <Icon name={blade} />
                   </button>
-                  <button className={`btn small ${magnet ? 'on' : ''}`} onClick={() => setMagnet(!magnet)} title="Lignes magnétiques : les ciseaux suivent les contours détectés">
-                    <Icon name="magnet" />
+                  <button
+                    className={`btn small ${subjectOn ? 'on' : ''}`}
+                    onClick={() => {
+                      setSubjectOn(!subjectOn);
+                      setSubjectErase(false);
+                      subject.current = null;
+                    }}
+                    title="Coller au sujet : après le tracé, la découpe se resserre sur le personnage ou l'objet entouré (le modèle de 30 Mo se charge au premier usage)"
+                  >
+                    <Icon name="subject" />
                   </button>
-                  {magnet && (
+                  {subjectOn && subject.current && (
+                    <button
+                      className="btn small"
+                      onClick={() => {
+                        subject.current = null;
+                        redraw();
+                      }}
+                      title="Abandonner : la photo reste entière"
+                    >
+                      <Icon name="undo" />
+                    </button>
+                  )}
+                  {!(subjectOn && subject.current) && (
+                    <button className={`btn small ${magnet ? 'on' : ''}`} onClick={() => setMagnet(!magnet)} title="Lignes magnétiques : les ciseaux suivent les contours détectés">
+                      <Icon name="magnet" />
+                    </button>
+                  )}
+                  {magnet && !(subjectOn && subject.current) && (
                     <>
                       <button className={`btn small mode-btn ${modePick ? 'on' : ''}`} onClick={() => setModePick(!modePick)} title={`Mode de détection : ${EDGE_MODES.find((x) => x[0] === edgeMode)![1]}`}>
                         <Icon name={`edge-${edgeMode}`} />
@@ -3794,8 +4162,10 @@ export function App() {
             <div className="status">
               {tool === 'paint' && `Peinture dans « ${sel.name} »`}
               {tool === 'stamp' && `Tampon « ${stampOf(stampId).name} » dans « ${sel.name} » : touche pour imprimer, ${stampSow ? 'glisse pour semer' : 'glisse pour essuyer'}`}
+              {tool === 'cut' && subjectOn && subject.current && subjectStatus(sel)}
               {tool === 'cut' &&
-                `Trace un contour : le morceau ${blade === 'scalpel' ? 'reste en place, lié à la couche touchée' : 'se détache de la couche touchée'}${magnet ? `, aimanté sur les contours de « ${sel.name} »` : ''}`}
+                !(subjectOn && subject.current) &&
+                `Trace un contour : le morceau ${blade === 'scalpel' ? 'reste en place, lié à la couche touchée' : 'se détache de la couche touchée'}${magnet ? `, aimanté sur les contours de « ${sel.name} »` : ''}${subjectOn ? ', puis resserré sur le sujet entouré' : ''}`}
               {tool === 'filter' &&
                 `« ${sel.name} » · ${sel.kind === 'photo' ? [lookOf(sel.look?.style)?.name ?? 'photo originale', fxOf(sel.look?.draw?.id)?.name].filter(Boolean).join(' + ') : 'les filtres sont réservés aux photos'}`}
               {(tool === 'transform' || tool === 'coat') &&

@@ -59,6 +59,11 @@ const PATHS: Record<string, string> = {
   down: 'M6 9l6 6 6-6',
   trash: 'M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3',
   photo: 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z',
+  // silhouette dans un cadre de visée : le sujet détouré
+  subject: 'M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6.5 19.5c.7-3.2 2.9-5 5.5-5s4.8 1.8 5.5 5M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2',
+  'subject-add': 'M10 10a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM4.5 18c.6-2.8 2.7-4.5 5.5-4.5 1 0 2 .2 2.8.7M18 13v8M14 17h8',
+  'subject-remove': 'M10 10a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM4.5 18c.6-2.8 2.7-4.5 5.5-4.5 1 0 2 .2 2.8.7M14 17h8',
+  'subject-cut': 'M5 12.5l4.5 4.5L19 7.5',
   magnet: 'M6 3v8a6 6 0 0 0 12 0V3h-4v8a2 2 0 0 1-4 0V3zM6 7h4M14 7h4',
   'edge-contrast': 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 3v18M12 3a9 9 0 0 1 0 18z',
   'edge-color': 'M8 9a3.5 3.5 0 1 0 0-.01zM16 9a3.5 3.5 0 1 0 0-.01zM12 16a3.5 3.5 0 1 0 0-.01z',
