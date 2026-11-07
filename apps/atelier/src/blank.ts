@@ -1,4 +1,4 @@
-import type { Doc, Guide } from './model';
+import { DEFAULT_MARGIN, type Doc, type Guide } from './model';
 
 /** Palette du groupe, reprise du logo (library/palettes/flow-therapy.yaml). */
 export const BAND_GUIDES: Guide[] = [
@@ -14,6 +14,7 @@ export function blankDoc(): Doc {
   return {
     formatId: 'a4',
     frame: 'repartition',
+    margin: DEFAULT_MARGIN,
     guides: structuredClone(BAND_GUIDES),
     light: -40,
     layers: [
