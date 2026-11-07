@@ -2,6 +2,8 @@ import { FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format } from '@ftd
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive, type Target } from './brush';
 import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
+import { steadyPath } from './steady';
+import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
 import { STAMPS, stampOf, stampSvg } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
@@ -71,6 +73,7 @@ import {
   drawChecker,
   drawLayers,
   forgetPaint,
+  prunePaints,
   localRings,
   maskPath2D,
   maskRings,
@@ -94,51 +97,6 @@ type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc-v2';
 
-/**
- * Tracé redressé : chaque point est comparé à la médiane de ses voisins sur `reach` (longueur
- * de tracé de part et d'autre) ; s'il s'en écarte de plus de `tol`, il y est ramené. Trois passes :
- * les dents et crochets qu'un aimant prend sur les contours voisins disparaissent, les vraies
- * courbes restent.
- */
-function steadyPath(pts: Pt[], reach: number, tol: number, closed: boolean): Pt[] {
-  const n = pts.length;
-  if (n < 5 || reach <= 0) return pts;
-  // abscisse curviligne (prise sur le tracé d'origine)
-  const at = new Float64Array(n);
-  for (let i = 1; i < n; i++) at[i] = at[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
-  const total = at[n - 1]! + (closed ? Math.hypot(pts[0]!.x - pts[n - 1]!.x, pts[0]!.y - pts[n - 1]!.y) : 0);
-  const median = (v: number[]) => {
-    v.sort((a, b) => a - b);
-    const h = v.length >> 1;
-    return v.length % 2 ? v[h]! : (v[h - 1]! + v[h]!) / 2;
-  };
-  let cur = pts;
-  for (let pass = 0; pass < 3; pass++) {
-    const out: Pt[] = [];
-    for (let i = 0; i < n; i++) {
-      const xs = [cur[i]!.x];
-      const ys = [cur[i]!.y];
-      for (const dir of [-1, 1]) {
-        for (let k = 1; k < n; k++) {
-          let j = i + dir * k;
-          if (!closed && (j < 0 || j >= n)) break;
-          j = ((j % n) + n) % n;
-          let d = Math.abs(at[j]! - at[i]!);
-          if (closed) d = Math.min(d, total - d);
-          if (d > reach) break;
-          xs.push(cur[j]!.x);
-          ys.push(cur[j]!.y);
-        }
-      }
-      const p = cur[i]!;
-      const m = { x: median(xs), y: median(ys) };
-      const dev = Math.hypot(p.x - m.x, p.y - m.y);
-      out.push(dev > tol ? { x: m.x + ((p.x - m.x) * tol) / dev, y: m.y + ((p.y - m.y) * tol) / dev } : p);
-    }
-    cur = out;
-  }
-  return cur;
-}
 const TOP = 52;
 /** Rayon d'attraction des ancrages, en pixels écran. */
 const MAGNET = 30;
@@ -362,6 +320,9 @@ export function App() {
   const future = useRef<string[]>([]);
   const [, force] = useState(0);
   const redraw = useCallback(() => force((n) => n + 1), []);
+  // la peinture en cache des couches retirées est lâchée (mémoire des canevas, limitée sur iPad)
+  const layerIds = doc.layers.map((l) => l.id).join(' ');
+  useEffect(() => prunePaints(layerIds.split(' ')), [layerIds]);
   // polices : la liste d'abord, puis les fichiers des polices utilisées par les textes
   useEffect(() => onFontReady(redraw), [redraw]);
   const usedFonts = doc.layers
@@ -739,7 +700,7 @@ export function App() {
   const [finePointer] = useState(() => typeof matchMedia === 'function' && matchMedia('(any-pointer: fine)').matches);
   /** Écran tactile : le bouton du doigt n'a de sens que là. */
   const [touchScreen] = useState(() => (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) || (typeof matchMedia === 'function' && matchMedia('(any-pointer: coarse)').matches));
-  const fingerDraws = fingerMode === 'draw' || (fingerMode === 'auto' && !penSeen && !finePointer);
+  const fingerDraws = fingerDrawsFor(fingerMode, penSeen, finePointer);
   // le premier stylet vu (survol ou contact, n'importe où) : il prend l'outil, le doigt reprend le déplacement
   const fingerRef = useRef({ fingerMode, fingerDraws });
   fingerRef.current = { fingerMode, fingerDraws };
@@ -755,8 +716,9 @@ export function App() {
           /* stockage indisponible */
         }
       }
-      if (m === 'draw') setFingerMode('auto');
-      if (drew && m !== 'move') setToast('Stylet détecté : il dessine, le doigt reprend le déplacement');
+      const next = afterPen(m, drew);
+      if (next.mode !== m) setFingerMode(next.mode);
+      if (next.toast) setToast('Stylet détecté : il dessine, le doigt reprend le déplacement');
     };
     window.addEventListener('pointerdown', onPen, true);
     window.addEventListener('pointermove', onPen, true);
@@ -1087,6 +1049,8 @@ export function App() {
     drawn?: number;
     /** Semis de tampons en cours : la silhouette des empreintes déjà posées. */
     ink?: InkLive;
+    /** Ramures : repeinture du trait entier attendue à la prochaine image (une par image, pas une par mouvement du stylet). */
+    branchFrame?: number;
     lasso?: Pt[];
     /** Ciseaux partis de l'extérieur de la forme choisie : un chemin qui la sépare en morceaux. */
     path?: boolean;
@@ -1106,6 +1070,13 @@ export function App() {
     /** Forme reconnue (rond, carré…) : le contour est figé jusqu'au lâcher. */
     shaped?: boolean;
   }>({ kind: null });
+  /** Ramures : le trait entier repeint sur le canevas du geste (dans sa fenêtre quand l'encre déborde). */
+  const repaintBranch = (L: typeof live.current, tg: Target) => {
+    if (!L.wet || !L.stroke) return;
+    const wx = L.wet.getContext('2d')!;
+    wx.clearRect(0, 0, L.wet.width, L.wet.height);
+    paintStroke(wx, L.win ? inWin(L.stroke, L.win) : L.stroke, docRef.current.guides, tg);
+  };
   // pointe immobile 2 s pendant une découpe : passage en ligne droite (puis un nouveau coin à chaque arrêt)
   const cutStill = useRef<{ timer: number; x: number; y: number } | null>(null);
   const armCutStill = (x: number, y: number) => {
@@ -1783,7 +1754,7 @@ export function App() {
       return;
     }
     // stylet posé : la paume et les doigts qui frôlent l'écran sont ignorés
-    if (e.pointerType === 'touch' && [...pointers.current.values()].some((p) => p.type === 'pen')) return;
+    if (ignoreTouch(e.pointerType, pointers.current.values())) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     // un nouveau toucher : le rangement d'outil en attente attend de voir si c'est un double toucher
     window.clearTimeout(bgLeave.current);
@@ -1834,7 +1805,7 @@ export function App() {
     const p = toPage(e.clientX, e.clientY);
     // le doigt déplace, le stylet (ou la souris) utilise l'outil ; sans stylet, le doigt prend l'outil
     // le volet des attributs dispose aussi l'objet (poignées, glisser)
-    const t: Tool = (e.pointerType === 'touch' && !fingerDraws) || isEdit(tool) ? 'move' : tool;
+    const t: Tool = pointerTool(e.pointerType, fingerDraws, tool, isEdit(tool));
     const sel = doc.layers.find((l) => l.id === selected);
     // posé sur le fond, hors de la page et de tout objet, un outil actif : un simple toucher le rangera
     const offBg = tool !== 'move' && pointers.current.size === 1 && (p.x < 0 || p.y < 0 || p.x > f.width || p.y > f.height) && !layerAt(p.x, p.y);
@@ -2379,9 +2350,13 @@ export function App() {
         const ws = L.win ? inWin(L.stroke, L.win) : L.stroke;
         if (stamping) L.ink = previewStampInk(L.wet!.getContext('2d')!, ws, doc.guides, tg, L.ink);
         else if (branching) {
-          const wx = L.wet!.getContext('2d')!;
-          wx.clearRect(0, 0, L.wet!.width, L.wet!.height);
-          paintStroke(wx, ws, doc.guides, tg);
+          // les ramures se repeignent en entier : au plus une fois par image
+          L.branchFrame ||= requestAnimationFrame(() => {
+            L.branchFrame = 0;
+            if (live.current !== L) return;
+            repaintBranch(L, tg);
+            redraw();
+          });
         } else L.drawn = previewStamps(L.wet!.getContext('2d')!, ws, doc.guides, tg, L.drawn ?? 0);
         redraw();
       }
@@ -2656,7 +2631,15 @@ export function App() {
       dotAt.current = s.pts.length <= 3 ? performance.now() : 0;
       // Déborder : l'encre sortie de la découpe la repousse, comme un modelage
       const l0 = doc.layers.find((x) => x.id === id);
+      if (L.branchFrame) {
+        // la dernière repeinture des ramures n'a pas eu lieu : l'aperçu doit situer toute l'encre
+        cancelAnimationFrame(L.branchFrame);
+        L.branchFrame = 0;
+        if (L.win && L.wtg) repaintBranch(L, L.wtg);
+      }
       const grown = L.win && L.wet && l0 && canSpill(s) ? growPatch({ ...l0, strokes: [...l0.strokes, s] }, f, inkRings(l0, f, s, doc.guides, scale * dpr, L.wet, L.win)) : {};
+      // le canevas du geste (jusqu'à 2048 px quand l'encre déborde) n'est plus montré : sa mémoire est rendue
+      if (L.wet) L.wet.width = L.wet.height = 0;
       update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, strokes: [...l.strokes, s], ...grown } : l)) }));
       return;
     }
