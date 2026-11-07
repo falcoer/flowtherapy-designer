@@ -7,8 +7,8 @@ export interface SwashTool {
   on: boolean;
   /** Tracer un prolongement, ou modeler le contour (tirer de l'intérieur, repousser de l'extérieur). */
   mode: 'draw' | 'mold' | 'orn' | 'relief';
-  /** Relief : creuser au lieu de bosser. */
-  dig?: boolean;
+  /** Relief : bosser (absent), creuser ou niveler (aplanir à la hauteur où le geste commence). */
+  sculpt?: 'raise' | 'dig' | 'level';
   /** Rayon du modelage, en corps. */
   r: number;
   end: SwashEnd;
@@ -19,6 +19,12 @@ export interface SwashTool {
   /** Forme de la pointe du modelage, et son angle à l'écran (radians). */
   tip?: 'round' | 'flat' | 'triangle';
   rot?: number;
+  /** Plume : sa pointe (absente : plate, le bec à 45°) et son angle à l'écran. */
+  ornTip?: 'round' | 'flat' | 'triangle';
+  ornRot?: number;
+  /** Relief : sa pointe (absente : ronde) et son angle à l'écran. */
+  reliefTip?: 'round' | 'flat' | 'triangle';
+  reliefRot?: number;
 }
 
 const WEIGHTS = ['Extra-fin', 'Très fin', 'Fin', 'Normal', 'Medium', 'Demi-gras', 'Gras', 'Extra-gras', 'Noir'];

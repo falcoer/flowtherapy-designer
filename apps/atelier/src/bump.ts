@@ -5,6 +5,8 @@
  * dans `shadeBump` seule, pour pouvoir le remplacer tel quel par un shader au passage à WebGL.
  */
 
+import { tipDist } from './text';
+
 export interface Bump {
   /** Taille de la carte, en pixels (le grand côté fait BUMP_RES). */
   w: number;
@@ -52,19 +54,44 @@ export function encodeBump(w: number, h: number, H: Float32Array): Bump {
   return { w, h, data };
 }
 
-/** Une touche de sculpteur : bosse douce (ou creux si k < 0) de rayon r pixels, autour de (x, y). */
-export function dab(H: Float32Array, w: number, h: number, x: number, y: number, r: number, k: number) {
+/** Forme de la pointe du Relief, comme celles du Modeler : ronde (absente), plate, triangle, tournée de `rot` (radians, repère de la carte). */
+export interface BumpTip {
+  tip?: 'round' | 'flat' | 'triangle';
+  rot?: number;
+}
+
+/**
+ * Une touche de sculpteur autour de (x, y), de rayon r pixels, profil en cloche dans la forme de la pointe.
+ * k > 0 : bosse, k < 0 : creux. Avec `level` : la surface glisse vers cette hauteur (k est alors la part du chemin, 0..1).
+ */
+export function dab(H: Float32Array, w: number, h: number, x: number, y: number, r: number, k: number, t: BumpTip = {}, level?: number) {
   const R = Math.max(1, r);
   const [x0, x1] = [Math.max(0, Math.floor(x - R)), Math.min(w - 1, Math.ceil(x + R))];
   const [y0, y1] = [Math.max(0, Math.floor(y - R)), Math.min(h - 1, Math.ceil(y + R))];
   for (let j = y0; j <= y1; j++)
     for (let i = x0; i <= x1; i++) {
-      const d2 = ((i - x) ** 2 + (j - y) ** 2) / (R * R);
+      const d2 = tipDist(i - x, j - y, R, t.tip, t.rot ?? 0);
       if (d2 >= 1) continue;
       const n = j * w + i;
-      // profil en cloche : le centre monte, le bord s'adoucit jusqu'à zéro
-      H[n] = Math.max(-1, Math.min(1, H[n]! + k * (1 - d2) ** 2));
+      // profil en cloche : le centre agit pleinement, le bord s'adoucit jusqu'à zéro
+      const f = (1 - d2) ** 2;
+      H[n] = Math.max(-1, Math.min(1, level === undefined ? H[n]! + k * f : H[n]! + (level - H[n]!) * Math.min(1, k * f)));
     }
+}
+
+/** Hauteur moyenne sous la pointe (pondérée comme la touche) : le niveau que garde Niveler. */
+export function heightUnder(H: Float32Array, w: number, h: number, x: number, y: number, r: number, t: BumpTip = {}): number {
+  const R = Math.max(1, r);
+  let [s, n] = [0, 0];
+  for (let j = Math.max(0, Math.floor(y - R)); j <= Math.min(h - 1, Math.ceil(y + R)); j++)
+    for (let i = Math.max(0, Math.floor(x - R)); i <= Math.min(w - 1, Math.ceil(x + R)); i++) {
+      const d2 = tipDist(i - x, j - y, R, t.tip, t.rot ?? 0);
+      if (d2 >= 1) continue;
+      const f = (1 - d2) ** 2;
+      s += H[j * w + i]! * f;
+      n += f;
+    }
+  return n ? s / n : 0;
 }
 
 /** Adoucit tout le relief (moyenne des voisins). */

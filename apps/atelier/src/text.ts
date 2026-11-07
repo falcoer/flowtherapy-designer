@@ -55,7 +55,7 @@ export const moldPx = (rings: Ring[], m: Mold, pristine: Ring[]): Ring[] => mold
 
 /** Applique un modelage aux contours (en pixels), en gardant des points assez serrés. */
 /** Distance normalisée (au carré) d'un point à la pointe : moins de 1 à l'intérieur. Plate : une lame ; triangle : pointe en haut. */
-function tipDist(x: number, y: number, R: number, tip: Mold['tip'], rot: number) {
+export function tipDist(x: number, y: number, R: number, tip: Mold['tip'], rot: number) {
   if (!tip || tip === 'round') return (x * x + y * y) / (R * R);
   const [c, s] = [Math.cos(rot), Math.sin(rot)];
   const [u, v] = [x * c + y * s, -x * s + y * c];
@@ -311,6 +311,8 @@ export interface Swash {
   end: SwashEnd;
   /** Plume : angle du bec (radians). Le trait est gras dans un sens, fin comme un cheveu dans l'autre. */
   nib?: number;
+  /** Plume : forme de la pointe (absente : l'ancienne plume, réglée par `nib`) ; plate et triangle tournées de `nib`. */
+  tip?: 'round' | 'flat' | 'triangle';
   /** Ligne doublée : écart entre les deux traits, en corps (0 ou absent : trait simple). */
   double?: number;
 }
@@ -632,6 +634,44 @@ export function swashPoint(t: TextStyle, u: number, v: number): [number, number]
   return [x / BODY, y / BODY];
 }
 
+/** Silhouette d'une pointe, de rayon 1, tournée de `rot` : plate (une lame), triangle (pointe en haut). Mêmes formes que `tipDist`. */
+export function nibShape(tip: 'flat' | 'triangle', rot: number): [number, number][] {
+  const [c, s] = [Math.cos(rot), Math.sin(rot)];
+  const uv: [number, number][] =
+    tip === 'flat'
+      ? [
+          [-1, -0.3],
+          [1, -0.3],
+          [1, 0.3],
+          [-1, 0.3],
+        ]
+      : [-Math.PI / 2, Math.PI / 6, (5 * Math.PI) / 6].map((a) => [Math.cos(a), Math.sin(a)]);
+  return uv.map(([u, v]) => [u * c - v * s, u * s + v * c]);
+}
+/** Enveloppe convexe (chaîne monotone). */
+function hull(p: { x: number; y: number }[]) {
+  const q = [...p].sort((a, b) => a.x - b.x || a.y - b.y);
+  const cross = (o: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lo: typeof q = [];
+  for (const v of q) {
+    while (lo.length >= 2 && cross(lo[lo.length - 2]!, lo[lo.length - 1]!, v) <= 0) lo.pop();
+    lo.push(v);
+  }
+  const hi: typeof q = [];
+  for (let i = q.length - 1; i >= 0; i--) {
+    while (hi.length >= 2 && cross(hi[hi.length - 2]!, hi[hi.length - 1]!, q[i]!) <= 0) hi.pop();
+    hi.push(q[i]!);
+  }
+  return [...lo.slice(0, -1), ...hi.slice(0, -1)];
+}
+function fillPoly(ctx: CanvasRenderingContext2D, p: { x: number; y: number }[]) {
+  if (p.length < 3) return;
+  ctx.beginPath();
+  p.forEach((v, i) => (i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)));
+  ctx.closePath();
+  ctx.fill();
+}
+
 /** Un paraphe tracé au pinceau rond : plein au départ (il sort de la lettre), effilé ou arrondi au bout. */
 function drawSwash(ctx: CanvasRenderingContext2D, s: Swash, X0: number, Y0: number, size: number) {
   let pts = s.pts.map(([x, y, p]) => ({ x: X0 + x * size, y: Y0 + y * size, p }));
@@ -666,8 +706,8 @@ function drawSwash(ctx: CanvasRenderingContext2D, s: Swash, X0: number, Y0: numb
           : s.end === 'ball'
             ? 1 - 0.5 * smooth(t)
             : 1;
-    // plume : plein quand le trait croise le bec, délié quand il le suit
-    const nib = s.nib === undefined ? 1 : 0.3 + 0.7 * Math.abs(Math.sin(dir[i]! - s.nib));
+    // plume : plein quand le trait croise le bec, délié quand il le suit (la pointe choisie dessine elle-même ses pleins)
+    const nib = s.nib === undefined || s.tip ? 1 : 0.3 + 0.7 * Math.abs(Math.sin(dir[i]! - s.nib));
     // un ornement garde toujours un délié visible, même au stylet effleuré
     if (s.end === 'fine') return Math.max(2, s.w * size * (0.7 + 0.5 * pts[i]!.p) * f * nib, s.w * size * 0.25 * Math.min(1, f * 4));
     return s.w * size * (0.4 + 0.85 * pts[i]!.p) * f * nib;
@@ -675,6 +715,33 @@ function drawSwash(ctx: CanvasRenderingContext2D, s: Swash, X0: number, Y0: numb
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   const gap = (s.double ?? 0) * size;
+  // pointe plate ou triangle : la silhouette de la pointe glisse d'un point à l'autre, comme une vraie plume
+  if (s.tip === 'flat' || s.tip === 'triangle') {
+    const shape = nibShape(s.tip, s.nib ?? 0);
+    const sides = gap ? [-gap / 2, gap / 2] : [0];
+    for (const off of sides) {
+      const at = (i: number) => ({ x: pts[i]!.x - Math.sin(dir[i]!) * off, y: pts[i]!.y + Math.cos(dir[i]!) * off });
+      const poly = (i: number) => {
+        const c = at(i);
+        const r = (Math.max(1, width(i)) * (gap ? 0.5 : 1)) / 2;
+        return shape.map(([u, v]) => ({ x: c.x + u * r, y: c.y + v * r }));
+      };
+      let prev = poly(0);
+      fillPoly(ctx, prev);
+      for (let i = 1; i < pts.length; i++) {
+        const cur = poly(i);
+        fillPoly(ctx, hull([...prev, ...cur]));
+        prev = cur;
+      }
+    }
+    if (s.end === 'ball') {
+      const e = pts[pts.length - 1]!;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, s.w * size * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    return;
+  }
   const sides = gap ? [-gap / 2, gap / 2] : [0];
   for (const off of sides) {
     const at = (i: number) => ({ x: pts[i]!.x - Math.sin(dir[i]!) * off, y: pts[i]!.y + Math.cos(dir[i]!) * off });
