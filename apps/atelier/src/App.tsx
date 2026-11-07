@@ -1,6 +1,6 @@
 import { FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format } from '@ftd/core';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { LEAN, paintStroke, previewStamps } from './brush';
+import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive } from './brush';
 import { STAMPS, stampOf, stampSvg } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
@@ -925,6 +925,8 @@ export function App() {
     stroke?: Stroke;
     wet?: HTMLCanvasElement;
     drawn?: number;
+    /** Semis de tampons en cours : la silhouette des empreintes déjà posées. */
+    ink?: InkLive;
     lasso?: Pt[];
     /** Ciseaux partis de l'extérieur de la forme choisie : un chemin qui la sépare en morceaux. */
     path?: boolean;
@@ -2122,6 +2124,7 @@ export function App() {
       const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
       const stamping = L.stroke.brush === 'stamp';
       const branching = L.stroke.brush === 'branch';
+      const had = L.stroke.pts.length;
       for (const ev of events) {
         // le stylet n'écrit qu'au contact
         if (ev.pointerType === 'pen' && ev.buttons === 0) continue;
@@ -2141,13 +2144,17 @@ export function App() {
           ...(!stamping && !branching && L.stroke.brush !== 'burn' ? brushLean(ev, l) : {}),
         });
       }
-      const tg = paintTarget(l, f, scale * dpr);
-      if (stamping || branching) {
-        const wx = L.wet!.getContext('2d')!;
-        wx.clearRect(0, 0, L.wet!.width, L.wet!.height);
-        paintStroke(wx, L.stroke, doc.guides, tg);
-      } else L.drawn = previewStamps(L.wet!.getContext('2d')!, L.stroke, doc.guides, tg, L.drawn ?? 0);
-      redraw();
+      // rien de nouveau sous la pointe : on ne repeint pas
+      if (L.stroke.pts.length !== had) {
+        const tg = paintTarget(l, f, scale * dpr);
+        if (stamping) L.ink = previewStampInk(L.wet!.getContext('2d')!, L.stroke, doc.guides, tg, L.ink);
+        else if (branching) {
+          const wx = L.wet!.getContext('2d')!;
+          wx.clearRect(0, 0, L.wet!.width, L.wet!.height);
+          paintStroke(wx, L.stroke, doc.guides, tg);
+        } else L.drawn = previewStamps(L.wet!.getContext('2d')!, L.stroke, doc.guides, tg, L.drawn ?? 0);
+        redraw();
+      }
     } else if (L.kind === 'subject' && L.lasso) {
       const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
       for (const ev of events) L.lasso.push(toPage(ev.clientX, ev.clientY));
