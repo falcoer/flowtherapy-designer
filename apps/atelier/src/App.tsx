@@ -962,6 +962,17 @@ export function App() {
     fitted.current = true;
     setView(pageView());
   };
+  /** Bord gauche des bulles posées à gauche (format, composition, aide au positionnement) : juste après les barres de gauche (réglages, hauteur, outils), pour ne jamais passer dessous. */
+  const [bubbleLeft, setBubbleLeft] = useState(0);
+  useLayoutEffect(() => {
+    if (bubble !== 'anchor' && bubble !== 'format' && bubble !== 'projects') return;
+    let x = 0;
+    for (const el of document.querySelectorAll('.side, .height-bar')) {
+      const r = el.getBoundingClientRect();
+      if (r.width && r.left + r.width / 2 < vp.w / 2) x = Math.max(x, Math.round(r.right));
+    }
+    if (x !== bubbleLeft) setBubbleLeft(x);
+  });
   /** La vue montre la page entière : elle se réajuste quand la place visible change (éditeur d'objet ouvert ou fermé, barres, fenêtre). */
   const fitted = useRef(true);
   useLayoutEffect(() => {
@@ -3466,7 +3477,7 @@ export function App() {
   };
 
   return (
-    <div className={`atelier ${rendu ? 'rendu' : ''} ${tips ? '' : 'no-tips'} ${lefty ? 'hand-left' : 'hand-right'}`}>
+    <div className={`atelier ${rendu ? 'rendu' : ''} ${tips ? '' : 'no-tips'} ${lefty ? 'hand-left' : 'hand-right'}`} style={bubbleLeft ? ({ '--bubble-left': `${bubbleLeft + 8}px` } as React.CSSProperties) : undefined}>
       <canvas
         ref={canvasRef}
         className="stage"
