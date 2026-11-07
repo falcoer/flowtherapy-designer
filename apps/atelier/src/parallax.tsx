@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Doc, Layer } from './model';
 import { hexRGB, opacityOf } from './fx';
-import { drawLampTint, drawLayers, forgetPaint, lampOf, levelOf, renderOrder, shadowVector } from './scene';
+import { drawLampTint, drawLayers, drawRelief, forgetPaint, lampOf, levelOf, renderOrder, shadowVector } from './scene';
 import { Gl3d, hasWebGL2, type GlView } from './gl3d';
 import { layerBox } from './model';
 
@@ -22,6 +22,9 @@ interface Plate {
   /** Hauteur au-dessus de la feuille (0..1). */
   h: number;
   l?: Layer;
+  /** Relief (volume, biseau) aligné sur l'image : hauteur en opacité, et sa hauteur maximale. */
+  relief?: HTMLCanvasElement;
+  rh?: number;
 }
 
 /** Ce que couvre une image : le plus petit cadre des pixels non transparents. */
@@ -70,7 +73,18 @@ function buildPlates(doc: Doc, f: Format, r: number): Plate[] {
     c.width = b.w;
     c.height = b.h;
     c.getContext('2d')!.drawImage(one.c, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
-    plates.push({ c, x: b.x, y: b.y, h: topOf(l), l });
+    const plate: Plate = { c, x: b.x, y: b.y, h: topOf(l), l };
+    // dôme, cylindre, biseau… : la carte de hauteurs pour soulever le dessus en 3D
+    const rel = (l.bevel ?? 0) > 0.001 || (l.volume?.amount ?? 0) > 0.001 ? page() : null;
+    const rh = rel ? drawRelief(rel.ctx, l, doc, f) : 0;
+    if (rel && rh > 0) {
+      const rc = document.createElement('canvas');
+      rc.width = b.w;
+      rc.height = b.h;
+      rc.getContext('2d')!.drawImage(rel.c, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+      Object.assign(plate, { relief: rc, rh });
+    }
+    plates.push(plate);
   }
   forgetPaint();
   return plates;
@@ -237,7 +251,7 @@ export function ParallaxView({
       g.light = { x: L.x, y: L.y, z: L.z, color: hexRGB(L.color) };
       g.setPlates(
         [f.width, f.height],
-        plates.map((p, i) => ({ img: p.c, x: p.x / r, y: p.y / r, w: p.c.width / r, h: p.c.height / r, z: p.h, t: i && p.l ? thicknessOf(p.l) : 0, page: !i, id: p.l?.id })),
+        plates.map((p, i) => ({ img: p.c, x: p.x / r, y: p.y / r, w: p.c.width / r, h: p.c.height / r, z: p.h, t: i && p.l ? thicknessOf(p.l) : 0, page: !i, id: p.l?.id, relief: p.relief, rh: p.rh })),
       );
       for (const p of plates) if (p.l && !shown.current.z.has(p.l.id)) shown.current.z.set(p.l.id, p.h);
       placed.current = plates.map((p, i) => ({ p, i, el: p.c, slices: [] }));

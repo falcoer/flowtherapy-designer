@@ -1595,12 +1595,12 @@ function surfaceLight(l: Layer, doc: Doc, k: number): Omit<BumpLight, 'lx' | 'ly
 /** Largeur du bord ajouté, vers l'extérieur de la découpe (unités de la page). */
 const borderOut = (l: Layer, f: Format) => (l.border && l.border.width > 0 ? l.border.width * Math.min(f.width, f.height) * (l.border.style === 'double' ? 2 : 1) : 0);
 
-const bevelCache = new Map<string, { key: string; c: HTMLCanvasElement; W: number; H: number }>();
+const bevelCache = new Map<string, { key: string; c: HTMLCanvasElement; W: number; H: number; field: Float32Array; gw: number; gh: number; s: number }>();
 /**
  * Biseau : la distance au bord de la découpe (bord ajouté compris si demandé) donne une hauteur,
  * arrondie ou en chanfrein, puis le même éclairage que le relief sculpté.
  */
-function drawBevel(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, path: Path2D, b: { cx: number; cy: number; w: number; h: number }) {
+function bevelFor(l: Layer, doc: Doc, f: Format, path: Path2D, b: { cx: number; cy: number; w: number; h: number }) {
   const minSide = Math.min(f.width, f.height);
   const out = l.bevelBorder ? borderOut(l, f) : 0;
   const width = (l.bevel ?? 0) > 0.001 ? 0.18 * (l.bevel ?? 0) * minSide : 0;
@@ -1639,10 +1639,15 @@ function drawBevel(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format,
       for (let n = 0; n < Hf.length; n++) Hf[n] += V[n]!;
     }
     const Hs = soften(Hf, gw, gh, 3);
-    hit = { key, c: shadeField(gw, gh, Hs, L, 1, mask, 0.65), W, H };
+    hit = { key, c: shadeField(gw, gh, Hs, L, 1, mask, 0.65), W, H, field: Hs, gw, gh, s };
     if (bevelCache.size > 64) bevelCache.clear();
     bevelCache.set(l.id, hit);
   }
+  return hit;
+}
+
+function drawBevel(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, path: Path2D, b: { cx: number; cy: number; w: number; h: number }) {
+  const hit = bevelFor(l, doc, f, path, b);
   ctx.save();
   ctx.translate(b.cx, b.cy);
   ctx.rotate(l.rot ?? 0);
@@ -1650,6 +1655,33 @@ function drawBevel(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format,
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(hit.c, -hit.W / 2, -hit.H / 2, hit.W, hit.H);
   ctx.restore();
+}
+
+/**
+ * Relief d'une couche (volume et biseau) pour la Vue 3D : la carte de hauteurs en niveaux d'opacité
+ * (1 = le plus haut), posée sur la page comme le biseau, et sa hauteur maximale en unités du format.
+ */
+export function drawRelief(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format): number {
+  if (l.kind === 'surface' || !((l.bevel ?? 0) > 0.001 || (l.volume && l.volume.amount > 0.001))) return 0;
+  const b = layerBox(l, f);
+  const hit = bevelFor(l, doc, f, maskPath2D(l, f), b);
+  let max = 0;
+  for (let n = 0; n < hit.field.length; n++) if (hit.field[n]! > max) max = hit.field[n]!;
+  if (max <= 0) return 0;
+  const c = document.createElement('canvas');
+  c.width = hit.gw;
+  c.height = hit.gh;
+  const x = c.getContext('2d')!;
+  const img = x.createImageData(hit.gw, hit.gh);
+  for (let n = 0; n < hit.field.length; n++) img.data[n * 4 + 3] = Math.round((hit.field[n]! / max) * 255);
+  x.putImageData(img, 0, 0);
+  ctx.save();
+  ctx.translate(b.cx, b.cy);
+  ctx.rotate(l.rot ?? 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(c, -hit.W / 2, -hit.H / 2, hit.W, hit.H);
+  ctx.restore();
+  return max / hit.s;
 }
 
 /** Masque de la seule découpe, sur la grille du biseau (quand le bord ajouté est compris). */

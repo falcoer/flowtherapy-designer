@@ -19,6 +19,9 @@ export interface GlPlate {
   /** La feuille : pas d'épaisseur, elle reçoit les ombres. */
   page?: boolean;
   id?: string;
+  /** Relief du dessus (dôme, biseau…) : hauteur dans l'opacité, alignée sur img, et hauteur maximale. */
+  relief?: HTMLCanvasElement;
+  rh?: number;
 }
 
 export interface GlView {
@@ -137,12 +140,14 @@ uniform mat4 uProj, uView;
 uniform vec4 uRect;   // x, y, w, h sur la page (y vers le bas)
 uniform vec2 uPage;   // largeur, hauteur de la page
 uniform float uZ;
+uniform sampler2D uRelief;
+uniform float uReliefH;
 out vec2 vUv;
 out vec3 vPos;
 void main() {
   vUv = aUv;
   vec2 p = uRect.xy + aUv * uRect.zw;
-  vPos = vec3(p.x - uPage.x * 0.5, uPage.y * 0.5 - p.y, uZ);
+  vPos = vec3(p.x - uPage.x * 0.5, uPage.y * 0.5 - p.y, uZ + textureLod(uRelief, aUv, 0.0).a * uReliefH);
   gl_Position = uProj * uView * vec4(vPos, 1.0);
 }`;
 
@@ -219,11 +224,13 @@ uniform mat4 uLightMat;
 uniform vec4 uRect;
 uniform vec2 uPage;
 uniform float uZ;
+uniform sampler2D uRelief;
+uniform float uReliefH;
 out vec2 vUv;
 void main() {
   vUv = aUv;
   vec2 p = uRect.xy + aUv * uRect.zw;
-  gl_Position = uLightMat * vec4(p.x - uPage.x * 0.5, uPage.y * 0.5 - p.y, uZ, 1.0);
+  gl_Position = uLightMat * vec4(p.x - uPage.x * 0.5, uPage.y * 0.5 - p.y, uZ + textureLod(uRelief, aUv, 0.0).a * uReliefH, 1.0);
 }`;
 const SFS = `#version 300 es
 precision mediump float;
@@ -277,9 +284,13 @@ export class Gl3d {
   private shadow;
   private pick;
   private vao: WebGLVertexArrayObject;
+  /** Grille fine pour les dessus en relief. */
+  private grid: WebGLVertexArrayObject;
+  private gridN = 0;
+  private flat: WebGLTexture;
   private shadowTex: WebGLTexture;
   private shadowFb: WebGLFramebuffer;
-  private plates: Array<GlPlate & { tex: WebGLTexture }> = [];
+  private plates: Array<GlPlate & { tex: WebGLTexture; rtex?: WebGLTexture }> = [];
   private page: [number, number] = [1, 1];
   light: GlLight = { x: 0.2, y: 0.1, z: 0.5, color: [1, 1, 1] };
 
@@ -297,6 +308,31 @@ export class Gl3d {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    // grille 128×128 : le dessus d'un dôme se soulève sommet par sommet
+    const N = 128;
+    const uv = new Float32Array((N + 1) * (N + 1) * 2);
+    for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) uv.set([i / N, j / N], (j * (N + 1) + i) * 2);
+    const idx = new Uint32Array(N * N * 6);
+    for (let j = 0, k = 0; j < N; j++)
+      for (let i = 0; i < N; i++) {
+        const a = j * (N + 1) + i;
+        idx.set([a, a + 1, a + N + 1, a + 1, a + N + 2, a + N + 1], k);
+        k += 6;
+      }
+    this.grid = gl.createVertexArray()!;
+    gl.bindVertexArray(this.grid);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, uv, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    this.gridN = idx.length;
+    gl.bindVertexArray(this.vao);
+    // sans relief : une texture vide (hauteur 0)
+    this.flat = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, this.flat);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
     // carte d'ombre : la profondeur vue depuis la lampe
     this.shadowTex = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, this.shadowTex);
@@ -315,7 +351,10 @@ export class Gl3d {
 
   setPlates(page: [number, number], plates: GlPlate[]) {
     const gl = this.gl;
-    for (const p of this.plates) gl.deleteTexture(p.tex);
+    for (const p of this.plates) {
+      gl.deleteTexture(p.tex);
+      if (p.rtex) gl.deleteTexture(p.rtex);
+    }
     this.page = page;
     this.plates = plates.map((p) => {
       const tex = gl.createTexture()!;
@@ -327,7 +366,18 @@ export class Gl3d {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      return { ...p, tex };
+      let rtex: WebGLTexture | undefined;
+      if (p.relief && p.rh) {
+        rtex = gl.createTexture()!;
+        gl.bindTexture(gl.TEXTURE_2D, rtex);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, p.relief);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      }
+      return { ...p, tex, rtex };
     });
   }
 
@@ -363,11 +413,31 @@ export class Gl3d {
     return { mat: mul(ortho(-R, R, -R, R, R * 0.5, R * 3.5), view), pos };
   }
 
-  private drawQuad(prog: { u: (n: string) => WebGLUniformLocation | null }, p: GlPlate, z: number) {
+  /** Une face de plaque ; `top` : le dessus, soulevé par son relief s'il en a un. */
+  private drawQuad(prog: { u: (n: string) => WebGLUniformLocation | null }, p: GlPlate & { rtex?: WebGLTexture }, z: number, top = false) {
     const gl = this.gl;
     gl.uniform4f(prog.u('uRect'), p.x, p.y, p.w, p.h);
     gl.uniform1f(prog.u('uZ'), z);
+    gl.uniform1i(prog.u('uRelief'), 2);
+    if (top && p.rtex) {
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, p.rtex);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.uniform1f(prog.u('uReliefH'), p.rh ?? 0);
+      gl.bindVertexArray(this.grid);
+      gl.drawElements(gl.TRIANGLES, this.gridN, gl.UNSIGNED_INT, 0);
+      gl.bindVertexArray(this.vao);
+      return;
+    }
+    gl.uniform1f(prog.u('uReliefH'), 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  private flatRelief() {
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.flat);
+    gl.activeTexture(gl.TEXTURE0);
   }
 
   render(v: GlView) {
@@ -375,6 +445,7 @@ export class Gl3d {
     const { width: W, height: H } = this.canvas;
     const lm = this.lightMatrix(v.lift);
     gl.bindVertexArray(this.vao);
+    this.flatRelief();
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
 
@@ -391,7 +462,8 @@ export class Gl3d {
     for (const p of this.plates) {
       if (p.page) continue;
       gl.bindTexture(gl.TEXTURE_2D, p.tex);
-      this.drawQuad(this.shadow, p, p.z * v.lift);
+      this.flatRelief();
+      this.drawQuad(this.shadow, p, p.z * v.lift, true);
       this.drawQuad(this.shadow, p, Math.max(0.0005, p.z - p.t) * v.lift);
     }
     gl.colorMask(true, true, true, true);
@@ -445,7 +517,8 @@ export class Gl3d {
       gl.uniform1f(P.u('uSel'), p.id && p.id === v.selected ? 1 : 0);
       gl.uniform1f(P.u('uShadowOn'), 1);
       // à hauteur égale, l'ordre des couches départage (un soupçon de hauteur)
-      this.drawQuad(P, p, p.z * v.lift + i * 0.0004 * Math.min(...this.page));
+      this.flatRelief();
+      this.drawQuad(P, p, p.z * v.lift + i * 0.0004 * Math.min(...this.page), true);
     });
     gl.disable(gl.BLEND);
   }
@@ -477,6 +550,7 @@ export class Gl3d {
     gl.uniform1i(P.u('uTex'), 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindVertexArray(this.vao);
+    this.flatRelief();
     const order = [...this.plates].sort((a, b) => a.z - b.z);
     order.forEach((p, i) => {
       if (p.page) return;
@@ -484,7 +558,8 @@ export class Gl3d {
       const k = this.plates.indexOf(p) + 1;
       gl.uniform4f(P.u('uId'), (k & 255) / 255, ((k >> 8) & 255) / 255, 0, 1);
       // le dessus et la tranche comptent tous les deux
-      this.drawQuad(P, p, p.z * v.lift + i * 0.0004 * Math.min(...this.page));
+      this.flatRelief();
+      this.drawQuad(P, p, p.z * v.lift + i * 0.0004 * Math.min(...this.page), true);
       this.drawQuad(P, p, Math.max(0.0005, p.z - p.t) * v.lift);
     });
     const px = new Uint8Array(4);
@@ -499,7 +574,11 @@ export class Gl3d {
 
   dispose() {
     const gl = this.gl;
-    for (const p of this.plates) gl.deleteTexture(p.tex);
+    for (const p of this.plates) {
+      gl.deleteTexture(p.tex);
+      if (p.rtex) gl.deleteTexture(p.rtex);
+    }
+    gl.deleteTexture(this.flat);
     gl.deleteTexture(this.shadowTex);
     gl.deleteFramebuffer(this.shadowFb);
     this.plates = [];
