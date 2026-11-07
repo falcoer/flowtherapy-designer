@@ -46,8 +46,8 @@ function paperGrain(): HTMLCanvasElement {
   return s;
 }
 
-const scratch = { a: null as HTMLCanvasElement | null, b: null as HTMLCanvasElement | null, c: null as HTMLCanvasElement | null };
-function buffer(key: 'a' | 'b' | 'c', w: number, h: number) {
+const scratch = { a: null as HTMLCanvasElement | null, b: null as HTMLCanvasElement | null, c: null as HTMLCanvasElement | null, d: null as HTMLCanvasElement | null };
+function buffer(key: 'a' | 'b' | 'c' | 'd', w: number, h: number) {
   let c = scratch[key];
   if (!c) c = scratch[key] = document.createElement('canvas');
   if (c.width !== w || c.height !== h) {
@@ -185,24 +185,43 @@ export function paintWash(dst: CanvasRenderingContext2D, list: Stroke[], guides:
   const s = list[list.length - 1]!;
   const wet = list.length > 1;
   const { c: sil, ctx: sx } = buffer('a', t.pw, t.ph);
-  for (const w of list) {
+  const Rw = Math.max(...list.map((w) => w.size)) * t.pxPerMin;
+  list.forEach((w, i) => {
     const g = guides[w.guide];
+    // chaque trait dans sa propre eau, puis versé dans la tache commune
+    const one = wet ? buffer('d', t.pw, t.ph) : { c: sil, ctx: sx };
     for (const st of stamps(w, t)) {
-      sx.fillStyle = guideColor(g, st.t);
-      tipShape(sx, w.tip, st.x, st.y, Math.max(0.5, st.r), st.a, st.K, st.d);
-      sx.fill();
+      one.ctx.fillStyle = guideColor(g, st.t);
+      tipShape(one.ctx, w.tip, st.x, st.y, Math.max(0.5, st.r), st.a, st.K, st.d);
+      one.ctx.fill();
     }
-  }
-  if (wet) {
-    // les pigments migrent dans l'eau : la couleur se brouille à l'intérieur de la tache (sa forme ne bouge pas)
-    const Rw = Math.max(...list.map((w) => w.size)) * t.pxPerMin;
-    const { c: mix, ctx: mx } = buffer('c', t.pw, t.ph);
-    mx.filter = `blur(${Math.max(2, Rw * 0.55)}px)`;
-    mx.drawImage(sil, 0, 0);
-    mx.filter = 'none';
+    if (!wet) return;
+    if (i === 0) {
+      sx.drawImage(one.c, 0, 0);
+      return;
+    }
+    // là où l'eau est déjà colorée, les deux pigments se partagent la place (moyenne, pas recouvrement) ;
+    // ailleurs le nouveau trait se pose tel quel
     sx.save();
     sx.globalCompositeOperation = 'source-atop';
-    sx.globalAlpha = 0.85;
+    sx.globalAlpha = 1 / (1 + Math.min(i, 1));
+    sx.drawImage(one.c, 0, 0);
+    sx.globalCompositeOperation = 'destination-over';
+    sx.globalAlpha = 1;
+    sx.drawImage(one.c, 0, 0);
+    sx.restore();
+  });
+  if (wet) {
+    // les pigments migrent dans l'eau : la couleur se brouille à l'intérieur de la tache (sa forme ne bouge pas)
+    const { c: mix, ctx: mx } = buffer('c', t.pw, t.ph);
+    mx.filter = `blur(${Math.max(3, Rw * 0.9)}px)`;
+    mx.drawImage(sil, 0, 0);
+    mx.filter = 'none';
+    // le flou dilue la couleur vers les bords : on la renforce pour garder la teinte pleine
+    mx.globalCompositeOperation = 'source-over';
+    mx.drawImage(mix, 0, 0);
+    sx.save();
+    sx.globalCompositeOperation = 'source-atop';
     sx.drawImage(mix, 0, 0);
     sx.restore();
   }
