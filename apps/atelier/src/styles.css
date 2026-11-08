@@ -695,6 +695,16 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .pf-btn { display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--chrome-solid); color: var(--ink); font-weight: 600; font-size: 12.5px; text-decoration: none; }
 .pf-btn.danger { border-color: #c0392b; color: #c0392b; }
 .pf-btn:disabled { opacity: 0.4; }
+.pf-input { min-width: 0; flex: 1; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--chrome-solid); color: var(--ink); font: inherit; font-size: 13px; }
+.tm-list { display: flex; flex-direction: column; gap: 4px; }
+.tm-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 12px; border: 1px solid var(--line); }
+.tm-avatar { width: 30px; height: 30px; font-size: 13px; flex: none; }
+.tm-pending { font-style: normal; color: var(--accent); }
+.tm-role { flex: none; max-width: 9.5em; padding: 6px 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--chrome-solid); color: var(--ink); font: inherit; font-size: 12px; }
+.tm-badge { flex: none; font-size: 11.5px; color: var(--muted); }
+.tm-remove { flex: none; min-width: 28px; height: 28px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+.tm-remove.armed { border-color: #c0392b; color: #c0392b; font-size: 12px; font-weight: 600; }
+.tm-invite { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .pf-confirm { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 12px; border: 1px solid #c0392b; font-size: 12.5px; color: var(--ink); }
 /* actions d'édition au centre de la barre du haut */
 .bar-center { position: absolute; left: 50%; top: env(safe-area-inset-top, 0px); bottom: 0; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; }

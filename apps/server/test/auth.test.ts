@@ -31,7 +31,7 @@ async function setup(claims: object) {
     fetch: fakeFetch,
   };
   const cacheRoot = await mkdtemp(path.join(os.tmpdir(), 'ftd-cache-'));
-  return { app: await buildApp({ libraryRoot: root, cacheRoot, auth, webFonts: false }), calls, root };
+  return { app: await buildApp({ libraryRoot: root, cacheRoot, auth, webFonts: false, ateliersRoot: path.join(root, 'ateliers') }), calls, root };
 }
 
 const cookiesOf = (res: { headers: Record<string, unknown> }) =>
@@ -106,7 +106,7 @@ describe('connexion externe', () => {
     expect(cb.statusCode).toBe(303);
     expect(calls[0]!.url).toBe('https://appleid.apple.com/auth/token');
     const me = (await app.inject({ url: '/api/me', headers: { cookie: cookiesOf(cb) } })).json();
-    expect(me).toEqual({ email: 'betty@example.org', name: 'Betty', admin: false, mode: 'compte' });
+    expect(me).toMatchObject({ email: 'betty@example.org', name: 'Betty', admin: false, mode: 'compte', team: { id: 'flowtherapy', role: 'editor' } });
   });
 
   it('signe le secret client Apple en ES256', () => {

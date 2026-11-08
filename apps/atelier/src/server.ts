@@ -65,14 +65,46 @@ export async function addToLibrary(png: Blob, title: string, tags: string[]): Pr
   await call<unknown>('/api/library/upload', { method: 'POST', body: fd });
 }
 
+/** Rôle dans une équipe : responsable (gère les membres), peut modifier, lecture seule. */
+export type Role = 'owner' | 'editor' | 'viewer';
+export const ROLE_LABELS: Record<Role, string> = { owner: 'Responsable', editor: 'Peut modifier', viewer: 'Lecture seule' };
+export interface TeamRef {
+  id: string;
+  name: string;
+  role: Role;
+}
+
 /** Qui est connecté : compte (Google, Apple), accès partagé par mot de passe, ou poste local. */
 export interface Me {
   email?: string;
   name?: string;
   admin: boolean;
   mode: 'compte' | 'mot-de-passe' | 'local';
+  /** Équipe active : ses compositions et ses objets. */
+  team?: TeamRef;
+  teams?: TeamRef[];
 }
 export const fetchMe = () => call<Me | null>('/api/me');
+
+/* ---------- équipes ---------- */
+
+export interface Member {
+  email: string;
+  name?: string;
+  role: Role;
+  /** Absente tant que l'invité ne s'est pas connecté. */
+  joined?: string;
+  lastSeen?: string;
+}
+const json = (method: string, body: unknown): RequestInit => ({ method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+const enc = encodeURIComponent;
+export const switchTeam = (team: string) => call<{ ok: boolean }>('/api/me/team', json('POST', { team }));
+export const fetchMembers = (team: string) => call<Member[]>(`/api/teams/${enc(team)}/members`);
+export const inviteMember = (team: string, email: string, role: Role) => call<{ member: Member }>(`/api/teams/${enc(team)}/members`, json('POST', { email, role }));
+export const setMemberRole = (team: string, email: string, role: Role) => call<{ ok: boolean }>(`/api/teams/${enc(team)}/members/${enc(email)}`, json('PATCH', { role }));
+export const removeMember = (team: string, email: string) => call<{ ok: boolean }>(`/api/teams/${enc(team)}/members/${enc(email)}`, { method: 'DELETE' });
+export const renameTeam = (team: string, name: string) => call<{ ok: boolean }>(`/api/teams/${enc(team)}`, json('PATCH', { name }));
+export const createTeam = (name: string) => call<{ team: { id: string; name: string } }>('/api/teams', json('POST', { name }));
 
 /** État du serveur, pour les administrateurs. */
 export interface SystemInfo {
@@ -84,6 +116,7 @@ export interface SystemInfo {
   memory: { rss: number; heap: number };
   library: number;
   ateliers: number;
+  teams?: number;
   auth: Me['mode'];
   restartable: boolean;
 }
