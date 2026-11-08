@@ -286,6 +286,25 @@ export function BrushWheel(p: Props) {
     >
       <svg ref={ref} className={active ? 'live' : ''} viewBox={`0 0 ${S} ${S}`} onPointerDown={down} onPointerMove={(e) => e.buttons && apply(e)} onPointerUp={up} onPointerCancel={up}>
         {/* jauge d'intensité : 3/4 de tour en segments */}
+        {/* enveloppe : la roue et ses deux boutons dans une même pièce, filet et ombre comme les barres d'outils */}
+        <g className="bw-shell">
+          {[
+            [C, C, RO + 6],
+            [PX, PY, TR + 7],
+            [TX, TY, TR + 7],
+            [...at((AP + AT) / 2, RB - 4), TR + 12],
+          ].map(([x, y, r], i) => (
+            <circle key={`e${i}`} cx={x} cy={y} r={(r as number) + 1} className="bw-shell-edge" />
+          ))}
+          {[
+            [C, C, RO + 6],
+            [PX, PY, TR + 7],
+            [TX, TY, TR + 7],
+            [...at((AP + AT) / 2, RB - 4), TR + 12],
+          ].map(([x, y, r], i) => (
+            <circle key={`f${i}`} cx={x} cy={y} r={r} className="bw-shell-face" />
+          ))}
+        </g>
         <circle cx={C} cy={C} r={RO} className="bw-disc" />
         {segs.map(([a, b], i) => (
           <path key={i} d={band(a + 0.012, b - 0.012, RG, RO - 3)} className={`bw-seg ${p.intensity === undefined ? 'off' : (i + 1) / SEG <= level + 1e-6 ? 'on' : (i + 0.5) / SEG <= level ? 'half' : ''}`} />

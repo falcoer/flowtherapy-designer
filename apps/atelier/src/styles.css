@@ -1059,3 +1059,10 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 @media (max-width: 560px) { .bw-pick { width: 19.7%; height: auto; } }
 .brush-wheel .bw-groove { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.45; pointer-events: none; }
 .brush-wheel.side-left { translate: -9% 3%; }
+/* enveloppe de la roue : même face, même filet, même ombre que les barres d'outils */
+.brush-wheel > svg { filter: drop-shadow(0 6px 16px rgba(20, 16, 30, 0.18)); }
+.brush-wheel .bw-shell-edge { fill: var(--line); stroke: none; }
+.brush-wheel .bw-shell-face { fill: var(--chrome-solid); stroke: none; }
+.brush-wheel .bw-shell { pointer-events: none; }
+.brush-wheel .bw-disc { stroke: none; }
+.bw-pick { box-shadow: 0 1px 3px rgba(20, 16, 30, 0.12); }
