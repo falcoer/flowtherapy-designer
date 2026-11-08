@@ -24,6 +24,7 @@ import { blankDoc } from './blank';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
+import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
 import { fetchMe, listAteliers, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta, type Me } from './server';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
@@ -95,7 +96,7 @@ const EDIT_SECTIONS: Array<[EditTool, string, string]> = [
   ['edge', 'Bords', 'frame'],
 ];
 const isEdit = (t: Tool): t is EditTool => EDIT_SECTIONS.some(([k]) => k === t);
-type Bubble = 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'anchor' | 'projects' | 'export' | null;
+type Bubble = 'activity' | 'activity-edit' | 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'anchor' | 'projects' | 'export' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc-v2';
@@ -3841,6 +3842,17 @@ export function App() {
               </button>
             </div>
             <div className="bar-left">
+              {/* l'activité pour laquelle l'outil existe : son menu (fiche, profil, préférences, déconnexion) */}
+              <button
+                className={`btn act-btn ${bubble === 'activity' || bubble === 'activity-edit' ? 'on' : ''}`}
+                onClick={() => {
+                  if (bubble !== 'activity' && online) fetchMe().then(setMe, () => {});
+                  setBubble(bubble === 'activity' ? null : 'activity');
+                }}
+                title={me?.team ? `${me.team.name} : activité, profil, préférences` : 'Activité, profil, préférences'}
+              >
+                <ActivityMark team={me?.team} size={30} />
+              </button>
               <button
                 className={`chip project-chip ${bubble === 'projects' ? 'on' : ''}`}
                 onClick={() => {
@@ -3870,9 +3882,6 @@ export function App() {
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
               <span className="sep" />
-              <button className={`btn ${bubble === 'prefs' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'prefs' ? null : 'prefs')} title="Préférences : affichage, compte, système">
-                <Icon name="settings" />
-              </button>
               <button
                 className={`btn ${bubble === 'export' ? 'on' : ''}`}
                 onClick={() => {
@@ -4464,6 +4473,10 @@ export function App() {
             </div>
           )}
 
+          {bubble === 'activity' && <ActivityMenu me={me} online={online} onEdit={() => setBubble('activity-edit')} onPrefs={() => setBubble('prefs')} />}
+          {bubble === 'activity-edit' && me?.team && (
+            <ActivityForm me={me} onClose={() => setBubble(null)} onSaved={() => void fetchMe().then(setMe, () => {})} />
+          )}
           {bubble === 'prefs' && (
             <PrefsPanel
               online={online}

@@ -54,6 +54,63 @@ export function teamIdFrom(name: string) {
 
 type Row = Record<string, string | number | null>;
 
+/** Une source, un compte ou un module relié à l'activité : un nom et, si besoin, une adresse. */
+export interface ServiceLink {
+  name: string;
+  url?: string;
+}
+
+/** Fiche de l'activité : ce pour quoi l'outil existe. */
+export interface ActivityProfile {
+  /** Groupe musical, association, lieu… */
+  kind?: string;
+  services?: {
+    /** Sources d'évènements (agenda, billetterie…). */
+    events?: ServiceLink[];
+    /** Comptes qui fournissent des visuels (photos, banques d'images…). */
+    assets?: ServiceLink[];
+    /** Modules de publication (réseaux sociaux, lettre d'information…). */
+    publishing?: ServiceLink[];
+  };
+  branding?: {
+    palette?: Array<{ hex: string; name?: string }>;
+    /** Raison d'être. */
+    purpose?: string;
+    keywords?: string[];
+  };
+}
+
+const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+
+function cleanLinks(v: unknown): ServiceLink[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .slice(0, 30)
+    .map((x) => {
+      const name = str((x as ServiceLink)?.name, 80);
+      const url = str((x as ServiceLink)?.url, 500);
+      return { name, ...(url ? { url } : {}) };
+    })
+    .filter((x) => x.name || x.url);
+}
+
+/** Garde ce qui est attendu, à des tailles raisonnables. */
+export function cleanProfile(p: ActivityProfile): ActivityProfile {
+  const palette = (Array.isArray(p.branding?.palette) ? p.branding!.palette : [])
+    .slice(0, 24)
+    .filter((c) => typeof c?.hex === 'string' && /^#[0-9a-fA-F]{6}$/.test(c.hex))
+    .map((c) => ({ hex: c.hex.toLowerCase(), ...(str(c.name, 40) ? { name: str(c.name, 40) } : {}) }));
+  const keywords = (Array.isArray(p.branding?.keywords) ? p.branding!.keywords : [])
+    .map((k) => str(k, 40))
+    .filter(Boolean)
+    .slice(0, 30);
+  return {
+    ...(str(p.kind, 60) ? { kind: str(p.kind, 60) } : {}),
+    services: { events: cleanLinks(p.services?.events), assets: cleanLinks(p.services?.assets), publishing: cleanLinks(p.services?.publishing) },
+    branding: { palette, purpose: str(p.branding?.purpose, 2000), keywords },
+  };
+}
+
 export class Accounts {
   private db: DatabaseSync;
 
@@ -77,6 +134,16 @@ export class Accounts {
       );
       CREATE INDEX IF NOT EXISTS members_email ON members(email);
     `);
+    // colonnes ajoutées après coup : fiche d'activité, logo, photo de profil
+    this.addColumn('teams', 'profile', 'TEXT');
+    this.addColumn('teams', 'logo', 'TEXT');
+    this.addColumn('teams', 'updated', 'TEXT');
+    this.addColumn('users', 'picture', 'TEXT');
+  }
+
+  private addColumn(table: string, column: string, type: string) {
+    const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[];
+    if (!cols.some((c) => c.name === column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   }
 
   close() {
@@ -116,6 +183,59 @@ export class Accounts {
     const clean = name.trim().slice(0, 80);
     if (!clean) throw new Error('Nom d’équipe manquant');
     if (!this.db.prepare('UPDATE teams SET name = ? WHERE id = ?').run(clean, id).changes) throw new Error('Équipe introuvable');
+  }
+
+  /* ---------- fiche d'activité ---------- */
+
+  /** Fiche de l'activité (type, services, branding) ; vide tant que personne ne l'a remplie. */
+  profile(id: string): ActivityProfile {
+    const r = this.db.prepare('SELECT profile FROM teams WHERE id = ?').get(id) as Row | undefined;
+    if (!r) throw new Error('Équipe introuvable');
+    try {
+      return r.profile ? (JSON.parse(String(r.profile)) as ActivityProfile) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  setProfile(id: string, profile: ActivityProfile) {
+    const clean = cleanProfile(profile);
+    const now = new Date().toISOString();
+    if (!this.db.prepare('UPDATE teams SET profile = ?, updated = ? WHERE id = ?').run(JSON.stringify(clean), now, id).changes) throw new Error('Équipe introuvable');
+    return clean;
+  }
+
+  /** Logo en data URL (PNG, JPEG, SVG ou WebP), ou null pour l'enlever. */
+  setLogo(id: string, dataUrl: string | null) {
+    if (dataUrl !== null) {
+      if (!/^data:image\/(png|jpeg|svg\+xml|webp);base64,[A-Za-z0-9+/=]+$/.test(dataUrl)) throw new Error('Logo attendu : image PNG, JPEG, SVG ou WebP');
+      if (dataUrl.length > 1_500_000) throw new Error('Logo trop lourd (1 Mo au plus)');
+    }
+    const now = new Date().toISOString();
+    if (!this.db.prepare('UPDATE teams SET logo = ?, updated = ? WHERE id = ?').run(dataUrl, now, id).changes) throw new Error('Équipe introuvable');
+  }
+
+  logo(id: string): { type: string; data: Buffer } | null {
+    const r = this.db.prepare('SELECT logo FROM teams WHERE id = ?').get(id) as Row | undefined;
+    const m = r?.logo ? String(r.logo).match(/^data:([^;]+);base64,(.+)$/) : null;
+    return m ? { type: m[1]!, data: Buffer.from(m[2]!, 'base64') } : null;
+  }
+
+  /** Pour les menus : a-t-elle un logo, et sa version (pour le cache du navigateur). */
+  looks(id: string): { logo: boolean; updated?: string; kind?: string } {
+    const r = this.db.prepare('SELECT logo IS NOT NULL AS has, updated, profile FROM teams WHERE id = ?').get(id) as Row | undefined;
+    let kind: string | undefined;
+    try {
+      kind = r?.profile ? (JSON.parse(String(r.profile)) as ActivityProfile).kind : undefined;
+    } catch {
+      kind = undefined;
+    }
+    return { logo: !!r?.has, ...(r?.updated ? { updated: String(r.updated) } : {}), ...(kind ? { kind } : {}) };
+  }
+
+  picture(email: string): string | undefined {
+    const r = this.db.prepare('SELECT picture FROM users WHERE email = ?').get(normEmail(email)) as Row | undefined;
+    return r?.picture ? String(r.picture) : undefined;
   }
 
   /* ---------- membres ---------- */
@@ -198,15 +318,17 @@ export class Accounts {
   }
 
   /** À chaque connexion : retient le nom et l'heure, et transforme les invitations en adhésions. */
-  signedIn(email: string, name?: string) {
+  signedIn(email: string, name?: string, picture?: string) {
     const e = normEmail(email);
     const now = new Date().toISOString();
+    const pic = picture && /^https:\/\//.test(picture) ? picture : null;
     this.db
       .prepare(
-        `INSERT INTO users (email, name, created, last_seen) VALUES (?, ?, ?, ?)
-         ON CONFLICT(email) DO UPDATE SET name = COALESCE(excluded.name, users.name), last_seen = excluded.last_seen`,
+        `INSERT INTO users (email, name, created, last_seen, picture) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(email) DO UPDATE SET name = COALESCE(excluded.name, users.name), last_seen = excluded.last_seen,
+           picture = COALESCE(excluded.picture, users.picture)`,
       )
-      .run(e, name ?? null, now, now);
+      .run(e, name ?? null, now, now, pic);
     this.db.prepare('UPDATE members SET joined = ? WHERE email = ? AND joined IS NULL').run(now, e);
   }
 }

@@ -96,12 +96,39 @@ export interface TeamRef {
   id: string;
   name: string;
   role: Role;
+  /** Type d'activité (groupe musical…). */
+  kind?: string;
+  /** Adresse du logo, s'il y en a un. */
+  logo?: string;
 }
+
+/** Une source, un compte ou un module relié à l'activité. */
+export interface ServiceLink {
+  name: string;
+  url?: string;
+}
+/** Fiche de l'activité : identité, services, branding. */
+export interface ActivityProfile {
+  id: string;
+  name: string;
+  kind?: string;
+  services?: { events?: ServiceLink[]; assets?: ServiceLink[]; publishing?: ServiceLink[] };
+  branding?: { palette?: Array<{ hex: string; name?: string }>; purpose?: string; keywords?: string[] };
+}
+export const fetchProfile = (team: string) => call<ActivityProfile>(`/api/teams/${encodeURIComponent(team)}/profile`);
+export const saveProfile = (team: string, p: Omit<ActivityProfile, 'id'> & { logo?: string | null }) =>
+  call<{ profile: ActivityProfile }>(`/api/teams/${encodeURIComponent(team)}/profile`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(p),
+  });
 
 /** Qui est connecté : compte (Google, Apple), accès partagé par mot de passe, ou poste local. */
 export interface Me {
   email?: string;
   name?: string;
+  /** Photo du compte Google. */
+  picture?: string;
   admin: boolean;
   mode: 'compte' | 'mot-de-passe' | 'local';
   /** Équipe active : ses compositions et ses objets. */

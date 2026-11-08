@@ -2,7 +2,7 @@ import path from 'node:path';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
-import { Accounts, ROLES, type Role, type TeamOfUser } from './accounts.js';
+import { Accounts, ROLES, type ActivityProfile, type Role, type TeamOfUser } from './accounts.js';
 import { Ateliers } from './ateliers.js';
 import { cookie, readCookie, registerAuth, type AuthConfig } from './auth.js';
 import { Exporter, type ExportKind } from './export.js';
@@ -90,8 +90,8 @@ export async function buildApp(opts: AppOptions) {
   if (opts.auth) {
     registerAuth(app, opts.auth, {
       admit: (email) => admins.includes(email) || accounts.isMember(email),
-      signedIn: (email, name) => {
-        accounts.signedIn(email, name);
+      signedIn: (email, name, picture) => {
+        accounts.signedIn(email, name, picture);
         // amorçage : un administrateur ou une adresse de la liste sans équipe rejoint l'équipe d'origine
         if (!accounts.teamsOf(email).length && (admins.includes(email) || allowlist.has(email))) {
           accounts.addMember(home.id, email, admins.includes(email) ? 'owner' : 'editor');
@@ -165,11 +165,26 @@ export async function buildApp(opts: AppOptions) {
   };
 
   app.get('/api/health', async () => ({ ok: true }));
+  // pour les menus : nom, rôle, type d'activité et adresse du logo (avec sa version)
+  const teamRef = (t: TeamOfUser) => {
+    const look = accounts.looks(t.id);
+    return {
+      id: t.id,
+      name: t.name,
+      role: t.role,
+      ...(look.kind ? { kind: look.kind } : {}),
+      ...(look.logo ? { logo: `/api/teams/${encodeURIComponent(t.id)}/logo?v=${encodeURIComponent(look.updated ?? '')}` } : {}),
+    };
+  };
   app.get('/api/me', async (req) => {
-    const teams = teamsOfReq(req).map(({ id, name, role }) => ({ id, name, role }));
-    const team = req.team && { id: req.team.id, name: req.team.name, role: req.team.role };
+    const teams = teamsOfReq(req).map(teamRef);
+    const team = req.team && teamRef(req.team);
     const mailOn = !!opts.mailer;
-    if (opts.auth) return req.user ? { ...req.user, admin: isAdmin(req), mode: 'compte', team, teams, mail: mailOn } : null;
+    if (opts.auth) {
+      if (!req.user) return null;
+      const picture = accounts.picture(req.user.email);
+      return { ...req.user, ...(picture ? { picture } : {}), admin: isAdmin(req), mode: 'compte', team, teams, mail: mailOn };
+    }
     return { name: opts.password ? 'Accès partagé' : 'Accès local', admin: true, mode: opts.password ? 'mot-de-passe' : 'local', team, teams, mail: mailOn };
   });
   app.post<{ Body: { team?: string } }>('/api/me/team', async (req, reply) => {
@@ -196,6 +211,32 @@ export async function buildApp(opts: AppOptions) {
       return reply.code(400).send({ error: (err as Error).message });
     }
   });
+  // --- fiche d'activité : tout membre la lit, les responsables la modifient ---
+  app.get<{ Params: { id: string } }>('/api/teams/:id/profile', { preHandler: needsIn('viewer') }, async (req) => ({
+    ...accounts.team(req.params.id)!,
+    ...accounts.profile(req.params.id),
+  }));
+  app.put<{ Params: { id: string }; Body: ActivityProfile & { name?: string; logo?: string | null } }>(
+    '/api/teams/:id/profile',
+    { preHandler: needsIn('owner'), bodyLimit: 4 * 1024 * 1024 },
+    async (req, reply) => {
+      try {
+        const { name, logo, ...profile } = req.body ?? {};
+        if (name !== undefined) accounts.renameTeam(req.params.id, name);
+        if (logo !== undefined) accounts.setLogo(req.params.id, logo);
+        return { ok: true, profile: { ...accounts.team(req.params.id)!, ...accounts.setProfile(req.params.id, profile) } };
+      } catch (err) {
+        return reply.code(400).send({ error: (err as Error).message });
+      }
+    },
+  );
+  app.get<{ Params: { id: string } }>('/api/teams/:id/logo', { preHandler: needsIn('viewer') }, async (req, reply) => {
+    const logo = accounts.logo(req.params.id);
+    if (!logo) return reply.code(404).send({ error: 'Pas de logo' });
+    // un SVG importé ne doit pas pouvoir exécuter de script
+    return reply.type(logo.type).header('Cache-Control', 'private, max-age=31536000').header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'").send(logo.data);
+  });
+
   app.get<{ Params: { id: string } }>('/api/teams/:id/members', { preHandler: needsIn('viewer') }, async (req) => accounts.members(req.params.id));
   app.post<{ Params: { id: string }; Body: { email?: string; role?: Role } }>('/api/teams/:id/members', { preHandler: needsIn('owner') }, async (req, reply) => {
     try {

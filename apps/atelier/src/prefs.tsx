@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { TeamSection } from './team-ui';
 import { fetchMe, fetchSystem, reindexLibrary, restartServer, serverOnline, type Me, type SystemInfo } from './server';
 import { MARK_KINDS, MARKS, type MarkGroup, type MarkKind } from './marks';
 import { MarkLegend } from './marks-ui';
@@ -17,7 +16,7 @@ const MARK_GROUPS: Array<[MarkGroup, string]> = [
 export type Theme = 'auto' | 'light' | 'dark';
 /** Le doigt : automatique (dessine tant qu'aucun stylet n'est vu), dessine toujours, ou déplace toujours. */
 export type FingerMode = 'auto' | 'draw' | 'move';
-type Tab = 'display' | 'account' | 'system';
+type Tab = 'display' | 'system';
 
 const MODES: Record<Me['mode'], string> = { compte: 'Compte Google ou Apple', 'mot-de-passe': 'Accès partagé (mot de passe du groupe)', local: 'Poste local' };
 
@@ -44,7 +43,7 @@ function Toggle({ label, hint, on, set }: { label: string; hint: string; on: boo
 
 /**
  * Préférences : l'affichage pour soi, son compte, et l'état du serveur pour les administrateurs.
- * Hors ligne (démo), les onglets Compte et Système le disent au lieu de rester vides.
+ * Hors ligne (démo), l'onglet Système le dit au lieu de rester vides.
  */
 export function PrefsPanel(p: {
   points: AnchorExtras;
@@ -135,9 +134,6 @@ export function PrefsPanel(p: {
       <div className="seg pf-tabs" role="tablist">
         <button role="tab" aria-selected={tab === 'display'} className={tab === 'display' ? 'on' : ''} onClick={() => setTab('display')}>
           Affichage
-        </button>
-        <button role="tab" aria-selected={tab === 'account'} className={tab === 'account' ? 'on' : ''} onClick={() => setTab('account')}>
-          Compte
         </button>
         {showSystem && (
           <button role="tab" aria-selected={tab === 'system'} className={tab === 'system' ? 'on' : ''} onClick={() => setTab('system')}>
@@ -249,44 +245,6 @@ export function PrefsPanel(p: {
           <div className="pf-group">Stylet</div>
           <Toggle label="Rotation du stylet" hint="Tourner le crayon sur lui-même tourne les tampons" on={p.penRoll} set={p.setPenRoll} />
           <Toggle label="Inclinaison du stylet" hint="Pencher le crayon met les tampons en perspective" on={p.penTilt} set={p.setPenTilt} />
-        </div>
-      )}
-
-      {tab === 'account' && (
-        <div className="pf-body">
-          {!p.online ? (
-            <p className="pf-note">Hors ligne : la démo garde tout dans ce navigateur. Sur le site du groupe, ton compte s'affiche ici.</p>
-          ) : me === undefined ? (
-            <p className="pf-note">Chargement…</p>
-          ) : !me ? (
-            <p className="pf-note">Personne n'est connecté.</p>
-          ) : (
-            <>
-              <div className="pf-user">
-                <span className="pf-avatar">{(me.name ?? me.email ?? '?').slice(0, 1).toUpperCase()}</span>
-                <span className="pf-txt">
-                  <b>{me.name ?? me.email}</b>
-                  {me.email && me.name && <small>{me.email}</small>}
-                </span>
-              </div>
-              <dl className="pf-dl">
-                <dt>Connexion</dt>
-                <dd>{MODES[me.mode]}</dd>
-                {me.admin && (
-                  <>
-                    <dt>Accès</dt>
-                    <dd>Administrateur du site</dd>
-                  </>
-                )}
-              </dl>
-              {me.mode === 'compte' && (
-                <a className="pf-btn" href="/auth/logout">
-                  Se déconnecter
-                </a>
-              )}
-              {me.mode === 'compte' && <TeamSection me={me} />}
-            </>
-          )}
         </div>
       )}
 

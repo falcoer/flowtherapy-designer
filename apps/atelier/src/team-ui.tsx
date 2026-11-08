@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
-import { createTeam, fetchMembers, inviteMember, removeMember, ROLE_LABELS, setMemberRole, switchTeam, type Me, type Member, type Role } from './server';
+import { fetchMembers, inviteMember, removeMember, ROLE_LABELS, setMemberRole, type Me, type Member, type Role } from './server';
 
 const ROLES: Role[] = ['owner', 'editor', 'viewer'];
 
 /**
- * Préférences › Compte : l'équipe active (ses compositions et ses objets), ses membres,
- * et pour les responsables les invitations et les rôles.
+ * Fiche d'activité › Membres : qui en fait partie, et pour les responsables les invitations et les rôles.
+ * Les compositions et les objets enregistrés sont partagés par toute l'activité.
  */
-export function TeamSection({ me }: { me: Me }) {
+export function MembersSection({ me }: { me: Me }) {
   const team = me.team;
   const owner = team?.role === 'owner';
   const [members, setMembers] = useState<Member[] | null>(null);
@@ -15,7 +15,6 @@ export function TeamSection({ me }: { me: Me }) {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<Role>('editor');
   const [removing, setRemoving] = useState<string | null>(null);
-  const [newTeam, setNewTeam] = useState('');
   const [info, setInfo] = useState<string | null>(null);
 
   const load = () => {
@@ -33,35 +32,12 @@ export function TeamSection({ me }: { me: Me }) {
       setErr((e as Error).message);
     }
   };
-  // changer d'équipe change toutes les compositions visibles : on recharge l'atelier
-  const pick = (id: string) => void switchTeam(id).then(() => location.reload(), (e: Error) => setErr(e.message));
-
-  if (!team) return <p className="pf-note">Tu ne fais partie d'aucune équipe. Demande à un responsable de t'inviter.</p>;
-  const teams = [...(me.teams ?? [])].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  if (!team) return <p className="pf-note">Tu ne fais partie d'aucune activité. Demande à un responsable de t'inviter.</p>;
   const self = me.email?.toLowerCase();
 
   return (
     <>
-      <div className="pf-group">Équipe</div>
-      {teams.length > 1 ? (
-        <select className="pf-input" value={team.id} onChange={(e) => pick(e.target.value)} aria-label="Équipe active">
-          {teams.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name} · {ROLE_LABELS[t.role]}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <dl className="pf-dl">
-          <dt>Équipe</dt>
-          <dd>{team.name}</dd>
-          <dt>Rôle</dt>
-          <dd>{ROLE_LABELS[team.role]}</dd>
-        </dl>
-      )}
-      <p className="pf-note">Les compositions et les objets enregistrés sont partagés par toute l'équipe.</p>
-
-      <div className="pf-group">Membres</div>
+      <p className="pf-note">Les compositions et les objets enregistrés sont partagés par tous les membres.</p>
       {!members && !err && <p className="pf-note">Chargement…</p>}
       {members && (
         <div className="tm-list">
@@ -140,27 +116,6 @@ export function TeamSection({ me }: { me: Me }) {
         </p>
       )}
 
-      {me.admin && (
-        <>
-          <div className="pf-group">Nouvelle équipe</div>
-          <form
-            className="tm-invite"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!newTeam.trim()) return;
-              void createTeam(newTeam.trim()).then(
-                (r) => pick(r.team.id),
-                (e: Error) => setErr(e.message),
-              );
-            }}
-          >
-            <input className="pf-input" placeholder="Nom de l'équipe" value={newTeam} onChange={(e) => setNewTeam(e.target.value)} aria-label="Nom de la nouvelle équipe" />
-            <button className="pf-btn" type="submit" disabled={!newTeam.trim()}>
-              Créer
-            </button>
-          </form>
-        </>
-      )}
       {err && <p className="pf-note pf-err">{err}</p>}
     </>
   );

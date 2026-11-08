@@ -157,4 +157,36 @@ describe('équipes', () => {
     expect(String(r.headers['set-cookie'])).toContain('ftd_team=cafe-concert');
     expect(r.json().team.id).toBe('cafe-concert');
   });
+
+  it('la fiche d’activité : les responsables la remplissent, les membres la lisent', async () => {
+    const { login, as } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    await lauris.send('POST', '/api/teams/flowtherapy/members', { email: 'jenni@example.org', role: 'editor' });
+    const png = 'data:image/png;base64,' + Buffer.from('logo').toString('base64');
+    const put = await lauris.send('PUT', '/api/teams/flowtherapy/profile', {
+      name: 'Flow Therapy',
+      logo: png,
+      kind: 'Groupe musical',
+      services: { events: [{ name: 'Bandsintown', url: 'https://bandsintown.com/a/1' }, { name: '' }], publishing: [{ name: 'Instagram' }] },
+      branding: { palette: [{ hex: '#E9A7C3', name: 'Rose' }, { hex: 'rouge' }], purpose: 'Faire danser', keywords: ['psyché', ' ', 'groove'] },
+    });
+    expect(put.statusCode).toBe(200);
+    expect(put.json().profile).toMatchObject({
+      name: 'Flow Therapy',
+      kind: 'Groupe musical',
+      services: { events: [{ name: 'Bandsintown', url: 'https://bandsintown.com/a/1' }], assets: [], publishing: [{ name: 'Instagram' }] },
+      branding: { palette: [{ hex: '#e9a7c3', name: 'Rose' }], purpose: 'Faire danser', keywords: ['psyché', 'groove'] },
+    });
+
+    const jenni = as((await login('jenni@example.org'))!);
+    const me = (await jenni.get('/api/me')).json();
+    expect(me.team).toMatchObject({ name: 'Flow Therapy', kind: 'Groupe musical' });
+    expect(me.team.logo).toMatch(/^\/api\/teams\/flowtherapy\/logo\?v=/);
+    const logo = await jenni.get(me.team.logo);
+    expect(logo.headers['content-type']).toBe('image/png');
+    expect(logo.body).toBe('logo');
+    expect((await jenni.get('/api/teams/flowtherapy/profile')).json().branding.purpose).toBe('Faire danser');
+    expect((await jenni.send('PUT', '/api/teams/flowtherapy/profile', { kind: 'Autre' })).statusCode).toBe(403);
+    expect((await lauris.send('PUT', '/api/teams/flowtherapy/profile', { logo: 'data:text/html;base64,PGI+' })).statusCode).toBe(400);
+  });
 });
