@@ -69,15 +69,59 @@ export interface ActivityProfile {
     events?: ServiceLink[];
     /** Comptes qui fournissent des visuels (photos, banques d'images…). */
     assets?: ServiceLink[];
-    /** Modules de publication (réseaux sociaux, lettre d'information…). */
-    publishing?: ServiceLink[];
   };
   branding?: {
-    palette?: Array<{ hex: string; name?: string }>;
+    /** Palettes nommées (principale, nuit, été…) ; la première sert par défaut. */
+    palettes?: Palette[];
+    /** Ancienne forme : une seule palette (lue, puis rangée dans palettes). */
+    palette?: PaletteColor[];
+    /** Polices de la bibliothèque, par usage. */
+    fonts?: { title?: string; body?: string; accent?: string };
     /** Raison d'être. */
     purpose?: string;
     keywords?: string[];
+    /** Textes récurrents prêts à poser (partenaires, réseaux, hashtags…). */
+    mentions?: Array<{ name: string; text: string }>;
   };
+  /** Canaux de communication : chacun fixe ses formats, sa marge, son logo et ses mentions. */
+  channels?: Channel[];
+}
+
+export interface PaletteColor {
+  hex: string;
+  name?: string;
+  role?: ColorRole;
+}
+/** Couleurs, chacune avec son rôle (fond, texte, accent, secondaire). */
+export interface Palette {
+  id: string;
+  name: string;
+  colors: PaletteColor[];
+}
+
+export const COLOR_ROLES = ['fond', 'texte', 'accent', 'secondaire'] as const;
+export type ColorRole = (typeof COLOR_ROLES)[number];
+export const CHANNEL_KINDS = ['social', 'affichage', 'impression', 'email', 'site'] as const;
+export const LOGO_VARIANTS = ['main', 'light', 'dark', 'icon'] as const;
+export type LogoVariant = (typeof LOGO_VARIANTS)[number];
+
+export interface Channel {
+  id: string;
+  name: string;
+  kind: (typeof CHANNEL_KINDS)[number];
+  /** Formats de l'atelier (identifiants), le premier par défaut. */
+  formats: string[];
+  /** Marge des repères, en fraction du petit côté. */
+  margin?: number;
+  /** Zone d'intérêt (à venir) : description libre pour l'instant. */
+  focus?: string;
+  logo?: LogoVariant;
+  /** Palette du canal (identifiant), sinon la première. */
+  palette?: string;
+  /** Noms des mentions à poser. */
+  mentions?: string[];
+  /** Compte où publier. */
+  url?: string;
 }
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -94,20 +138,85 @@ function cleanLinks(v: unknown): ServiceLink[] {
     .filter((x) => x.name || x.url);
 }
 
+const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+
+function cleanChannel(c: Partial<Channel>, i: number): Channel | null {
+  const name = str(c?.name, 60);
+  if (!name) return null;
+  const kind = (CHANNEL_KINDS as readonly string[]).includes(c.kind as string) ? (c.kind as Channel['kind']) : 'social';
+  const id = str(c.id, 40).replace(/[^a-z0-9-]/g, '') || `canal-${i + 1}`;
+  const margin = typeof c.margin === 'number' && Number.isFinite(c.margin) ? Math.max(-0.25, Math.min(0.25, c.margin)) : undefined;
+  const logo = (LOGO_VARIANTS as readonly string[]).includes(c.logo as string) ? c.logo : undefined;
+  return {
+    id,
+    name,
+    kind,
+    formats: arr<string>(c.formats).map((f) => str(f, 40)).filter(Boolean).slice(0, 12),
+    ...(margin !== undefined ? { margin } : {}),
+    ...(str(c.focus, 300) ? { focus: str(c.focus, 300) } : {}),
+    ...(logo ? { logo } : {}),
+    ...(str(c.palette, 40) ? { palette: str(c.palette, 40) } : {}),
+    mentions: arr<string>(c.mentions).map((m) => str(m, 60)).filter(Boolean).slice(0, 20),
+    ...(str(c.url, 500) ? { url: str(c.url, 500) } : {}),
+  };
+}
+
 /** Garde ce qui est attendu, à des tailles raisonnables. */
 export function cleanProfile(p: ActivityProfile): ActivityProfile {
-  const palette = (Array.isArray(p.branding?.palette) ? p.branding!.palette : [])
-    .slice(0, 24)
-    .filter((c) => typeof c?.hex === 'string' && /^#[0-9a-fA-F]{6}$/.test(c.hex))
-    .map((c) => ({ hex: c.hex.toLowerCase(), ...(str(c.name, 40) ? { name: str(c.name, 40) } : {}) }));
+  const colorsOf = (v: unknown): PaletteColor[] =>
+    arr<PaletteColor>(v)
+      .slice(0, 24)
+      .filter((c) => typeof c?.hex === 'string' && /^#[0-9a-fA-F]{6}$/.test(c.hex))
+      .map((c) => ({
+        hex: c.hex.toLowerCase(),
+        ...(str(c.name, 40) ? { name: str(c.name, 40) } : {}),
+        ...((COLOR_ROLES as readonly string[]).includes(c.role as string) ? { role: c.role } : {}),
+      }));
+  const rawPalettes = Array.isArray(p.branding?.palettes)
+    ? p.branding!.palettes
+    : Array.isArray(p.branding?.palette) && p.branding!.palette.length
+      ? [{ id: 'principale', name: 'Principale', colors: p.branding!.palette }]
+      : [];
+  const seenPal = new Set<string>();
+  const palettes = arr<Partial<Palette>>(rawPalettes)
+    .slice(0, 12)
+    .map((q, i) => {
+      const name = str(q?.name, 40) || `Palette ${i + 1}`;
+      const base = str(q?.id, 40).replace(/[^a-z0-9-]/g, '') || `palette-${i + 1}`;
+      let id = base;
+      for (let n = 2; seenPal.has(id); n++) id = `${base}-${n}`;
+      seenPal.add(id);
+      return { id, name, colors: colorsOf(q?.colors) };
+    })
+    .filter((q) => q.colors.length);
+  const f = p.branding?.fonts ?? {};
+  const fonts = Object.fromEntries((['title', 'body', 'accent'] as const).filter((k) => str(f[k], 40)).map((k) => [k, str(f[k], 40)]));
+  const mentions = arr<{ name: string; text: string }>(p.branding?.mentions)
+    .map((m) => ({ name: str(m?.name, 60), text: str(m?.text, 1000) }))
+    .filter((m) => m.name && m.text)
+    .slice(0, 30);
+  const seen = new Set<string>();
+  const channels = arr<Partial<Channel>>(p.channels)
+    .slice(0, 30)
+    .map(cleanChannel)
+    .filter((c): c is Channel => !!c)
+    .map((c) => {
+      // identifiants uniques : ils servent de lien depuis les compositions
+      let id = c.id;
+      for (let n = 2; seen.has(id); n++) id = `${c.id}-${n}`;
+      seen.add(id);
+      const { palette, ...rest } = c;
+      return { ...rest, id, ...(palette && seenPal.has(palette) ? { palette } : {}) };
+    });
   const keywords = (Array.isArray(p.branding?.keywords) ? p.branding!.keywords : [])
     .map((k) => str(k, 40))
     .filter(Boolean)
     .slice(0, 30);
   return {
     ...(str(p.kind, 60) ? { kind: str(p.kind, 60) } : {}),
-    services: { events: cleanLinks(p.services?.events), assets: cleanLinks(p.services?.assets), publishing: cleanLinks(p.services?.publishing) },
-    branding: { palette, purpose: str(p.branding?.purpose, 2000), keywords },
+    services: { events: cleanLinks(p.services?.events), assets: cleanLinks(p.services?.assets) },
+    branding: { palettes, fonts, purpose: str(p.branding?.purpose, 2000), keywords, mentions },
+    channels,
   };
 }
 
@@ -138,6 +247,7 @@ export class Accounts {
     this.addColumn('teams', 'profile', 'TEXT');
     this.addColumn('teams', 'logo', 'TEXT');
     this.addColumn('teams', 'updated', 'TEXT');
+    this.addColumn('teams', 'logos', 'TEXT');
     this.addColumn('users', 'picture', 'TEXT');
   }
 
@@ -205,20 +315,46 @@ export class Accounts {
     return clean;
   }
 
-  /** Logo en data URL (PNG, JPEG, SVG ou WebP), ou null pour l'enlever. */
-  setLogo(id: string, dataUrl: string | null) {
+  /** Logo (ou une de ses variantes) en data URL : PNG, JPEG, SVG ou WebP ; null pour l'enlever. */
+  setLogo(id: string, dataUrl: string | null, variant: LogoVariant = 'main') {
+    if (!(LOGO_VARIANTS as readonly string[]).includes(variant)) throw new Error(`Variante de logo inconnue : ${variant}`);
     if (dataUrl !== null) {
       if (!/^data:image\/(png|jpeg|svg\+xml|webp);base64,[A-Za-z0-9+/=]+$/.test(dataUrl)) throw new Error('Logo attendu : image PNG, JPEG, SVG ou WebP');
       if (dataUrl.length > 1_500_000) throw new Error('Logo trop lourd (1 Mo au plus)');
     }
     const now = new Date().toISOString();
-    if (!this.db.prepare('UPDATE teams SET logo = ?, updated = ? WHERE id = ?').run(dataUrl, now, id).changes) throw new Error('Équipe introuvable');
+    if (variant === 'main') {
+      if (!this.db.prepare('UPDATE teams SET logo = ?, updated = ? WHERE id = ?').run(dataUrl, now, id).changes) throw new Error('Équipe introuvable');
+      return;
+    }
+    const others = { ...this.variants(id) };
+    if (dataUrl === null) delete others[variant];
+    else others[variant] = dataUrl;
+    if (!this.db.prepare('UPDATE teams SET logos = ?, updated = ? WHERE id = ?').run(JSON.stringify(others), now, id).changes) throw new Error('Équipe introuvable');
   }
 
-  logo(id: string): { type: string; data: Buffer } | null {
-    const r = this.db.prepare('SELECT logo FROM teams WHERE id = ?').get(id) as Row | undefined;
-    const m = r?.logo ? String(r.logo).match(/^data:([^;]+);base64,(.+)$/) : null;
+  private variants(id: string): Partial<Record<LogoVariant, string>> {
+    const r = this.db.prepare('SELECT logos FROM teams WHERE id = ?').get(id) as Row | undefined;
+    try {
+      return r?.logos ? JSON.parse(String(r.logos)) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  logo(id: string, variant: LogoVariant = 'main'): { type: string; data: Buffer } | null {
+    let url: string | undefined;
+    if (variant === 'main') {
+      const r = this.db.prepare('SELECT logo FROM teams WHERE id = ?').get(id) as Row | undefined;
+      url = r?.logo ? String(r.logo) : undefined;
+    } else url = this.variants(id)[variant];
+    const m = url ? url.match(/^data:([^;]+);base64,(.+)$/) : null;
     return m ? { type: m[1]!, data: Buffer.from(m[2]!, 'base64') } : null;
+  }
+
+  /** Variantes de logo présentes (hors logo principal). */
+  logoVariants(id: string): LogoVariant[] {
+    return Object.keys(this.variants(id)) as LogoVariant[];
   }
 
   /** Pour les menus : a-t-elle un logo, et sa version (pour le cache du navigateur). */

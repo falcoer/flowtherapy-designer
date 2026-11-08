@@ -2,7 +2,7 @@ import path from 'node:path';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
-import { Accounts, ROLES, type ActivityProfile, type Role, type TeamOfUser } from './accounts.js';
+import { Accounts, LOGO_VARIANTS, ROLES, type ActivityProfile, type LogoVariant, type Role, type TeamOfUser } from './accounts.js';
 import { Ateliers } from './ateliers.js';
 import { cookie, readCookie, registerAuth, type AuthConfig } from './auth.js';
 import { Exporter, type ExportKind } from './export.js';
@@ -212,26 +212,37 @@ export async function buildApp(opts: AppOptions) {
     }
   });
   // --- fiche d'activité : tout membre la lit, les responsables la modifient ---
-  app.get<{ Params: { id: string } }>('/api/teams/:id/profile', { preHandler: needsIn('viewer') }, async (req) => ({
-    ...accounts.team(req.params.id)!,
-    ...accounts.profile(req.params.id),
-  }));
-  app.put<{ Params: { id: string }; Body: ActivityProfile & { name?: string; logo?: string | null } }>(
+  const profileOf = (id: string) => {
+    const look = accounts.looks(id);
+    const v = encodeURIComponent(look.updated ?? '');
+    const base = `/api/teams/${encodeURIComponent(id)}/logo`;
+    // adresses des logos présents, par variante
+    const logos = Object.fromEntries(
+      [...(look.logo ? (['main'] as LogoVariant[]) : []), ...accounts.logoVariants(id)].map((k) => [k, `${base}${k === 'main' ? '' : `/${k}`}?v=${v}`]),
+    );
+    return { ...accounts.team(id)!, ...accounts.profile(id), logos };
+  };
+  app.get<{ Params: { id: string } }>('/api/teams/:id/profile', { preHandler: needsIn('viewer') }, async (req) => profileOf(req.params.id));
+  app.put<{ Params: { id: string }; Body: ActivityProfile & { name?: string; logo?: string | null; logos?: Partial<Record<LogoVariant, string | null>> } }>(
     '/api/teams/:id/profile',
-    { preHandler: needsIn('owner'), bodyLimit: 4 * 1024 * 1024 },
+    { preHandler: needsIn('owner'), bodyLimit: 8 * 1024 * 1024 },
     async (req, reply) => {
       try {
-        const { name, logo, ...profile } = req.body ?? {};
+        const { name, logo, logos, ...profile } = req.body ?? {};
         if (name !== undefined) accounts.renameTeam(req.params.id, name);
         if (logo !== undefined) accounts.setLogo(req.params.id, logo);
-        return { ok: true, profile: { ...accounts.team(req.params.id)!, ...accounts.setProfile(req.params.id, profile) } };
+        for (const [k, url] of Object.entries(logos ?? {})) if (url !== undefined) accounts.setLogo(req.params.id, url, k as LogoVariant);
+        accounts.setProfile(req.params.id, profile);
+        return { ok: true, profile: profileOf(req.params.id) };
       } catch (err) {
         return reply.code(400).send({ error: (err as Error).message });
       }
     },
   );
-  app.get<{ Params: { id: string } }>('/api/teams/:id/logo', { preHandler: needsIn('viewer') }, async (req, reply) => {
-    const logo = accounts.logo(req.params.id);
+  app.get<{ Params: { id: string; variant?: string } }>('/api/teams/:id/logo/:variant?', { preHandler: needsIn('viewer') }, async (req, reply) => {
+    const variant = (req.params.variant ?? 'main') as LogoVariant;
+    if (!LOGO_VARIANTS.includes(variant)) return reply.code(404).send({ error: 'Variante inconnue' });
+    const logo = accounts.logo(req.params.id, variant);
     if (!logo) return reply.code(404).send({ error: 'Pas de logo' });
     // un SVG importé ne doit pas pouvoir exécuter de script
     return reply.type(logo.type).header('Cache-Control', 'private, max-age=31536000').header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'").send(logo.data);

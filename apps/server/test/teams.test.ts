@@ -167,16 +167,40 @@ describe('équipes', () => {
       name: 'Flow Therapy',
       logo: png,
       kind: 'Groupe musical',
-      services: { events: [{ name: 'Bandsintown', url: 'https://bandsintown.com/a/1' }, { name: '' }], publishing: [{ name: 'Instagram' }] },
-      branding: { palette: [{ hex: '#E9A7C3', name: 'Rose' }, { hex: 'rouge' }], purpose: 'Faire danser', keywords: ['psyché', ' ', 'groove'] },
+      services: { events: [{ name: 'Bandsintown', url: 'https://bandsintown.com/a/1' }, { name: '' }] },
+      branding: {
+        palette: [{ hex: '#E9A7C3', name: 'Rose', role: 'accent' }, { hex: 'rouge' }],
+        fonts: { title: 'bungee', body: 'inter' },
+        purpose: 'Faire danser',
+        keywords: ['psyché', ' ', 'groove'],
+        mentions: [{ name: 'Réseaux', text: '@flowtherapy' }, { name: 'vide', text: '' }],
+      },
+      logos: { dark: png },
+      channels: [
+        { id: 'insta', name: 'Post Instagram', kind: 'social', formats: ['carre'], margin: 0.04, logo: 'icon', mentions: ['Réseaux'] },
+        { id: 'insta', name: 'Story', kind: 'social', formats: ['story'], margin: 0.9 },
+        { name: '' },
+      ],
     });
     expect(put.statusCode).toBe(200);
     expect(put.json().profile).toMatchObject({
       name: 'Flow Therapy',
       kind: 'Groupe musical',
-      services: { events: [{ name: 'Bandsintown', url: 'https://bandsintown.com/a/1' }], assets: [], publishing: [{ name: 'Instagram' }] },
-      branding: { palette: [{ hex: '#e9a7c3', name: 'Rose' }], purpose: 'Faire danser', keywords: ['psyché', 'groove'] },
+      services: { events: [{ name: 'Bandsintown', url: 'https://bandsintown.com/a/1' }], assets: [] },
+      branding: {
+        palettes: [{ id: 'principale', name: 'Principale', colors: [{ hex: '#e9a7c3', name: 'Rose', role: 'accent' }] }],
+        fonts: { title: 'bungee', body: 'inter' },
+        purpose: 'Faire danser',
+        keywords: ['psyché', 'groove'],
+        mentions: [{ name: 'Réseaux', text: '@flowtherapy' }],
+      },
+      channels: [
+        { id: 'insta', name: 'Post Instagram', kind: 'social', formats: ['carre'], margin: 0.04, logo: 'icon', mentions: ['Réseaux'] },
+        { id: 'insta-2', name: 'Story', kind: 'social', formats: ['story'], margin: 0.25, mentions: [] },
+      ],
     });
+    expect(Object.keys(put.json().profile.logos)).toEqual(['main', 'dark']);
+    expect((await lauris.get(put.json().profile.logos.dark)).body).toBe('logo');
 
     const jenni = as((await login('jenni@example.org'))!);
     const me = (await jenni.get('/api/me')).json();
@@ -188,5 +212,27 @@ describe('équipes', () => {
     expect((await jenni.get('/api/teams/flowtherapy/profile')).json().branding.purpose).toBe('Faire danser');
     expect((await jenni.send('PUT', '/api/teams/flowtherapy/profile', { kind: 'Autre' })).statusCode).toBe(403);
     expect((await lauris.send('PUT', '/api/teams/flowtherapy/profile', { logo: 'data:text/html;base64,PGI+' })).statusCode).toBe(400);
+
+    // plusieurs palettes, chaque canal peut choisir la sienne
+    const multi = await lauris.send('PUT', '/api/teams/flowtherapy/profile', {
+      branding: {
+        palettes: [
+          { id: 'jour', name: 'Jour', colors: [{ hex: '#ffffff', role: 'fond' }] },
+          { id: 'jour', name: 'Nuit', colors: [{ hex: '#000000', role: 'fond' }] },
+          { name: 'Vide', colors: [] },
+        ],
+      },
+      channels: [
+        { id: 'affiche', name: 'Affiche', kind: 'affichage', formats: ['a4'], palette: 'jour-2' },
+        { id: 'post', name: 'Post', kind: 'social', formats: ['carre'], palette: 'inconnue' },
+      ],
+    });
+    const prof = multi.json().profile;
+    expect(prof.branding.palettes.map((q: { id: string; name: string }) => [q.id, q.name])).toEqual([
+      ['jour', 'Jour'],
+      ['jour-2', 'Nuit'],
+    ]);
+    expect(prof.channels[0].palette).toBe('jour-2');
+    expect(prof.channels[1].palette).toBeUndefined();
   });
 });

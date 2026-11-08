@@ -25,7 +25,7 @@ import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers }
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
-import { fetchMe, listAteliers, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta, type Me } from './server';
+import { fetchMe, fetchProfile, listAteliers, palettesOf, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Channel, type Me } from './server';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
@@ -401,6 +401,13 @@ export function App() {
   useEffect(() => {
     if (online) fetchMe().then(setMe, () => setMe(null));
   }, [online]);
+  // fiche de l'activité : canaux, palettes (pour partir d'un canal)
+  const [activity, setActivity] = useState<ActivityProfile | null>(null);
+  const loadActivity = () => {
+    if (me?.team) fetchProfile(me.team.id).then(setActivity, () => setActivity(null));
+    else setActivity(null);
+  };
+  useEffect(loadActivity, [me?.team?.id]);
   const [reviewNote, setReviewNote] = useState('');
   const refreshProjects = () => void listAteliers().then(setProjects, () => {});
   /** Petite image de la composition pour la liste. */
@@ -489,9 +496,9 @@ export function App() {
       setToast(`Impossible : ${(err as Error).message}`);
     }
   };
-  const newProject = async (title: string, fromCurrent: boolean) => {
+  const newProject = async (title: string, fromCurrent: boolean, ch?: Channel) => {
     const p = { id: newAtelierId(title), title };
-    const d = fromCurrent ? docRef.current : { ...blankDoc(), formatId: docRef.current.formatId, frame: docRef.current.frame, guides: docRef.current.guides };
+    const d = fromCurrent ? docRef.current : ch ? channelDoc(ch) : { ...blankDoc(), formatId: docRef.current.formatId, frame: docRef.current.frame, guides: docRef.current.guides };
     if (!fromCurrent) {
       forgetPaint();
       past.current = [];
@@ -503,6 +510,21 @@ export function App() {
     await saveNow(p, d);
     refreshProjects();
   };
+  /** Page vierge réglée par un canal : son premier format, sa marge, sa palette (le fond d'abord). */
+  const channelDoc = (ch: Channel): Doc => {
+    const base = blankDoc();
+    const pals = palettesOf(activity);
+    const pal = pals.find((q) => q.id === ch.palette) ?? pals[0];
+    const order = ['fond', 'texte', 'accent', 'secondaire'];
+    const rank = (r?: string) => (r ? order.indexOf(r) : order.length);
+    const guides: Guide[] | undefined = pal?.colors.length
+      ? [...pal.colors].sort((a, b) => rank(a.role) - rank(b.role)).map((c) => ({ name: c.name || c.role || c.hex, type: 'color', color: c.hex }))
+      : undefined;
+    const formatId = ch.formats.find((id) => FORMATS.some((f) => f.id === id)) ?? docRef.current.formatId;
+    return { ...base, formatId, frame: docRef.current.frame, margin: ch.margin ?? base.margin, channel: ch.id, guides: guides ?? docRef.current.guides };
+  };
+  const channels = activity?.channels ?? [];
+  const docChannel = channels.find((c) => c.id === doc.channel);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
 
   // --- export ---
@@ -3885,7 +3907,10 @@ export function App() {
               <button
                 className={`btn ${bubble === 'export' ? 'on' : ''}`}
                 onClick={() => {
-                  if (bubble !== 'export') setExportFormats([doc.formatId]);
+                  if (bubble !== 'export') {
+                    const fs = docChannel?.formats.filter((id) => FORMATS.some((x) => x.id === id)) ?? [];
+                    setExportFormats(fs.length ? [doc.formatId, ...fs.filter((id) => id !== doc.formatId)] : [doc.formatId]);
+                  }
                   setBubble(bubble === 'export' ? null : 'export');
                 }}
                 title="Exporter en PNG ou PDF, dans un ou plusieurs formats"
@@ -4381,6 +4406,22 @@ export function App() {
                     <span>Nouvelle composition</span>
                     <small>page vierge, même format et palette</small>
                   </button>
+                  {channels.length > 0 && (
+                    <div className="proj-channels">
+                      <div className="b-sub">ou pour un canal</div>
+                      {channels.map((ch) => (
+                        <button key={ch.id} className="row" onClick={() => void newProject(ch.name, false, ch)} title={ch.focus ? `Zone d’intérêt : ${ch.focus}` : undefined}>
+                          <Icon name="plus" />
+                          <span>{ch.name}</span>
+                          <small>
+                            {[ch.formats.map((id) => FORMATS.find((x) => x.id === id)?.title ?? id).join(', '), palettesOf(activity).find((q) => q.id === ch.palette)?.name]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="b-title">{me?.team ? `Compositions · ${me.team.name}` : 'Compositions du groupe'}</div>
                   <div className="proj-list">
                     {projects.map((m) => (
@@ -4475,7 +4516,10 @@ export function App() {
 
           {bubble === 'activity' && <ActivityMenu me={me} online={online} onEdit={() => setBubble('activity-edit')} onPrefs={() => setBubble('prefs')} />}
           {bubble === 'activity-edit' && me?.team && (
-            <ActivityForm me={me} onClose={() => setBubble(null)} onSaved={() => void fetchMe().then(setMe, () => {})} />
+            <ActivityForm me={me} onClose={() => setBubble(null)} onSaved={() => {
+              void fetchMe().then(setMe, () => {});
+              loadActivity();
+            }} />
           )}
           {bubble === 'prefs' && (
             <PrefsPanel

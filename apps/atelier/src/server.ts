@@ -107,16 +107,59 @@ export interface ServiceLink {
   name: string;
   url?: string;
 }
-/** Fiche de l'activité : identité, services, branding. */
+export type ColorRole = 'fond' | 'texte' | 'accent' | 'secondaire';
+export type LogoVariant = 'main' | 'light' | 'dark' | 'icon';
+export type ChannelKind = 'social' | 'affichage' | 'impression' | 'email' | 'site';
+export interface PaletteColor {
+  hex: string;
+  name?: string;
+  role?: ColorRole;
+}
+export interface Palette {
+  id: string;
+  name: string;
+  colors: PaletteColor[];
+}
+/** Palettes de la fiche, l'ancienne palette unique comprise. */
+export const palettesOf = (p?: ActivityProfile | null): Palette[] =>
+  p?.branding?.palettes ?? (p?.branding?.palette?.length ? [{ id: 'principale', name: 'Principale', colors: p.branding.palette }] : []);
+/** Canal de communication : où part le support, et ce que cela impose (formats, marge, logo, mentions). */
+export interface Channel {
+  id: string;
+  name: string;
+  kind: ChannelKind;
+  formats: string[];
+  margin?: number;
+  /** Zone d'intérêt : description libre en attendant l'outil. */
+  focus?: string;
+  logo?: LogoVariant;
+  /** Palette du canal, sinon la première. */
+  palette?: string;
+  mentions?: string[];
+  url?: string;
+}
+/** Fiche de l'activité : identité, branding général, canaux, services. */
 export interface ActivityProfile {
   id: string;
   name: string;
   kind?: string;
-  services?: { events?: ServiceLink[]; assets?: ServiceLink[]; publishing?: ServiceLink[] };
-  branding?: { palette?: Array<{ hex: string; name?: string }>; purpose?: string; keywords?: string[] };
+  services?: { events?: ServiceLink[]; assets?: ServiceLink[] };
+  branding?: {
+    /** Palettes nommées ; la première sert par défaut. */
+    palettes?: Palette[];
+    /** Ancienne forme, une seule palette. */
+    palette?: PaletteColor[];
+    fonts?: { title?: string; body?: string; accent?: string };
+    purpose?: string;
+    keywords?: string[];
+    mentions?: Array<{ name: string; text: string }>;
+  };
+  channels?: Channel[];
+  /** Adresses des logos présents, par variante. */
+  logos?: Partial<Record<LogoVariant, string>>;
 }
 export const fetchProfile = (team: string) => call<ActivityProfile>(`/api/teams/${encodeURIComponent(team)}/profile`);
-export const saveProfile = (team: string, p: Omit<ActivityProfile, 'id'> & { logo?: string | null }) =>
+export const saveProfile = (team: string, p: Omit<ActivityProfile, 'id' | 'logos'> & { logo?: string | null; logos?: Partial<Record<Exclude<LogoVariant, 'main'>, string | null>> }) =>
   call<{ profile: ActivityProfile }>(`/api/teams/${encodeURIComponent(team)}/profile`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
