@@ -50,7 +50,6 @@ export function GradStyleRow({ style, onChange }: { style?: GradStyle; onChange:
   const set = (patch: Partial<GradStyle>) => onChange({ ...s, ...patch });
   return (
     <div className="grad-row" role="group" aria-label="Forme du dégradé">
-      <span className="tb-label grad-row-label">Forme</span>
       <div className="grad-modes">
         {MODES.map(([m, name, hint]) => (
           <button key={m} className={s.mode === m ? 'on' : ''} onClick={() => set({ mode: m })} title={`${name} : ${hint}`} aria-label={name}>
@@ -71,8 +70,15 @@ export function GradStyleRow({ style, onChange }: { style?: GradStyle; onChange:
         Alterné
       </button>
       {s.mode === 'radial' && (
-        <button className={`grad-tog ${s.ellipse ? 'on' : ''}`} aria-pressed={!!s.ellipse} onClick={() => set({ ellipse: !s.ellipse })} title="Cercle, ou ellipse qui suit la forme de l'objet">
-          {s.ellipse ? 'Ellipse' : 'Cercle'}
+        <button
+          className="grad-tog grad-ell"
+          onClick={() => set({ ellipse: !s.ellipse })}
+          title={s.ellipse ? "Ellipse qui suit la forme de l'objet (toucher : cercle)" : "Cercle (toucher : ellipse qui suit la forme de l'objet)"}
+          aria-label={s.ellipse ? 'Ellipse' : 'Cercle'}
+        >
+          <svg width="22" height="16" viewBox="0 0 22 16" aria-hidden>
+            {s.ellipse ? <ellipse cx="11" cy="8" rx="9.5" ry="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" /> : <circle cx="11" cy="8" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.8" />}
+          </svg>
         </button>
       )}
     </div>

@@ -5792,7 +5792,6 @@ function PaletteBubble({
       {editing !== null && doc.guides[editing] && !fixed(doc.guides[editing]!) && (
         <ColorDialog
           guide={doc.guides[editing]!}
-          variant={declared}
           onClose={() => setEditing(null)}
           onChange={(next, commit) => onGuides(doc.guides.map((x, k) => (k === editing ? next : x)), commit)}
           onRemove={
@@ -5811,38 +5810,39 @@ function PaletteBubble({
   );
 }
 
-/** Boîte de dialogue d'une couleur : son nom, son éditeur (plan, teintes, harmonies, transition), les couleurs de la variante. */
-function ColorDialog({ guide, variant, onChange, onClose, onRemove }: { guide: Guide; variant?: Palette; onChange: (g: Guide, commit: boolean) => void; onClose: () => void; onRemove?: () => void }) {
+/** Boîte de dialogue d'une couleur : son nom, son éditeur (plan, teintes, harmonies, transition, forme du dégradé). */
+function ColorDialog({ guide, onChange, onClose, onRemove }: { guide: Guide; onChange: (g: Guide, commit: boolean) => void; onClose: () => void; onRemove?: () => void }) {
   const stops = guide.type === 'gradient' ? guide.stops : [guide.color];
   const keep = { ...(guide.from ? { from: guide.from } : {}) };
   return (
     <div className="color-dialog" role="dialog" aria-label={`Couleur ${guide.name}`}>
-      <div className="cd-head">
-        <span className="cd-sw" style={{ background: swatch(guide) }} />
-        <input
-          className="gname-input"
-          value={guide.name}
-          aria-label="Nom de la couleur"
-          onChange={(e) => onChange({ ...guide, name: e.target.value }, false)}
-          onBlur={() => onChange(guide, true)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') e.currentTarget.blur();
-            e.stopPropagation();
-          }}
-        />
-        {onRemove && (
-          <button className="cd-remove" onClick={onRemove} title="Retirer cette couleur">
-            Retirer
-          </button>
-        )}
-        <button className="lamp-close" onClick={onClose} aria-label="Fermer">
-          ×
-        </button>
-      </div>
+      <button className="lamp-close cd-close" onClick={onClose} aria-label="Fermer">
+        ×
+      </button>
       <PaletteEditor
         stops={stops}
         blend={guide.type === 'gradient' ? (guide.blend ?? 'smooth') : 'smooth'}
-        variant={variant}
+        head={
+          <div className="cd-head">
+            <span className="cd-sw" style={{ background: swatch(guide) }} />
+            <input
+              className="gname-input"
+              value={guide.name}
+              aria-label="Nom de la couleur"
+              onChange={(e) => onChange({ ...guide, name: e.target.value }, false)}
+              onBlur={() => onChange(guide, true)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+                e.stopPropagation();
+              }}
+            />
+            {onRemove && (
+              <button className="cd-remove" onClick={onRemove} title="Retirer cette couleur">
+                Retirer
+              </button>
+            )}
+          </div>
+        }
         extra={guide.type === 'gradient' ? <GradStyleRow style={guide.shape} onChange={(shape: GradStyle) => onChange({ ...guide, shape }, true)} /> : undefined}
         onBlend={(blend: Blend) => guide.type === 'gradient' && onChange({ ...guide, blend }, true)}
         onChange={(next, commit) =>

@@ -2,7 +2,6 @@ import { gradientStops, harmonies, hexToOklch, maxChroma, oklabToRgb8, oklchToHe
 import { cssGradient } from './model';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Blend } from './model';
-import type { Palette } from './server';
 
 /**
  * Éditeur de couleur de la palette : un plan carré (teinte en largeur, clarté en hauteur),
@@ -103,7 +102,7 @@ function trackOf(k: 'sat' | 'light' | 'contrast' | 'hues', p: Plane, base: Oklch
 export function PaletteEditor({
   stops,
   blend,
-  variant,
+  head,
   extra,
   onBlend,
   onChange: emit,
@@ -112,8 +111,8 @@ export function PaletteEditor({
   extra?: ReactNode;
   stops: string[];
   blend: Blend;
-  /** Variante de l'activité dont les couleurs sont proposées. */
-  variant?: Palette;
+  /** En-tête (nom de la couleur), au-dessus du plan. */
+  head?: ReactNode;
   onBlend: (b: Blend) => void;
   onChange: (stops: string[], commit: boolean) => void;
 }) {
@@ -164,6 +163,8 @@ export function PaletteEditor({
   const i = Math.min(sel, stops.length - 1);
   const [line, setLine] = useState<{ a: Pt; b: Pt } | null>(null);
   const [harm, setHarm] = useState<{ base: string; at: Pt } | null>(null);
+  // harmonie survolée : ses positions s'affichent sur le plan
+  const [hov, setHov] = useState<number | null>(null);
   const plane = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const press = useRef<{ start: Pt; moved: boolean; before: string[] } | null>(null);
@@ -212,34 +213,38 @@ export function PaletteEditor({
   const marks = useMemo(() => stops.map((c) => placeOf(c, pl)), [stops, pl]);
   const harmSets = harm ? HARMONIES.map(([k, name]) => ({ name, colors: [harm.base, ...harmonies(harm.base)[k]] })) : [];
 
-  return (
-    <div className="pe">
-      <div className="pe-main">
-      <div className="pe-head">
-        <div className="seg pe-mode">
-          <button className={mode === 'grid' ? 'on' : ''} onClick={() => setMode('grid')}>
-            Grille
-          </button>
-          <button className={mode === 'spectrum' ? 'on' : ''} onClick={() => setMode('spectrum')}>
-            Spectre
-          </button>
-          <button className={mode === 'sliders' ? 'on' : ''} onClick={() => setMode('sliders')} title="Saisie hexadécimale et trois curseurs (RVB ou YUV)">
-            Curseurs
-          </button>
+  const harmList = (where: string) => (
+        <div className={`pe-harm ${where}`} role="group" aria-label="Harmonies" onPointerLeave={() => setHov(null)}>
+          {harmSets.map((h, k) => (
+            <button
+              key={h.name}
+              className={hov === k ? 'on' : ''}
+              onPointerEnter={() => setHov(k)}
+              onFocus={() => setHov(k)}
+              onBlur={() => setHov(null)}
+              onClick={() => {
+                onChange(h.colors, true);
+                setSel(0);
+                setHarm(null);
+                setHov(null);
+              }}
+              title={`${h.name} : remplace les teintes du guide`}
+            >
+              <span className="pe-harm-sw">
+                {h.colors.map((c, j) => (
+                  <i key={j} style={{ background: c }} />
+                ))}
+              </span>
+              <span className="pe-harm-name">{h.name}</span>
+            </button>
+          ))}
         </div>
-        <button
-          className={`pe-harm-btn ${harm ? 'on' : ''}`}
-          aria-pressed={!!harm}
-          onClick={() => {
-            if (harm) return setHarm(null);
-            const c = stops[i]!;
-            setHarm({ base: c, at: placeOf(c, pl) ?? { x: 0.5, y: 0.5 } });
-          }}
-          title="Harmonies de la teinte choisie"
-        >
-          Harmonies
-        </button>
-      </div>
+  );
+
+  return (
+    <div className={`pe ${harm ? 'harm-open' : ''}`}>
+      <div className="pe-main">
+      {head}
       <div className={`pe-stage ${mode}`}>
       {mode === 'sliders' ? (
         <ChannelPanel hex={stops[i]!} onChange={(c, commit) => setAt(i, c, commit)} />
@@ -299,44 +304,43 @@ export function PaletteEditor({
           {line && <line x1={line.a.x * 100} y1={line.a.y * 100} x2={line.b.x * 100} y2={line.b.y * 100} className="pe-line" />}
         </svg>
         {!line && marks.map((m, j) => m && <span key={j} className={`pe-mark ${j === i ? 'on' : ''}`} style={{ left: `${m.x * 100}%`, top: `${m.y * 100}%`, background: stops[j] }} />)}
-        {harm &&
-          harmSets[0] &&
-          [...new Set(harmSets.flatMap((s) => s.colors.slice(1)))].map((c) => {
+        {hov !== null &&
+          harmSets[hov] &&
+          harmSets[hov]!.colors.slice(1).map((c) => {
             const m = placeOf(c, pl);
             if (!m) return null;
             return <span key={c} className="pe-mark ghost" style={{ left: `${m.x * 100}%`, top: `${m.y * 100}%`, background: c }} />;
           })}
       </div>
       )}
-      {harm && (
-        <div className="pe-harm" role="dialog" aria-label="Harmonies">
-          <div className="pe-harm-head">
-            <span className="pe-harm-base" style={{ background: harm.base }} />
-            <span className="tb-label">Harmonies</span>
-            <button className="pe-harm-x" onClick={() => setHarm(null)} aria-label="Fermer les harmonies">
-              ✕
-            </button>
-          </div>
-          {harmSets.map((s) => (
-            <button
-              key={s.name}
-              onClick={() => {
-                onChange(s.colors, true);
-                setSel(0);
-                setHarm(null);
-              }}
-            >
-              <span className="pe-harm-sw">
-                {s.colors.map((c, k) => (
-                  <i key={k} style={{ background: c }} />
-                ))}
-              </span>
-              <span className="pe-harm-name">{s.name}</span>
-            </button>
-          ))}
-        </div>
-      )}
       </div>
+      <div className="pe-head">
+        <div className="seg pe-mode">
+          <button className={mode === 'grid' ? 'on' : ''} onClick={() => setMode('grid')}>
+            Grille
+          </button>
+          <button className={mode === 'spectrum' ? 'on' : ''} onClick={() => setMode('spectrum')}>
+            Spectre
+          </button>
+          <button className={mode === 'sliders' ? 'on' : ''} onClick={() => setMode('sliders')} title="Saisie hexadécimale et trois curseurs (RVB ou YUV)">
+            Curseurs
+          </button>
+        </div>
+        <button
+          className={`pe-harm-btn ${harm ? 'on' : ''}`}
+          aria-pressed={!!harm}
+          onClick={() => {
+            setHov(null);
+            if (harm) return setHarm(null);
+            const c = stops[i]!;
+            setHarm({ base: c, at: placeOf(c, pl) ?? { x: 0.5, y: 0.5 } });
+          }}
+          title="Harmonies de la teinte choisie"
+        >
+          Harmonies
+        </button>
+      </div>
+      {harm && harmList('in-main')}
       </div>
       <div className="pe-side">
       <Tiles stops={stops} sel={i} setSel={setSel} onChange={onChange} blend={blend} />
@@ -369,17 +373,7 @@ export function PaletteEditor({
             </label>
           ))}
         </div>
-        <div className="pe-right">
-          {variant && variant.colors.length > 0 && (
-            <div className="pe-variant">
-              <span className="tb-label">{variant.name}</span>
-              <div className="pe-variant-chips">
-                {variant.colors.map((c, k) => (
-                  <button key={k} style={{ background: c.hex }} title={`${c.name || c.hex}${c.role ? ` (${c.role})` : ''} : remplace la teinte choisie`} onClick={() => setAt(i, c.hex, true)} />
-                ))}
-              </div>
-            </div>
-          )}
+        <div className="pe-right pe-grad">
           <div className="pe-blend">
             <span className="tb-label">Transition</span>
             <div className="seg">
@@ -399,6 +393,7 @@ export function PaletteEditor({
           {extra}
         </div>
       </div>
+      {harm && harmList('in-side')}
       </div>
     </div>
   );
