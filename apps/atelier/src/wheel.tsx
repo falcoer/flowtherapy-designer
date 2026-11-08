@@ -273,6 +273,28 @@ export function BrushWheel(p: Props) {
     const across = (-a * s + b * c) * (1 - (k * 0.45 * (a * c + b * s)) / h);
     return [TX + along * c - across * s, TY + along * s + across * c];
   });
+  // enveloppe : le disque, les deux boutons, et un pont droit entre eux côté extérieur (pas de creux)
+  const shell: Array<[number, number, number]> = [
+    [C, C, RO + 6],
+    [PX, PY, TR + 7],
+    [TX, TY, TR + 7],
+    [...at((AP + AT) / 2, RB - 4), TR + 5],
+  ];
+  const bridge = (r: number) => {
+    const [dx, dy] = [TX - PX, TY - PY];
+    const L = Math.hypot(dx, dy);
+    // normale vers l'extérieur de la roue
+    let [nx, ny] = [dy / L, -dx / L];
+    if (nx * (PX + TX - 2 * C) + ny * (PY + TY - 2 * C) < 0) [nx, ny] = [-nx, -ny];
+    return [
+      [PX, PY],
+      [PX + nx * r, PY + ny * r],
+      [TX + nx * r, TY + ny * r],
+      [TX, TY],
+    ]
+      .map((q) => q.join(','))
+      .join(' ');
+  };
   return (
     <div
       className={`brush-wheel side-${left ? 'left' : 'right'} ${out ? '' : 'away'}`}
@@ -288,22 +310,14 @@ export function BrushWheel(p: Props) {
         {/* jauge d'intensité : 3/4 de tour en segments */}
         {/* enveloppe : la roue et ses deux boutons dans une même pièce, filet et ombre comme les barres d'outils */}
         <g className="bw-shell">
-          {[
-            [C, C, RO + 6],
-            [PX, PY, TR + 7],
-            [TX, TY, TR + 7],
-            [...at((AP + AT) / 2, RB - 4), TR + 12],
-          ].map(([x, y, r], i) => (
-            <circle key={`e${i}`} cx={x} cy={y} r={(r as number) + 1} className="bw-shell-edge" />
+          {shell.map(([x, y, r], i) => (
+            <circle key={`e${i}`} cx={x} cy={y} r={r + 1} className="bw-shell-edge" />
           ))}
-          {[
-            [C, C, RO + 6],
-            [PX, PY, TR + 7],
-            [TX, TY, TR + 7],
-            [...at((AP + AT) / 2, RB - 4), TR + 12],
-          ].map(([x, y, r], i) => (
+          <polygon points={bridge(TR + 8)} className="bw-shell-edge" />
+          {shell.map(([x, y, r], i) => (
             <circle key={`f${i}`} cx={x} cy={y} r={r} className="bw-shell-face" />
           ))}
+          <polygon points={bridge(TR + 7)} className="bw-shell-face" />
         </g>
         <circle cx={C} cy={C} r={RO} className="bw-disc" />
         {segs.map(([a, b], i) => (
