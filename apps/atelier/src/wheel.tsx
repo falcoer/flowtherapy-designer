@@ -41,7 +41,7 @@ const TOPBAR = 64;
 // repère : 0 en haut, sens horaire
 const S = 264;
 const C = 128; // centre de la roue
-const RO = 92; // bord extérieur de la jauge
+const RO = 96; // bord extérieur de la jauge
 const RI = 64; // bord intérieur de la jauge (dedans : la taille)
 const MAXF = 52; // rayon de l'empreinte à taille maximale
 const MINF = 6;
@@ -51,12 +51,12 @@ const A1 = 2.5 * Math.PI;
 const SEG = 18;
 // le choix du pinceau et le cadran de perspective, de même taille, dans le quart vide
 // de la jauge (en bas à droite) : la roue peut se loger dans le coin de l'écran
-const RB = 104; // distance des deux boutons au centre
+const RB = 110; // distance des deux boutons au centre
 const AP = (118 * Math.PI) / 180; // choix du pinceau, vers 4 h
 const AT = (152 * Math.PI) / 180; // perspective, vers 5 h
 const TR = 26;
-// la pastille de rotation tourne dans l'anneau d'intensité
-const RA = (RI + RO) / 2;
+const RG = RI + 17; // bord intérieur des segments : entre la taille et l'intensité, une gorge
+const RA = RI + 8.5; // la pastille de rotation tourne dans cette gorge
 
 const fr = (v: number) => MINF + v * (MAXF - MINF);
 const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
@@ -218,9 +218,10 @@ export function BrushWheel(p: Props) {
     const r = Math.hypot(x - C, y - C);
     let zone: Zone | null = null;
     const [ax0, ay0] = at(rot, RA);
-    if (p.onRotation && Math.hypot(x - ax0, y - ay0) < 15) zone = 'rot';
+    if (p.onRotation && (Math.hypot(x - ax0, y - ay0) < 14 || (r >= RI && r < RG))) zone = 'rot';
     else if (Math.hypot(x - TX, y - TY) <= TR) zone = p.onTilt ? 'tilt' : null;
     else if (r < RI) zone = 'size';
+    else if (r < RG) zone = null;
     else if (r <= RO) zone = p.onIntensity ? 'ring' : null;
     else if (r <= RO + 30) zone = 'edge';
     if (!zone) return;
@@ -287,7 +288,7 @@ export function BrushWheel(p: Props) {
         {/* jauge d'intensité : 3/4 de tour en segments */}
         <circle cx={C} cy={C} r={RO} className="bw-disc" />
         {segs.map(([a, b], i) => (
-          <path key={i} d={band(a + 0.012, b - 0.012, RI + 3, RO - 3)} className={`bw-seg ${p.intensity === undefined ? 'off' : (i + 1) / SEG <= level + 1e-6 ? 'on' : (i + 0.5) / SEG <= level ? 'half' : ''}`} />
+          <path key={i} d={band(a + 0.012, b - 0.012, RG, RO - 3)} className={`bw-seg ${p.intensity === undefined ? 'off' : (i + 1) / SEG <= level + 1e-6 ? 'on' : (i + 0.5) / SEG <= level ? 'half' : ''}`} />
         ))}
         {p.tips && (
           <>
@@ -301,6 +302,7 @@ export function BrushWheel(p: Props) {
         )}
         {/* milieu : la taille, l'empreinte à l'échelle */}
         <circle cx={C} cy={C} r={RI} className="bw-center" />
+        {p.onRotation && <circle cx={C} cy={C} r={RA} className="bw-groove" />}
         <circle cx={C} cy={C} r={MAXF} className="bw-guide faint dashed" />
         <g className="bw-fp" style={{ transform: `translate(${C}px, ${C}px) ${persp} rotate(${(rot * 180) / Math.PI}deg)` }}>
           {p.stamp ? (
@@ -321,9 +323,9 @@ export function BrushWheel(p: Props) {
         </g>
         {/* rotation : même convention que les objets de la page, un axe pointillé et sa pastille */}
         <g className={`bw-arrow-g ${p.onRotation ? '' : 'off'}`} style={{ transform: `translate(${C}px, ${C}px) rotate(${(rot * 180) / Math.PI}deg)` }}>
-          <line x1={0} y1={-MAXF} x2={0} y2={-RA + 11} className="bw-axis" />
-          <circle cx={0} cy={-RA} r={11} className="bw-rot" />
-          <path d="M-4.76 -1.55 A5 5 0 1 1 1.55 4.76" transform={`translate(0 ${-RA})`} className="bw-rot-ico" />
+          <line x1={0} y1={-MAXF} x2={0} y2={-RA + 8} className="bw-axis" />
+          <circle cx={0} cy={-RA} r={8} className="bw-rot" />
+          <path d="M-4.76 -1.55 A5 5 0 1 1 1.55 4.76" transform={`translate(0 ${-RA}) scale(0.7)`} className="bw-rot-ico" />
         </g>
         {p.tips && (
           <g className="bw-legend">

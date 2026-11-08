@@ -1052,8 +1052,10 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 
 /* Roue : logée dans le coin (le quart vide de la jauge, en bas à droite, porte le choix du pinceau
    et la perspective, de même taille) ; plus de place perdue à gauche et en bas */
-.brush-wheel.side-left { translate: -10.5% 3%; }
+
 .brush-wheel.side-right { translate: 3% 3%; }
 .bw-pick { width: 19.7%; height: auto; aspect-ratio: 1; }
 @media (pointer: coarse) and (min-width: 600px) { .bw-pick { width: 19.7%; height: auto; } }
 @media (max-width: 560px) { .bw-pick { width: 19.7%; height: auto; } }
+.brush-wheel .bw-groove { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.45; pointer-events: none; }
+.brush-wheel.side-left { translate: -9% 3%; }
