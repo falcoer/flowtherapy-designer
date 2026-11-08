@@ -8,7 +8,7 @@ import type { Palette } from './server';
  * Éditeur de couleur de la palette : un plan carré (teinte en largeur, clarté en hauteur),
  * en grille de cases ou en spectre continu ; la saturation du plan se règle au curseur.
  * Toucher remplace la teinte choisie, double toucher en ajoute une, tracer une ligne prend
- * plusieurs couleurs d'un coup (un dégradé), garder le doigt appuyé propose les harmonies.
+ * plusieurs couleurs d'un coup (un dégradé) ; le bouton Harmonies les propose par-dessus le plan.
  * À droite, les teintes du guide en tuiles, dans leur ordre, à réordonner en glissant.
  */
 
@@ -166,8 +166,21 @@ export function PaletteEditor({
   const [harm, setHarm] = useState<{ base: string; at: Pt } | null>(null);
   const plane = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
-  const press = useRef<{ start: Pt; moved: boolean; held: boolean; timer: number; before: string[] } | null>(null);
+  const press = useRef<{ start: Pt; moved: boolean; before: string[] } | null>(null);
   const lastTap = useRef<{ t: number; p: Pt; before: string[] } | null>(null);
+
+  // iPad : le plan garde tout le geste, sans défilement, loupe ni menu du système
+  useEffect(() => {
+    const el = plane.current;
+    if (!el) return;
+    const stop = (e: TouchEvent) => e.preventDefault();
+    el.addEventListener('touchstart', stop, { passive: false });
+    el.addEventListener('touchmove', stop, { passive: false });
+    return () => {
+      el.removeEventListener('touchstart', stop);
+      el.removeEventListener('touchmove', stop);
+    };
+  }, [mode]);
 
   // le plan, repeint quand la saturation ou le mode change
   useEffect(() => {
@@ -201,6 +214,7 @@ export function PaletteEditor({
 
   return (
     <div className="pe">
+      <div className="pe-main">
       <div className="pe-head">
         <div className="seg pe-mode">
           <button className={mode === 'grid' ? 'on' : ''} onClick={() => setMode('grid')}>
@@ -221,11 +235,12 @@ export function PaletteEditor({
             const c = stops[i]!;
             setHarm({ base: c, at: placeOf(c, pl) ?? { x: 0.5, y: 0.5 } });
           }}
-          title="Harmonies de la teinte choisie (ou garde le doigt appuyé sur le plan)"
+          title="Harmonies de la teinte choisie"
         >
           Harmonies
         </button>
       </div>
+      <div className={`pe-stage ${mode}`}>
       {mode === 'sliders' ? (
         <ChannelPanel hex={stops[i]!} onChange={(c, commit) => setAt(i, c, commit)} />
       ) : (
@@ -236,26 +251,16 @@ export function PaletteEditor({
           (e.currentTarget as Element).setPointerCapture(e.pointerId);
           const p = local(e);
           setHarm(null);
-          const timer = window.setTimeout(() => {
-            const d = press.current;
-            if (!d || d.moved) return;
-            d.held = true;
-            // doigt gardé : la teinte choisie reste comme avant, on propose ses harmonies
-            onChange(d.before, false);
-            setHarm({ base: hexAt(d.start), at: d.start });
-          }, 520);
-          press.current = { start: p, moved: false, held: false, timer, before: stops };
+          press.current = { start: p, moved: false, before: stops };
           setAt(i, hexAt(p), true);
         }}
         onPointerMove={(e) => {
           const d = press.current;
-          if (!d || d.held) return;
+          if (!d) return;
           const p = local(e);
           const r = plane.current!.getBoundingClientRect();
-          if (!d.moved && Math.hypot((p.x - d.start.x) * r.width, (p.y - d.start.y) * r.height) > 10) {
-            d.moved = true;
-            clearTimeout(d.timer);
-          }
+          // quelques pixels suffisent : le tracé part dès que le doigt ou le stylet glisse
+          if (!d.moved && Math.hypot((p.x - d.start.x) * r.width, (p.y - d.start.y) * r.height) > 6) d.moved = true;
           if (d.moved) {
             setLine({ a: d.start, b: p });
             onChange(lineStops(d.start, p), false);
@@ -265,10 +270,9 @@ export function PaletteEditor({
           const d = press.current;
           press.current = null;
           if (!d) return;
-          clearTimeout(d.timer);
           setLine(null);
-          if (d.held || d.moved) {
-            if (d.moved) setSel(0);
+          if (d.moved) {
+            setSel(0);
             lastTap.current = null;
             return;
           }
@@ -285,7 +289,6 @@ export function PaletteEditor({
           lastTap.current = { t: now, p, before: d.before };
         }}
         onPointerCancel={() => {
-          if (press.current) clearTimeout(press.current.timer);
           press.current = null;
           setLine(null);
         }}
@@ -306,7 +309,14 @@ export function PaletteEditor({
       </div>
       )}
       {harm && (
-        <div className="pe-harm">
+        <div className="pe-harm" role="dialog" aria-label="Harmonies">
+          <div className="pe-harm-head">
+            <span className="pe-harm-base" style={{ background: harm.base }} />
+            <span className="tb-label">Harmonies</span>
+            <button className="pe-harm-x" onClick={() => setHarm(null)} aria-label="Fermer les harmonies">
+              ✕
+            </button>
+          </div>
           {harmSets.map((s) => (
             <button
               key={s.name}
@@ -321,14 +331,14 @@ export function PaletteEditor({
                   <i key={k} style={{ background: c }} />
                 ))}
               </span>
-              {s.name}
+              <span className="pe-harm-name">{s.name}</span>
             </button>
           ))}
-          <button className="pe-harm-x" onClick={() => setHarm(null)} aria-label="Fermer les harmonies">
-            ✕
-          </button>
         </div>
       )}
+      </div>
+      </div>
+      <div className="pe-side">
       <Tiles stops={stops} sel={i} setSel={setSel} onChange={onChange} blend={blend} />
       <div className={`pe-bottom ${mode === 'sliders' ? 'solo' : ''}`}>
         <div className="pe-sliders" hidden={mode === 'sliders'}>
@@ -388,6 +398,7 @@ export function PaletteEditor({
           </div>
           {extra}
         </div>
+      </div>
       </div>
     </div>
   );
