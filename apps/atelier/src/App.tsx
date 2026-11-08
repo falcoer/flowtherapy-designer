@@ -9,7 +9,7 @@ import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { PrefsPanel, type FingerMode, type Theme } from './prefs';
 import { BrushWheel } from './wheel';
-import { shiftHeld, tiltStep, wheelAction, wheelDevice, zoomFactor } from './shift';
+import { SHIFT_IDLE, shiftButtonOn, shiftDown, shiftHeld, shiftUp, tiltStep, wheelAction, wheelDevice, zoomFactor } from './shift';
 import { ParallaxView } from './parallax';
 import { kitFromSvg, nearestOf, SAME_COLOR, type Kit } from './kits';
 import { KITS } from './kit-samples';
@@ -488,8 +488,9 @@ export function App() {
   };
 
   const [tool, setToolState] = useState<Tool>('paint');
-  /** Maj : le bouton de la barre la verrouille (tablette), la touche du clavier la tient. */
-  const [shiftLatch, setShiftLatch] = useState(false);
+  /** Maj : le bouton de la barre (tenu, ou verrouillé d'un double appui), ou la touche du clavier. */
+  const [shiftBtn, setShiftBtn] = useState(SHIFT_IDLE);
+  const shiftLatch = shiftButtonOn(shiftBtn);
   const [shiftKey, setShiftKey] = useState(false);
   const shift = shiftHeld(shiftLatch, shiftKey);
   useEffect(() => {
@@ -3753,14 +3754,19 @@ export function App() {
                 </button>
               )}
               <button
-                className={`btn shift-btn ${shift ? 'on' : ''}`}
-                onClick={() => {
-                  const next = !shiftLatch;
-                  setShiftLatch(next);
-                  setToast(next ? 'Maj : sans aimant, une pièce solidaire bouge seule ; deux doigts inclinent la Vue 3D' : 'Maj relâchée');
+                className={`btn shift-btn ${shift ? 'on' : ''} ${shiftBtn.latched ? 'latched' : ''}`}
+                onPointerDown={(e) => {
+                  (e.currentTarget as Element).setPointerCapture(e.pointerId);
+                  const next = shiftDown(shiftBtn, performance.now());
+                  setShiftBtn(next);
+                  if (next.latched && !shiftBtn.latched) setToast('Maj verrouillée : un appui la relâche');
+                  else if (shiftBtn.latched && !next.latched) setToast('Maj relâchée');
                 }}
+                onPointerUp={() => setShiftBtn((st) => shiftUp(st, performance.now()))}
+                onPointerCancel={() => setShiftBtn((st) => shiftUp(st, performance.now()))}
+                onContextMenu={(e) => e.preventDefault()}
                 aria-pressed={shift}
-                title="Maj (comme la touche du clavier) : déplacer sans aimant, bouger une pièce sans la détacher de son ensemble"
+                title="Maj (comme la touche du clavier), tenue du doigt ; double appui pour la verrouiller, un appui pour la relâcher. Sans aimant, une pièce bouge sans se détacher de son ensemble"
               >
                 <Icon name="shift" />
               </button>

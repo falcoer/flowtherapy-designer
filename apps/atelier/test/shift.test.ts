@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { looksLikeMouse, shiftHeld, tiltStep, wheelAction, wheelDevice, zoomFactor, type WheelLike } from '../src/shift';
+import { SHIFT_IDLE, shiftButtonOn, shiftDown, shiftUp, looksLikeMouse, shiftHeld, tiltStep, wheelAction, wheelDevice, zoomFactor, type WheelLike } from '../src/shift';
 
 const w = (o: Partial<WheelLike>): WheelLike => ({ deltaX: 0, deltaY: 0, deltaMode: 0, ctrlKey: false, shiftKey: false, altKey: false, ...o });
 
@@ -50,5 +50,36 @@ describe('molette et trackpad', () => {
     expect(tiltStep(w({ deltaX: 10, deltaY: -20 }))).toEqual([1.5, 3]);
     expect(zoomFactor(w({ deltaY: -10, ctrlKey: true }))).toBeCloseTo(Math.exp(0.1));
     expect(zoomFactor(w({ deltaY: -10 }))).toBeCloseTo(Math.exp(0.015));
+  });
+});
+
+describe('bouton Maj', () => {
+  it('tenu : Maj le temps de l’appui', () => {
+    const a = shiftDown(SHIFT_IDLE, 0);
+    expect(shiftButtonOn(a)).toBe(true);
+    const b = shiftUp(a, 2000);
+    expect(shiftButtonOn(b)).toBe(false);
+  });
+
+  it('double appui : verrouillée, puis un seul appui la relâche', () => {
+    let s = shiftUp(shiftDown(SHIFT_IDLE, 0), 100);
+    expect(shiftButtonOn(s)).toBe(false);
+    s = shiftDown(s, 250);
+    expect(s.latched).toBe(true);
+    s = shiftUp(s, 330);
+    expect(shiftButtonOn(s)).toBe(true);
+    // un appui relâche, et ne relance pas un double appui
+    s = shiftDown(s, 2000);
+    expect(shiftButtonOn(s)).toBe(false);
+    s = shiftUp(s, 2050);
+    expect(shiftButtonOn(s)).toBe(false);
+    expect(shiftDown(s, 2200).latched).toBe(false);
+  });
+
+  it('deux appuis espacés, ou un long appui, ne verrouillent pas', () => {
+    let s = shiftUp(shiftDown(SHIFT_IDLE, 0), 100);
+    expect(shiftDown(s, 800).latched).toBe(false);
+    s = shiftUp(shiftDown(SHIFT_IDLE, 0), 1500);
+    expect(shiftDown(s, 1600).latched).toBe(false);
   });
 });

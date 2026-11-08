@@ -72,6 +72,8 @@ button:disabled { opacity: 0.35; cursor: default; }
 .btn { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; flex: none; }
 .btn:hover:not(:disabled) { background: var(--accent-soft); }
 .btn.on { color: var(--accent); background: var(--accent-soft); }
+.shift-btn { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.shift-btn.latched { box-shadow: inset 0 0 0 2px var(--accent); }
 .btn.small { width: 38px; height: 38px; }
 .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
 .guide-btn .dot { width: 24px; height: 24px; border-radius: 50%; box-shadow: 0 0 0 2px var(--chrome-solid), 0 0 0 3.5px var(--line); }

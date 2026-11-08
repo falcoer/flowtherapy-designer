@@ -63,3 +63,38 @@ export const tiltStep = (e: WheelLike, k = 0.15): [number, number] => {
 
 /** Zoom d'un pas : pincer (Ctrl) va plus vite que la molette. */
 export const zoomFactor = (e: WheelLike) => Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015));
+
+/**
+ * Le bouton Maj de la barre : tenu, il fait la touche Maj ; deux appuis rapprochés le verrouillent ;
+ * verrouillé, un seul appui le relâche.
+ */
+export interface ShiftButton {
+  /** Doigt posé sur le bouton. */
+  held: boolean;
+  /** Verrouillé par un double appui. */
+  latched: boolean;
+  /** Fin du dernier appui bref (ms), pour reconnaître le double appui ; 0 = aucun. */
+  tapEnd: number;
+  /** Début de l'appui en cours (ms). */
+  downAt: number;
+}
+export const SHIFT_IDLE: ShiftButton = { held: false, latched: false, tapEnd: 0, downAt: 0 };
+const DOUBLE_GAP = 350;
+const TAP_MS = 300;
+
+export const shiftDown = (s: ShiftButton, now: number): ShiftButton => {
+  // verrouillé : un appui le relâche
+  if (s.latched) return { ...SHIFT_IDLE };
+  // second appui bref juste après le premier : verrou
+  if (s.tapEnd && now - s.tapEnd < DOUBLE_GAP) return { held: true, latched: true, tapEnd: 0, downAt: now };
+  return { held: true, latched: false, tapEnd: s.tapEnd, downAt: now };
+};
+
+export const shiftUp = (s: ShiftButton, now: number): ShiftButton => {
+  if (!s.held) return s;
+  // l'appui qui vient de verrouiller ne compte pas comme premier appui d'un autre double
+  const brief = !s.latched && now - s.downAt < TAP_MS;
+  return { ...s, held: false, tapEnd: brief ? now : 0 };
+};
+
+export const shiftButtonOn = (s: ShiftButton) => s.held || s.latched;
