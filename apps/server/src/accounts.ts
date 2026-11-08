@@ -538,7 +538,8 @@ export class Accounts {
     const cur = this.campaign(team, id);
     if (!cur) throw new Error('Campagne introuvable');
     const name = str(input.name, 80) || cur.name;
-    const data = cleanCampaign({ operation: cur.operation, date: cur.date, place: cur.place, note: cur.note, ...input });
+    const { id: _i, name: _n, created: _c, by: _b, closed: _x, ...prev } = cur;
+    const data = cleanCampaign({ ...prev, ...input });
     const closed = input.closed === undefined ? (cur.closed ?? null) : input.closed ? (cur.closed ?? new Date().toISOString()) : null;
     this.db.prepare('UPDATE campaigns SET name = ?, data = ?, closed = ? WHERE team = ? AND id = ?').run(name, JSON.stringify(data), closed, team, id);
     return this.campaign(team, id)!;
@@ -574,19 +575,36 @@ export interface Campaign {
   /** Date de l'évènement promu (AAAA-MM-JJ). */
   date?: string;
   place?: string;
+  /** Heure d'accueil (HH:MM). */
+  time?: string;
+  /** Type de prestation : concert, DJ set, showcase… */
+  kind?: string;
+  /** Contact réservation. */
+  contact?: { name?: string; phone?: string; email?: string };
   note?: string;
   created: string;
   by?: string;
   closed?: string;
 }
-export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'note'>>;
+export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note'>>;
 
 function cleanCampaign(c: CampaignInput) {
   const date = str(c.date, 10);
+  const k = c.contact ?? {};
+  const email = str(k.email, 120);
+  const ct = {
+    ...(str(k.name, 80) ? { name: str(k.name, 80) } : {}),
+    ...(str(k.phone, 30) ? { phone: str(k.phone, 30) } : {}),
+    ...(/^[^\s@]+@[^\s@]+$/.test(email) ? { email } : {}),
+  };
+  const contact = Object.keys(ct).length ? ct : undefined;
   return {
     ...(str(c.operation, 40) ? { operation: str(c.operation, 40) } : {}),
     ...(/^\d{4}-\d{2}-\d{2}$/.test(date) ? { date } : {}),
     ...(str(c.place, 120) ? { place: str(c.place, 120) } : {}),
+    ...(/^([01]\d|2[0-3]):[0-5]\d$/.test(str(c.time, 5)) ? { time: str(c.time, 5) } : {}),
+    ...(str(c.kind, 60) ? { kind: str(c.kind, 60) } : {}),
+    ...(contact ? { contact } : {}),
     ...(str(c.note, 1000) ? { note: str(c.note, 1000) } : {}),
   };
 }

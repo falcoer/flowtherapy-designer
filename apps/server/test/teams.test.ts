@@ -275,6 +275,12 @@ describe('équipes', () => {
     expect(list.find((m) => m.id === 'affiche-lauris')).toMatchObject({ votes: [], voted: false });
     expect((await max.send('POST', '/api/ateliers/affiche-jenni/vote', { on: false })).json().votes).toEqual(['lauris@example.org']);
 
+    const more = (
+      await jenni.send('PATCH', '/api/campaigns/concert-du-plan', { time: '19:30', kind: 'Concert', contact: { name: 'Sam', phone: '06 12 34 56 78', email: 'pas une adresse' } })
+    ).json().campaign;
+    expect(more).toMatchObject({ time: '19:30', kind: 'Concert', contact: { name: 'Sam', phone: '06 12 34 56 78' }, place: 'Le Plan' });
+    expect(more.contact.email).toBeUndefined();
+    expect((await jenni.send('PATCH', '/api/campaigns/concert-du-plan', { time: '25:00' })).json().campaign.time).toBeUndefined();
     const closed = (await lauris.send('PATCH', '/api/campaigns/concert-du-plan', { closed: true })).json().campaign;
     expect(closed.closed).toBeTruthy();
     expect(closed.place).toBe('Le Plan');

@@ -64,12 +64,18 @@ export interface Campaign {
   operation?: string;
   date?: string;
   place?: string;
+  /** Heure d'accueil (HH:MM). */
+  time?: string;
+  /** Type de prestation : concert, DJ set… */
+  kind?: string;
+  /** Contact réservation. */
+  contact?: { name?: string; phone?: string; email?: string };
   note?: string;
   created: string;
   by?: string;
   closed?: string;
 }
-export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'note'>> & { closed?: boolean };
+export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note'>> & { closed?: boolean };
 export const listCampaigns = () => call<Campaign[]>('/api/campaigns');
 export const createCampaign = (c: CampaignInput) => call<{ campaign: Campaign }>('/api/campaigns', json('POST', c)).then((r) => r.campaign);
 export const updateCampaign = (id: string, c: CampaignInput) => call<{ campaign: Campaign }>(`/api/campaigns/${id}`, json('PATCH', c)).then((r) => r.campaign);
