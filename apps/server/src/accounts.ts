@@ -626,6 +626,31 @@ export class Accounts {
     this.db.prepare('INSERT INTO messages (team, atelier, email, text, target, at) VALUES (?, ?, ?, ?, ?, ?)').run(team, atelier, normEmail(email), t, tg ? JSON.stringify(tg) : null, new Date().toISOString());
   }
 
+  /** Ce qui s'est passé dans l'équipe : messages et étapes de validation, votes ; du plus récent au plus ancien. */
+  activity(team: string, limit = 80): ActivityEvent[] {
+    const msgs = this.db
+      .prepare('SELECT m.atelier, m.email, m.text, m.kind, m.target, m.at, u.name FROM messages m LEFT JOIN users u ON u.email = m.email WHERE m.team = ? ORDER BY m.at DESC, m.id DESC LIMIT ?')
+      .all(team, limit) as Row[];
+    const votes = this.db.prepare('SELECT v.atelier, v.email, v.at, u.name FROM votes v LEFT JOIN users u ON u.email = v.email WHERE v.team = ? ORDER BY v.at DESC LIMIT ?').all(team, limit) as Row[];
+    const camps = this.db.prepare('SELECT id, name, by, created FROM campaigns WHERE team = ? ORDER BY created DESC LIMIT ?').all(team, limit) as Row[];
+    const name = (r: Row) => (r.name ? { name: String(r.name) } : {});
+    return [
+      ...msgs.map((r) => ({
+        type: (r.kind ? String(r.kind) : 'message') as ActivityEvent['type'],
+        atelier: String(r.atelier),
+        by: String(r.email),
+        ...name(r),
+        ...(r.text ? { text: String(r.text).slice(0, 140) } : {}),
+        ...(r.target ? { target: JSON.parse(String(r.target)) as Target } : {}),
+        at: String(r.at),
+      })),
+      ...votes.map((r) => ({ type: 'vote' as const, atelier: String(r.atelier), by: String(r.email), ...name(r), at: String(r.at) })),
+      ...camps.map((r) => ({ type: 'campaign' as const, campaign: String(r.id), text: String(r.name), by: String(r.by ?? ''), at: String(r.created) })),
+    ]
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .slice(0, limit);
+  }
+
   /** Étape de validation, inscrite dans la conversation de la composition. */
   addStep(team: string, atelier: string, email: string, kind: ReviewStep) {
     this.db.prepare('INSERT INTO messages (team, atelier, email, text, kind, at) VALUES (?, ?, ?, ?, ?, ?)').run(team, atelier, normEmail(email), '', kind, new Date().toISOString());
@@ -663,6 +688,17 @@ export interface Reaction {
   mine: boolean;
 }
 export type ReviewStep = 'proposed' | 'approved' | 'changes';
+/** Une nouveauté du fil de l'activité. */
+export interface ActivityEvent {
+  type: 'message' | ReviewStep | 'vote' | 'campaign' | 'composition';
+  atelier?: string;
+  campaign?: string;
+  by: string;
+  name?: string;
+  text?: string;
+  target?: Target;
+  at: string;
+}
 /** Message laissé sur une composition, avec le rendu (cible) qu'on regardait en l'écrivant. */
 export interface Message {
   id: number;

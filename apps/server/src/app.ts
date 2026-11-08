@@ -510,6 +510,19 @@ export async function buildApp(opts: AppOptions) {
     return { ok: true, votes, voted: votes.includes(me) };
   });
 
+  // --- fil de l'activité : messages, étapes, votes, campagnes et compositions créées, avec le titre des compositions ---
+  app.get('/api/activity', { preHandler: needs('viewer') }, async (req) => {
+    const team = req.team!.id;
+    const list = await storesOf(team).ateliers.list();
+    const titles = new Map(list.map((m) => [m.id, m]));
+    const made = list.filter((m) => m.created).map((m) => ({ type: 'composition' as const, atelier: m.id, by: m.author ?? m.by ?? '', at: m.created! }));
+    return [...accounts.activity(team), ...made]
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .slice(0, 80)
+      .map((e) => (e.atelier ? { ...e, title: titles.get(e.atelier)?.title ?? 'composition supprimée', ...(titles.get(e.atelier)?.campaign ? { inCampaign: titles.get(e.atelier)!.campaign } : {}) } : e))
+      .filter((e) => !('atelier' in e) || titles.has(e.atelier!));
+  });
+
   // --- messages sur une composition : tout membre écrit et met des smileys ---
   const atelierExists = async (team: string, id: string) =>
     storesOf(team)

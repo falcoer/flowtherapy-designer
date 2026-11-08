@@ -9,7 +9,11 @@ export interface AtelierMeta {
   id: string;
   title: string;
   updated: string;
+  /** dernière personne à l'avoir enregistrée */
   by?: string;
+  /** création, et qui l'a créée (absents des compositions d'avant) */
+  created?: string;
+  author?: string;
   formatId?: string;
   /** Campagne à laquelle la composition contribue. */
   campaign?: string;
@@ -67,6 +71,8 @@ export class Ateliers {
       title: (input.title ?? '').trim().slice(0, 120) || 'Sans titre',
       updated: new Date().toISOString(),
       ...(by ? { by } : {}),
+      ...(previous ? (previous.created ? { created: previous.created } : {}) : { created: new Date().toISOString() }),
+      ...(previous ? (previous.author ? { author: previous.author } : {}) : by ? { author: by } : {}),
       ...(typeof doc.formatId === 'string' ? { formatId: doc.formatId } : {}),
       ...(typeof doc.campaign === 'string' && ID.test(doc.campaign) ? { campaign: doc.campaign } : {}),
       ...(previous?.review ? { review: previous.review } : {}),

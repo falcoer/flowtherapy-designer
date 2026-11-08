@@ -237,7 +237,7 @@ export function CampaignSheet(p: {
                   <img src={thumbUrl(m)} alt="" loading="lazy" />
                   <b>{m.title}</b>
                   <small>
-                    {who(m.by)} · ♥ {m.votes?.length ?? 0}
+                    {who(m.author ?? m.by)} · ♥ {m.votes?.length ?? 0}
                     {m.messages ? ` · ${m.messages} msg` : ''}
                   </small>
                   {m.review && <span className={`proj-badge st-${m.review.status}`}>{REVIEW_LABELS[m.review.status]}</span>}

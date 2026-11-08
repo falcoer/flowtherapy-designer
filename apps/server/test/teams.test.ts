@@ -347,6 +347,11 @@ describe('équipes', () => {
     const steps = ((await max.get('/api/ateliers/affiche/messages')).json() as Array<{ kind?: string; by: string }>).filter((m) => m.kind);
     expect(steps).toMatchObject([{ kind: 'proposed', by: 'lauris@example.org' }, { kind: 'approved', by: 'lauris@example.org' }]);
     expect(((await max.get('/api/ateliers')).json() as Array<{ id: string; messages: number }>).find((m) => m.id === 'affiche')?.messages).toBe(2);
+    // le fil de l'activité : du plus récent au plus ancien, avec le titre
+    const feed = (await max.get('/api/activity')).json() as Array<{ type: string; title?: string; by: string }>;
+    expect(feed.map((e) => e.type)).toEqual(['approved', 'proposed', 'message', 'message', 'composition']);
+    expect(feed[0]).toMatchObject({ title: 'Affiche', by: 'lauris@example.org' });
+
     // l'auteur retire le sien ; un responsable peut tout retirer
     expect((await max.send('DELETE', `/api/ateliers/affiche/messages/${b!.id}`)).statusCode).toBe(403);
     expect((await lauris.send('DELETE', `/api/ateliers/affiche/messages/${a!.id}`)).json().messages).toHaveLength(3);

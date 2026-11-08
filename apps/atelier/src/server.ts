@@ -11,6 +11,9 @@ export interface AtelierMeta {
   campaign?: string;
   /** Adresses des membres qui ont voté pour elle, et si l'on en fait partie. */
   votes?: string[];
+  /** création, et qui l'a créée */
+  created?: string;
+  author?: string;
   /** nombre de messages laissés sur la composition */
   messages?: number;
   voted?: boolean;
@@ -130,6 +133,21 @@ export interface AtelierMessage {
   reactions: Reaction[];
 }
 type Msgs = { messages: AtelierMessage[] };
+/** Une nouveauté du fil de l'activité. */
+export interface ActivityEvent {
+  type: 'message' | 'proposed' | 'approved' | 'changes' | 'vote' | 'campaign' | 'composition';
+  atelier?: string;
+  /** titre de la composition, et sa campagne */
+  title?: string;
+  inCampaign?: string;
+  campaign?: string;
+  by: string;
+  name?: string;
+  text?: string;
+  target?: Target;
+  at: string;
+}
+export const fetchActivity = () => call<ActivityEvent[]>('/api/activity');
 export const listMessages = (id: string) => call<AtelierMessage[]>(`/api/ateliers/${id}/messages`);
 export const postMessage = (id: string, text: string, target?: Target) => call<Msgs>(`/api/ateliers/${id}/messages`, json('POST', { text, target })).then((r) => r.messages);
 export const deleteMessage = (id: string, mid: number) => call<Msgs>(`/api/ateliers/${id}/messages/${mid}`, { method: 'DELETE' }).then((r) => r.messages);

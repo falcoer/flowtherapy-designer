@@ -25,13 +25,14 @@ import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers }
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
-import { copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me } from './server';
+import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me } from './server';
 import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, targetLabel } from './targets';
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
 import { CampaignDialog, CampaignSummary, VoteButton } from './campaigns-ui';
 import { LoadDialog, NewCompositionDialog } from './compositions-ui';
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
+import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
@@ -437,6 +438,40 @@ export function App() {
       setCampaignRaw('');
     }
   }, [online, me?.team?.id]);
+  // fil de l'activité : relu chaque minute ; la dernière visite est retenue par activité dans ce navigateur
+  const [feed, setFeed] = useState<ActivityEvent[] | null>(null);
+  const [feedOpen, setFeedOpen] = useState(false);
+  const feedKey = `ftd-fil-${me?.team?.id ?? ''}`;
+  const readSeen = () => {
+    try {
+      return localStorage.getItem(feedKey) ?? '';
+    } catch {
+      return '';
+    }
+  };
+  const [feedSeen, setFeedSeen] = useState('');
+  useEffect(() => {
+    setFeedSeen(readSeen());
+    if (!online || !me?.team) return setFeed(null);
+    const load = () => void fetchActivity().then(setFeed, () => {});
+    load();
+    const t = setInterval(load, 60000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online, me?.team?.id]);
+  const openFeed = () => {
+    setFeedOpen(true);
+    void fetchActivity().then(setFeed, () => {});
+    try {
+      localStorage.setItem(feedKey, new Date().toISOString());
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  const closeFeed = () => {
+    setFeedOpen(false);
+    setFeedSeen(readSeen());
+  };
   const refreshProjects = () => void listAteliers().then(setProjects, () => {});
   /** Petite image de la composition pour la liste. */
   const makeThumb = (d: Doc) => {
@@ -3985,6 +4020,13 @@ export function App() {
               <button className={`btn guide-btn ${bubble === 'palette' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'palette' ? null : 'palette')} title="Palette de guides">
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
+              {online && me?.team && (
+                <FeedButton
+                  count={feed ? unreadCount(feed, feedSeen, (me.email ?? 'groupe').toLowerCase(), overdueOf(campaigns).length) : 0}
+                  on={feedOpen}
+                  onClick={openFeed}
+                />
+              )}
               {online && project && me?.team && <MessagesButton count={projects.find((m) => m.id === project.id)?.messages ?? 0} on={msgDialog} onClick={() => setMsgDialog(true)} />}
               <span className="sep" />
               <button
@@ -4453,6 +4495,29 @@ export function App() {
               }}
             />
           )}
+          {feedOpen && me?.team && (
+            <FeedDialog
+              events={feed}
+              seen={feedSeen}
+              me={(me.email ?? 'groupe').toLowerCase()}
+              campaigns={campaigns}
+              activity={activity}
+              onClose={closeFeed}
+              onCampaign={(id) => {
+                closeFeed();
+                setSheet(id);
+              }}
+              onEvent={(e) => {
+                closeFeed();
+                if (e.type === 'campaign' && e.campaign) return setSheet(e.campaign);
+                const m = projects.find((x) => x.id === e.atelier);
+                if (!m) return;
+                void openProject(m).then(() => {
+                  if (e.type !== 'composition' && e.type !== 'vote') setMsgDialog(true);
+                });
+              }}
+            />
+          )}
           {sheet && campaigns.some((c) => c.id === sheet) && (
             <CampaignSheet
               campaign={campaigns.find((c) => c.id === sheet)!}
@@ -4562,7 +4627,7 @@ export function App() {
                           <input className="proj-title" value={project?.title ?? ''} placeholder="Composition non enregistrée" onChange={(e) => project && setProject({ ...project, title: e.target.value })} disabled={!project} />
                           <small>
                             {project
-                              ? [m?.by && m.by.split('@')[0], m?.updated && new Date(m.updated).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })].filter(Boolean).join(' · ') || 'nouvelle'
+                              ? [(m?.author ?? m?.by)?.split('@')[0], m?.updated && new Date(m.updated).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })].filter(Boolean).join(' · ') || 'nouvelle'
                               : 'Cette page n’est pas encore enregistrée'}
                           </small>
                           <div className="cur-acts">

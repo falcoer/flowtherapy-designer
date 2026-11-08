@@ -142,7 +142,7 @@ export function LoadDialog(p: {
               <span className="ld-txt">
                 <b>{m.title}</b>
                 <small>
-                  {[who(m.by), when(m.updated), scope === 'all' && (p.campaigns.find((c) => c.id === m.campaign)?.name ?? 'hors campagne')].filter(Boolean).join(' · ')}
+                  {[who(m.author ?? m.by), when(m.updated), scope === 'all' && (p.campaigns.find((c) => c.id === m.campaign)?.name ?? 'hors campagne')].filter(Boolean).join(' · ')}
                 </small>
                 {m.review && <span className={`proj-badge st-${m.review.status}`}>{REVIEW_LABELS[m.review.status]}</span>}
               </span>
