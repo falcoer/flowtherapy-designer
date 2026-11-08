@@ -9,6 +9,7 @@ import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { PrefsPanel, type FingerMode, type Theme } from './prefs';
 import { BrushWheel } from './wheel';
+import { SHIFT_IDLE, shiftButtonOn, shiftDown, shiftHeld, shiftUp, tiltStep, wheelAction, wheelDevice, zoomFactor } from './shift';
 import { ParallaxView } from './parallax';
 import { kitFromSvg, nearestOf, SAME_COLOR, type Kit } from './kits';
 import { KITS } from './kit-samples';
@@ -487,6 +488,23 @@ export function App() {
   };
 
   const [tool, setToolState] = useState<Tool>('paint');
+  /** Maj : le bouton de la barre (tenu, ou verrouillé d'un double appui), ou la touche du clavier. */
+  const [shiftBtn, setShiftBtn] = useState(SHIFT_IDLE);
+  const shiftLatch = shiftButtonOn(shiftBtn);
+  const [shiftKey, setShiftKey] = useState(false);
+  const shift = shiftHeld(shiftLatch, shiftKey);
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => e.key === 'Shift' && setShiftKey(e.type === 'keydown');
+    const off = () => setShiftKey(false);
+    window.addEventListener('keydown', on);
+    window.addEventListener('keyup', on);
+    window.addEventListener('blur', off);
+    return () => {
+      window.removeEventListener('keydown', on);
+      window.removeEventListener('keyup', on);
+      window.removeEventListener('blur', off);
+    };
+  }, []);
   // Modifier rouvre la dernière section utilisée
   const lastEdit = useRef<EditTool>('transform');
   const [coupeOpen, setCoupeOpen] = useState<{ key: string; n: number; sec?: 'edge' | 'coat' | 'image' | 'transform' | 'support' } | undefined>();
@@ -753,6 +771,8 @@ export function App() {
   /** Survol du stylet (ou de la souris) : un repère montre où la pointe touchera. */
   const hoverRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>({ zoom: 1, rot: 0, px: 0, py: 0 });
+  const viewRef = useRef(view);
+  viewRef.current = view;
   const [rendu, setRendu] = useState(false);
   /** Vue 3D : les couches en plaques, à leur hauteur. */
   const [view3d, setView3d] = useState<false | { start?: [number, number] }>(false);
@@ -1934,13 +1954,13 @@ export function App() {
         }
         if (near(h.rot)) {
           update((d) => d);
-          live.current = { kind: 'rotate', layer: sel.id, start: p, orig: structuredClone(sel), mates: structuredClone(matesOf(doc, sel)) };
+          live.current = { kind: 'rotate', layer: sel.id, start: p, orig: structuredClone(sel), mates: shiftHeld(shiftLatch, shiftKey, e.shiftKey) ? [] : structuredClone(matesOf(doc, sel)) };
           return;
         }
         for (const c of h.corners)
           if (near(c.q)) {
             update((d) => d);
-            live.current = { kind: 'resize', layer: sel.id, start: p, orig: structuredClone(sel), opp: c.opp, centered: centeredOnAnchor(sel), mates: structuredClone(matesOf(doc, sel)) };
+            live.current = { kind: 'resize', layer: sel.id, start: p, orig: structuredClone(sel), opp: c.opp, centered: centeredOnAnchor(sel), mates: shiftHeld(shiftLatch, shiftKey, e.shiftKey) ? [] : structuredClone(matesOf(doc, sel)) };
             return;
           }
       }
@@ -1951,9 +1971,12 @@ export function App() {
       }
       setSelected(l.id);
       update((d) => d);
-      live.current = { kind: 'move', layer: l.id, start: p, orig: structuredClone(l), snap: null, mates: structuredClone(matesOf(doc, l)) };
+      // Maj : la pièce solidaire part seule, sans se détacher (et le doigt gardé ne la détache pas)
+      const alone = shiftHeld(shiftLatch, shiftKey, e.shiftKey);
+      live.current = { kind: 'move', layer: l.id, start: p, orig: structuredClone(l), snap: null, mates: alone ? [] : structuredClone(matesOf(doc, l)) };
       stopHold();
-      hold.current = { x: e.clientX, y: e.clientY, timer: window.setTimeout(() => ((hold.current = null), solidarize(l.id, p)), 600) };
+      if (!alone) hold.current = { x: e.clientX, y: e.clientY, timer: window.setTimeout(() => ((hold.current = null), solidarize(l.id, p)), 600) };
+      else if (l.link) setToast('Maj : la pièce bouge seule et reste solidaire');
       return;
     }
     if (isEdit(t)) {
@@ -2239,8 +2262,8 @@ export function App() {
       if (touches.length < 2) return;
       const [a, b] = touches;
       const g = gesture.current;
-      // trois doigts qui glissent ensemble : la page s'incline en Vue 3D
-      if (touches.length >= 3) {
+      // trois doigts qui glissent ensemble (deux avec Maj) : la page s'incline en Vue 3D
+      if (touches.length >= 3 || shift) {
         const c3 = { x: touches.reduce((s, t) => s + t.x, 0) / touches.length, y: touches.reduce((s, t) => s + t.y, 0) / touches.length };
         g.c3 ??= c3;
         const [dx, dy] = [c3.x - g.c3.x, c3.y - g.c3.y];
@@ -2402,8 +2425,10 @@ export function App() {
       const bb = pageBounds(o, f);
       const m0 = Math.min(f.width, f.height);
       L.snap = null;
-      let bestD = MAGNET / scale;
-      for (const g of objectGrips(doc.points)) {
+      // Maj : ni ancrage ni bord, l'objet suit le doigt
+      const free = shiftHeld(shiftLatch, shiftKey, e.shiftKey);
+      let bestD = free ? 0 : MAGNET / scale;
+      for (const g of free ? [] : objectGrips(doc.points)) {
         // le point de l'objet, d'après sa découpe, relatif au centre de sa boîte
         const ox = g.x || g.y ? (bb.x0 + bb.x1) / 2 + g.x * (bb.x1 - bb.x0) - b.cx : 0;
         const oy = g.x || g.y ? (bb.y0 + bb.y1) / 2 + g.y * (bb.y1 - bb.y0) - b.cy : 0;
@@ -2420,7 +2445,7 @@ export function App() {
       }
       if (L.snap) [cx, cy] = [L.snap.x - L.snap.ox, L.snap.y - L.snap.oy];
       // bords de la découpe aimantés sur les bords de la page
-      const tol = MAGNET / scale;
+      const tol = free ? 0 : MAGNET / scale;
       const ex = { l: bb.x0 - b.cx, r: bb.x1 - b.cx, t: bb.y0 - b.cy, b: bb.y1 - b.cy };
       const pins: NonNullable<Layer['pins']> = {};
       // bords de page, puis lignes de marge : le plus proche l'emporte
@@ -2481,7 +2506,7 @@ export function App() {
         if (Math.abs(edge - o0) < 1e-9) continue;
         const kk = (page - o0) / (edge - o0);
         const now = o0 + (edge - o0) * k;
-        if (kk > 0.05 && Math.abs(now - page) * scale < MAGNET && (best === null || Math.abs(kk - k) < Math.abs(best - k))) best = kk;
+        if (kk > 0.05 && !shiftHeld(shiftLatch, shiftKey, e.shiftKey) && Math.abs(now - page) * scale < MAGNET && (best === null || Math.abs(kk - k) < Math.abs(best - k))) best = kk;
       }
       if (best !== null) k = best;
       if (o.free) {
@@ -2533,7 +2558,7 @@ export function App() {
       // aimant tous les 15°
       const step = Math.PI / 12;
       const q = Math.round(r / step) * step;
-      if (Math.abs(r - q) < (3 * Math.PI) / 180) r = q;
+      if (!shiftHeld(shiftLatch, shiftKey, e.shiftKey) && Math.abs(r - q) < (3 * Math.PI) / 180) r = q;
       r = Math.atan2(Math.sin(r), Math.cos(r));
       setToast(`${Math.round((r * 180) / Math.PI)}°`);
       // le centre de la boîte tourne autour du centre de rotation, qui reste fixe
@@ -3445,6 +3470,61 @@ export function App() {
       return { ...d, layers: d.layers.map((x) => (ids.has(x.id) ? { ...x, ...heightPatch(Math.round((levelOf(x) + dv) * 1000) / 1000) } : x)) };
     });
 
+  // molette et trackpad (ordinateur) : écouteur natif, pour empêcher le zoom de la page entière
+  const wheelDev = useRef<{ mouse: boolean; t: number } | null>(null);
+  const onWheel = useRef<(e: WheelEvent) => void>(() => {});
+  onWheel.current = (e) => {
+    e.preventDefault();
+    if (pinchAt.current) return;
+    wheelDev.current = wheelDevice(wheelDev.current, e as WheelEvent & { wheelDeltaY?: number }, performance.now());
+    const act = wheelAction(e, shift, wheelDev.current.mouse);
+    if (act === 'tilt') {
+      // Maj + deux doigts (ou Maj + molette) : la page s'incline en Vue 3D
+      const [x, y] = tiltStep(e);
+      if (Math.hypot(x, y) > 0.3) setView3d({ start: [Math.max(-40, Math.min(40, x)), Math.max(-40, Math.min(40, y))] });
+      return;
+    }
+    fitted.current = false;
+    if (act === 'rotate') setView((v) => ({ ...v, rot: v.rot + e.deltaY * 0.002 }));
+    else if (act === 'pan') setView((v) => ({ ...v, px: v.px - e.deltaX, py: v.py - e.deltaY }));
+    else setView((v) => ({ ...v, zoom: Math.max(0.3, Math.min(6, v.zoom * zoomFactor(e))) }));
+  };
+  /** Pincement du trackpad dans Safari (évènements « gesture ») : le zoom de départ. */
+  const pinchAt = useRef<number | null>(null);
+  useEffect(() => {
+    const cv = canvasRef.current;
+    if (!cv) return;
+    const wheel = (e: WheelEvent) => onWheel.current(e);
+    // Safari sur Mac : pincer le trackpad envoie gesturestart/change/end ; sur iPad, les doigts passent par les pointeurs
+    const touching = () => [...pointers.current.values()].some((p) => p.type === 'touch');
+    const gs = (e: Event) => {
+      e.preventDefault();
+      if (!touching()) pinchAt.current = viewRef.current.zoom;
+    };
+    const gc = (e: Event) => {
+      e.preventDefault();
+      const z0 = pinchAt.current;
+      const k = (e as Event & { scale?: number }).scale;
+      if (z0 === null || !k) return;
+      fitted.current = false;
+      setView((v) => ({ ...v, zoom: Math.max(0.3, Math.min(6, z0 * k)) }));
+    };
+    const ge = (e: Event) => {
+      e.preventDefault();
+      pinchAt.current = null;
+    };
+    cv.addEventListener('wheel', wheel, { passive: false });
+    cv.addEventListener('gesturestart', gs);
+    cv.addEventListener('gesturechange', gc);
+    cv.addEventListener('gestureend', ge);
+    return () => {
+      cv.removeEventListener('wheel', wheel);
+      cv.removeEventListener('gesturestart', gs);
+      cv.removeEventListener('gesturechange', gc);
+      cv.removeEventListener('gestureend', ge);
+    };
+  }, []);
+
   // raccourcis clavier (ordinateur)
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
@@ -3642,19 +3722,6 @@ export function App() {
         onContextMenu={(e) => e.preventDefault()}
         // molette enfoncée : pas de défilement automatique du navigateur
         onMouseDown={(e) => e.button === 1 && e.preventDefault()}
-        onWheel={(e) => {
-          // ordinateur : molette = zoom, Alt + molette = rotation ; Maj + molette ou défilement horizontal = Vue 3D
-          if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-            const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-            setView3d({ start: [Math.max(-40, Math.min(40, d * 0.15)), 0] });
-          } else if (e.altKey) {
-            fitted.current = false;
-            setView((v) => ({ ...v, rot: v.rot + e.deltaY * 0.002 }));
-          } else {
-            fitted.current = false;
-            setView((v) => ({ ...v, zoom: Math.max(0.3, Math.min(6, v.zoom * Math.exp(-e.deltaY * 0.0015))) }));
-          }
-        }}
       />
       <div
         ref={hoverRef}
@@ -3686,6 +3753,23 @@ export function App() {
                   <Icon name={fingerDraws ? 'finger-draw' : 'finger'} />
                 </button>
               )}
+              <button
+                className={`btn shift-btn ${shift ? 'on' : ''} ${shiftBtn.latched ? 'latched' : ''}`}
+                onPointerDown={(e) => {
+                  (e.currentTarget as Element).setPointerCapture(e.pointerId);
+                  const next = shiftDown(shiftBtn, performance.now());
+                  setShiftBtn(next);
+                  if (next.latched && !shiftBtn.latched) setToast('Maj verrouillée : un appui la relâche');
+                  else if (shiftBtn.latched && !next.latched) setToast('Maj relâchée');
+                }}
+                onPointerUp={() => setShiftBtn((st) => shiftUp(st, performance.now()))}
+                onPointerCancel={() => setShiftBtn((st) => shiftUp(st, performance.now()))}
+                onContextMenu={(e) => e.preventDefault()}
+                aria-pressed={shift}
+                title="Maj (comme la touche du clavier), tenue du doigt ; double appui pour la verrouiller, un appui pour la relâcher. Sans aimant, une pièce bouge sans se détacher de son ensemble"
+              >
+                <Icon name="shift" />
+              </button>
               <button className="btn" onClick={undo} disabled={!past.current.length} title="Annuler (deux doigts)">
                 <Icon name="undo" />
               </button>
@@ -4624,7 +4708,7 @@ export function App() {
           </button>
         </div>
       )}
-      {view3d && <ParallaxView doc={doc} f={f} start={view3d.start} onClose={() => setView3d(false)} selected={selected} onSelect={setSelected} onLevel={setLevel} />}
+      {view3d && <ParallaxView doc={doc} f={f} start={view3d.start} shift={shift} onClose={() => setView3d(false)} selected={selected} onSelect={setSelected} onLevel={setLevel} />}
       {snapshot && (
         <div className="snapshot" onClick={() => setSnapshot(null)}>
           <img src={snapshot} alt="Rendu final" />
