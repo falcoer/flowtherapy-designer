@@ -4,7 +4,7 @@ import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive, type T
 import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
 import { steadyPath } from './steady';
 import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
-import { STAMPS, stampOf, stampSvg } from './stamps';
+import { STAMPS, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { PrefsPanel, type FingerMode, type Theme } from './prefs';
@@ -2140,6 +2140,11 @@ export function App() {
       onOption: (k: string) => set(k as 'round' | 'flat' | 'triangle'),
     };
   };
+  /** Aperçu d'un tampon tel qu'il s'imprime : couleur ou dégradé du guide, rempli si l'option est prise. */
+  const stampLook = (def: StampDef) => {
+    const g = doc.guides[guide];
+    return stampSvg(def, guideColor(g, 0.5), { filled: stampFilled, ...(g?.type === 'gradient' ? { stops: Array.from({ length: 9 }, (_, q) => guideColor(g, q / 8)) } : {}) });
+  };
   /** Empreinte en vraie grandeur au centre de l'écran, pendant le réglage de la taille sur la roue. */
   const [sizing, setSizing] = useState<'on' | 'after' | null>(null);
   /** Où survole le stylet (s'il survole la page) : l'empreinte réglée sur la roue s'y montre plutôt qu'au centre. */
@@ -3726,7 +3731,7 @@ export function App() {
       <div
         ref={hoverRef}
         className={`pen-hover ${tool === 'stamp' ? 'stamp' : ''}`}
-        style={tool === 'stamp' ? { backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(stampSvg(stampOf(stampId), guideColor(doc.guides[guide], 0.5)))}")` } : undefined}
+        style={tool === 'stamp' ? { backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(stampLook(stampOf(stampId)))}")` } : undefined}
       />
 
       {!rendu && (
@@ -4194,18 +4199,18 @@ export function App() {
                         }
                       : { tilt: stampTilt, onTilt: (x: number, y: number) => setStampTilt([x, y]) })}
                     pick={{
-                      face: <span className="bw-stamp-face" dangerouslySetInnerHTML={{ __html: stampSvg(stampOf(stampId)) }} />,
+                      face: <span className="bw-stamp-face" dangerouslySetInnerHTML={{ __html: stampSvg(stampOf(stampId), 'currentColor', { filled: stampFilled }) }} />,
                       title: `Tampon : ${stampOf(stampId).name}`,
                       // les tampons défilent dans l'éventail, comme les autres choix de la roue
                       options: STAMPS.map((x) => ({
                         key: x.id,
-                        icon: <span className="fan-stamp" dangerouslySetInnerHTML={{ __html: stampSvg(x, guideColor(doc.guides[guide], 0.5)) }} />,
+                        icon: <span className="fan-stamp" dangerouslySetInnerHTML={{ __html: stampLook(x) }} />,
                         label: x.name,
                         on: stampId === x.id,
                       })),
                       onOption: setStampId,
                     }}
-                    stamp={`data:image/svg+xml,${encodeURIComponent(stampSvg(stampOf(stampId), guideColor(doc.guides[guide], 0.5)))}`}
+                    stamp={`data:image/svg+xml,${encodeURIComponent(stampLook(stampOf(stampId)))}`}
                   />
                 ),
                 tool === 'mold' &&

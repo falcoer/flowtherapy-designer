@@ -266,14 +266,28 @@ export function stampPaths(s: StampDef): Path2D[] {
   return p;
 }
 
-/** Aperçu SVG d'un motif (vignettes, curseur). */
-export function stampSvg(s: StampDef, color = 'currentColor') {
+let gradN = 0;
+/**
+ * Aperçu SVG d'un motif (vignettes, roue, curseur, empreinte sur la page).
+ * `stops` : couleurs d'un dégradé qui traverse le motif, comme à l'impression ;
+ * `filled` : les traits referment leur forme et la peignent, comme l'option Remplir.
+ */
+export function stampSvg(s: StampDef, color = 'currentColor', opts: { filled?: boolean; stops?: string[] } = {}) {
+  let defs = '';
+  let paint = color;
+  if (opts.stops && opts.stops.length > 1) {
+    const id = `stg${++gradN}`;
+    const st = opts.stops.map((c, i) => `<stop offset="${i / (opts.stops!.length - 1)}" stop-color="${c}"/>`).join('');
+    defs = `<defs><linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${s.w}" y2="0">${st}</linearGradient></defs>`;
+    paint = `url(#${id})`;
+  }
   const body = s.parts
     .map((x) =>
       x.fill
-        ? `<path d="${x.d}" fill="${color}"${x.alpha ? ` opacity="${x.alpha}"` : ''}/>`
-        : `<path d="${x.d}" fill="none" stroke="${color}" stroke-width="${x.width}" stroke-linecap="round" stroke-linejoin="round"${x.alpha ? ` opacity="${x.alpha}"` : ''}/>`,
+        ? `<path d="${x.d}" fill="${paint}"${x.alpha ? ` opacity="${x.alpha}"` : ''}/>`
+        : (opts.filled ? `<path d="${x.d}" fill="${paint}" fill-rule="evenodd" opacity="${0.85 * (x.alpha ?? 1)}"/>` : '') +
+          `<path d="${x.d}" fill="none" stroke="${paint}" stroke-width="${x.width}" stroke-linecap="round" stroke-linejoin="round"${x.alpha ? ` opacity="${x.alpha}"` : ''}/>`,
     )
     .join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${s.w} ${s.h}">${body}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${s.w} ${s.h}">${defs}${body}</svg>`;
 }
