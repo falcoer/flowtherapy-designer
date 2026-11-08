@@ -323,10 +323,15 @@ describe('équipes', () => {
     expect((await max.send('POST', `/api/ateliers/affiche/messages/${a!.id}/react`, { emoji: 'bonjour' })).statusCode).toBe(400);
     expect((await max.send('POST', `/api/ateliers/affiche/messages/${a!.id}/react`, { emoji: '👍', on: false })).json().messages[0].reactions[0].by).toEqual(['lauris@example.org']);
 
+    // proposer et valider s'inscrivent dans la conversation, sans compter comme messages
+    await lauris.send('POST', '/api/ateliers/affiche/propose', {});
+    await lauris.send('POST', '/api/ateliers/affiche/review', { approved: true });
+    const steps = ((await max.get('/api/ateliers/affiche/messages')).json() as Array<{ kind?: string; by: string }>).filter((m) => m.kind);
+    expect(steps).toMatchObject([{ kind: 'proposed', by: 'lauris@example.org' }, { kind: 'approved', by: 'lauris@example.org' }]);
     expect(((await max.get('/api/ateliers')).json() as Array<{ id: string; messages: number }>).find((m) => m.id === 'affiche')?.messages).toBe(2);
     // l'auteur retire le sien ; un responsable peut tout retirer
     expect((await max.send('DELETE', `/api/ateliers/affiche/messages/${b!.id}`)).statusCode).toBe(403);
-    expect((await lauris.send('DELETE', `/api/ateliers/affiche/messages/${a!.id}`)).json().messages).toHaveLength(1);
+    expect((await lauris.send('DELETE', `/api/ateliers/affiche/messages/${a!.id}`)).json().messages).toHaveLength(3);
     await lauris.send('DELETE', '/api/ateliers/affiche');
     await lauris.send('PUT', '/api/ateliers/affiche', { title: 'Affiche', doc });
     expect((await max.get('/api/ateliers/affiche/messages')).json()).toEqual([]);

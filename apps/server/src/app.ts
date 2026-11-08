@@ -555,7 +555,9 @@ export async function buildApp(opts: AppOptions) {
     try {
       const current = await store.read(req.params.id);
       const by = req.user?.email ?? 'groupe';
-      const note = req.body?.note?.trim().slice(0, 500) || undefined;
+      // le mot d'accompagnement : celui donné, sinon ce que la personne vient d'écrire dans la conversation
+      const note = req.body?.note?.trim().slice(0, 500) || accounts.noteSinceStep(team.id, req.params.id, by);
+      accounts.addStep(team.id, req.params.id, by, 'proposed');
       const meta = await store.setReview(req.params.id, { status: 'proposed', proposedBy: by, proposedAt: new Date().toISOString(), ...(note ? { note } : {}) });
       const owners = opts.auth ? accounts.members(team.id).filter((m) => m.role === 'owner' && m.email !== by).map((m) => m.email) : [];
       const mailed = await mail(
@@ -575,7 +577,8 @@ export async function buildApp(opts: AppOptions) {
       if (!current.review) return reply.code(409).send({ error: 'Cette composition n’a pas été proposée' });
       const by = req.user?.email ?? 'groupe';
       const approved = req.body?.approved === true;
-      const note = req.body?.note?.trim().slice(0, 500) || undefined;
+      const note = req.body?.note?.trim().slice(0, 500) || accounts.noteSinceStep(team.id, req.params.id, by);
+      accounts.addStep(team.id, req.params.id, by, approved ? 'approved' : 'changes');
       const meta = await store.setReview(req.params.id, {
         ...current.review,
         status: approved ? 'approved' : 'changes',

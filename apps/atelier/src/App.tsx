@@ -4462,6 +4462,10 @@ export function App() {
               targets={doc.targets ?? []}
               active={doc.target ?? 0}
               activity={activity}
+              review={projects.find((x) => x.id === project.id)?.review}
+              canPropose={me.team.role !== 'viewer' && projects.find((x) => x.id === project.id)?.review?.status !== 'proposed'}
+              canReview={me.team.role === 'owner' && projects.find((x) => x.id === project.id)?.review?.status === 'proposed'}
+              onStep={sendReview}
               onShowTarget={showTarget}
               onCount={(n) => setProjects((l) => l.map((x) => (x.id === project.id ? { ...x, messages: n } : x)))}
               onClose={() => setMsgDialog(false)}
@@ -4552,65 +4556,21 @@ export function App() {
                       Charger…
                     </button>
                   </div>
-                  {project && me?.team && (
-                    <details className="cur-more">
-                      <summary>Modèle, validation</summary>
-                      {followed && canEditTeam && doc.campaign === followed.id && (
-                        <label className="proj-camp proj-tpl">
-                          <input
-                            type="checkbox"
-                            checked={!!followed.templates?.includes(project.id)}
-                            onChange={(e) =>
-                              void updateCampaign(followed.id, { templates: e.target.checked ? [...(followed.templates ?? []), project.id] : (followed.templates ?? []).filter((t) => t !== project.id) }).then(
-                                (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
-                                (err: Error) => setToast(err.message),
-                              )
-                            }
-                          />
-                          <span>Modèle de la campagne</span>
-                        </label>
-                      )}
-                      {(() => {
-                        const r = projects.find((x) => x.id === project.id)?.review;
-                        const role = me.team.role;
-                        const canPropose = role !== 'viewer' && r?.status !== 'proposed';
-                        const canReview = role === 'owner' && r?.status === 'proposed';
-                        const who = (e?: string) => (e ? e.split('@')[0] : '');
-                        return (
-                          <div className="proj-review">
-                            {r && (
-                              <p className={`proj-status st-${r.status}`}>
-                                <b>{REVIEW_LABELS[r.status]}</b>
-                                {r.status === 'proposed' ? ` par ${who(r.proposedBy)}` : ` par ${who(r.reviewedBy)}`}
-                                {r.status === 'proposed' && r.note ? ` : « ${r.note} »` : ''}
-                                {r.status !== 'proposed' && r.reviewNote ? ` : « ${r.reviewNote} »` : ''}
-                              </p>
-                            )}
-                            {(canPropose || canReview) && (
-                              <>
-                                <div className="proj-review-acts">
-                                  {canPropose && (
-                                    <button className="fx-clear" onClick={() => void sendReview('propose')}>
-                                      Proposer aux responsables
-                                    </button>
-                                  )}
-                                  {canReview && (
-                                    <>
-                                      <button className="fx-clear" onClick={() => void sendReview('approve')}>
-                                        Valider
-                                      </button>
-                                      <button className="fx-clear" onClick={() => void sendReview('changes')}>
-                                        À revoir
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </details>
+                  {/* le modèle se choisira dans la fiche de campagne ; en attendant, une case ici */}
+                  {project && followed && canEditTeam && doc.campaign === followed.id && (
+                    <label className="proj-camp proj-tpl">
+                      <input
+                        type="checkbox"
+                        checked={!!followed.templates?.includes(project.id)}
+                        onChange={(e) =>
+                          void updateCampaign(followed.id, { templates: e.target.checked ? [...(followed.templates ?? []), project.id] : (followed.templates ?? []).filter((t) => t !== project.id) }).then(
+                            (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
+                            (err: Error) => setToast(err.message),
+                          )
+                        }
+                      />
+                      <span>Modèle de la campagne</span>
+                    </label>
                   )}
                 </>
               ) : (

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Target } from './model';
-import { deleteMessage, listMessages, postMessage, reactMessage, type ActivityProfile, type AtelierMessage } from './server';
+import { deleteMessage, listMessages, postMessage, reactMessage, REVIEW_LABELS, type ActivityProfile, type AtelierMessage, type AtelierMeta } from './server';
 import { channelsOf, targetKey, targetLabel } from './targets';
 import { MediaIcon } from './targets-ui';
 
@@ -34,6 +34,11 @@ export function MessagesDialog(p: {
   targets: Target[];
   active: number;
   activity: ActivityProfile | null;
+  /** état de validation de la composition, et ce que la personne peut en faire */
+  review?: AtelierMeta['review'];
+  canPropose: boolean;
+  canReview: boolean;
+  onStep: (action: 'propose' | 'approve' | 'changes') => Promise<void>;
   onShowTarget: (i: number) => void;
   onCount: (n: number) => void;
   onClose: () => void;
@@ -48,7 +53,24 @@ export function MessagesDialog(p: {
 
   const take = (l: AtelierMessage[]) => {
     setList(l);
-    p.onCount(l.length);
+    p.onCount(l.filter((m) => !m.kind).length);
+  };
+  const [busy, setBusy] = useState(false);
+  // proposer ou répondre : ce qu'on vient d'écrire accompagne l'e-mail, puis l'étape s'inscrit dans le fil
+  const step = async (action: 'propose' | 'approve' | 'changes') => {
+    setBusy(true);
+    try {
+      if (text.trim()) {
+        await postMessage(p.atelier, text.trim(), cur);
+        setText('');
+      }
+      await p.onStep(action);
+      take(await listMessages(p.atelier));
+    } catch (e) {
+      fail(e as Error);
+    } finally {
+      setBusy(false);
+    }
   };
   const fail = (e: Error) => setErr(e.message);
   useEffect(() => {
@@ -101,11 +123,40 @@ export function MessagesDialog(p: {
             ×
           </button>
         </div>
+        <div className="msg-state">
+          {p.review ? <span className={`proj-badge st-${p.review.status}`}>{REVIEW_LABELS[p.review.status]}</span> : <span className="msg-state-none">Pas encore proposée</span>}
+          <span className="msg-state-acts">
+            {p.canPropose && (
+              <button className="pf-btn" disabled={busy} onClick={() => void step('propose')} title="Prévenir les responsables par e-mail ; ton message en cours accompagne la proposition">
+                Proposer aux responsables
+              </button>
+            )}
+            {p.canReview && (
+              <>
+                <button className="pf-btn" disabled={busy} onClick={() => void step('changes')} title="Renvoyer à l’auteur ; ton message en cours l’accompagne">
+                  À revoir
+                </button>
+                <button className="pf-btn primary" disabled={busy} onClick={() => void step('approve')} title="Valider la composition ; l’auteur est prévenu">
+                  Valider
+                </button>
+              </>
+            )}
+          </span>
+        </div>
         <div className="msg-list">
           {list === null && <p className="fx-hint">Chargement…</p>}
           {list?.length === 0 && <p className="fx-hint">Pas encore de message. Dis ce que tu penses de ce rendu.</p>}
           {list?.map((m) => {
             const mine = m.by === p.me;
+            if (m.kind)
+              return (
+                <div key={m.id} className={`msg-step st-${m.kind}`}>
+                  <span>
+                    <b>{mine ? 'Tu as' : `${who(m)} a`}</b> {m.kind === 'proposed' ? 'proposé la composition aux responsables' : m.kind === 'approved' ? 'validé la composition' : 'demandé une retouche'}
+                  </span>
+                  <small>{when(m.at)}</small>
+                </div>
+              );
             return (
               <div key={m.id} className={`msg ${mine ? 'mine' : ''}`}>
                 {m.picture ? <img className="msg-av" src={m.picture} alt="" referrerPolicy="no-referrer" /> : <span className="msg-av">{who(m).slice(0, 1).toUpperCase()}</span>}

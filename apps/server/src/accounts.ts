@@ -304,6 +304,8 @@ export class Accounts {
     this.addColumn('teams', 'updated', 'TEXT');
     this.addColumn('teams', 'logos', 'TEXT');
     this.addColumn('users', 'picture', 'TEXT');
+    // étapes de validation inscrites dans la conversation : proposed | approved | changes
+    this.addColumn('messages', 'kind', 'TEXT');
   }
 
   private addColumn(table: string, column: string, type: string) {
@@ -582,13 +584,13 @@ export class Accounts {
   /** Nombre de messages par composition. */
   messageCounts(team: string): Map<string, number> {
     const out = new Map<string, number>();
-    for (const r of this.db.prepare('SELECT atelier, COUNT(*) AS n FROM messages WHERE team = ? GROUP BY atelier').all(team) as Row[]) out.set(String(r.atelier), Number(r.n));
+    for (const r of this.db.prepare('SELECT atelier, COUNT(*) AS n FROM messages WHERE team = ? AND kind IS NULL GROUP BY atelier').all(team) as Row[]) out.set(String(r.atelier), Number(r.n));
     return out;
   }
 
   messages(team: string, atelier: string, me: string): Message[] {
     const rows = this.db
-      .prepare('SELECT m.id, m.email, m.text, m.target, m.at, u.name, u.picture FROM messages m LEFT JOIN users u ON u.email = m.email WHERE m.team = ? AND m.atelier = ? ORDER BY m.id')
+      .prepare('SELECT m.id, m.email, m.text, m.target, m.kind, m.at, u.name, u.picture FROM messages m LEFT JOIN users u ON u.email = m.email WHERE m.team = ? AND m.atelier = ? ORDER BY m.id')
       .all(team, atelier) as Row[];
     const reacts = this.db
       .prepare('SELECT r.message, r.email, r.emoji FROM reactions r JOIN messages m ON m.id = r.message WHERE m.team = ? AND m.atelier = ? ORDER BY r.at')
@@ -610,6 +612,7 @@ export class Accounts {
         ...(r.picture ? { picture: String(r.picture) } : {}),
         text: String(r.text),
         ...(r.target ? { target: JSON.parse(String(r.target)) as Target } : {}),
+        ...(r.kind ? { kind: String(r.kind) as ReviewStep } : {}),
         at: String(r.at),
         reactions: rs,
       };
@@ -621,6 +624,21 @@ export class Accounts {
     if (!t) throw new Error('Message vide');
     const tg = target && typeof target.format === 'string' ? { ...(target.channel ? { channel: str(target.channel, 40) } : {}), format: str(target.format, 40), ...(target.palette ? { palette: str(target.palette, 40) } : {}) } : null;
     this.db.prepare('INSERT INTO messages (team, atelier, email, text, target, at) VALUES (?, ?, ?, ?, ?, ?)').run(team, atelier, normEmail(email), t, tg ? JSON.stringify(tg) : null, new Date().toISOString());
+  }
+
+  /** Étape de validation, inscrite dans la conversation de la composition. */
+  addStep(team: string, atelier: string, email: string, kind: ReviewStep) {
+    this.db.prepare('INSERT INTO messages (team, atelier, email, text, kind, at) VALUES (?, ?, ?, ?, ?, ?)').run(team, atelier, normEmail(email), '', kind, new Date().toISOString());
+  }
+
+  /** Ce que la personne a écrit depuis la dernière étape : le mot qui accompagne l'e-mail de proposition ou de réponse. */
+  noteSinceStep(team: string, atelier: string, email: string) {
+    const last = this.db.prepare('SELECT MAX(id) AS id FROM messages WHERE team = ? AND atelier = ? AND kind IS NOT NULL').get(team, atelier) as Row | undefined;
+    const rows = this.db
+      .prepare('SELECT text FROM messages WHERE team = ? AND atelier = ? AND email = ? AND kind IS NULL AND id > ? ORDER BY id')
+      .all(team, atelier, normEmail(email), Number(last?.id ?? 0)) as Row[];
+    const t = rows.map((r) => String(r.text)).join('\n').trim();
+    return t ? t.slice(0, 500) : undefined;
   }
 
   /** Message d'une composition de l'équipe (pour vérifier qu'il existe et à qui il est). */
@@ -644,6 +662,7 @@ export interface Reaction {
   by: string[];
   mine: boolean;
 }
+export type ReviewStep = 'proposed' | 'approved' | 'changes';
 /** Message laissé sur une composition, avec le rendu (cible) qu'on regardait en l'écrivant. */
 export interface Message {
   id: number;
@@ -652,6 +671,8 @@ export interface Message {
   picture?: string;
   text: string;
   target?: Target;
+  /** une étape de validation plutôt qu'un message */
+  kind?: ReviewStep;
   at: string;
   reactions: Reaction[];
 }

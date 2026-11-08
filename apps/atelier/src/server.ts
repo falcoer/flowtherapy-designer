@@ -111,6 +111,8 @@ export interface AtelierMessage {
   picture?: string;
   text: string;
   target?: Target;
+  /** une étape de validation (proposée, validée, à revoir) plutôt qu'un message */
+  kind?: 'proposed' | 'approved' | 'changes';
   at: string;
   reactions: Reaction[];
 }

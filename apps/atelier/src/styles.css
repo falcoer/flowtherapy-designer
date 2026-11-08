@@ -1351,3 +1351,11 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .msg-compose { display: flex; gap: 6px; align-items: flex-end; }
 .msg-compose textarea { flex: 1; min-width: 0; resize: none; font: inherit; }
 .pf-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.msg-state { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.msg-state .proj-badge { align-self: center; font-size: 12px; padding: 2px 9px; }
+.msg-state-none { color: var(--muted); font-size: 12.5px; }
+.msg-state-acts { margin-left: auto; display: flex; gap: 6px; }
+.msg-step { display: flex; align-items: baseline; justify-content: center; gap: 8px; flex-wrap: wrap; padding: 4px 8px; color: var(--muted); font-size: 12.5px; text-align: center; }
+.msg-step b { color: var(--ink); }
+.msg-step.st-approved b { color: #2e8b57; }
+.msg-step.st-changes b { color: #c0392b; }
