@@ -2,7 +2,7 @@ import path from 'node:path';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
-import { Accounts, ROLES, type Role, type TeamOfUser } from './accounts.js';
+import { Accounts, LOGO_VARIANTS, normEmail, ROLES, type ActivityProfile, type CampaignInput, type LogoVariant, type Role, type TeamOfUser } from './accounts.js';
 import { Ateliers } from './ateliers.js';
 import { cookie, readCookie, registerAuth, type AuthConfig } from './auth.js';
 import { Exporter, type ExportKind } from './export.js';
@@ -90,8 +90,8 @@ export async function buildApp(opts: AppOptions) {
   if (opts.auth) {
     registerAuth(app, opts.auth, {
       admit: (email) => admins.includes(email) || accounts.isMember(email),
-      signedIn: (email, name) => {
-        accounts.signedIn(email, name);
+      signedIn: (email, name, picture) => {
+        accounts.signedIn(email, name, picture);
         // amorçage : un administrateur ou une adresse de la liste sans équipe rejoint l'équipe d'origine
         if (!accounts.teamsOf(email).length && (admins.includes(email) || allowlist.has(email))) {
           accounts.addMember(home.id, email, admins.includes(email) ? 'owner' : 'editor');
@@ -165,11 +165,26 @@ export async function buildApp(opts: AppOptions) {
   };
 
   app.get('/api/health', async () => ({ ok: true }));
+  // pour les menus : nom, rôle, type d'activité et adresse du logo (avec sa version)
+  const teamRef = (t: TeamOfUser) => {
+    const look = accounts.looks(t.id);
+    return {
+      id: t.id,
+      name: t.name,
+      role: t.role,
+      ...(look.kind ? { kind: look.kind } : {}),
+      ...(look.logo ? { logo: `/api/teams/${encodeURIComponent(t.id)}/logo?v=${encodeURIComponent(look.updated ?? '')}` } : {}),
+    };
+  };
   app.get('/api/me', async (req) => {
-    const teams = teamsOfReq(req).map(({ id, name, role }) => ({ id, name, role }));
-    const team = req.team && { id: req.team.id, name: req.team.name, role: req.team.role };
+    const teams = teamsOfReq(req).map(teamRef);
+    const team = req.team && teamRef(req.team);
     const mailOn = !!opts.mailer;
-    if (opts.auth) return req.user ? { ...req.user, admin: isAdmin(req), mode: 'compte', team, teams, mail: mailOn } : null;
+    if (opts.auth) {
+      if (!req.user) return null;
+      const picture = accounts.picture(req.user.email);
+      return { ...req.user, ...(picture ? { picture } : {}), admin: isAdmin(req), mode: 'compte', team, teams, mail: mailOn };
+    }
     return { name: opts.password ? 'Accès partagé' : 'Accès local', admin: true, mode: opts.password ? 'mot-de-passe' : 'local', team, teams, mail: mailOn };
   });
   app.post<{ Body: { team?: string } }>('/api/me/team', async (req, reply) => {
@@ -196,6 +211,43 @@ export async function buildApp(opts: AppOptions) {
       return reply.code(400).send({ error: (err as Error).message });
     }
   });
+  // --- fiche d'activité : tout membre la lit, les responsables la modifient ---
+  const profileOf = (id: string) => {
+    const look = accounts.looks(id);
+    const v = encodeURIComponent(look.updated ?? '');
+    const base = `/api/teams/${encodeURIComponent(id)}/logo`;
+    // adresses des logos présents, par variante
+    const logos = Object.fromEntries(
+      [...(look.logo ? (['main'] as LogoVariant[]) : []), ...accounts.logoVariants(id)].map((k) => [k, `${base}${k === 'main' ? '' : `/${k}`}?v=${v}`]),
+    );
+    return { ...accounts.team(id)!, ...accounts.profile(id), logos };
+  };
+  app.get<{ Params: { id: string } }>('/api/teams/:id/profile', { preHandler: needsIn('viewer') }, async (req) => profileOf(req.params.id));
+  app.put<{ Params: { id: string }; Body: ActivityProfile & { name?: string; logo?: string | null; logos?: Partial<Record<LogoVariant, string | null>> } }>(
+    '/api/teams/:id/profile',
+    { preHandler: needsIn('owner'), bodyLimit: 8 * 1024 * 1024 },
+    async (req, reply) => {
+      try {
+        const { name, logo, logos, ...profile } = req.body ?? {};
+        if (name !== undefined) accounts.renameTeam(req.params.id, name);
+        if (logo !== undefined) accounts.setLogo(req.params.id, logo);
+        for (const [k, url] of Object.entries(logos ?? {})) if (url !== undefined) accounts.setLogo(req.params.id, url, k as LogoVariant);
+        accounts.setProfile(req.params.id, profile);
+        return { ok: true, profile: profileOf(req.params.id) };
+      } catch (err) {
+        return reply.code(400).send({ error: (err as Error).message });
+      }
+    },
+  );
+  app.get<{ Params: { id: string; variant?: string } }>('/api/teams/:id/logo/:variant?', { preHandler: needsIn('viewer') }, async (req, reply) => {
+    const variant = (req.params.variant ?? 'main') as LogoVariant;
+    if (!LOGO_VARIANTS.includes(variant)) return reply.code(404).send({ error: 'Variante inconnue' });
+    const logo = accounts.logo(req.params.id, variant);
+    if (!logo) return reply.code(404).send({ error: 'Pas de logo' });
+    // un SVG importé ne doit pas pouvoir exécuter de script
+    return reply.type(logo.type).header('Cache-Control', 'private, max-age=31536000').header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'").send(logo.data);
+  });
+
   app.get<{ Params: { id: string } }>('/api/teams/:id/members', { preHandler: needsIn('viewer') }, async (req) => accounts.members(req.params.id));
   app.post<{ Params: { id: string }; Body: { email?: string; role?: Role } }>('/api/teams/:id/members', { preHandler: needsIn('owner') }, async (req, reply) => {
     try {
@@ -363,7 +415,17 @@ export async function buildApp(opts: AppOptions) {
     const storeOf = (req: FastifyRequest) => storesOf(req.team!.id)[kind];
     const read = { preHandler: needs('viewer') };
     const write = { preHandler: needs('editor') };
-    app.get(base, read, async (req) => storeOf(req).list());
+    app.get(base, read, async (req) => {
+      const list = await storeOf(req).list();
+      if (kind !== 'ateliers') return list;
+      // les votes des membres, et le sien
+      const votes = accounts.votes(req.team!.id);
+      const me = req.user?.email ? normEmail(req.user.email) : 'groupe';
+      return list.map((m) => {
+        const v = votes.get(m.id) ?? [];
+        return { ...m, votes: v, voted: v.includes(me) };
+      });
+    });
     app.get<{ Params: { id: string } }>(`${base}/:id`, read, async (req, reply) => {
       try {
         return await storeOf(req).read(req.params.id);
@@ -386,6 +448,7 @@ export async function buildApp(opts: AppOptions) {
     app.delete<{ Params: { id: string } }>(`${base}/:id`, write, async (req, reply) => {
       try {
         await storeOf(req).remove(req.params.id);
+        if (kind === 'ateliers') accounts.forgetVotes(req.team!.id, req.params.id);
         return { ok: true };
       } catch (err) {
         return reply.code(400).send({ error: (err as Error).message });
@@ -398,6 +461,35 @@ export async function buildApp(opts: AppOptions) {
       return reply.type('image/png').header('Cache-Control', 'private, no-cache').send(createReadStream(f));
     });
   }
+
+  // --- campagnes : chacun y contribue et vote pour les compositions ---
+  app.get('/api/campaigns', { preHandler: needs('viewer') }, async (req) => accounts.campaigns(req.team!.id));
+  app.post<{ Body: CampaignInput }>('/api/campaigns', { preHandler: needs('editor') }, async (req, reply) => {
+    try {
+      return { ok: true, campaign: accounts.createCampaign(req.team!.id, req.body ?? {}, req.user?.email) };
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  });
+  app.patch<{ Params: { id: string }; Body: CampaignInput & { closed?: boolean } }>('/api/campaigns/:id', { preHandler: needs('editor') }, async (req, reply) => {
+    try {
+      return { ok: true, campaign: accounts.updateCampaign(req.team!.id, req.params.id, req.body ?? {}) };
+    } catch (err) {
+      return reply.code(404).send({ error: (err as Error).message });
+    }
+  });
+  // tout membre vote, lecteurs compris ; un vote par personne et par composition
+  app.post<{ Params: { id: string }; Body: { on?: boolean } }>('/api/ateliers/:id/vote', { preHandler: needs('viewer') }, async (req, reply) => {
+    const team = req.team!;
+    try {
+      await storesOf(team.id).ateliers.read(req.params.id);
+    } catch {
+      return reply.code(404).send({ error: 'Composition introuvable' });
+    }
+    const me = req.user?.email ? normEmail(req.user.email) : 'groupe';
+    const votes = accounts.vote(team.id, req.params.id, me, req.body?.on !== false);
+    return { ok: true, votes, voted: votes.includes(me) };
+  });
 
   // --- circuit de validation : un membre propose, un responsable valide ou demande une retouche ---
   app.post<{ Params: { id: string }; Body: { note?: string } }>('/api/ateliers/:id/propose', { preHandler: needs('editor') }, async (req, reply) => {

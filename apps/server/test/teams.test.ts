@@ -157,4 +157,132 @@ describe('équipes', () => {
     expect(String(r.headers['set-cookie'])).toContain('ftd_team=cafe-concert');
     expect(r.json().team.id).toBe('cafe-concert');
   });
+
+  it('la fiche d’activité : les responsables la remplissent, les membres la lisent', async () => {
+    const { login, as } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    await lauris.send('POST', '/api/teams/flowtherapy/members', { email: 'jenni@example.org', role: 'editor' });
+    const png = 'data:image/png;base64,' + Buffer.from('logo').toString('base64');
+    const put = await lauris.send('PUT', '/api/teams/flowtherapy/profile', {
+      name: 'Flow Therapy',
+      logo: png,
+      kind: 'Groupe musical',
+      services: { events: [{ name: 'Bandsintown', url: 'https://bandsintown.com/a/1' }, { name: '' }] },
+      branding: {
+        palette: [{ hex: '#E9A7C3', name: 'Rose', role: 'accent' }, { hex: 'rouge' }],
+        fonts: { title: 'bungee', body: 'inter' },
+        purpose: 'Faire danser',
+        keywords: ['psyché', ' ', 'groove'],
+        mentions: [{ name: 'Réseaux', text: '@flowtherapy' }, { name: 'vide', text: '' }],
+      },
+      logos: { dark: png },
+      channels: [
+        { id: 'insta', name: 'Post Instagram', kind: 'social', formats: ['carre'], margin: 0.04, logo: 'icon', mentions: ['Réseaux'] },
+        { id: 'insta', name: 'Story', kind: 'social', formats: ['story'], margin: 0.9 },
+        { name: '' },
+      ],
+    });
+    expect(put.statusCode).toBe(200);
+    expect(put.json().profile).toMatchObject({
+      name: 'Flow Therapy',
+      kind: 'Groupe musical',
+      services: { events: [{ name: 'Bandsintown', url: 'https://bandsintown.com/a/1' }], assets: [] },
+      branding: {
+        palettes: [{ id: 'principale', name: 'Principale', colors: [{ hex: '#e9a7c3', name: 'Rose', role: 'accent' }] }],
+        fonts: { title: 'bungee', body: 'inter' },
+        purpose: 'Faire danser',
+        keywords: ['psyché', 'groove'],
+        mentions: [{ name: 'Réseaux', text: '@flowtherapy' }],
+      },
+      channels: [
+        { id: 'insta', name: 'Post Instagram', kind: 'social', formats: ['carre'], margin: 0.04, logo: 'icon', mentions: ['Réseaux'] },
+        { id: 'insta-2', name: 'Story', kind: 'social', formats: ['story'], margin: 0.25, mentions: [] },
+      ],
+    });
+    expect(Object.keys(put.json().profile.logos)).toEqual(['main', 'dark']);
+    expect((await lauris.get(put.json().profile.logos.dark)).body).toBe('logo');
+
+    const jenni = as((await login('jenni@example.org'))!);
+    const me = (await jenni.get('/api/me')).json();
+    expect(me.team).toMatchObject({ name: 'Flow Therapy', kind: 'Groupe musical' });
+    expect(me.team.logo).toMatch(/^\/api\/teams\/flowtherapy\/logo\?v=/);
+    const logo = await jenni.get(me.team.logo);
+    expect(logo.headers['content-type']).toBe('image/png');
+    expect(logo.body).toBe('logo');
+    expect((await jenni.get('/api/teams/flowtherapy/profile')).json().branding.purpose).toBe('Faire danser');
+    expect((await jenni.send('PUT', '/api/teams/flowtherapy/profile', { kind: 'Autre' })).statusCode).toBe(403);
+    expect((await lauris.send('PUT', '/api/teams/flowtherapy/profile', { logo: 'data:text/html;base64,PGI+' })).statusCode).toBe(400);
+
+    // plusieurs palettes, chaque canal peut choisir la sienne
+    const multi = await lauris.send('PUT', '/api/teams/flowtherapy/profile', {
+      branding: {
+        palettes: [
+          { id: 'jour', name: 'Jour', colors: [{ hex: '#ffffff', role: 'fond' }] },
+          { id: 'jour', name: 'Nuit', colors: [{ hex: '#000000', role: 'fond' }] },
+          { name: 'Vide', colors: [] },
+        ],
+      },
+      channels: [
+        { id: 'affiche', name: 'Affiche', kind: 'affichage', formats: ['a4'], palette: 'jour-2' },
+        { id: 'post', name: 'Post', kind: 'social', formats: ['carre'], palette: 'inconnue' },
+      ],
+    });
+    const prof = multi.json().profile;
+    expect(prof.branding.palettes.map((q: { id: string; name: string }) => [q.id, q.name])).toEqual([
+      ['jour', 'Jour'],
+      ['jour-2', 'Nuit'],
+    ]);
+    expect(prof.channels[0].palette).toBe('jour-2');
+    expect(prof.channels[1].palette).toBeUndefined();
+    expect(prof.operations).toBeUndefined();
+
+    // occasions : cibles présélectionnées (média, format, variante)
+    const ops = await lauris.send('PUT', '/api/teams/flowtherapy/profile', {
+      operations: [
+        { id: 'concert', name: 'Concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }, { format: '' }] },
+        { name: '' },
+      ],
+    });
+    expect(ops.json().profile.operations).toEqual([
+      { id: 'concert', name: 'Concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }] },
+    ]);
+  });
+
+  it('les campagnes : chacun y contribue, tout membre vote', async () => {
+    const { login, as } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    await lauris.send('POST', '/api/teams/flowtherapy/members', { email: 'jenni@example.org', role: 'editor' });
+    await lauris.send('POST', '/api/teams/flowtherapy/members', { email: 'max@example.org', role: 'viewer' });
+    const jenni = as((await login('jenni@example.org'))!);
+    const max = as((await login('max@example.org'))!);
+
+    const c = (await jenni.send('POST', '/api/campaigns', { name: 'Concert du Plan', operation: 'concert', date: '2026-12-12', place: 'Le Plan', note: 'affiches en ville' })).json().campaign;
+    expect(c).toMatchObject({ id: 'concert-du-plan', name: 'Concert du Plan', operation: 'concert', date: '2026-12-12', by: 'jenni@example.org' });
+    expect((await jenni.send('POST', '/api/campaigns', { name: 'Concert du Plan', date: 'demain' })).json().campaign).toMatchObject({ id: 'concert-du-plan-2' });
+    expect((await jenni.send('POST', '/api/campaigns', { name: ' ' })).statusCode).toBe(400);
+    expect((await max.send('POST', '/api/campaigns', { name: 'Non' })).statusCode).toBe(403);
+
+    expect((await jenni.send('PUT', '/api/ateliers/affiche-jenni', { title: 'Affiche de Jenni', doc: { ...doc, campaign: 'concert-du-plan' } })).statusCode).toBe(200);
+    await lauris.send('PUT', '/api/ateliers/affiche-lauris', { title: 'Affiche de Lauris', doc: { ...doc, campaign: 'concert-du-plan' } });
+
+    // lecteurs compris, un vote par personne
+    expect((await max.send('POST', '/api/ateliers/affiche-jenni/vote', {})).json()).toMatchObject({ votes: ['max@example.org'], voted: true });
+    await max.send('POST', '/api/ateliers/affiche-jenni/vote', {});
+    await lauris.send('POST', '/api/ateliers/affiche-jenni/vote', { on: true });
+    expect((await max.send('POST', '/api/ateliers/inconnue/vote', {})).statusCode).toBe(404);
+    const list = (await max.get('/api/ateliers')).json() as Array<{ id: string; campaign?: string; votes: string[]; voted: boolean }>;
+    expect(list.find((m) => m.id === 'affiche-jenni')).toMatchObject({ campaign: 'concert-du-plan', votes: ['max@example.org', 'lauris@example.org'], voted: true });
+    expect(list.find((m) => m.id === 'affiche-lauris')).toMatchObject({ votes: [], voted: false });
+    expect((await max.send('POST', '/api/ateliers/affiche-jenni/vote', { on: false })).json().votes).toEqual(['lauris@example.org']);
+
+    const closed = (await lauris.send('PATCH', '/api/campaigns/concert-du-plan', { closed: true })).json().campaign;
+    expect(closed.closed).toBeTruthy();
+    expect(closed.place).toBe('Le Plan');
+    const all = (await max.get('/api/campaigns')).json() as Array<{ id: string }>;
+    expect(all.map((x) => x.id)).toEqual(['concert-du-plan-2', 'concert-du-plan']);
+
+    await lauris.send('DELETE', '/api/ateliers/affiche-jenni');
+    await lauris.send('PUT', '/api/ateliers/affiche-jenni', { title: 'Nouvelle', doc });
+    expect(((await max.get('/api/ateliers')).json() as Array<{ id: string; votes: string[] }>).find((m) => m.id === 'affiche-jenni')?.votes).toEqual([]);
+  });
 });

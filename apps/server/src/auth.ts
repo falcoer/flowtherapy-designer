@@ -12,6 +12,8 @@ export interface Profile {
   email?: string;
   emailVerified?: boolean;
   name?: string;
+  /** Photo du compte (Google). */
+  picture?: string;
 }
 
 export interface Provider {
@@ -125,8 +127,8 @@ export function googleProvider(clientId: string, clientSecret: string): Provider
     pkce: true,
     clientSecret: () => clientSecret,
     profile: async (tokens) => {
-      const claims = decodeJwtPayload<{ email?: string; email_verified?: boolean; name?: string }>(tokens.id_token ?? '');
-      return { email: claims.email, emailVerified: claims.email_verified === true, name: claims.name };
+      const claims = decodeJwtPayload<{ email?: string; email_verified?: boolean; name?: string; picture?: string }>(tokens.id_token ?? '');
+      return { email: claims.email, emailVerified: claims.email_verified === true, name: claims.name, picture: claims.picture };
     },
   };
 }
@@ -177,7 +179,7 @@ export interface AuthHooks {
   /** Vrai si l'adresse appartient à une équipe (invitation comprise). */
   admit?: (email: string) => boolean;
   /** Appelé à chaque connexion réussie. */
-  signedIn?: (email: string, name?: string) => void;
+  signedIn?: (email: string, name?: string, picture?: string) => void;
 }
 
 export function registerAuth(app: FastifyInstance, cfg: AuthConfig, hooks: AuthHooks = {}) {
@@ -269,7 +271,7 @@ export function registerAuth(app: FastifyInstance, cfg: AuthConfig, hooks: AuthH
         .type('text/html')
         .send(page(`L'adresse ${escapeHtml(email ?? 'inconnue')} n'est pas autorisée. Demande au responsable de ton équipe de t'inviter.`));
     }
-    hooks.signedIn?.(email, profile.name);
+    hooks.signedIn?.(email, profile.name, profile.picture);
     const session = sign({ email, name: profile.name, exp: Date.now() + SESSION_DAYS * 86_400_000 }, cfg.sessionSecret);
     reply.header('Set-Cookie', [
       cookie(SESSION, session, SESSION_DAYS * 86_400, { secure }),

@@ -54,6 +54,207 @@ export function teamIdFrom(name: string) {
 
 type Row = Record<string, string | number | null>;
 
+/** Une source, un compte ou un module relié à l'activité : un nom et, si besoin, une adresse. */
+export interface ServiceLink {
+  name: string;
+  url?: string;
+}
+
+/** Fiche de l'activité : ce pour quoi l'outil existe. */
+export interface ActivityProfile {
+  /** Groupe musical, association, lieu… */
+  kind?: string;
+  services?: {
+    /** Sources d'évènements (agenda, billetterie…). */
+    events?: ServiceLink[];
+    /** Comptes qui fournissent des visuels (photos, banques d'images…). */
+    assets?: ServiceLink[];
+  };
+  branding?: {
+    /** Palettes nommées (principale, nuit, été…) ; la première sert par défaut. */
+    palettes?: Palette[];
+    /** Ancienne forme : une seule palette (lue, puis rangée dans palettes). */
+    palette?: PaletteColor[];
+    /** Polices de la bibliothèque, par usage. */
+    fonts?: { title?: string; body?: string; accent?: string };
+    /** Raison d'être. */
+    purpose?: string;
+    keywords?: string[];
+    /** Textes récurrents prêts à poser (partenaires, réseaux, hashtags…). */
+    mentions?: Array<{ name: string; text: string }>;
+  };
+  /** Canaux de communication (médias) : chacun fixe ses formats, sa marge, son logo et ses mentions. */
+  channels?: Channel[];
+  /** Occasions (concert, nouvelle musique…) : les cibles présélectionnées d'un nouveau document. */
+  operations?: Operation[];
+}
+
+/** Une cible d'un document : un média, un format compatible, une variante de couleurs. */
+export interface Target {
+  channel?: string;
+  format: string;
+  palette?: string;
+}
+export interface Operation {
+  id: string;
+  name: string;
+  targets: Target[];
+}
+
+export interface PaletteColor {
+  hex: string;
+  name?: string;
+  role?: ColorRole;
+}
+/** Couleurs, chacune avec son rôle (fond, texte, accent, secondaire). */
+export interface Palette {
+  id: string;
+  name: string;
+  colors: PaletteColor[];
+}
+
+export const COLOR_ROLES = ['fond', 'texte', 'accent', 'secondaire'] as const;
+export type ColorRole = (typeof COLOR_ROLES)[number];
+export const CHANNEL_KINDS = ['social', 'affichage', 'impression', 'email', 'site'] as const;
+export const LOGO_VARIANTS = ['main', 'light', 'dark', 'icon'] as const;
+export type LogoVariant = (typeof LOGO_VARIANTS)[number];
+
+export interface Channel {
+  id: string;
+  name: string;
+  kind: (typeof CHANNEL_KINDS)[number];
+  /** Formats de l'atelier (identifiants), le premier par défaut. */
+  formats: string[];
+  /** Marge des repères, en fraction du petit côté. */
+  margin?: number;
+  /** Zone d'intérêt (à venir) : description libre pour l'instant. */
+  focus?: string;
+  logo?: LogoVariant;
+  /** Palette du canal (identifiant), sinon la première. */
+  palette?: string;
+  /** Noms des mentions à poser. */
+  mentions?: string[];
+  /** Compte où publier. */
+  url?: string;
+}
+
+const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+
+function cleanLinks(v: unknown): ServiceLink[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .slice(0, 30)
+    .map((x) => {
+      const name = str((x as ServiceLink)?.name, 80);
+      const url = str((x as ServiceLink)?.url, 500);
+      return { name, ...(url ? { url } : {}) };
+    })
+    .filter((x) => x.name || x.url);
+}
+
+const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+
+function cleanChannel(c: Partial<Channel>, i: number): Channel | null {
+  const name = str(c?.name, 60);
+  if (!name) return null;
+  const kind = (CHANNEL_KINDS as readonly string[]).includes(c.kind as string) ? (c.kind as Channel['kind']) : 'social';
+  const id = str(c.id, 40).replace(/[^a-z0-9-]/g, '') || `canal-${i + 1}`;
+  const margin = typeof c.margin === 'number' && Number.isFinite(c.margin) ? Math.max(-0.25, Math.min(0.25, c.margin)) : undefined;
+  const logo = (LOGO_VARIANTS as readonly string[]).includes(c.logo as string) ? c.logo : undefined;
+  return {
+    id,
+    name,
+    kind,
+    formats: arr<string>(c.formats).map((f) => str(f, 40)).filter(Boolean).slice(0, 12),
+    ...(margin !== undefined ? { margin } : {}),
+    ...(str(c.focus, 300) ? { focus: str(c.focus, 300) } : {}),
+    ...(logo ? { logo } : {}),
+    ...(str(c.palette, 40) ? { palette: str(c.palette, 40) } : {}),
+    mentions: arr<string>(c.mentions).map((m) => str(m, 60)).filter(Boolean).slice(0, 20),
+    ...(str(c.url, 500) ? { url: str(c.url, 500) } : {}),
+  };
+}
+
+/** Garde ce qui est attendu, à des tailles raisonnables. */
+export function cleanProfile(p: ActivityProfile): ActivityProfile {
+  const colorsOf = (v: unknown): PaletteColor[] =>
+    arr<PaletteColor>(v)
+      .slice(0, 24)
+      .filter((c) => typeof c?.hex === 'string' && /^#[0-9a-fA-F]{6}$/.test(c.hex))
+      .map((c) => ({
+        hex: c.hex.toLowerCase(),
+        ...(str(c.name, 40) ? { name: str(c.name, 40) } : {}),
+        ...((COLOR_ROLES as readonly string[]).includes(c.role as string) ? { role: c.role } : {}),
+      }));
+  const rawPalettes = Array.isArray(p.branding?.palettes)
+    ? p.branding!.palettes
+    : Array.isArray(p.branding?.palette) && p.branding!.palette.length
+      ? [{ id: 'principale', name: 'Principale', colors: p.branding!.palette }]
+      : [];
+  const seenPal = new Set<string>();
+  const palettes = arr<Partial<Palette>>(rawPalettes)
+    .slice(0, 12)
+    .map((q, i) => {
+      const name = str(q?.name, 40) || `Palette ${i + 1}`;
+      const base = str(q?.id, 40).replace(/[^a-z0-9-]/g, '') || `palette-${i + 1}`;
+      let id = base;
+      for (let n = 2; seenPal.has(id); n++) id = `${base}-${n}`;
+      seenPal.add(id);
+      return { id, name, colors: colorsOf(q?.colors) };
+    })
+    .filter((q) => q.colors.length);
+  const f = p.branding?.fonts ?? {};
+  const fonts = Object.fromEntries((['title', 'body', 'accent'] as const).filter((k) => str(f[k], 40)).map((k) => [k, str(f[k], 40)]));
+  const mentions = arr<{ name: string; text: string }>(p.branding?.mentions)
+    .map((m) => ({ name: str(m?.name, 60), text: str(m?.text, 1000) }))
+    .filter((m) => m.name && m.text)
+    .slice(0, 30);
+  const seen = new Set<string>();
+  const channels = arr<Partial<Channel>>(p.channels)
+    .slice(0, 30)
+    .map(cleanChannel)
+    .filter((c): c is Channel => !!c)
+    .map((c) => {
+      // identifiants uniques : ils servent de lien depuis les compositions
+      let id = c.id;
+      for (let n = 2; seen.has(id); n++) id = `${c.id}-${n}`;
+      seen.add(id);
+      const { palette, ...rest } = c;
+      return { ...rest, id, ...(palette && seenPal.has(palette) ? { palette } : {}) };
+    });
+  const seenOp = new Set<string>();
+  const operations = arr<Partial<Operation>>(p.operations)
+    .slice(0, 30)
+    .map((o, i) => {
+      const name = str(o?.name, 60);
+      const base = str(o?.id, 40).replace(/[^a-z0-9-]/g, '') || `occasion-${i + 1}`;
+      let id = base;
+      for (let n = 2; seenOp.has(id); n++) id = `${base}-${n}`;
+      seenOp.add(id);
+      const targets = arr<Partial<Target>>(o?.targets)
+        .slice(0, 20)
+        .map((t) => ({
+          ...(str(t?.channel, 40) ? { channel: str(t?.channel, 40) } : {}),
+          format: str(t?.format, 40),
+          ...(str(t?.palette, 40) ? { palette: str(t?.palette, 40) } : {}),
+        }))
+        .filter((t) => t.format);
+      return { id, name, targets };
+    })
+    .filter((o) => o.name);
+  const keywords = (Array.isArray(p.branding?.keywords) ? p.branding!.keywords : [])
+    .map((k) => str(k, 40))
+    .filter(Boolean)
+    .slice(0, 30);
+  return {
+    ...(str(p.kind, 60) ? { kind: str(p.kind, 60) } : {}),
+    services: { events: cleanLinks(p.services?.events), assets: cleanLinks(p.services?.assets) },
+    branding: { palettes, fonts, purpose: str(p.branding?.purpose, 2000), keywords, mentions },
+    channels,
+    ...(Array.isArray(p.operations) ? { operations } : {}),
+  };
+}
+
 export class Accounts {
   private db: DatabaseSync;
 
@@ -76,7 +277,27 @@ export class Accounts {
         PRIMARY KEY (team, email)
       );
       CREATE INDEX IF NOT EXISTS members_email ON members(email);
+      CREATE TABLE IF NOT EXISTS campaigns (
+        team TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, data TEXT,
+        created TEXT NOT NULL, by TEXT, closed TEXT,
+        PRIMARY KEY (team, id)
+      );
+      CREATE TABLE IF NOT EXISTS votes (
+        team TEXT NOT NULL, atelier TEXT NOT NULL, email TEXT NOT NULL, at TEXT NOT NULL,
+        PRIMARY KEY (team, atelier, email)
+      );
     `);
+    // colonnes ajoutées après coup : fiche d'activité, logo, photo de profil
+    this.addColumn('teams', 'profile', 'TEXT');
+    this.addColumn('teams', 'logo', 'TEXT');
+    this.addColumn('teams', 'updated', 'TEXT');
+    this.addColumn('teams', 'logos', 'TEXT');
+    this.addColumn('users', 'picture', 'TEXT');
+  }
+
+  private addColumn(table: string, column: string, type: string) {
+    const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[];
+    if (!cols.some((c) => c.name === column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   }
 
   close() {
@@ -116,6 +337,85 @@ export class Accounts {
     const clean = name.trim().slice(0, 80);
     if (!clean) throw new Error('Nom d’équipe manquant');
     if (!this.db.prepare('UPDATE teams SET name = ? WHERE id = ?').run(clean, id).changes) throw new Error('Équipe introuvable');
+  }
+
+  /* ---------- fiche d'activité ---------- */
+
+  /** Fiche de l'activité (type, services, branding) ; vide tant que personne ne l'a remplie. */
+  profile(id: string): ActivityProfile {
+    const r = this.db.prepare('SELECT profile FROM teams WHERE id = ?').get(id) as Row | undefined;
+    if (!r) throw new Error('Équipe introuvable');
+    try {
+      return r.profile ? (JSON.parse(String(r.profile)) as ActivityProfile) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  setProfile(id: string, profile: ActivityProfile) {
+    const clean = cleanProfile(profile);
+    const now = new Date().toISOString();
+    if (!this.db.prepare('UPDATE teams SET profile = ?, updated = ? WHERE id = ?').run(JSON.stringify(clean), now, id).changes) throw new Error('Équipe introuvable');
+    return clean;
+  }
+
+  /** Logo (ou une de ses variantes) en data URL : PNG, JPEG, SVG ou WebP ; null pour l'enlever. */
+  setLogo(id: string, dataUrl: string | null, variant: LogoVariant = 'main') {
+    if (!(LOGO_VARIANTS as readonly string[]).includes(variant)) throw new Error(`Variante de logo inconnue : ${variant}`);
+    if (dataUrl !== null) {
+      if (!/^data:image\/(png|jpeg|svg\+xml|webp);base64,[A-Za-z0-9+/=]+$/.test(dataUrl)) throw new Error('Logo attendu : image PNG, JPEG, SVG ou WebP');
+      if (dataUrl.length > 1_500_000) throw new Error('Logo trop lourd (1 Mo au plus)');
+    }
+    const now = new Date().toISOString();
+    if (variant === 'main') {
+      if (!this.db.prepare('UPDATE teams SET logo = ?, updated = ? WHERE id = ?').run(dataUrl, now, id).changes) throw new Error('Équipe introuvable');
+      return;
+    }
+    const others = { ...this.variants(id) };
+    if (dataUrl === null) delete others[variant];
+    else others[variant] = dataUrl;
+    if (!this.db.prepare('UPDATE teams SET logos = ?, updated = ? WHERE id = ?').run(JSON.stringify(others), now, id).changes) throw new Error('Équipe introuvable');
+  }
+
+  private variants(id: string): Partial<Record<LogoVariant, string>> {
+    const r = this.db.prepare('SELECT logos FROM teams WHERE id = ?').get(id) as Row | undefined;
+    try {
+      return r?.logos ? JSON.parse(String(r.logos)) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  logo(id: string, variant: LogoVariant = 'main'): { type: string; data: Buffer } | null {
+    let url: string | undefined;
+    if (variant === 'main') {
+      const r = this.db.prepare('SELECT logo FROM teams WHERE id = ?').get(id) as Row | undefined;
+      url = r?.logo ? String(r.logo) : undefined;
+    } else url = this.variants(id)[variant];
+    const m = url ? url.match(/^data:([^;]+);base64,(.+)$/) : null;
+    return m ? { type: m[1]!, data: Buffer.from(m[2]!, 'base64') } : null;
+  }
+
+  /** Variantes de logo présentes (hors logo principal). */
+  logoVariants(id: string): LogoVariant[] {
+    return Object.keys(this.variants(id)) as LogoVariant[];
+  }
+
+  /** Pour les menus : a-t-elle un logo, et sa version (pour le cache du navigateur). */
+  looks(id: string): { logo: boolean; updated?: string; kind?: string } {
+    const r = this.db.prepare('SELECT logo IS NOT NULL AS has, updated, profile FROM teams WHERE id = ?').get(id) as Row | undefined;
+    let kind: string | undefined;
+    try {
+      kind = r?.profile ? (JSON.parse(String(r.profile)) as ActivityProfile).kind : undefined;
+    } catch {
+      kind = undefined;
+    }
+    return { logo: !!r?.has, ...(r?.updated ? { updated: String(r.updated) } : {}), ...(kind ? { kind } : {}) };
+  }
+
+  picture(email: string): string | undefined {
+    const r = this.db.prepare('SELECT picture FROM users WHERE email = ?').get(normEmail(email)) as Row | undefined;
+    return r?.picture ? String(r.picture) : undefined;
   }
 
   /* ---------- membres ---------- */
@@ -198,15 +498,112 @@ export class Accounts {
   }
 
   /** À chaque connexion : retient le nom et l'heure, et transforme les invitations en adhésions. */
-  signedIn(email: string, name?: string) {
+  signedIn(email: string, name?: string, picture?: string) {
     const e = normEmail(email);
     const now = new Date().toISOString();
+    const pic = picture && /^https:\/\//.test(picture) ? picture : null;
     this.db
       .prepare(
-        `INSERT INTO users (email, name, created, last_seen) VALUES (?, ?, ?, ?)
-         ON CONFLICT(email) DO UPDATE SET name = COALESCE(excluded.name, users.name), last_seen = excluded.last_seen`,
+        `INSERT INTO users (email, name, created, last_seen, picture) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(email) DO UPDATE SET name = COALESCE(excluded.name, users.name), last_seen = excluded.last_seen,
+           picture = COALESCE(excluded.picture, users.picture)`,
       )
-      .run(e, name ?? null, now, now);
+      .run(e, name ?? null, now, now, pic);
     this.db.prepare('UPDATE members SET joined = ? WHERE email = ? AND joined IS NULL').run(now, e);
   }
+
+  /* ---------- campagnes et votes ---------- */
+
+  campaigns(team: string): Campaign[] {
+    const rows = this.db.prepare('SELECT * FROM campaigns WHERE team = ? ORDER BY closed IS NOT NULL, created DESC').all(team) as Row[];
+    return rows.map(campaignOf);
+  }
+
+  campaign(team: string, id: string): Campaign | undefined {
+    const r = this.db.prepare('SELECT * FROM campaigns WHERE team = ? AND id = ?').get(team, id) as Row | undefined;
+    return r ? campaignOf(r) : undefined;
+  }
+
+  createCampaign(team: string, input: CampaignInput, by?: string): Campaign {
+    const name = str(input.name, 80);
+    if (!name) throw new Error('Nom de campagne attendu');
+    const base = teamIdFrom(name) || 'campagne';
+    let id = base;
+    for (let n = 2; this.campaign(team, id); n++) id = `${base}-${n}`;
+    this.db.prepare('INSERT INTO campaigns (team, id, name, data, created, by) VALUES (?, ?, ?, ?, ?, ?)').run(team, id, name, JSON.stringify(cleanCampaign(input)), new Date().toISOString(), by ?? null);
+    return this.campaign(team, id)!;
+  }
+
+  updateCampaign(team: string, id: string, input: CampaignInput & { closed?: boolean }): Campaign {
+    const cur = this.campaign(team, id);
+    if (!cur) throw new Error('Campagne introuvable');
+    const name = str(input.name, 80) || cur.name;
+    const data = cleanCampaign({ operation: cur.operation, date: cur.date, place: cur.place, note: cur.note, ...input });
+    const closed = input.closed === undefined ? (cur.closed ?? null) : input.closed ? (cur.closed ?? new Date().toISOString()) : null;
+    this.db.prepare('UPDATE campaigns SET name = ?, data = ?, closed = ? WHERE team = ? AND id = ?').run(name, JSON.stringify(data), closed, team, id);
+    return this.campaign(team, id)!;
+  }
+
+  /** Votes de l'équipe : composition → adresses des votants. */
+  votes(team: string): Map<string, string[]> {
+    const out = new Map<string, string[]>();
+    for (const r of this.db.prepare('SELECT atelier, email FROM votes WHERE team = ? ORDER BY at').all(team) as Row[]) {
+      const k = String(r.atelier);
+      out.set(k, [...(out.get(k) ?? []), String(r.email)]);
+    }
+    return out;
+  }
+
+  vote(team: string, atelier: string, email: string, on: boolean) {
+    if (on) this.db.prepare('INSERT OR IGNORE INTO votes (team, atelier, email, at) VALUES (?, ?, ?, ?)').run(team, atelier, normEmail(email), new Date().toISOString());
+    else this.db.prepare('DELETE FROM votes WHERE team = ? AND atelier = ? AND email = ?').run(team, atelier, normEmail(email));
+    return this.votes(team).get(atelier) ?? [];
+  }
+
+  forgetVotes(team: string, atelier: string) {
+    this.db.prepare('DELETE FROM votes WHERE team = ? AND atelier = ?').run(team, atelier);
+  }
+}
+
+/** Campagne : un temps de communication (souvent la promotion d'un évènement) où chacun propose des documents et vote. */
+export interface Campaign {
+  id: string;
+  name: string;
+  /** Occasion dont partent ses documents (concert…). */
+  operation?: string;
+  /** Date de l'évènement promu (AAAA-MM-JJ). */
+  date?: string;
+  place?: string;
+  note?: string;
+  created: string;
+  by?: string;
+  closed?: string;
+}
+export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'note'>>;
+
+function cleanCampaign(c: CampaignInput) {
+  const date = str(c.date, 10);
+  return {
+    ...(str(c.operation, 40) ? { operation: str(c.operation, 40) } : {}),
+    ...(/^\d{4}-\d{2}-\d{2}$/.test(date) ? { date } : {}),
+    ...(str(c.place, 120) ? { place: str(c.place, 120) } : {}),
+    ...(str(c.note, 1000) ? { note: str(c.note, 1000) } : {}),
+  };
+}
+
+function campaignOf(r: Row): Campaign {
+  let data: CampaignInput = {};
+  try {
+    data = JSON.parse(String(r.data ?? '{}'));
+  } catch {
+    /* données abîmées : ignorées */
+  }
+  return {
+    id: String(r.id),
+    name: String(r.name),
+    ...cleanCampaign(data),
+    created: String(r.created),
+    ...(r.by ? { by: String(r.by) } : {}),
+    ...(r.closed ? { closed: String(r.closed) } : {}),
+  };
 }

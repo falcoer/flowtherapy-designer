@@ -24,7 +24,11 @@ import { blankDoc } from './blank';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
-import { fetchMe, listAteliers, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta, type Me } from './server';
+import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
+import { createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me } from './server';
+import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, targetLabel } from './targets';
+import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
+import { CampaignBar, VoteButton } from './campaigns-ui';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
@@ -95,7 +99,7 @@ const EDIT_SECTIONS: Array<[EditTool, string, string]> = [
   ['edge', 'Bords', 'frame'],
 ];
 const isEdit = (t: Tool): t is EditTool => EDIT_SECTIONS.some(([k]) => k === t);
-type Bubble = 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'anchor' | 'projects' | 'export' | null;
+type Bubble = 'activity' | 'activity-edit' | 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'anchor' | 'projects' | 'export' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc-v2';
@@ -400,6 +404,36 @@ export function App() {
   useEffect(() => {
     if (online) fetchMe().then(setMe, () => setMe(null));
   }, [online]);
+  // fiche de l'activité : canaux, palettes (pour partir d'un canal)
+  const [activity, setActivity] = useState<ActivityProfile | null>(null);
+  const loadActivity = () => {
+    if (me?.team) fetchProfile(me.team.id).then(setActivity, () => setActivity(null));
+    else setActivity(null);
+  };
+  useEffect(loadActivity, [me?.team?.id]);
+  // campagnes de l'activité, et celle que l'on suit (retenue par activité dans ce navigateur)
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const campaignKey = `ftd-campagne-${me?.team?.id ?? ''}`;
+  const [campaign, setCampaignRaw] = useState('');
+  const setCampaign = (id: string) => {
+    setCampaignRaw(id);
+    try {
+      localStorage.setItem(campaignKey, id);
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  const loadCampaigns = () => {
+    if (online && me?.team) listCampaigns().then(setCampaigns, () => setCampaigns([]));
+  };
+  useEffect(() => {
+    loadCampaigns();
+    try {
+      setCampaignRaw(localStorage.getItem(campaignKey) ?? '');
+    } catch {
+      setCampaignRaw('');
+    }
+  }, [online, me?.team?.id]);
   const [reviewNote, setReviewNote] = useState('');
   const refreshProjects = () => void listAteliers().then(setProjects, () => {});
   /** Petite image de la composition pour la liste. */
@@ -488,9 +522,12 @@ export function App() {
       setToast(`Impossible : ${(err as Error).message}`);
     }
   };
-  const newProject = async (title: string, fromCurrent: boolean) => {
+  const newProject = async (title: string, fromCurrent: boolean, op?: Operation) => {
     const p = { id: newAtelierId(title), title };
-    const d = fromCurrent ? docRef.current : { ...blankDoc(), formatId: docRef.current.formatId, frame: docRef.current.frame, guides: docRef.current.guides };
+    const base = fromCurrent ? docRef.current : op ? operationDoc(op) : { ...blankDoc(), formatId: docRef.current.formatId, frame: docRef.current.frame, guides: docRef.current.guides };
+    // un nouveau document contribue à la campagne suivie
+    const d = campaign && !base.campaign ? { ...base, campaign } : base;
+    if (fromCurrent && d !== base) setDoc(d);
     if (!fromCurrent) {
       forgetPaint();
       past.current = [];
@@ -502,21 +539,54 @@ export function App() {
     await saveNow(p, d);
     refreshProjects();
   };
+  /** Page vierge pour une occasion : ses cibles, la première affichée avec son format, sa marge et sa variante. */
+  const operationDoc = (op: Operation): Doc => {
+    const t = op.targets[0]!;
+    const pal = paletteFor(t, activity);
+    const base: Doc = { ...blankDoc(), frame: docRef.current.frame, guides: pal ? paletteGuides(pal) : docRef.current.guides };
+    return { ...docForTarget(base, t, activity), formatId: t.format, targets: op.targets.map((x) => ({ ...x })), target: 0, operation: op.id };
+  };
+  /** Affiche une cible : format (les objets gardent leurs accroches), marge du média, couleurs de la variante. */
+  const showTarget = (i: number) =>
+    setDoc((d) => {
+      const t = d.targets?.[i];
+      if (!t) return d;
+      const moved = d.formatId === t.format ? d : holdPins({ ...d, formatId: t.format }, formatOf(t.format), linkShapes(d, formatOf(d.formatId)));
+      return { ...docForTarget(moved, t, activity), target: i };
+    });
+  const channels = channelsOf(activity);
+  const allOperations = operationsOf(activity);
+  const followed = campaigns.find((c) => c.id === campaign);
+  // l'occasion de la campagne suivie vient en premier
+  const operations = followed?.operation ? [...allOperations.filter((o) => o.id === followed.operation), ...allOperations.filter((o) => o.id !== followed.operation)] : allOperations;
+  // dans une campagne : ses compositions, les plus votées d'abord
+  const shownProjects = campaign ? projects.filter((m) => m.campaign === campaign).sort((a, b) => (b.votes?.length ?? 0) - (a.votes?.length ?? 0) || b.updated.localeCompare(a.updated)) : projects;
+  const palettes = palettesOf(activity);
+  const activeTarget = doc.targets?.[doc.target ?? 0];
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
 
   // --- export ---
   const [exportFormats, setExportFormats] = useState<string[]>([]);
   const [exportKind, setExportKind] = useState<'png' | 'pdf'>('png');
   const [exporting, setExporting] = useState(false);
+  const [exportTargets, setExportTargets] = useState<number[]>([]);
   const runExport = async () => {
-    const list = FORMATS.filter((x) => (exportFormats.length ? exportFormats : [doc.formatId]).includes(x.id));
+    const d0 = docRef.current;
+    // avec des cibles : chacune dans son format et sa variante ; sinon les formats cochés
+    const jobs = d0.targets?.length
+      ? exportTargets
+          .map((i) => d0.targets![i])
+          .filter((t): t is NonNullable<typeof t> => !!t)
+          .map((t) => ({ ff: formatOf(t.format), d: docForTarget(d0, t, activity), name: [project?.title ?? 'composition', t.channel].filter(Boolean).join(' ') }))
+      : FORMATS.filter((x) => (exportFormats.length ? exportFormats : [d0.formatId]).includes(x.id)).map((ff) => ({ ff, d: d0, name: project?.title ?? 'composition' }));
+    const list = jobs;
     setExporting(true);
     try {
-      for (const ff of list) {
+      for (const { ff, d, name } of jobs) {
         setToast(`Export ${ff.title}…`);
-        const c = await renderDoc(docRef.current, ff);
+        const c = await renderDoc(d, ff);
         const blob = exportKind === 'pdf' ? await pdfOf(c, ff) : await pngOf(c);
-        await download(blob, fileName(project?.title ?? 'composition', ff, exportKind));
+        await download(blob, fileName(name, ff, exportKind));
       }
       setToast(list.length > 1 ? `${list.length} fichiers exportés` : 'Fichier exporté');
     } catch (err) {
@@ -3841,6 +3911,17 @@ export function App() {
               </button>
             </div>
             <div className="bar-left">
+              {/* l'activité pour laquelle l'outil existe : son menu (fiche, profil, préférences, déconnexion) */}
+              <button
+                className={`btn act-btn ${bubble === 'activity' || bubble === 'activity-edit' ? 'on' : ''}`}
+                onClick={() => {
+                  if (bubble !== 'activity' && online) fetchMe().then(setMe, () => {});
+                  setBubble(bubble === 'activity' ? null : 'activity');
+                }}
+                title={me?.team ? `${me.team.name} : activité, profil, préférences` : 'Activité, profil, préférences'}
+              >
+                <ActivityMark team={me?.team} size={30} />
+              </button>
               <button
                 className={`chip project-chip ${bubble === 'projects' ? 'on' : ''}`}
                 onClick={() => {
@@ -3853,7 +3934,7 @@ export function App() {
                 {online && project && <span className={`save-dot ${saving}`} title={{ saved: 'Enregistrée', dirty: 'Modifications en attente', saving: 'Enregistrement…', error: 'Non enregistrée' }[saving]} />}
               </button>
               <button className={`chip ${bubble === 'format' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'format' ? null : 'format')}>
-                <FormatGlyph w={f.width} h={f.height} /> <span className="chip-label">{f.title}</span>
+                <FormatGlyph w={f.width} h={f.height} /> <span className="chip-label">{activeTarget ? targetLabel(activeTarget, activity) : f.title}</span>
               </button>
               <button className={`btn ${bubble === 'anchor' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'anchor' ? null : 'anchor')} title="Aide au positionnement : repères, densité, marge">
                 <Icon name="layout" />
@@ -3870,13 +3951,13 @@ export function App() {
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
               <span className="sep" />
-              <button className={`btn ${bubble === 'prefs' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'prefs' ? null : 'prefs')} title="Préférences : affichage, compte, système">
-                <Icon name="settings" />
-              </button>
               <button
                 className={`btn ${bubble === 'export' ? 'on' : ''}`}
                 onClick={() => {
-                  if (bubble !== 'export') setExportFormats([doc.formatId]);
+                  if (bubble !== 'export') {
+                    setExportFormats([doc.formatId]);
+                    setExportTargets((doc.targets ?? []).map((_, i) => i));
+                  }
                   setBubble(bubble === 'export' ? null : 'export');
                 }}
                 title="Exporter en PNG ou PDF, dans un ou plusieurs formats"
@@ -4309,9 +4390,29 @@ export function App() {
 
           {bubble === 'projects' && (
             <div className="bubble projects-bubble">
-              <div className="b-title">Composition</div>
+              {online && me?.team ? <div className="b-title">Campagne</div> : <div className="b-title">Composition</div>}
               {online ? (
                 <>
+                  {me?.team && (
+                    <CampaignBar
+                      campaigns={campaigns}
+                      current={campaign}
+                      setCurrent={setCampaign}
+                      canEdit={me.team.role !== 'viewer'}
+                      operations={operations}
+                      counts={projects.reduce<Record<string, number>>((o, m) => (m.campaign ? { ...o, [m.campaign]: (o[m.campaign] ?? 0) + 1 } : o), {})}
+                      create={async (c: CampaignInput) => {
+                        const x = await createCampaign(c);
+                        setCampaigns((l) => [x, ...l]);
+                        setCampaign(x.id);
+                      }}
+                      update={async (id, c) => {
+                        const x = await updateCampaign(id, c);
+                        setCampaigns((l) => l.map((y) => (y.id === id ? x : y)));
+                      }}
+                    />
+                  )}
+                  {me?.team && <div className="b-title">Composition</div>}
                   <div className="proj-current">
                     <input className="proj-title" value={project?.title ?? ''} placeholder="Titre de la composition" onChange={(e) => project && setProject({ ...project, title: e.target.value })} disabled={!project} />
                     {project ? (
@@ -4324,6 +4425,20 @@ export function App() {
                       </button>
                     )}
                   </div>
+                  {project && me?.team && me.team.role !== 'viewer' && campaigns.length > 0 && (
+                    <label className="proj-camp">
+                      <span>Campagne</span>
+                      <select className="pf-input" value={doc.campaign ?? ''} onChange={(e) => setDoc((d) => ({ ...d, campaign: e.target.value || undefined }))}>
+                        <option value="">Aucune</option>
+                        {campaigns.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                            {c.closed ? ' (close)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   {project &&
                     me?.team &&
                     (() => {
@@ -4372,9 +4487,21 @@ export function App() {
                     <span>Nouvelle composition</span>
                     <small>page vierge, même format et palette</small>
                   </button>
-                  <div className="b-title">{me?.team ? `Compositions · ${me.team.name}` : 'Compositions du groupe'}</div>
+                  {operations.length > 0 && (
+                    <div className="proj-channels">
+                      <div className="b-sub">ou pour une occasion</div>
+                      {operations.map((op) => (
+                        <button key={op.id} className="row" onClick={() => void newProject(op.name, false, op)}>
+                          <Icon name="plus" />
+                          <span>{op.name}</span>
+                          <small>{op.targets.map((t) => targetLabel(t, activity)).join(', ')}</small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="b-title">{followed ? `Compositions · ${followed.name}` : me?.team ? `Compositions · ${me.team.name}` : 'Compositions du groupe'}</div>
                   <div className="proj-list">
-                    {projects.map((m) => (
+                    {shownProjects.map((m) => (
                       <div key={m.id} className={`proj ${m.id === project?.id ? 'on' : ''}`}>
                         <button className="proj-open" onClick={() => void openProject(m)} title={`Ouvrir « ${m.title} »`}>
                           <img src={thumbUrl(m)} alt="" loading="lazy" />
@@ -4383,8 +4510,21 @@ export function App() {
                           <small>
                             {new Date(m.updated).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
                             {m.by ? ` · ${m.by.split('@')[0]}` : ''}
+                            {!campaign && m.campaign ? ` · ${campaigns.find((c) => c.id === m.campaign)?.name ?? ''}` : ''}
                           </small>
                         </button>
+                        {me?.team && (
+                          <VoteButton
+                            votes={m.votes ?? []}
+                            voted={!!m.voted}
+                            onVote={() =>
+                              void voteAtelier(m.id, !m.voted).then(
+                                (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
+                                (e: Error) => setToast(`Vote impossible : ${e.message}`),
+                              )
+                            }
+                          />
+                        )}
                         <button
                           className={`proj-del ${confirmDel === m.id ? 'hot' : ''}`}
                           title={confirmDel === m.id ? 'Toucher encore pour supprimer' : 'Supprimer'}
@@ -4402,7 +4542,7 @@ export function App() {
                         </button>
                       </div>
                     ))}
-                    {!projects.length && <p className="fx-hint">Aucune composition enregistrée pour l’instant.</p>}
+                    {!shownProjects.length && <p className="fx-hint">{campaign ? 'Aucune composition dans cette campagne pour l’instant : crée la première.' : 'Aucune composition enregistrée pour l’instant.'}</p>}
                   </div>
                 </>
               ) : (
@@ -4443,8 +4583,22 @@ export function App() {
                   </button>
                 ))}
               </div>
-              <div className="b-title">Formats</div>
-              {FORMATS.map((x) => {
+              <div className="b-title">{doc.targets?.length ? 'Cibles' : 'Formats'}</div>
+              {doc.targets?.map((t, i) => {
+                const on = exportTargets.includes(i);
+                const x = formatOf(t.format);
+                const sz = exportSize(x);
+                return (
+                  <button key={i} className={`row ${on ? 'on' : ''}`} onClick={() => setExportTargets(on ? exportTargets.filter((y) => y !== i) : [...exportTargets, i])}>
+                    <MediaIcon ch={channels.find((c) => c.id === t.channel)} />
+                    <span>{targetLabel(t, activity)}</span>
+                    <small className="tg-pal">
+                      {sz.w} × {sz.h} px <VariantBar pal={paletteFor(t, activity)} />
+                    </small>
+                  </button>
+                );
+              })}
+              {!doc.targets?.length && FORMATS.map((x) => {
                 const on = exportFormats.includes(x.id);
                 const sz = exportSize(x);
                 return (
@@ -4464,6 +4618,13 @@ export function App() {
             </div>
           )}
 
+          {bubble === 'activity' && <ActivityMenu me={me} online={online} onEdit={() => setBubble('activity-edit')} onPrefs={() => setBubble('prefs')} />}
+          {bubble === 'activity-edit' && me?.team && (
+            <ActivityForm me={me} onClose={() => setBubble(null)} onSaved={() => {
+              void fetchMe().then(setMe, () => {});
+              loadActivity();
+            }} />
+          )}
           {bubble === 'prefs' && (
             <PrefsPanel
               online={online}
@@ -4496,16 +4657,40 @@ export function App() {
           )}
           {bubble === 'format' && (
             <div className="bubble format-bubble">
-              <div className="b-title">Format</div>
-              {FORMATS.map((x) => (
-                <button key={x.id} className={`row ${x.id === f.id ? 'on' : ''}`} onClick={() => setDoc((d) => holdPins({ ...d, formatId: x.id }, x, linkShapes(d, formatOf(d.formatId))))}>
-                  <FormatGlyph w={x.width} h={x.height} big />
-                  <span>{x.title}</span>
-                  <small>
-                    {x.width} × {x.height} {x.unit}
-                  </small>
-                </button>
-              ))}
+              <div className="b-title">Cibles du document</div>
+              {!doc.targets?.length && <p className="b-note">Choisis où partira ce document : un média, un format, une variante de couleurs.</p>}
+              <TargetsPanel
+                targets={doc.targets ?? []}
+                active={doc.target ?? 0}
+                activity={activity}
+                onShow={showTarget}
+                onRemove={(i) =>
+                  setDoc((d) => {
+                    const targets = (d.targets ?? []).filter((_, j) => j !== i);
+                    const cur = d.target ?? 0;
+                    return { ...d, targets, target: Math.max(0, cur > i ? cur - 1 : Math.min(cur, targets.length - 1)) };
+                  })
+                }
+                onAdd={(t) => {
+                  const i = doc.targets?.length ?? 0;
+                  setDoc((d) => ({ ...d, targets: [...(d.targets ?? []), t] }));
+                  showTarget(i);
+                }}
+              />
+              {!doc.targets?.length && (
+                <>
+                  <div className="b-title">Format libre</div>
+                  {FORMATS.map((x) => (
+                    <button key={x.id} className={`row ${x.id === f.id ? 'on' : ''}`} onClick={() => setDoc((d) => holdPins({ ...d, formatId: x.id }, x, linkShapes(d, formatOf(d.formatId))))}>
+                      <FormatGlyph w={x.width} h={x.height} big />
+                      <span>{x.title}</span>
+                      <small>
+                        {x.width} × {x.height} {x.unit}
+                      </small>
+                    </button>
+                  ))}
+                </>
+              )}
               <button
                 className="row danger"
                 onClick={() => {

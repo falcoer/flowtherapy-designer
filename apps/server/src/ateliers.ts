@@ -11,6 +11,8 @@ export interface AtelierMeta {
   updated: string;
   by?: string;
   formatId?: string;
+  /** Campagne à laquelle la composition contribue. */
+  campaign?: string;
   /** Circuit de validation : proposée aux responsables, validée, ou à revoir. */
   review?: Review;
 }
@@ -55,7 +57,7 @@ export class Ateliers {
   }
 
   async write(id: string, input: { title?: string; doc?: unknown; thumb?: string }, by?: string): Promise<AtelierMeta> {
-    const doc = input.doc as { formatId?: unknown; layers?: unknown } | undefined;
+    const doc = input.doc as { formatId?: unknown; layers?: unknown; campaign?: unknown } | undefined;
     if (!doc || typeof doc !== 'object' || !Array.isArray(doc.layers)) throw new Error('Document d’atelier attendu (couches manquantes)');
     await mkdir(this.root, { recursive: true });
     // l'état de validation suit la composition d'un enregistrement à l'autre
@@ -66,6 +68,7 @@ export class Ateliers {
       updated: new Date().toISOString(),
       ...(by ? { by } : {}),
       ...(typeof doc.formatId === 'string' ? { formatId: doc.formatId } : {}),
+      ...(typeof doc.campaign === 'string' && ID.test(doc.campaign) ? { campaign: doc.campaign } : {}),
       ...(previous?.review ? { review: previous.review } : {}),
     };
     // écriture atomique : un fichier temporaire puis renommage

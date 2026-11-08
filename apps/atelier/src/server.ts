@@ -7,6 +7,11 @@ export interface AtelierMeta {
   updated: string;
   by?: string;
   formatId?: string;
+  /** Campagne à laquelle elle contribue. */
+  campaign?: string;
+  /** Adresses des membres qui ont voté pour elle, et si l'on en fait partie. */
+  votes?: string[];
+  voted?: boolean;
   /** Circuit de validation : proposée aux responsables, validée, ou à revoir. */
   review?: {
     status: 'proposed' | 'approved' | 'changes';
@@ -52,6 +57,23 @@ export const listAteliers = () => call<AtelierMeta[]>('/api/ateliers');
 export const readAtelier = (id: string) => call<AtelierMeta & { doc: Doc }>(`/api/ateliers/${id}`);
 export const saveAtelier = (id: string, title: string, doc: Doc, thumb?: string) =>
   call<{ meta: AtelierMeta }>(`/api/ateliers/${id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, doc, thumb }, compact) }).then((r) => r.meta);
+/** Campagne : un temps de communication (souvent la promotion d'un évènement) où chacun propose des documents et vote. */
+export interface Campaign {
+  id: string;
+  name: string;
+  operation?: string;
+  date?: string;
+  place?: string;
+  note?: string;
+  created: string;
+  by?: string;
+  closed?: string;
+}
+export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'note'>> & { closed?: boolean };
+export const listCampaigns = () => call<Campaign[]>('/api/campaigns');
+export const createCampaign = (c: CampaignInput) => call<{ campaign: Campaign }>('/api/campaigns', json('POST', c)).then((r) => r.campaign);
+export const updateCampaign = (id: string, c: CampaignInput) => call<{ campaign: Campaign }>(`/api/campaigns/${id}`, json('PATCH', c)).then((r) => r.campaign);
+export const voteAtelier = (id: string, on: boolean) => call<{ votes: string[]; voted: boolean }>(`/api/ateliers/${id}/vote`, json('POST', { on }));
 export const proposeAtelier = (id: string, note?: string) =>
   call<{ meta: AtelierMeta; mailed: boolean; notified: number }>(`/api/ateliers/${id}/propose`, {
     method: 'POST',
@@ -96,12 +118,96 @@ export interface TeamRef {
   id: string;
   name: string;
   role: Role;
+  /** Type d'activité (groupe musical…). */
+  kind?: string;
+  /** Adresse du logo, s'il y en a un. */
+  logo?: string;
 }
+
+/** Une source, un compte ou un module relié à l'activité. */
+export interface ServiceLink {
+  name: string;
+  url?: string;
+}
+export type ColorRole = 'fond' | 'texte' | 'accent' | 'secondaire';
+export type LogoVariant = 'main' | 'light' | 'dark' | 'icon';
+export type ChannelKind = 'social' | 'affichage' | 'impression' | 'email' | 'site';
+export interface PaletteColor {
+  hex: string;
+  name?: string;
+  role?: ColorRole;
+}
+export interface Palette {
+  id: string;
+  name: string;
+  colors: PaletteColor[];
+}
+/** Palettes de la fiche, l'ancienne palette unique comprise. */
+export const palettesOf = (p?: ActivityProfile | null): Palette[] =>
+  p?.branding?.palettes ?? (p?.branding?.palette?.length ? [{ id: 'principale', name: 'Principale', colors: p.branding.palette }] : []);
+/** Canal de communication : où part le support, et ce que cela impose (formats, marge, logo, mentions). */
+export interface Channel {
+  id: string;
+  name: string;
+  kind: ChannelKind;
+  formats: string[];
+  margin?: number;
+  /** Zone d'intérêt : description libre en attendant l'outil. */
+  focus?: string;
+  logo?: LogoVariant;
+  /** Palette du canal, sinon la première. */
+  palette?: string;
+  mentions?: string[];
+  url?: string;
+}
+/** Une cible d'un document : un média, un format compatible, une variante de couleurs. */
+export interface Target {
+  channel?: string;
+  format: string;
+  palette?: string;
+}
+/** Occasion (concert, nouvelle musique…) et ses cibles. */
+export interface Operation {
+  id: string;
+  name: string;
+  targets: Target[];
+}
+/** Fiche de l'activité : identité, branding général, canaux, services. */
+export interface ActivityProfile {
+  id: string;
+  name: string;
+  kind?: string;
+  services?: { events?: ServiceLink[]; assets?: ServiceLink[] };
+  branding?: {
+    /** Palettes nommées ; la première sert par défaut. */
+    palettes?: Palette[];
+    /** Ancienne forme, une seule palette. */
+    palette?: PaletteColor[];
+    fonts?: { title?: string; body?: string; accent?: string };
+    purpose?: string;
+    keywords?: string[];
+    mentions?: Array<{ name: string; text: string }>;
+  };
+  channels?: Channel[];
+  /** Occasions : cibles présélectionnées d'un nouveau document. */
+  operations?: Operation[];
+  /** Adresses des logos présents, par variante. */
+  logos?: Partial<Record<LogoVariant, string>>;
+}
+export const fetchProfile = (team: string) => call<ActivityProfile>(`/api/teams/${encodeURIComponent(team)}/profile`);
+export const saveProfile = (team: string, p: Omit<ActivityProfile, 'id' | 'logos'> & { logo?: string | null; logos?: Partial<Record<Exclude<LogoVariant, 'main'>, string | null>> }) =>
+  call<{ profile: ActivityProfile }>(`/api/teams/${encodeURIComponent(team)}/profile`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(p),
+  });
 
 /** Qui est connecté : compte (Google, Apple), accès partagé par mot de passe, ou poste local. */
 export interface Me {
   email?: string;
   name?: string;
+  /** Photo du compte Google. */
+  picture?: string;
   admin: boolean;
   mode: 'compte' | 'mot-de-passe' | 'local';
   /** Équipe active : ses compositions et ses objets. */
