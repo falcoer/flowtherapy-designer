@@ -61,7 +61,7 @@ function gradCanvas(g: Extract<Guide, { type: 'gradient' }>, s: GradShape, ar: n
   const key = JSON.stringify([g.stops, g.blend, s, Math.round(ar * 50) / 50]);
   const hit = cache.get(key);
   if (hit) return hit;
-  const R = 160;
+  const R = 256;
   const W = Math.max(8, Math.round(ar >= 1 ? R : R * ar));
   const H = Math.max(8, Math.round(ar >= 1 ? R / ar : R));
   const c =
@@ -93,12 +93,13 @@ function gradCanvas(g: Extract<Guide, { type: 'gradient' }>, s: GradShape, ar: n
 
 type Box = { x0: number; y0: number; x1: number; y1: number };
 
-/** Remplissage d'un dégradé mis en forme sur une boîte ; null si le guide n'a pas de forme (ancien dégradé). */
-export function shapedFill(ctx: CanvasRenderingContext2D, g: Guide | undefined, box: Box): CanvasPattern | null {
-  if (g?.type !== 'gradient' || !g.shape) return null;
+/** Remplissage d'un dégradé mis en forme sur une boîte (la forme de l'objet, sinon celle du guide) ; null sans forme (ancien dégradé). */
+export function shapedFill(ctx: CanvasRenderingContext2D, g: Guide | undefined, box: Box, own?: GradShape): CanvasPattern | null {
+  const shape = own ?? (g?.type === 'gradient' ? g.shape : undefined);
+  if (g?.type !== 'gradient' || !shape) return null;
   const w = Math.max(1e-6, box.x1 - box.x0);
   const h = Math.max(1e-6, box.y1 - box.y0);
-  const c = gradCanvas(g, g.shape, w / h);
+  const c = gradCanvas(g, shape, w / h);
   const pat = ctx.createPattern(c as CanvasImageSource, 'no-repeat');
   if (!pat) return null;
   const span = 1 + 2 * PAD;

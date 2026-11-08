@@ -1111,7 +1111,7 @@ function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
     }
   } else {
     const g = doc.guides[l.guide];
-    const shaped = shapedFill(ctx, g, { x0, y0, x1: x0 + b.w, y1: y0 + b.h });
+    const shaped = shapedFill(ctx, g, { x0, y0, x1: x0 + b.w, y1: y0 + b.h }, l.grad);
     if (shaped) ctx.fillStyle = shaped;
     else if (g?.type === 'gradient') {
       const grad = ctx.createLinearGradient(x0, y0, x0, y0 + b.h);

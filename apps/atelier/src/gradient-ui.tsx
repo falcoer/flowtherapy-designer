@@ -1,231 +1,174 @@
-import { useEffect, useRef } from 'react';
-import { shapedFill } from './gradient';
-import { DEFAULT_SHAPE, type Blend, type GradMode, type GradShape } from './model';
+import { useRef } from 'react';
+import { DEFAULT_SHAPE, type GradMode, type GradShape } from './model';
 
 /**
- * Forme d'un dégradé : le mode, et un repère où l'on glisse le centre et la poignée de l'axe
- * (angle et étendue), avec les répétitions marquées sur l'axe.
+ * Mise en place d'un dégradé sur l'objet choisi : une barre (mode, répétitions, alterné, ellipse)
+ * et un repère posé sur l'objet même, où l'on glisse le centre et la poignée de l'axe (angle, étendue).
+ * Le réglage est propre à l'objet (Layer.grad) ; la palette ne garde que les teintes.
  */
 
-const MODES: Array<[GradMode, string]> = [
-  ['linear', 'Linéaire'],
-  ['radial', 'Radial'],
-  ['conic', 'Conique'],
-  ['diamond', 'Diamant'],
+const MODES: Array<[GradMode, string, string]> = [
+  ['linear', 'Linéaire', 'le long d’un axe'],
+  ['radial', 'Radial', 'en cercle depuis le centre'],
+  ['conic', 'Conique', 'autour du centre, comme une roue'],
+  ['diamond', 'Diamant', 'en losange depuis le centre'],
 ];
-const MODE_HINTS: Record<GradMode, string> = {
-  linear: 'le long d’un axe : glisse la poignée pour l’angle et la longueur',
-  radial: 'en cercle depuis le centre : la poignée règle le rayon',
-  conic: 'autour du centre, comme une roue : la poignée règle le départ',
-  diamond: 'en losange depuis le centre : la poignée règle l’angle et la taille',
-};
 
-/** Longueur de la poignée (en fraction du repère) pour une étendue donnée. */
-function reach(s: GradShape): number {
-  const a = (s.angle * Math.PI) / 180;
-  if (s.mode === 'linear') return ((Math.abs(Math.cos(a)) + Math.abs(Math.sin(a))) / 2) * s.spread;
-  if (s.mode === 'radial') return (Math.SQRT2 / 2) * s.spread;
-  if (s.mode === 'conic') return 0.32;
-  return 0.5 * s.spread;
+type P = { x: number; y: number };
+/** Passage de la boîte de l'objet (u, v en 0..1) à l'écran, et retour. */
+export interface BoxMap {
+  toScreen: (u: number, v: number) => P;
+  fromScreen: (x: number, y: number) => P;
+  /** Proportions de la boîte (largeur / hauteur). */
+  ar: number;
 }
 
+const unit = (ar: number) => ({ wx: ar >= 1 ? 1 : ar, hy: ar >= 1 ? 1 / ar : 1 });
+
+/** Longueur de la poignée dans le repère orthonormé de l'objet (l'unité est son plus grand côté). */
+function reach(s: GradShape, ar: number): number {
+  const { wx, hy } = unit(ar);
+  const a = (s.angle * Math.PI) / 180;
+  if (s.mode === 'linear') return ((Math.abs(wx * Math.cos(a)) + Math.abs(hy * Math.sin(a))) / 2) * s.spread;
+  if (s.mode === 'radial') return (Math.hypot(wx, hy) / 2) * s.spread;
+  if (s.mode === 'conic') return Math.min(wx, hy) * 0.35;
+  return ((wx + hy) / 2) * s.spread;
+}
+/** Point (X, Y) du repère orthonormé autour du centre → boîte (u, v). */
+const uvOf = (s: GradShape, ar: number, X: number, Y: number) => {
+  const { wx, hy } = unit(ar);
+  return { x: s.cx + X / wx, y: s.cy + Y / hy };
+};
 const snapAngle = (deg: number) => {
   const r = Math.round(deg / 15) * 15;
-  return Math.abs(r - deg) < 4 ? r : Math.round(deg);
+  return (Math.abs(r - deg) < 4 ? r : Math.round(deg)) % 360;
 };
 
-export function GradientFrame({ stops, blend, shape, onChange }: { stops: string[]; blend: Blend; shape?: GradShape; onChange: (s: GradShape, commit: boolean) => void }) {
+export function GradientBar({ shape, onChange, frame, setFrame }: { shape?: GradShape; onChange: (s: GradShape, commit: boolean) => void; frame: boolean; setFrame: (b: boolean) => void }) {
   const s = shape ?? DEFAULT_SHAPE;
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const box = useRef<HTMLDivElement>(null);
-  const drag = useRef<'center' | 'handle' | null>(null);
-  useEffect(() => {
-    const c = canvas.current;
-    const ctx = c?.getContext('2d');
-    if (!c || !ctx) return;
-    const fill = shapedFill(ctx, { name: '', type: 'gradient', stops, blend, shape: s }, { x0: 0, y0: 0, x1: c.width, y1: c.height });
-    ctx.clearRect(0, 0, c.width, c.height);
-    if (fill) {
-      ctx.fillStyle = fill;
-      ctx.fillRect(0, 0, c.width, c.height);
-    }
-  }, [stops, blend, s]);
-  const at = (e: { clientX: number; clientY: number }) => {
-    const r = box.current!.getBoundingClientRect();
-    return {
-      u: (e.clientX - r.left) / r.width,
-      v: (e.clientY - r.top) / r.height,
-    };
-  };
-  const a = (s.angle * Math.PI) / 180;
-  const d = reach(s);
-  const hx = s.cx + Math.cos(a) * d;
-  const hy = s.cy + Math.sin(a) * d;
-  // pour le linéaire, l'axe va d'une extrémité à l'autre ; ailleurs, du centre à la poignée
-  const ax = s.mode === 'linear' ? s.cx - Math.cos(a) * d : s.cx;
-  const ay = s.mode === 'linear' ? s.cy - Math.sin(a) * d : s.cy;
   const n = Math.max(1, Math.round(s.repeat));
-  const ticks = Array.from({ length: n + 1 }, (_, k) => k / n);
-  const set = (patch: Partial<GradShape>, commit = true) => onChange({ ...s, ...patch }, commit);
+  const set = (patch: Partial<GradShape>) => onChange({ ...s, ...patch }, true);
   return (
-    <div className="gf">
-      <div className="seg gf-modes">
-        {MODES.map(([m, name]) => (
-          <button key={m} className={s.mode === m ? 'on' : ''} onClick={() => set({ mode: m })} title={MODE_HINTS[m]}>
+    <div className="grad-bar" role="toolbar" aria-label="Dégradé de l'objet">
+      <span className="grad-bar-title">Dégradé</span>
+      <div className="grad-modes">
+        {MODES.map(([m, name, hint]) => (
+          <button key={m} className={s.mode === m ? 'on' : ''} onClick={() => set({ mode: m })} title={`${name} : ${hint}`} aria-label={name}>
             <ModeGlyph mode={m} />
-            {name}
           </button>
         ))}
       </div>
-      <div className="gf-body">
-        <div
-          ref={box}
-          className="gf-frame"
-          onPointerDown={(e) => {
-            (e.currentTarget as Element).setPointerCapture(e.pointerId);
-            const p = at(e);
-            const r = box.current!.getBoundingClientRect();
-            const near = (x: number, y: number) => Math.hypot((p.u - x) * r.width, (p.v - y) * r.height) < 18;
-            drag.current = near(hx, hy) ? 'handle' : 'center';
-            if (drag.current === 'center' && !near(s.cx, s.cy)) set({ cx: p.u, cy: p.v }, false);
-          }}
-          onPointerMove={(e) => {
-            if (!drag.current) return;
-            const p = at(e);
-            if (drag.current === 'center') {
-              // le centre s'aimante au milieu et aux bords du repère
-              const sn = (x: number) => [0, 0.5, 1].find((k) => Math.abs(k - x) < 0.03) ?? Math.max(-0.25, Math.min(1.25, x));
-              set({ cx: sn(p.u), cy: sn(p.v) }, false);
-              return;
-            }
-            const dx = p.u - s.cx;
-            const dy = p.v - s.cy;
-            const angle = snapAngle(((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360);
-            const len = Math.hypot(dx, dy);
-            const unit = reach({ ...s, angle, spread: 1 });
-            set(s.mode === 'conic' ? { angle } : { angle, spread: Math.max(0.1, Math.min(3, len / unit)) }, false);
-          }}
-          onPointerUp={() => {
-            if (drag.current) onChange(s, true);
-            drag.current = null;
-          }}
-          onPointerCancel={() => (drag.current = null)}
-        >
-          <canvas ref={canvas} width={160} height={160} />
-          <svg viewBox="0 0 100 100" aria-hidden>
-            {/* repère : axes du cadre et du centre */}
-            <line x1="50" y1="0" x2="50" y2="100" className="gf-grid" />
-            <line x1="0" y1="50" x2="100" y2="50" className="gf-grid" />
-            <line x1={s.cx * 100} y1="0" x2={s.cx * 100} y2="100" className="gf-axis0" />
-            <line x1="0" y1={s.cy * 100} x2="100" y2={s.cy * 100} className="gf-axis0" />
-            {(s.mode === 'radial' || s.mode === 'diamond') &&
-              ticks.slice(1).map((t) =>
-                s.mode === 'radial' ? (
-                  s.ellipse ? (
-                    <ellipse key={t} cx={s.cx * 100} cy={s.cy * 100} rx={50 * Math.SQRT2 * s.spread * t} ry={50 * Math.SQRT2 * s.spread * t} className="gf-ring" />
-                  ) : (
-                    <circle key={t} cx={s.cx * 100} cy={s.cy * 100} r={d * 100 * t} className="gf-ring" />
-                  )
-                ) : (
-                  <polygon
-                    key={t}
-                    className="gf-ring"
-                    points={[0, 90, 180, 270]
-                      .map((q) => {
-                        const b = a + (q * Math.PI) / 180;
-                        return `${(s.cx + Math.cos(b) * d * t) * 100},${(s.cy + Math.sin(b) * d * t) * 100}`;
-                      })
-                      .join(' ')}
-                  />
-                ),
-              )}
-            {s.mode === 'conic' &&
-              ticks.slice(0, -1).map((t) => {
-                const b = a + t * 2 * Math.PI;
-                return <line key={t} x1={s.cx * 100} y1={s.cy * 100} x2={(s.cx + Math.cos(b) * 0.45) * 100} y2={(s.cy + Math.sin(b) * 0.45) * 100} className="gf-ring" />;
-              })}
-            <line x1={ax * 100} y1={ay * 100} x2={hx * 100} y2={hy * 100} className="gf-line" />
-            {s.mode === 'linear' &&
-              ticks.map((t) => {
-                const x = ax + (hx - ax) * t;
-                const y = ay + (hy - ay) * t;
-                return (
-                  <line
-                    key={t}
-                    x1={(x - Math.sin(a) * 0.035) * 100}
-                    y1={(y + Math.cos(a) * 0.035) * 100}
-                    x2={(x + Math.sin(a) * 0.035) * 100}
-                    y2={(y - Math.cos(a) * 0.035) * 100}
-                    className="gf-tick"
-                  />
-                );
-              })}
-            {s.mode === 'linear' && <circle cx={ax * 100} cy={ay * 100} r="2.4" className="gf-start" />}
-          </svg>
-          <span className="gf-pt center" style={{ left: `${s.cx * 100}%`, top: `${s.cy * 100}%` }} title="Centre : glisse-le" />
-          <span
-            className="gf-pt handle"
-            style={{
-              left: `${hx * 100}%`,
-              top: `${hy * 100}%`,
-              background: stops[stops.length - 1],
-            }}
-            title="Poignée : angle et étendue"
-          />
-        </div>
-        <div className="gf-side">
-          <label className="gf-num" title="Angle (aimanté tous les 15°)">
-            <span className="tb-label">Angle</span>
-            <input type="number" min={0} max={359} value={Math.round(s.angle)} onChange={(e) => set({ angle: ((Number(e.target.value) % 360) + 360) % 360 })} />
-          </label>
-          {s.mode !== 'conic' && (
-            <label className="gf-num" title="Étendue : 100 % = la boîte de l'objet">
-              <span className="tb-label">Étendue</span>
-              <input
-                type="number"
-                min={10}
-                max={300}
-                step={5}
-                value={Math.round(s.spread * 100)}
-                onChange={(e) =>
-                  set({
-                    spread: Math.max(0.1, Math.min(3, Number(e.target.value) / 100)),
-                  })
-                }
-              />
-            </label>
-          )}
-          <div className="gf-num">
-            <span className="tb-label">Répétitions</span>
-            <div className="gf-step">
-              <button onClick={() => set({ repeat: Math.max(1, n - 1) })} disabled={n <= 1} aria-label="Moins">
-                −
-              </button>
-              <b>{n}</b>
-              <button onClick={() => set({ repeat: Math.min(12, n + 1) })} disabled={n >= 12} aria-label="Plus">
-                +
-              </button>
-            </div>
-          </div>
-          <button
-            className={`gf-toggle ${s.mirror ? 'on' : ''}`}
-            aria-pressed={!!s.mirror}
-            disabled={n < 2}
-            onClick={() => set({ mirror: !s.mirror })}
-            title="Un passage sur deux à l'envers : pas de coupure entre les répétitions"
-          >
-            Alterné
-          </button>
-          {s.mode === 'radial' && (
-            <button className={`gf-toggle ${s.ellipse ? 'on' : ''}`} aria-pressed={!!s.ellipse} onClick={() => set({ ellipse: !s.ellipse })} title="Cercle, ou ellipse qui suit la forme de l'objet">
-              {s.ellipse ? 'Ellipse' : 'Cercle'}
-            </button>
-          )}
-          <button className="gf-reset" onClick={() => onChange({ ...DEFAULT_SHAPE, mode: s.mode }, true)} title="Centre au milieu, angle et étendue d'origine, un passage">
-            Recentrer
-          </button>
-        </div>
+      <div className="grad-step" title="Répétitions">
+        <button onClick={() => set({ repeat: Math.max(1, n - 1) })} disabled={n <= 1} aria-label="Moins de répétitions">
+          −
+        </button>
+        <b>×{n}</b>
+        <button onClick={() => set({ repeat: Math.min(12, n + 1) })} disabled={n >= 12} aria-label="Plus de répétitions">
+          +
+        </button>
       </div>
+      <button className={`grad-tog ${s.mirror ? 'on' : ''}`} aria-pressed={!!s.mirror} disabled={n < 2} onClick={() => set({ mirror: !s.mirror })} title="Un passage sur deux à l'envers">
+        Alterné
+      </button>
+      {s.mode === 'radial' && (
+        <button className={`grad-tog ${s.ellipse ? 'on' : ''}`} aria-pressed={!!s.ellipse} onClick={() => set({ ellipse: !s.ellipse })} title="Cercle, ou ellipse qui suit la forme de l'objet">
+          {s.ellipse ? 'Ellipse' : 'Cercle'}
+        </button>
+      )}
+      <span className="grad-angle" title="Angle (aimanté tous les 15°)">
+        {Math.round(s.angle)}°
+      </span>
+      <button className={`grad-tog grad-frame-btn ${frame ? 'on' : ''}`} aria-pressed={frame} onClick={() => setFrame(!frame)} title="Afficher le repère sur l'objet : centre et axe à glisser">
+        Repère
+      </button>
+      <button className="grad-tog plain" onClick={() => onChange({ ...DEFAULT_SHAPE, mode: s.mode }, true)} title="Centre au milieu, angle et étendue d'origine, un passage">
+        Recentrer
+      </button>
+    </div>
+  );
+}
+
+/** Le repère posé sur l'objet : axes du centre, axe ou anneaux du dégradé, répétitions, centre et poignée à glisser. */
+export function GradientOverlay({ shape, map, color, onChange }: { shape?: GradShape; map: BoxMap; color: string; onChange: (s: GradShape, commit: boolean) => void }) {
+  const s = shape ?? DEFAULT_SHAPE;
+  const drag = useRef<'center' | 'handle' | null>(null);
+  const last = useRef(s);
+  last.current = s;
+  const { ar } = map;
+  const a = (s.angle * Math.PI) / 180;
+  const d = reach(s, ar);
+  const ell = s.mode === 'radial' && s.ellipse;
+  const uvAt = (X: number, Y: number) => (ell ? { x: s.cx + (X / d) * 0.5 * Math.SQRT2 * s.spread, y: s.cy + (Y / d) * 0.5 * Math.SQRT2 * s.spread } : uvOf(s, ar, X, Y));
+  const scr = (X: number, Y: number) => {
+    const q = uvAt(X, Y);
+    return map.toScreen(q.x, q.y);
+  };
+  const C = map.toScreen(s.cx, s.cy);
+  const H = scr(Math.cos(a) * d, Math.sin(a) * d);
+  const A = s.mode === 'linear' ? scr(-Math.cos(a) * d, -Math.sin(a) * d) : C;
+  const n = Math.max(1, Math.round(s.repeat));
+  const ticks = Array.from({ length: n + 1 }, (_, k) => k / n);
+  // axes du centre, le long des côtés de l'objet
+  const ax1 = [map.toScreen(s.cx, -0.15), map.toScreen(s.cx, 1.15)];
+  const ax2 = [map.toScreen(-0.15, s.cy), map.toScreen(1.15, s.cy)];
+  const ring = (t: number) => {
+    const pts: P[] = [];
+    if (s.mode === 'diamond') for (const q of [0, 90, 180, 270, 0]) pts.push(scr(Math.cos(a + (q * Math.PI) / 180) * d * t, Math.sin(a + (q * Math.PI) / 180) * d * t));
+    else for (let k = 0; k <= 48; k++) pts.push(scr(Math.cos((k / 48) * 2 * Math.PI) * d * t, Math.sin((k / 48) * 2 * Math.PI) * d * t));
+    return pts.map((p) => `${p.x},${p.y}`).join(' ');
+  };
+  const move = (e: React.PointerEvent) => {
+    if (!drag.current) return;
+    const p = map.fromScreen(e.clientX, e.clientY);
+    const cur = last.current;
+    if (drag.current === 'center') {
+      const sn = (x: number) => [0, 0.5, 1].find((k) => Math.abs(k - x) < 0.03) ?? Math.max(-0.5, Math.min(1.5, x));
+      onChange({ ...cur, cx: sn(p.x), cy: sn(p.y) }, false);
+      return;
+    }
+    const { wx, hy } = unit(ar);
+    const X = (p.x - cur.cx) * (ell ? 1 : wx);
+    const Y = (p.y - cur.cy) * (ell ? 1 : hy);
+    const angle = snapAngle(((Math.atan2(Y, X) * 180) / Math.PI + 360) % 360);
+    const len = Math.hypot(X, Y);
+    const base = ell ? 0.5 * Math.SQRT2 : reach({ ...cur, angle, spread: 1 }, ar);
+    onChange(cur.mode === 'conic' ? { ...cur, angle } : { ...cur, angle, spread: Math.max(0.1, Math.min(3, len / base)) }, false);
+  };
+  const grab = (k: 'center' | 'handle') => (e: React.PointerEvent) => {
+    e.stopPropagation();
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    drag.current = k;
+  };
+  const drop = () => {
+    if (drag.current) onChange(last.current, true);
+    drag.current = null;
+  };
+  return (
+    <div className="grad-overlay">
+      <svg aria-hidden>
+        <line x1={ax1[0]!.x} y1={ax1[0]!.y} x2={ax1[1]!.x} y2={ax1[1]!.y} className="go-axis0" />
+        <line x1={ax2[0]!.x} y1={ax2[0]!.y} x2={ax2[1]!.x} y2={ax2[1]!.y} className="go-axis0" />
+        {(s.mode === 'radial' || s.mode === 'diamond') && ticks.slice(1).map((t) => <polyline key={t} points={ring(t)} className="go-ring" />)}
+        {s.mode === 'conic' &&
+          ticks.slice(0, -1).map((t) => {
+            const b = a + t * 2 * Math.PI;
+            const E = scr(Math.cos(b) * d * 1.6, Math.sin(b) * d * 1.6);
+            return <line key={t} x1={C.x} y1={C.y} x2={E.x} y2={E.y} className="go-ring" />;
+          })}
+        <line x1={A.x} y1={A.y} x2={H.x} y2={H.y} className="go-line" />
+        {s.mode === 'linear' &&
+          ticks.map((t) => {
+            const x = A.x + (H.x - A.x) * t;
+            const y = A.y + (H.y - A.y) * t;
+            const L = Math.hypot(H.x - A.x, H.y - A.y) || 1;
+            const nx = (-(H.y - A.y) / L) * 7;
+            const ny = ((H.x - A.x) / L) * 7;
+            return <line key={t} x1={x - nx} y1={y - ny} x2={x + nx} y2={y + ny} className="go-tick" />;
+          })}
+        {s.mode === 'linear' && <circle cx={A.x} cy={A.y} r="4" className="go-start" />}
+      </svg>
+      <span className="go-pt center" style={{ left: C.x, top: C.y }} title="Centre du dégradé : glisse-le" onPointerDown={grab('center')} onPointerMove={move} onPointerUp={drop} onPointerCancel={drop} />
+      <span className="go-pt handle" style={{ left: H.x, top: H.y, background: color }} title="Poignée : angle et étendue" onPointerDown={grab('handle')} onPointerMove={move} onPointerUp={drop} onPointerCancel={drop} />
     </div>
   );
 }
@@ -233,7 +176,7 @@ export function GradientFrame({ stops, blend, shape, onChange }: { stops: string
 function ModeGlyph({ mode }: { mode: GradMode }) {
   const p = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.6 } as const;
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
+    <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden>
       {mode === 'linear' && (
         <>
           <rect x="2" y="2" width="12" height="12" rx="2" {...p} />

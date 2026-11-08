@@ -1488,30 +1488,29 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .pal-sec .guide.add .sw.plus { font-size: 15px; }
 .palette-bubble { gap: 6px; }
 
-/* forme d'un dégradé : mode et repère (centre, axe, répétitions) */
-.gf { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
-.gf-modes button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 30px; font-size: 12px; }
-.gf-body { display: grid; grid-template-columns: minmax(0, 1fr) 118px; gap: 10px; align-items: start; }
-.gf-frame { position: relative; aspect-ratio: 1; border-radius: 10px; touch-action: none; cursor: crosshair; box-shadow: inset 0 0 0 1px var(--line); }
-.gf-frame canvas { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 10px; }
-.gf-frame svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
-.gf-grid { stroke: rgba(255, 255, 255, 0.35); stroke-width: 0.4; stroke-dasharray: 1 1.5; vector-effect: non-scaling-stroke; }
-.gf-axis0 { stroke: rgba(255, 255, 255, 0.6); stroke-width: 0.6; vector-effect: non-scaling-stroke; }
-.gf-ring { fill: none; stroke: #fff; stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; opacity: 0.85; }
-.gf-line { stroke: #fff; stroke-width: 2; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.6)); }
-.gf-tick { stroke: #fff; stroke-width: 2; vector-effect: non-scaling-stroke; }
-.gf-start { fill: #fff; stroke: rgba(0, 0, 0, 0.5); stroke-width: 0.5; }
-.gf-pt { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; pointer-events: none; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 1px 4px rgba(0, 0, 0, 0.35); }
-.gf-pt.center { background: transparent; width: 14px; height: 14px; margin: -7px 0 0 -7px; }
-.gf-side { display: flex; flex-direction: column; gap: 8px; }
-.gf-num { display: flex; flex-direction: column; gap: 2px; }
-.gf-num input { width: 100%; height: 30px; padding: 0 8px; border-radius: 9px; border: 1px solid var(--line); background: transparent; color: var(--ink); font: inherit; font-size: 13px; }
-.gf-step { display: flex; align-items: center; justify-content: space-between; height: 30px; border-radius: 9px; box-shadow: inset 0 0 0 1px var(--line); }
-.gf-step button { width: 30px; height: 30px; font-size: 16px; color: var(--accent); }
-.gf-step button:disabled { opacity: 0.3; }
-.gf-toggle, .gf-reset { height: 30px; border-radius: 9px; font-size: 12px; box-shadow: inset 0 0 0 1px var(--line); color: var(--ink); }
-.gf-toggle.on { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
-.gf-toggle:disabled { opacity: 0.4; }
-.gf-reset { color: var(--muted); box-shadow: none; }
-.cd-tabs button { height: 30px; font-size: 13px; }
-.color-dialog .gf { border-top: 0; padding-top: 0; }
+
+/* dégradé de l'objet choisi : barre (mode, répétitions…) et repère posé sur l'objet */
+.grad-bar { position: fixed; z-index: 11; top: 64px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; max-width: calc(100vw - 20px); overflow-x: auto; padding: 5px 8px; border-radius: 999px; background: var(--chrome-solid); box-shadow: 0 0 0 1px var(--line), var(--tool-lift); scrollbar-width: none; }
+.grad-bar-title { font: var(--tool-label); text-transform: uppercase; color: var(--muted); padding: 0 4px; }
+.grad-modes { display: flex; gap: 2px; padding: 2px; border-radius: 999px; background: var(--line); }
+.grad-modes button { width: 32px; height: 30px; display: grid; place-items: center; border-radius: 999px; color: var(--ink); }
+.grad-modes button.on { background: var(--chrome-solid); color: var(--accent); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15); }
+.grad-step { display: flex; align-items: center; height: 32px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); }
+.grad-step button { width: 28px; height: 32px; font-size: 16px; color: var(--accent); }
+.grad-step button:disabled { opacity: 0.3; }
+.grad-step b { min-width: 26px; text-align: center; font-size: 13px; }
+.grad-tog { flex: none; height: 32px; padding: 0 10px; border-radius: 999px; font-size: 12px; color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+.grad-tog.on { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.grad-tog:disabled { opacity: 0.4; }
+.grad-tog.plain { box-shadow: none; color: var(--muted); }
+.grad-angle { flex: none; min-width: 34px; text-align: center; font: var(--tool-label); color: var(--muted); }
+.grad-overlay { position: fixed; inset: 0; z-index: 5; pointer-events: none; }
+.grad-overlay svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.go-axis0 { stroke: #fff; stroke-width: 1; stroke-dasharray: 2 4; opacity: 0.75; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.7)); }
+.go-ring { fill: none; stroke: #fff; stroke-width: 1.2; stroke-dasharray: 4 4; opacity: 0.9; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.7)); }
+.go-line { stroke: #fff; stroke-width: 2.5; filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6)); }
+.go-tick { stroke: #fff; stroke-width: 2.5; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.6)); }
+.go-start { fill: #fff; stroke: rgba(0, 0, 0, 0.5); }
+.go-pt { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; pointer-events: auto; touch-action: none; cursor: grab; border: 4px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35); }
+.go-pt.center { width: 22px; height: 22px; margin: -11px 0 0 -11px; background: rgba(255, 255, 255, 0.25); }
+.go-pt.center::after { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: #fff; }

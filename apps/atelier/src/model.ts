@@ -149,6 +149,8 @@ export interface Layer {
   text?: import('./text').TextStyle;
   /** Guide de couleur du support ou de la forme. */
   guide: number;
+  /** Mise en place d'un guide en dégradé sur cet objet (mode, centre, angle, étendue, répétitions) : propre à l'objet. */
+  grad?: GradShape;
   /** Photo (URL ou data URI). */
   src?: string;
   /** Élément de bibliothèque d'origine (« image/<id> ») : l'instance n'en garde que les écarts. */

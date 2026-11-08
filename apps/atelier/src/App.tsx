@@ -20,7 +20,7 @@ import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth,
 import { QuickText, TextBar, type SwashTool } from './textbar';
 import { PaletteEditor } from './colorpicker';
 import { cssShaped } from './gradient';
-import { GradientFrame } from './gradient-ui';
+import { GradientBar, GradientOverlay } from './gradient-ui';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
@@ -35,7 +35,7 @@ import { LoadDialog, NewCompositionDialog } from './compositions-ui';
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
-import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
+import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
@@ -680,6 +680,8 @@ export function App() {
   };
 
   const [tool, setToolState] = useState<Tool>('move');
+  // repère du dégradé posé sur l'objet choisi (centre et axe à glisser)
+  const [gradFrame, setGradFrame] = useState(false);
   /** Maj : le bouton de la barre (tenu, ou verrouillé d'un double appui), ou la touche du clavier. */
   const [shiftBtn, setShiftBtn] = useState(SHIFT_IDLE);
   const shiftLatch = shiftButtonOn(shiftBtn);
@@ -3945,6 +3947,36 @@ export function App() {
         style={tool === 'stamp' ? { backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(stampLook(stampOf(stampId)))}")` } : undefined}
       />
 
+      {!rendu &&
+        tool === 'move' &&
+        sel &&
+        sel.kind !== 'photo' &&
+        (() => {
+          const g = doc.guides[sel.guide];
+          if (g?.type !== 'gradient') return null;
+          // la mise en place du dégradé est propre à l'objet ; à défaut, celle du guide
+          const shape = sel.grad ?? g.shape;
+          const b = layerBox(sel, f);
+          const map = {
+            ar: b.w / Math.max(1e-6, b.h),
+            toScreen: (u: number, v: number) => {
+              const p = localToPage(sel, f, u, v);
+              const q = matrix.transformPoint(new DOMPoint(p.x, p.y));
+              return { x: q.x, y: q.y };
+            },
+            fromScreen: (x: number, y: number) => {
+              const p = toPage(x, y);
+              return pageToLocal(sel, f, p.x, p.y);
+            },
+          };
+          const set = (s: GradShape, commit: boolean) => patchLayer(sel.id, { grad: s }, commit);
+          return (
+            <>
+              {gradFrame && <GradientOverlay shape={shape} map={map} color={g.stops[g.stops.length - 1]!} onChange={set} />}
+              <GradientBar shape={shape} onChange={set} frame={gradFrame} setFrame={setGradFrame} />
+            </>
+          );
+        })()}
       {!rendu && (
         <>
           <header
@@ -5790,9 +5822,6 @@ function PaletteBubble({
 function ColorDialog({ guide, variant, onChange, onClose, onRemove }: { guide: Guide; variant?: Palette; onChange: (g: Guide, commit: boolean) => void; onClose: () => void; onRemove?: () => void }) {
   const stops = guide.type === 'gradient' ? guide.stops : [guide.color];
   const keep = { ...(guide.from ? { from: guide.from } : {}) };
-  // un dégradé se règle en deux pages : ses teintes, sa forme (mode et repère)
-  const [tab, setTab] = useState<'colors' | 'shape'>('colors');
-  const page = guide.type === 'gradient' ? tab : 'colors';
   return (
     <div className="color-dialog" role="dialog" aria-label={`Couleur ${guide.name}`}>
       <div className="cd-head">
@@ -5817,18 +5846,7 @@ function ColorDialog({ guide, variant, onChange, onClose, onRemove }: { guide: G
           ×
         </button>
       </div>
-      {guide.type === 'gradient' && (
-        <div className="seg cd-tabs">
-          <button className={tab === 'colors' ? 'on' : ''} onClick={() => setTab('colors')}>
-            Teintes
-          </button>
-          <button className={tab === 'shape' ? 'on' : ''} onClick={() => setTab('shape')}>
-            Forme du dégradé
-          </button>
-        </div>
-      )}
-      {page === 'colors' && (
-        <PaletteEditor
+      <PaletteEditor
         stops={stops}
         blend={guide.type === 'gradient' ? (guide.blend ?? 'smooth') : 'smooth'}
         variant={variant}
@@ -5842,10 +5860,6 @@ function ColorDialog({ guide, variant, onChange, onClose, onRemove }: { guide: G
           )
         }
       />
-      )}
-      {page === 'shape' && guide.type === 'gradient' && (
-        <GradientFrame stops={guide.stops} blend={guide.blend ?? 'smooth'} shape={guide.shape} onChange={(shape, commit) => onChange({ ...guide, shape }, commit)} />
-      )}
     </div>
   );
 }
