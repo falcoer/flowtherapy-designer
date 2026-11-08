@@ -971,3 +971,15 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .atelier .format-bubble, .atelier .anchor-bubble, .atelier .projects-bubble { left: max(10px, env(safe-area-inset-left, 0px), var(--bubble-left, 0px)); }
 .atelier .format-bubble, .atelier .anchor-bubble { width: min(290px, calc(100vw - max(10px, var(--bubble-left, 0px)) - 10px)); }
 .atelier .projects-bubble { width: min(360px, calc(100vw - max(10px, var(--bubble-left, 0px)) - 10px)); }
+
+/* roue écartée : seul son disque visible la rappelle ; autour (coins du carré, jauge, flèche), les touches vont à la page */
+/* le support de la roue ne prend aucune touche : seuls ses éléments en prennent */
+.wheel-dock, .brush-wheel { pointer-events: none; }
+.brush-wheel > * { pointer-events: auto; }
+.brush-wheel.away > svg { pointer-events: none; }
+.brush-wheel.away > svg .bw-disc { pointer-events: auto; }
+/* petit écran : la roue écartée se range davantage, le choix du pinceau reste visible */
+@media (max-width: 560px) {
+  .brush-wheel.side-left.away { transform: translateX(-66%); }
+  .brush-wheel.side-right.away { transform: translateX(66%); }
+}
