@@ -7,6 +7,11 @@ export interface AtelierMeta {
   updated: string;
   by?: string;
   formatId?: string;
+  /** Campagne à laquelle elle contribue. */
+  campaign?: string;
+  /** Adresses des membres qui ont voté pour elle, et si l'on en fait partie. */
+  votes?: string[];
+  voted?: boolean;
   /** Circuit de validation : proposée aux responsables, validée, ou à revoir. */
   review?: {
     status: 'proposed' | 'approved' | 'changes';
@@ -52,6 +57,23 @@ export const listAteliers = () => call<AtelierMeta[]>('/api/ateliers');
 export const readAtelier = (id: string) => call<AtelierMeta & { doc: Doc }>(`/api/ateliers/${id}`);
 export const saveAtelier = (id: string, title: string, doc: Doc, thumb?: string) =>
   call<{ meta: AtelierMeta }>(`/api/ateliers/${id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, doc, thumb }, compact) }).then((r) => r.meta);
+/** Campagne : un temps de communication (souvent la promotion d'un évènement) où chacun propose des documents et vote. */
+export interface Campaign {
+  id: string;
+  name: string;
+  operation?: string;
+  date?: string;
+  place?: string;
+  note?: string;
+  created: string;
+  by?: string;
+  closed?: string;
+}
+export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'note'>> & { closed?: boolean };
+export const listCampaigns = () => call<Campaign[]>('/api/campaigns');
+export const createCampaign = (c: CampaignInput) => call<{ campaign: Campaign }>('/api/campaigns', json('POST', c)).then((r) => r.campaign);
+export const updateCampaign = (id: string, c: CampaignInput) => call<{ campaign: Campaign }>(`/api/campaigns/${id}`, json('PATCH', c)).then((r) => r.campaign);
+export const voteAtelier = (id: string, on: boolean) => call<{ votes: string[]; voted: boolean }>(`/api/ateliers/${id}/vote`, json('POST', { on }));
 export const proposeAtelier = (id: string, note?: string) =>
   call<{ meta: AtelierMeta; mailed: boolean; notified: number }>(`/api/ateliers/${id}/propose`, {
     method: 'POST',

@@ -277,6 +277,15 @@ export class Accounts {
         PRIMARY KEY (team, email)
       );
       CREATE INDEX IF NOT EXISTS members_email ON members(email);
+      CREATE TABLE IF NOT EXISTS campaigns (
+        team TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, data TEXT,
+        created TEXT NOT NULL, by TEXT, closed TEXT,
+        PRIMARY KEY (team, id)
+      );
+      CREATE TABLE IF NOT EXISTS votes (
+        team TEXT NOT NULL, atelier TEXT NOT NULL, email TEXT NOT NULL, at TEXT NOT NULL,
+        PRIMARY KEY (team, atelier, email)
+      );
     `);
     // colonnes ajoutées après coup : fiche d'activité, logo, photo de profil
     this.addColumn('teams', 'profile', 'TEXT');
@@ -502,4 +511,99 @@ export class Accounts {
       .run(e, name ?? null, now, now, pic);
     this.db.prepare('UPDATE members SET joined = ? WHERE email = ? AND joined IS NULL').run(now, e);
   }
+
+  /* ---------- campagnes et votes ---------- */
+
+  campaigns(team: string): Campaign[] {
+    const rows = this.db.prepare('SELECT * FROM campaigns WHERE team = ? ORDER BY closed IS NOT NULL, created DESC').all(team) as Row[];
+    return rows.map(campaignOf);
+  }
+
+  campaign(team: string, id: string): Campaign | undefined {
+    const r = this.db.prepare('SELECT * FROM campaigns WHERE team = ? AND id = ?').get(team, id) as Row | undefined;
+    return r ? campaignOf(r) : undefined;
+  }
+
+  createCampaign(team: string, input: CampaignInput, by?: string): Campaign {
+    const name = str(input.name, 80);
+    if (!name) throw new Error('Nom de campagne attendu');
+    const base = teamIdFrom(name) || 'campagne';
+    let id = base;
+    for (let n = 2; this.campaign(team, id); n++) id = `${base}-${n}`;
+    this.db.prepare('INSERT INTO campaigns (team, id, name, data, created, by) VALUES (?, ?, ?, ?, ?, ?)').run(team, id, name, JSON.stringify(cleanCampaign(input)), new Date().toISOString(), by ?? null);
+    return this.campaign(team, id)!;
+  }
+
+  updateCampaign(team: string, id: string, input: CampaignInput & { closed?: boolean }): Campaign {
+    const cur = this.campaign(team, id);
+    if (!cur) throw new Error('Campagne introuvable');
+    const name = str(input.name, 80) || cur.name;
+    const data = cleanCampaign({ operation: cur.operation, date: cur.date, place: cur.place, note: cur.note, ...input });
+    const closed = input.closed === undefined ? (cur.closed ?? null) : input.closed ? (cur.closed ?? new Date().toISOString()) : null;
+    this.db.prepare('UPDATE campaigns SET name = ?, data = ?, closed = ? WHERE team = ? AND id = ?').run(name, JSON.stringify(data), closed, team, id);
+    return this.campaign(team, id)!;
+  }
+
+  /** Votes de l'équipe : composition → adresses des votants. */
+  votes(team: string): Map<string, string[]> {
+    const out = new Map<string, string[]>();
+    for (const r of this.db.prepare('SELECT atelier, email FROM votes WHERE team = ? ORDER BY at').all(team) as Row[]) {
+      const k = String(r.atelier);
+      out.set(k, [...(out.get(k) ?? []), String(r.email)]);
+    }
+    return out;
+  }
+
+  vote(team: string, atelier: string, email: string, on: boolean) {
+    if (on) this.db.prepare('INSERT OR IGNORE INTO votes (team, atelier, email, at) VALUES (?, ?, ?, ?)').run(team, atelier, normEmail(email), new Date().toISOString());
+    else this.db.prepare('DELETE FROM votes WHERE team = ? AND atelier = ? AND email = ?').run(team, atelier, normEmail(email));
+    return this.votes(team).get(atelier) ?? [];
+  }
+
+  forgetVotes(team: string, atelier: string) {
+    this.db.prepare('DELETE FROM votes WHERE team = ? AND atelier = ?').run(team, atelier);
+  }
+}
+
+/** Campagne : un temps de communication (souvent la promotion d'un évènement) où chacun propose des documents et vote. */
+export interface Campaign {
+  id: string;
+  name: string;
+  /** Occasion dont partent ses documents (concert…). */
+  operation?: string;
+  /** Date de l'évènement promu (AAAA-MM-JJ). */
+  date?: string;
+  place?: string;
+  note?: string;
+  created: string;
+  by?: string;
+  closed?: string;
+}
+export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'note'>>;
+
+function cleanCampaign(c: CampaignInput) {
+  const date = str(c.date, 10);
+  return {
+    ...(str(c.operation, 40) ? { operation: str(c.operation, 40) } : {}),
+    ...(/^\d{4}-\d{2}-\d{2}$/.test(date) ? { date } : {}),
+    ...(str(c.place, 120) ? { place: str(c.place, 120) } : {}),
+    ...(str(c.note, 1000) ? { note: str(c.note, 1000) } : {}),
+  };
+}
+
+function campaignOf(r: Row): Campaign {
+  let data: CampaignInput = {};
+  try {
+    data = JSON.parse(String(r.data ?? '{}'));
+  } catch {
+    /* données abîmées : ignorées */
+  }
+  return {
+    id: String(r.id),
+    name: String(r.name),
+    ...cleanCampaign(data),
+    created: String(r.created),
+    ...(r.by ? { by: String(r.by) } : {}),
+    ...(r.closed ? { closed: String(r.closed) } : {}),
+  };
 }

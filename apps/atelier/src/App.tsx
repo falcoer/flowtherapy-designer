@@ -25,9 +25,10 @@ import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers }
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
-import { fetchMe, fetchProfile, listAteliers, palettesOf, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me } from './server';
+import { createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me } from './server';
 import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, targetLabel } from './targets';
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
+import { CampaignBar, VoteButton } from './campaigns-ui';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
@@ -410,6 +411,29 @@ export function App() {
     else setActivity(null);
   };
   useEffect(loadActivity, [me?.team?.id]);
+  // campagnes de l'activité, et celle que l'on suit (retenue par activité dans ce navigateur)
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const campaignKey = `ftd-campagne-${me?.team?.id ?? ''}`;
+  const [campaign, setCampaignRaw] = useState('');
+  const setCampaign = (id: string) => {
+    setCampaignRaw(id);
+    try {
+      localStorage.setItem(campaignKey, id);
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  const loadCampaigns = () => {
+    if (online && me?.team) listCampaigns().then(setCampaigns, () => setCampaigns([]));
+  };
+  useEffect(() => {
+    loadCampaigns();
+    try {
+      setCampaignRaw(localStorage.getItem(campaignKey) ?? '');
+    } catch {
+      setCampaignRaw('');
+    }
+  }, [online, me?.team?.id]);
   const [reviewNote, setReviewNote] = useState('');
   const refreshProjects = () => void listAteliers().then(setProjects, () => {});
   /** Petite image de la composition pour la liste. */
@@ -500,7 +524,10 @@ export function App() {
   };
   const newProject = async (title: string, fromCurrent: boolean, op?: Operation) => {
     const p = { id: newAtelierId(title), title };
-    const d = fromCurrent ? docRef.current : op ? operationDoc(op) : { ...blankDoc(), formatId: docRef.current.formatId, frame: docRef.current.frame, guides: docRef.current.guides };
+    const base = fromCurrent ? docRef.current : op ? operationDoc(op) : { ...blankDoc(), formatId: docRef.current.formatId, frame: docRef.current.frame, guides: docRef.current.guides };
+    // un nouveau document contribue à la campagne suivie
+    const d = campaign && !base.campaign ? { ...base, campaign } : base;
+    if (fromCurrent && d !== base) setDoc(d);
     if (!fromCurrent) {
       forgetPaint();
       past.current = [];
@@ -528,7 +555,12 @@ export function App() {
       return { ...docForTarget(moved, t, activity), target: i };
     });
   const channels = channelsOf(activity);
-  const operations = operationsOf(activity);
+  const allOperations = operationsOf(activity);
+  const followed = campaigns.find((c) => c.id === campaign);
+  // l'occasion de la campagne suivie vient en premier
+  const operations = followed?.operation ? [...allOperations.filter((o) => o.id === followed.operation), ...allOperations.filter((o) => o.id !== followed.operation)] : allOperations;
+  // dans une campagne : ses compositions, les plus votées d'abord
+  const shownProjects = campaign ? projects.filter((m) => m.campaign === campaign).sort((a, b) => (b.votes?.length ?? 0) - (a.votes?.length ?? 0) || b.updated.localeCompare(a.updated)) : projects;
   const palettes = palettesOf(activity);
   const activeTarget = doc.targets?.[doc.target ?? 0];
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
@@ -4358,9 +4390,29 @@ export function App() {
 
           {bubble === 'projects' && (
             <div className="bubble projects-bubble">
-              <div className="b-title">Composition</div>
+              {online && me?.team ? <div className="b-title">Campagne</div> : <div className="b-title">Composition</div>}
               {online ? (
                 <>
+                  {me?.team && (
+                    <CampaignBar
+                      campaigns={campaigns}
+                      current={campaign}
+                      setCurrent={setCampaign}
+                      canEdit={me.team.role !== 'viewer'}
+                      operations={operations}
+                      counts={projects.reduce<Record<string, number>>((o, m) => (m.campaign ? { ...o, [m.campaign]: (o[m.campaign] ?? 0) + 1 } : o), {})}
+                      create={async (c: CampaignInput) => {
+                        const x = await createCampaign(c);
+                        setCampaigns((l) => [x, ...l]);
+                        setCampaign(x.id);
+                      }}
+                      update={async (id, c) => {
+                        const x = await updateCampaign(id, c);
+                        setCampaigns((l) => l.map((y) => (y.id === id ? x : y)));
+                      }}
+                    />
+                  )}
+                  {me?.team && <div className="b-title">Composition</div>}
                   <div className="proj-current">
                     <input className="proj-title" value={project?.title ?? ''} placeholder="Titre de la composition" onChange={(e) => project && setProject({ ...project, title: e.target.value })} disabled={!project} />
                     {project ? (
@@ -4373,6 +4425,20 @@ export function App() {
                       </button>
                     )}
                   </div>
+                  {project && me?.team && me.team.role !== 'viewer' && campaigns.length > 0 && (
+                    <label className="proj-camp">
+                      <span>Campagne</span>
+                      <select className="pf-input" value={doc.campaign ?? ''} onChange={(e) => setDoc((d) => ({ ...d, campaign: e.target.value || undefined }))}>
+                        <option value="">Aucune</option>
+                        {campaigns.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                            {c.closed ? ' (close)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   {project &&
                     me?.team &&
                     (() => {
@@ -4433,9 +4499,9 @@ export function App() {
                       ))}
                     </div>
                   )}
-                  <div className="b-title">{me?.team ? `Compositions · ${me.team.name}` : 'Compositions du groupe'}</div>
+                  <div className="b-title">{followed ? `Compositions · ${followed.name}` : me?.team ? `Compositions · ${me.team.name}` : 'Compositions du groupe'}</div>
                   <div className="proj-list">
-                    {projects.map((m) => (
+                    {shownProjects.map((m) => (
                       <div key={m.id} className={`proj ${m.id === project?.id ? 'on' : ''}`}>
                         <button className="proj-open" onClick={() => void openProject(m)} title={`Ouvrir « ${m.title} »`}>
                           <img src={thumbUrl(m)} alt="" loading="lazy" />
@@ -4444,8 +4510,21 @@ export function App() {
                           <small>
                             {new Date(m.updated).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
                             {m.by ? ` · ${m.by.split('@')[0]}` : ''}
+                            {!campaign && m.campaign ? ` · ${campaigns.find((c) => c.id === m.campaign)?.name ?? ''}` : ''}
                           </small>
                         </button>
+                        {me?.team && (
+                          <VoteButton
+                            votes={m.votes ?? []}
+                            voted={!!m.voted}
+                            onVote={() =>
+                              void voteAtelier(m.id, !m.voted).then(
+                                (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
+                                (e: Error) => setToast(`Vote impossible : ${e.message}`),
+                              )
+                            }
+                          />
+                        )}
                         <button
                           className={`proj-del ${confirmDel === m.id ? 'hot' : ''}`}
                           title={confirmDel === m.id ? 'Toucher encore pour supprimer' : 'Supprimer'}
@@ -4463,7 +4542,7 @@ export function App() {
                         </button>
                       </div>
                     ))}
-                    {!projects.length && <p className="fx-hint">Aucune composition enregistrée pour l’instant.</p>}
+                    {!shownProjects.length && <p className="fx-hint">{campaign ? 'Aucune composition dans cette campagne pour l’instant : crée la première.' : 'Aucune composition enregistrée pour l’instant.'}</p>}
                   </div>
                 </>
               ) : (

@@ -2,7 +2,7 @@ import path from 'node:path';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
-import { Accounts, LOGO_VARIANTS, ROLES, type ActivityProfile, type LogoVariant, type Role, type TeamOfUser } from './accounts.js';
+import { Accounts, LOGO_VARIANTS, normEmail, ROLES, type ActivityProfile, type CampaignInput, type LogoVariant, type Role, type TeamOfUser } from './accounts.js';
 import { Ateliers } from './ateliers.js';
 import { cookie, readCookie, registerAuth, type AuthConfig } from './auth.js';
 import { Exporter, type ExportKind } from './export.js';
@@ -415,7 +415,17 @@ export async function buildApp(opts: AppOptions) {
     const storeOf = (req: FastifyRequest) => storesOf(req.team!.id)[kind];
     const read = { preHandler: needs('viewer') };
     const write = { preHandler: needs('editor') };
-    app.get(base, read, async (req) => storeOf(req).list());
+    app.get(base, read, async (req) => {
+      const list = await storeOf(req).list();
+      if (kind !== 'ateliers') return list;
+      // les votes des membres, et le sien
+      const votes = accounts.votes(req.team!.id);
+      const me = req.user?.email ? normEmail(req.user.email) : 'groupe';
+      return list.map((m) => {
+        const v = votes.get(m.id) ?? [];
+        return { ...m, votes: v, voted: v.includes(me) };
+      });
+    });
     app.get<{ Params: { id: string } }>(`${base}/:id`, read, async (req, reply) => {
       try {
         return await storeOf(req).read(req.params.id);
@@ -438,6 +448,7 @@ export async function buildApp(opts: AppOptions) {
     app.delete<{ Params: { id: string } }>(`${base}/:id`, write, async (req, reply) => {
       try {
         await storeOf(req).remove(req.params.id);
+        if (kind === 'ateliers') accounts.forgetVotes(req.team!.id, req.params.id);
         return { ok: true };
       } catch (err) {
         return reply.code(400).send({ error: (err as Error).message });
@@ -450,6 +461,35 @@ export async function buildApp(opts: AppOptions) {
       return reply.type('image/png').header('Cache-Control', 'private, no-cache').send(createReadStream(f));
     });
   }
+
+  // --- campagnes : chacun y contribue et vote pour les compositions ---
+  app.get('/api/campaigns', { preHandler: needs('viewer') }, async (req) => accounts.campaigns(req.team!.id));
+  app.post<{ Body: CampaignInput }>('/api/campaigns', { preHandler: needs('editor') }, async (req, reply) => {
+    try {
+      return { ok: true, campaign: accounts.createCampaign(req.team!.id, req.body ?? {}, req.user?.email) };
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  });
+  app.patch<{ Params: { id: string }; Body: CampaignInput & { closed?: boolean } }>('/api/campaigns/:id', { preHandler: needs('editor') }, async (req, reply) => {
+    try {
+      return { ok: true, campaign: accounts.updateCampaign(req.team!.id, req.params.id, req.body ?? {}) };
+    } catch (err) {
+      return reply.code(404).send({ error: (err as Error).message });
+    }
+  });
+  // tout membre vote, lecteurs compris ; un vote par personne et par composition
+  app.post<{ Params: { id: string }; Body: { on?: boolean } }>('/api/ateliers/:id/vote', { preHandler: needs('viewer') }, async (req, reply) => {
+    const team = req.team!;
+    try {
+      await storesOf(team.id).ateliers.read(req.params.id);
+    } catch {
+      return reply.code(404).send({ error: 'Composition introuvable' });
+    }
+    const me = req.user?.email ? normEmail(req.user.email) : 'groupe';
+    const votes = accounts.vote(team.id, req.params.id, me, req.body?.on !== false);
+    return { ok: true, votes, voted: votes.includes(me) };
+  });
 
   // --- circuit de validation : un membre propose, un responsable valide ou demande une retouche ---
   app.post<{ Params: { id: string }; Body: { note?: string } }>('/api/ateliers/:id/propose', { preHandler: needs('editor') }, async (req, reply) => {

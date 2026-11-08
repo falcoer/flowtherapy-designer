@@ -247,4 +247,42 @@ describe('équipes', () => {
       { id: 'concert', name: 'Concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }] },
     ]);
   });
+
+  it('les campagnes : chacun y contribue, tout membre vote', async () => {
+    const { login, as } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    await lauris.send('POST', '/api/teams/flowtherapy/members', { email: 'jenni@example.org', role: 'editor' });
+    await lauris.send('POST', '/api/teams/flowtherapy/members', { email: 'max@example.org', role: 'viewer' });
+    const jenni = as((await login('jenni@example.org'))!);
+    const max = as((await login('max@example.org'))!);
+
+    const c = (await jenni.send('POST', '/api/campaigns', { name: 'Concert du Plan', operation: 'concert', date: '2026-12-12', place: 'Le Plan', note: 'affiches en ville' })).json().campaign;
+    expect(c).toMatchObject({ id: 'concert-du-plan', name: 'Concert du Plan', operation: 'concert', date: '2026-12-12', by: 'jenni@example.org' });
+    expect((await jenni.send('POST', '/api/campaigns', { name: 'Concert du Plan', date: 'demain' })).json().campaign).toMatchObject({ id: 'concert-du-plan-2' });
+    expect((await jenni.send('POST', '/api/campaigns', { name: ' ' })).statusCode).toBe(400);
+    expect((await max.send('POST', '/api/campaigns', { name: 'Non' })).statusCode).toBe(403);
+
+    expect((await jenni.send('PUT', '/api/ateliers/affiche-jenni', { title: 'Affiche de Jenni', doc: { ...doc, campaign: 'concert-du-plan' } })).statusCode).toBe(200);
+    await lauris.send('PUT', '/api/ateliers/affiche-lauris', { title: 'Affiche de Lauris', doc: { ...doc, campaign: 'concert-du-plan' } });
+
+    // lecteurs compris, un vote par personne
+    expect((await max.send('POST', '/api/ateliers/affiche-jenni/vote', {})).json()).toMatchObject({ votes: ['max@example.org'], voted: true });
+    await max.send('POST', '/api/ateliers/affiche-jenni/vote', {});
+    await lauris.send('POST', '/api/ateliers/affiche-jenni/vote', { on: true });
+    expect((await max.send('POST', '/api/ateliers/inconnue/vote', {})).statusCode).toBe(404);
+    const list = (await max.get('/api/ateliers')).json() as Array<{ id: string; campaign?: string; votes: string[]; voted: boolean }>;
+    expect(list.find((m) => m.id === 'affiche-jenni')).toMatchObject({ campaign: 'concert-du-plan', votes: ['max@example.org', 'lauris@example.org'], voted: true });
+    expect(list.find((m) => m.id === 'affiche-lauris')).toMatchObject({ votes: [], voted: false });
+    expect((await max.send('POST', '/api/ateliers/affiche-jenni/vote', { on: false })).json().votes).toEqual(['lauris@example.org']);
+
+    const closed = (await lauris.send('PATCH', '/api/campaigns/concert-du-plan', { closed: true })).json().campaign;
+    expect(closed.closed).toBeTruthy();
+    expect(closed.place).toBe('Le Plan');
+    const all = (await max.get('/api/campaigns')).json() as Array<{ id: string }>;
+    expect(all.map((x) => x.id)).toEqual(['concert-du-plan-2', 'concert-du-plan']);
+
+    await lauris.send('DELETE', '/api/ateliers/affiche-jenni');
+    await lauris.send('PUT', '/api/ateliers/affiche-jenni', { title: 'Nouvelle', doc });
+    expect(((await max.get('/api/ateliers')).json() as Array<{ id: string; votes: string[] }>).find((m) => m.id === 'affiche-jenni')?.votes).toEqual([]);
+  });
 });

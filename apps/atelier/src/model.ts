@@ -205,6 +205,8 @@ export interface Doc {
   target?: number;
   /** Occasion dont part le document. */
   operation?: string;
+  /** Campagne à laquelle il contribue. */
+  campaign?: string;
   /** Lumière unique : direction d'où elle vient (degrés, 0 = haut, sens horaire). */
   light: number;
   /** Lampe au-dessus de la feuille : position (fractions de la page, peut sortir de la page), hauteur 0..1 et couleur. */
