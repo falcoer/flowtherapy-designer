@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildApp } from './app.js';
 import { authFromEnv } from './auth.js';
+import { mailerFromEnv } from './mail.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../../..');
@@ -45,6 +46,8 @@ const app = await buildApp({
   adminEmails: (process.env.FTD_ADMIN_EMAILS ?? auth?.allowedEmails[0] ?? '').split(','),
   version: versionInfo(),
   password: process.env.FTD_PASSWORD,
+  mailer: mailerFromEnv(),
+  publicUrl: process.env.FTD_PUBLIC_URL,
 });
 
 const port = Number(process.env.PORT ?? 4310);

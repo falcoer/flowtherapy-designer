@@ -11,6 +11,18 @@ export interface AtelierMeta {
   updated: string;
   by?: string;
   formatId?: string;
+  /** Circuit de validation : proposée aux responsables, validée, ou à revoir. */
+  review?: Review;
+}
+
+export interface Review {
+  status: 'proposed' | 'approved' | 'changes';
+  proposedBy: string;
+  proposedAt: string;
+  note?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
 }
 
 const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -46,12 +58,15 @@ export class Ateliers {
     const doc = input.doc as { formatId?: unknown; layers?: unknown } | undefined;
     if (!doc || typeof doc !== 'object' || !Array.isArray(doc.layers)) throw new Error('Document d’atelier attendu (couches manquantes)');
     await mkdir(this.root, { recursive: true });
+    // l'état de validation suit la composition d'un enregistrement à l'autre
+    const previous = await this.readMeta(id);
     const meta: AtelierMeta = {
       id,
       title: (input.title ?? '').trim().slice(0, 120) || 'Sans titre',
       updated: new Date().toISOString(),
       ...(by ? { by } : {}),
       ...(typeof doc.formatId === 'string' ? { formatId: doc.formatId } : {}),
+      ...(previous?.review ? { review: previous.review } : {}),
     };
     // écriture atomique : un fichier temporaire puis renommage
     const target = this.file(id, 'json');
@@ -59,6 +74,26 @@ export class Ateliers {
     await rename(target + '.tmp', target);
     const m = input.thumb?.match(/^data:image\/png;base64,(.+)$/);
     if (m) await writeFile(this.file(id, 'png'), Buffer.from(m[1]!, 'base64'));
+    return meta;
+  }
+
+  private async readMeta(id: string): Promise<AtelierMeta | null> {
+    try {
+      const { doc: _doc, ...meta } = await this.read(id);
+      return meta;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Change l'état de validation sans toucher au document. */
+  async setReview(id: string, review: Review): Promise<AtelierMeta> {
+    const full = await this.read(id);
+    const target = this.file(id, 'json');
+    const next = { ...full, review };
+    await writeFile(target + '.tmp', JSON.stringify(next));
+    await rename(target + '.tmp', target);
+    const { doc: _doc, ...meta } = next;
     return meta;
   }
 
