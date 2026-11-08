@@ -1,10 +1,9 @@
 import { useRef } from 'react';
-import { DEFAULT_SHAPE, type GradMode, type GradShape } from './model';
+import { DEFAULT_SHAPE, type GradMode, type GradShape, type GradStyle } from './model';
 
 /**
- * Mise en place d'un dégradé sur l'objet choisi : une barre (mode, répétitions, alterné, ellipse)
- * et un repère posé sur l'objet même, où l'on glisse le centre et la poignée de l'axe (angle, étendue).
- * Le réglage est propre à l'objet (Layer.grad) ; la palette ne garde que les teintes.
+ * Dégradés : la palette retient le style (mode, répétitions, alterné, ellipse) ; chaque objet en dégradé
+ * montre son repère, où l'on glisse le centre et la poignée de l'axe (angle, étendue), propres à l'objet (Layer.grad).
  */
 
 const MODES: Array<[GradMode, string, string]> = [
@@ -44,13 +43,13 @@ const snapAngle = (deg: number) => {
   return (Math.abs(r - deg) < 4 ? r : Math.round(deg)) % 360;
 };
 
-export function GradientBar({ shape, onChange, frame, setFrame }: { shape?: GradShape; onChange: (s: GradShape, commit: boolean) => void; frame: boolean; setFrame: (b: boolean) => void }) {
-  const s = shape ?? DEFAULT_SHAPE;
+/** Style du dégradé, retenu par la palette : mode, répétitions, alterné, cercle ou ellipse. */
+export function GradStyleRow({ style, onChange }: { style?: GradStyle; onChange: (s: GradStyle) => void }) {
+  const s: GradStyle = style ?? { mode: 'linear', repeat: 1 };
   const n = Math.max(1, Math.round(s.repeat));
-  const set = (patch: Partial<GradShape>) => onChange({ ...s, ...patch }, true);
+  const set = (patch: Partial<GradStyle>) => onChange({ ...s, ...patch });
   return (
-    <div className="grad-bar" role="toolbar" aria-label="Dégradé de l'objet">
-      <span className="grad-bar-title">Dégradé</span>
+    <div className="grad-row" role="group" aria-label="Forme du dégradé">
       <div className="grad-modes">
         {MODES.map(([m, name, hint]) => (
           <button key={m} className={s.mode === m ? 'on' : ''} onClick={() => set({ mode: m })} title={`${name} : ${hint}`} aria-label={name}>
@@ -75,15 +74,6 @@ export function GradientBar({ shape, onChange, frame, setFrame }: { shape?: Grad
           {s.ellipse ? 'Ellipse' : 'Cercle'}
         </button>
       )}
-      <span className="grad-angle" title="Angle (aimanté tous les 15°)">
-        {Math.round(s.angle)}°
-      </span>
-      <button className={`grad-tog grad-frame-btn ${frame ? 'on' : ''}`} aria-pressed={frame} onClick={() => setFrame(!frame)} title="Afficher le repère sur l'objet : centre et axe à glisser">
-        Repère
-      </button>
-      <button className="grad-tog plain" onClick={() => onChange({ ...DEFAULT_SHAPE, mode: s.mode }, true)} title="Centre au milieu, angle et étendue d'origine, un passage">
-        Recentrer
-      </button>
     </div>
   );
 }
@@ -168,6 +158,9 @@ export function GradientOverlay({ shape, map, color, onChange }: { shape?: GradS
         {s.mode === 'linear' && <circle cx={A.x} cy={A.y} r="4" className="go-start" />}
       </svg>
       <span className="go-pt center" style={{ left: C.x, top: C.y }} title="Centre du dégradé : glisse-le" onPointerDown={grab('center')} onPointerMove={move} onPointerUp={drop} onPointerCancel={drop} />
+      <span className="go-angle" style={{ left: H.x + 18, top: H.y - 22 }}>
+        {Math.round(s.angle)}°{s.mode !== 'conic' ? ` · ${Math.round(s.spread * 100)} %` : ''}
+      </span>
       <span className="go-pt handle" style={{ left: H.x, top: H.y, background: color }} title="Poignée : angle et étendue" onPointerDown={grab('handle')} onPointerMove={move} onPointerUp={drop} onPointerCancel={drop} />
     </div>
   );

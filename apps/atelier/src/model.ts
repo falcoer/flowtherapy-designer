@@ -27,7 +27,7 @@ export type Blend = 'smooth' | 'soft' | 'hard';
  * `role` : rôle de la couleur dans les variantes de l'activité (fond, texte…) ; changer de variante remplace la couleur du même rôle.
  * `from` : nom de l'objet ou du dessin importé qui a apporté la couleur dans le document.
  */
-export type Guide = { name: string; type: 'color'; color: string; role?: string; from?: string } | { name: string; type: 'gradient'; stops: string[]; blend?: Blend; shape?: GradShape; role?: string; from?: string };
+export type Guide = { name: string; type: 'color'; color: string; role?: string; from?: string } | { name: string; type: 'gradient'; stops: string[]; blend?: Blend; shape?: GradStyle; role?: string; from?: string };
 
 /** Mode d'un dégradé : le long d'un axe, en cercle, autour d'un centre (angle), en losange. */
 export type GradMode = 'linear' | 'radial' | 'conic' | 'diamond';
@@ -46,8 +46,18 @@ export interface GradShape {
   mirror?: boolean;
   ellipse?: boolean;
 }
+/** Ce que la palette retient d'un dégradé : son mode et ses répétitions. */
+export type GradStyle = Pick<GradShape, 'mode' | 'repeat' | 'mirror' | 'ellipse'>;
+/** Ce que chaque objet retient : où se pose le dégradé (centre, angle, étendue), réglé avec le repère sur l'objet. */
+export type GradPlace = Pick<GradShape, 'cx' | 'cy' | 'angle' | 'spread'>;
 /** Sans forme enregistrée : l'ancien dégradé, du haut vers le bas. */
 export const DEFAULT_SHAPE: GradShape = { mode: 'linear', cx: 0.5, cy: 0.5, angle: 90, spread: 1, repeat: 1 };
+/** Forme d'un dégradé sur un objet : le style de la palette, posé selon le repère de l'objet ; undefined = ancien dégradé. */
+export function shapeOf(g: Guide | undefined, place?: GradPlace): GradShape | undefined {
+  if (g?.type !== 'gradient' || (!g.shape && !place)) return undefined;
+  const st = g.shape;
+  return { ...DEFAULT_SHAPE, ...(st ? { mode: st.mode, repeat: st.repeat, mirror: st.mirror, ellipse: st.ellipse } : {}), ...(place ? { cx: place.cx, cy: place.cy, angle: place.angle, spread: place.spread } : {}) };
+}
 
 /** Arrêts d'un dégradé (position 0..1, couleur) selon sa transition. */
 export function blendStops(stops: string[], blend: Blend = 'smooth'): Array<[number, string]> {
@@ -149,8 +159,8 @@ export interface Layer {
   text?: import('./text').TextStyle;
   /** Guide de couleur du support ou de la forme. */
   guide: number;
-  /** Mise en place d'un guide en dégradé sur cet objet (mode, centre, angle, étendue, répétitions) : propre à l'objet. */
-  grad?: GradShape;
+  /** Où se pose le dégradé de son guide sur cet objet (centre, angle, étendue) : propre à l'objet. */
+  grad?: GradPlace;
   /** Photo (URL ou data URI). */
   src?: string;
   /** Élément de bibliothèque d'origine (« image/<id> ») : l'instance n'en garde que les écarts. */

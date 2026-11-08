@@ -1490,8 +1490,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 
 
 /* dégradé de l'objet choisi : barre (mode, répétitions…) et repère posé sur l'objet */
-.grad-bar { position: fixed; z-index: 11; top: 64px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; max-width: calc(100vw - 20px); overflow-x: auto; padding: 5px 8px; border-radius: 999px; background: var(--chrome-solid); box-shadow: 0 0 0 1px var(--line), var(--tool-lift); scrollbar-width: none; }
-.grad-bar-title { font: var(--tool-label); text-transform: uppercase; color: var(--muted); padding: 0 4px; }
+.grad-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
 .grad-modes { display: flex; gap: 2px; padding: 2px; border-radius: 999px; background: var(--line); }
 .grad-modes button { width: 32px; height: 30px; display: grid; place-items: center; border-radius: 999px; color: var(--ink); }
 .grad-modes button.on { background: var(--chrome-solid); color: var(--accent); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15); }
@@ -1502,8 +1501,6 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .grad-tog { flex: none; height: 32px; padding: 0 10px; border-radius: 999px; font-size: 12px; color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
 .grad-tog.on { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
 .grad-tog:disabled { opacity: 0.4; }
-.grad-tog.plain { box-shadow: none; color: var(--muted); }
-.grad-angle { flex: none; min-width: 34px; text-align: center; font: var(--tool-label); color: var(--muted); }
 .grad-overlay { position: fixed; inset: 0; z-index: 5; pointer-events: none; }
 .grad-overlay svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .go-axis0 { stroke: #fff; stroke-width: 1; stroke-dasharray: 2 4; opacity: 0.75; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.7)); }
@@ -1514,3 +1511,4 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .go-pt { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; pointer-events: auto; touch-action: none; cursor: grab; border: 4px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35); }
 .go-pt.center { width: 22px; height: 22px; margin: -11px 0 0 -11px; background: rgba(255, 255, 255, 0.25); }
 .go-pt.center::after { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: #fff; }
+.go-angle { position: absolute; padding: 1px 6px; border-radius: 6px; font: var(--tool-label); color: #fff; background: rgba(20, 16, 30, 0.6); white-space: nowrap; pointer-events: none; }

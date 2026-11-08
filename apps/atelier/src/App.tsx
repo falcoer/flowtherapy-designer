@@ -20,7 +20,7 @@ import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth,
 import { QuickText, TextBar, type SwashTool } from './textbar';
 import { PaletteEditor } from './colorpicker';
 import { cssShaped } from './gradient';
-import { GradientBar, GradientOverlay } from './gradient-ui';
+import { GradientOverlay, GradStyleRow } from './gradient-ui';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
@@ -35,7 +35,7 @@ import { LoadDialog, NewCompositionDialog } from './compositions-ui';
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
-import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
+import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, type GradStyle, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
@@ -267,7 +267,7 @@ export const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
   ['aura', 'Énergie', 'aura de flammes'],
   ['fire', 'Flammes', 'langues de feu qui montent'],
 ];
-export const swatch = (g: Guide | undefined) => (g?.type === 'gradient' ? cssShaped(g.stops, g.blend, g.shape) : guideColor(g));
+export const swatch = (g: Guide | undefined) => (g?.type === 'gradient' ? cssShaped(g.stops, g.blend, shapeOf(g)) : guideColor(g));
 const EDGE_MODES: Array<[EdgeMode, string, string]> = [
   ['contrast', 'Contraste', 'bords de lumière'],
   ['color', 'Couleur', 'bords de teinte'],
@@ -680,8 +680,6 @@ export function App() {
   };
 
   const [tool, setToolState] = useState<Tool>('move');
-  // repère du dégradé posé sur l'objet choisi (centre et axe à glisser)
-  const [gradFrame, setGradFrame] = useState(false);
   /** Maj : le bouton de la barre (tenu, ou verrouillé d'un double appui), ou la touche du clavier. */
   const [shiftBtn, setShiftBtn] = useState(SHIFT_IDLE);
   const shiftLatch = shiftButtonOn(shiftBtn);
@@ -3952,10 +3950,10 @@ export function App() {
         sel &&
         sel.kind !== 'photo' &&
         (() => {
+          // une surface en dégradé montre son repère : centre et axe à glisser, propres à l'objet
           const g = doc.guides[sel.guide];
           if (g?.type !== 'gradient') return null;
-          // la mise en place du dégradé est propre à l'objet ; à défaut, celle du guide
-          const shape = sel.grad ?? g.shape;
+          const shape = shapeOf(g, sel.grad) ?? DEFAULT_SHAPE;
           const b = layerBox(sel, f);
           const map = {
             ar: b.w / Math.max(1e-6, b.h),
@@ -3969,13 +3967,8 @@ export function App() {
               return pageToLocal(sel, f, p.x, p.y);
             },
           };
-          const set = (s: GradShape, commit: boolean) => patchLayer(sel.id, { grad: s }, commit);
-          return (
-            <>
-              {gradFrame && <GradientOverlay shape={shape} map={map} color={g.stops[g.stops.length - 1]!} onChange={set} />}
-              <GradientBar shape={shape} onChange={set} frame={gradFrame} setFrame={setGradFrame} />
-            </>
-          );
+          const set = (s: GradShape, commit: boolean) => patchLayer(sel.id, { grad: { cx: s.cx, cy: s.cy, angle: s.angle, spread: s.spread } }, commit);
+          return <GradientOverlay shape={shape} map={map} color={g.stops[g.stops.length - 1]!} onChange={set} />;
         })()}
       {!rendu && (
         <>
@@ -5860,6 +5853,7 @@ function ColorDialog({ guide, variant, onChange, onClose, onRemove }: { guide: G
           )
         }
       />
+      {guide.type === 'gradient' && <GradStyleRow style={guide.shape} onChange={(shape: GradStyle) => onChange({ ...guide, shape }, true)} />}
     </div>
   );
 }

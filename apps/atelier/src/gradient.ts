@@ -1,4 +1,4 @@
-import { blendStops, guideColor, type Blend, type GradShape, type Guide } from './model';
+import { blendStops, guideColor, shapeOf, type Blend, type GradPlace, type GradShape, type Guide } from './model';
 
 /**
  * Dégradés en quatre modes (linéaire, radial, conique, diamant), avec centre, angle, étendue et répétitions.
@@ -93,9 +93,9 @@ function gradCanvas(g: Extract<Guide, { type: 'gradient' }>, s: GradShape, ar: n
 
 type Box = { x0: number; y0: number; x1: number; y1: number };
 
-/** Remplissage d'un dégradé mis en forme sur une boîte (la forme de l'objet, sinon celle du guide) ; null sans forme (ancien dégradé). */
-export function shapedFill(ctx: CanvasRenderingContext2D, g: Guide | undefined, box: Box, own?: GradShape): CanvasPattern | null {
-  const shape = own ?? (g?.type === 'gradient' ? g.shape : undefined);
+/** Remplissage d'un dégradé mis en forme sur une boîte (style de la palette, repère de l'objet) ; null sans forme (ancien dégradé). */
+export function shapedFill(ctx: CanvasRenderingContext2D, g: Guide | undefined, box: Box, place?: GradPlace): CanvasPattern | null {
+  const shape = shapeOf(g, place);
   if (g?.type !== 'gradient' || !shape) return null;
   const w = Math.max(1e-6, box.x1 - box.x0);
   const h = Math.max(1e-6, box.y1 - box.y0);
