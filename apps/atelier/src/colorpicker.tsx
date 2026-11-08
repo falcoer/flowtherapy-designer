@@ -1,6 +1,8 @@
 import { gradientStops, harmonies, hexToOklch, maxChroma, oklabToRgb8, oklchToHex, type Oklch } from '@ftd/core';
+import { cssGradient } from './model';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Blend } from './model';
+import type { Palette } from './server';
 
 /**
  * Éditeur de couleur de la palette : un plan carré (teinte en largeur, clarté en hauteur),
@@ -82,7 +84,36 @@ const HARMONIES: Array<[keyof ReturnType<typeof harmonies>, string]> = [
   ['tints', 'Camaïeu'],
 ];
 
-export function PaletteEditor({ stops, blend, onBlend, onChange: emit }: { stops: string[]; blend: Blend; onBlend: (b: Blend) => void; onChange: (stops: string[], commit: boolean) => void }) {
+/** Fond d'un curseur du plan : ce que donne chaque position, dans la teinte choisie. */
+function trackOf(k: 'sat' | 'light' | 'contrast' | 'hues', p: Plane, base: Oklch): string {
+  const at = (c: Oklch) => oklchToHex(c);
+  const n = 8;
+  const run = (f: (t: number) => Oklch) => `linear-gradient(90deg, ${Array.from({ length: n + 1 }, (_, j) => at(f(j / n))).join(', ')})`;
+  const l0 = 0.15 + 0.7 * p.light;
+  if (k === 'sat') return run((t) => ({ l: l0, c: t * maxChroma(l0, base.h), h: base.h }));
+  if (k === 'light') return run((t) => {
+    const l = 0.15 + 0.7 * t;
+    return { l, c: p.sat * maxChroma(l, base.h), h: base.h };
+  });
+  if (k === 'hues') return run((t) => ({ l: l0, c: p.sat * maxChroma(l0, (base.h + t * 360) % 360), h: (base.h + t * 360) % 360 }));
+  // contraste : à gauche des clartés proches, à droite du blanc au noir (moitié haute vers le clair, basse vers le sombre)
+  return `linear-gradient(90deg, ${at({ l: l0, c: 0, h: 0 })}, #fff) top / 100% 50% no-repeat, linear-gradient(90deg, ${at({ l: l0, c: 0, h: 0 })}, #000) bottom / 100% 50% no-repeat`;
+}
+
+export function PaletteEditor({
+  stops,
+  blend,
+  variant,
+  onBlend,
+  onChange: emit,
+}: {
+  stops: string[];
+  blend: Blend;
+  /** Variante de l'activité dont les couleurs sont proposées. */
+  variant?: Palette;
+  onBlend: (b: Blend) => void;
+  onChange: (stops: string[], commit: boolean) => void;
+}) {
   // pendant un glissé, la page n'est repeinte qu'une fois par image affichée
   const pending = useRef<{ stops: string[]; raf: number } | null>(null);
   const onChange = (next: string[], commit: boolean) => {
@@ -176,6 +207,18 @@ export function PaletteEditor({ stops, blend, onBlend, onChange: emit }: { stops
             Spectre
           </button>
         </div>
+        <button
+          className={`pe-harm-btn ${harm ? 'on' : ''}`}
+          aria-pressed={!!harm}
+          onClick={() => {
+            if (harm) return setHarm(null);
+            const c = stops[i]!;
+            setHarm({ base: c, at: placeOf(c, pl) ?? { x: 0.5, y: 0.5 } });
+          }}
+          title="Harmonies de la teinte choisie (ou garde le doigt appuyé sur le plan)"
+        >
+          Harmonies
+        </button>
       </div>
       <div
         ref={plane}
@@ -276,6 +319,7 @@ export function PaletteEditor({ stops, blend, onBlend, onChange: emit }: { stops
           </button>
         </div>
       )}
+      <Tiles stops={stops} sel={i} setSel={setSel} onChange={onChange} blend={blend} />
       <div className="pe-bottom">
         <div className="pe-sliders">
           {(
@@ -289,6 +333,8 @@ export function PaletteEditor({ stops, blend, onBlend, onChange: emit }: { stops
             <label key={k} title={hint}>
               <span className="tb-label">{name}</span>
               <input
+                className="pe-range"
+                style={{ background: trackOf(k, pl, hexToOklch(stops[i]!)) }}
                 type="range"
                 min={min}
                 max={max}
@@ -304,7 +350,16 @@ export function PaletteEditor({ stops, blend, onBlend, onChange: emit }: { stops
           ))}
         </div>
         <div className="pe-right">
-          <Tiles stops={stops} sel={i} setSel={setSel} onChange={onChange} />
+          {variant && variant.colors.length > 0 && (
+            <div className="pe-variant">
+              <span className="tb-label">{variant.name}</span>
+              <div className="pe-variant-chips">
+                {variant.colors.map((c, k) => (
+                  <button key={k} style={{ background: c.hex }} title={`${c.name || c.hex}${c.role ? ` (${c.role})` : ''} : remplace la teinte choisie`} onClick={() => setAt(i, c.hex, true)} />
+                ))}
+              </div>
+            </div>
+          )}
           <div className="pe-blend">
             <span className="tb-label">Transition</span>
             <div className="seg">
@@ -327,8 +382,8 @@ export function PaletteEditor({ stops, blend, onBlend, onChange: emit }: { stops
   );
 }
 
-/** Teintes du guide en tuiles : toucher pour choisir, glisser pour réordonner, ＋ pour en ajouter. */
-function Tiles({ stops, sel, setSel, onChange }: { stops: string[]; sel: number; setSel: (i: number) => void; onChange: (stops: string[], commit: boolean) => void }) {
+/** Teintes du guide en curseurs posés sur leur dégradé : toucher pour choisir, glisser pour réordonner, ＋ pour en ajouter. */
+function Tiles({ stops, sel, setSel, onChange, blend }: { stops: string[]; sel: number; setSel: (i: number) => void; onChange: (stops: string[], commit: boolean) => void; blend: Blend }) {
   const box = useRef<HTMLDivElement>(null);
   const drag = useRef<{ from: number; x: number; y: number; on: boolean } | null>(null);
   const [dragging, setDragging] = useState<number | null>(null);
@@ -345,7 +400,7 @@ function Tiles({ stops, sel, setSel, onChange }: { stops: string[]; sel: number;
   };
   return (
     <div className="pe-tiles-wrap">
-      <div className="pe-tiles" ref={box}>
+      <div className="pe-tiles" ref={box} style={{ background: cssGradient(stops, blend, '90deg') }}>
         {stops.map((c, k) => (
           <button
             key={k}
@@ -405,6 +460,7 @@ function Tiles({ stops, sel, setSel, onChange }: { stops: string[]; sel: number;
             )}
           </button>
         ))}
+      </div>
         <button
           className="pe-tile add"
           onClick={() => {
@@ -416,7 +472,6 @@ function Tiles({ stops, sel, setSel, onChange }: { stops: string[]; sel: number;
         >
           ＋
         </button>
-      </div>
     </div>
   );
 }

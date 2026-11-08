@@ -25,8 +25,8 @@ import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers }
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
-import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me } from './server';
-import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, targetKey, targetLabel } from './targets';
+import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
+import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, targetKey, targetLabel } from './targets';
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
 import { CampaignDialog, CampaignSummary, VoteButton } from './campaigns-ui';
 import { LoadDialog, NewCompositionDialog } from './compositions-ui';
@@ -5099,6 +5099,8 @@ export function App() {
             <PaletteBubble
               doc={doc}
               active={guide}
+              variants={palettesOf(activity)}
+              declared={paletteFor(activeTarget, activity)}
               onPick={setGuide}
               onGuides={(guides, commit = true) => (commit ? update : setDoc)((d) => ({ ...d, guides }))}
               onDrag={(i, x, y) => setDragGuide(i === null ? null : { i, x, y })}
@@ -5530,6 +5532,17 @@ function LampPanel({ doc, f, onChange, onClose }: { doc: Doc; f: Format; onChang
 }
 
 const SAVED = 'ftd-atelier-palettes';
+const ROLE_SHORT: Record<string, string> = { fond: 'fond', texte: 'texte', accent: 'accent', secondaire: 'second.' };
+/** Toute la palette en un seul dégradé, comme les variantes : chaque guide au milieu de sa part, les dégradés étalés dans la leur. */
+function railGradient(guides: Guide[]): string {
+  const n = guides.length;
+  if (!n) return 'transparent';
+  const stops = guides.flatMap((x, i) => {
+    const cs = x.type === 'gradient' ? x.stops : [x.color];
+    return cs.map((c, k) => `${c} ${(((i + (cs.length === 1 ? 0.5 : 0.15 + (0.7 * k) / (cs.length - 1))) / n) * 100).toFixed(1)}%`);
+  });
+  return `linear-gradient(90deg, ${stops.join(', ')})`;
+}
 function PaletteBubble({
   doc,
   active,
@@ -5537,9 +5550,14 @@ function PaletteBubble({
   onGuides,
   onDrag,
   onDrop,
+  variants,
+  declared,
 }: {
   doc: Doc;
   active: number;
+  /** Variantes de couleurs de l'activité, et celle que déclare la cible affichée. */
+  variants: Palette[];
+  declared?: Palette;
   onPick: (i: number) => void;
   onGuides: (g: Guide[], commit?: boolean) => void;
   onDrag: (i: number | null, x: number, y: number) => void;
@@ -5560,6 +5578,9 @@ function PaletteBubble({
   // édition de la couleur : escamotable, retenue d'une ouverture à l'autre
   // édition de la couleur : fermée à chaque ouverture de la palette ; double toucher sur une couleur l'ouvre
   const [editing, setEditing] = useState(false);
+  // variante montrée sous la barre : celle de la cible, ou une autre choisie pour piocher ses couleurs
+  const [shownId, setShownId] = useState<string | null>(null);
+  const shown = variants.find((v) => v.id === shownId) ?? declared ?? variants[0];
   const lastPick = useRef<{ i: number; t: number } | null>(null);
   const store = (list: typeof saved) => {
     setSaved(list);
@@ -5611,7 +5632,7 @@ function PaletteBubble({
                   onGuides(guides);
                 }}
               >
-                <span className="strip" style={{ background: `linear-gradient(90deg, ${p.guides.map((x) => guideColor(x, 0.5)).join(',')})` }} />
+                <span className="strip" style={{ background: railGradient(p.guides) }} />
               </button>
               {renaming === i ? (
                 <input
@@ -5646,88 +5667,131 @@ function PaletteBubble({
           ))}
         </div>
       )}
+      <div className="pal-rail">
+        <div className="pal-track">
+          <span className="pal-bar" style={{ background: railGradient(doc.guides) }} />
+          {doc.guides.map((x, i) => (
+            <div
+              key={i}
+              role="button"
+              tabIndex={0}
+              className={`pal-cursor ${i === active ? 'on' : ''}`}
+              style={{ left: `${(i / doc.guides.length) * 100}%`, width: `${100 / doc.guides.length}%` }}
+              onClick={() => {
+                onPick(i);
+                const now = performance.now();
+                const lp = lastPick.current;
+                if (lp && lp.i === i && now - lp.t < 400) {
+                  setEditing(true);
+                  lastPick.current = null;
+                } else lastPick.current = { i, t: now };
+              }}
+              title={`${x.name} : double toucher pour la modifier, glisse-la sur un objet pour lui donner cette couleur`}
+              onPointerDown={(e) => {
+                (e.currentTarget as Element).setPointerCapture(e.pointerId);
+                drag.current = { i, x: e.clientX, y: e.clientY, on: false };
+              }}
+              onPointerMove={(e) => {
+                const d = drag.current;
+                if (!d) return;
+                if (!d.on && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) d.on = true;
+                if (d.on) onDrag(d.i, e.clientX, e.clientY);
+              }}
+              onPointerUp={(e) => {
+                const d = drag.current;
+                drag.current = null;
+                if (d?.on) {
+                  e.preventDefault();
+                  onDrop(d.i, e.clientX, e.clientY);
+                }
+              }}
+              onPointerCancel={() => {
+                drag.current = null;
+                onDrag(null, 0, 0);
+              }}
+            >
+              <span className="sw" style={{ background: swatch(x) }} />
+              {i === active ? (
+                // le nom de la couleur choisie s'écrit sur place
+                <input
+                  className="gname gname-edit"
+                  value={x.name}
+                  aria-label="Nom de la couleur"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onChange={(e) => edit({ name: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.currentTarget.blur();
+                    e.stopPropagation();
+                  }}
+                />
+              ) : (
+                <span className="gname">{x.name}</span>
+              )}
+            </div>
+          ))}
+        </div>
+        <button
+          className="pal-add"
+          onClick={() => {
+            onGuides([...doc.guides, { name: `Couleur ${doc.guides.length + 1}`, type: 'color', color: '#6c8cd5' }]);
+            onPick(doc.guides.length);
+          }}
+          title="Ajouter une couleur : ajoute-lui une seconde teinte pour en faire un dégradé"
+          aria-label="Ajouter une couleur"
+        >
+          ＋
+        </button>
+      </div>
+      {shown && (
+        <div className="pal-variant">
+          <div className="pal-variant-row">
+            <span className="tb-label">Variante</span>
+            <div className="pal-variant-pills">
+              {variants.map((v) => (
+                <button key={v.id} className={v.id === shown.id ? 'on' : ''} onClick={() => setShownId(v.id)} title={v.id === declared?.id ? `${v.name} : la variante de la cible affichée` : `Piocher dans ${v.name}`}>
+                  <VariantBar pal={v} />
+                  <span>{v.name}</span>
+                  {v.id === declared?.id && <i className="pal-variant-dot" aria-label="variante de la cible" />}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="pal-variant-colors">
+            {paletteGuides(shown).map((v, k) =>
+              v.type !== 'color' ? null : (
+                <button
+                  key={k}
+                  title={g?.type === 'gradient' ? `Ajouter ${v.name} au dégradé « ${g.name} »` : `Donner ${v.name} à « ${g?.name ?? ''} »`}
+                  onClick={() => {
+                    if (!g) return;
+                    if (g.type === 'gradient') setStops([...g.stops, v.color]);
+                    else edit({ color: v.color, ...(v.role ? { role: v.role } : {}) } as Partial<Guide>);
+                  }}
+                >
+                  <span className="sw" style={{ background: v.color }} />
+                  <span className="pal-vc-name">{v.name}</span>
+                  {v.role && <small>{ROLE_SHORT[v.role] ?? v.role}</small>}
+                </button>
+              ),
+            )}
+            <button className="pal-variant-all" onClick={() => onGuides(recolor(doc.guides, shown))} title="Recolorer tout le document avec cette variante : même rôle, sinon même rang">
+              Tout recolorer
+            </button>
+          </div>
+        </div>
+      )}
       {editing && g && (
         <div className="guide-edit">
           <PaletteEditor
             key={active}
             stops={stopsOf(g)}
             blend={g.type === 'gradient' ? (g.blend ?? 'smooth') : 'smooth'}
+            variant={shown}
             onBlend={(blend: Blend) => onGuides(doc.guides.map((x, i) => (i === active && x.type === 'gradient' ? { ...x, blend } : x)))}
             onChange={(stops, commit) => setStops(stops, commit)}
           />
         </div>
       )}
-      <div className="guides">
-        {doc.guides.map((x, i) => (
-          <div
-            key={i}
-            role="button"
-            tabIndex={0}
-            className={`guide ${i === active ? 'on' : ''}`}
-            onClick={() => {
-              onPick(i);
-              const now = performance.now();
-              const lp = lastPick.current;
-              if (lp && lp.i === i && now - lp.t < 400) {
-                setEditing(true);
-                lastPick.current = null;
-              } else lastPick.current = { i, t: now };
-            }}
-            title={`${x.name} : double toucher pour la modifier, glisse-la sur un objet pour lui donner cette couleur`}
-            onPointerDown={(e) => {
-              (e.currentTarget as Element).setPointerCapture(e.pointerId);
-              drag.current = { i, x: e.clientX, y: e.clientY, on: false };
-            }}
-            onPointerMove={(e) => {
-              const d = drag.current;
-              if (!d) return;
-              if (!d.on && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) d.on = true;
-              if (d.on) onDrag(d.i, e.clientX, e.clientY);
-            }}
-            onPointerUp={(e) => {
-              const d = drag.current;
-              drag.current = null;
-              if (d?.on) {
-                e.preventDefault();
-                onDrop(d.i, e.clientX, e.clientY);
-              }
-            }}
-            onPointerCancel={() => {
-              drag.current = null;
-              onDrag(null, 0, 0);
-            }}
-          >
-            <span className="sw" style={{ background: swatch(x) }} />
-            {i === active ? (
-              // le nom de la couleur choisie s'écrit sur place
-              <input
-                className="gname gname-edit"
-                value={x.name}
-                aria-label="Nom de la couleur"
-                onPointerDown={(e) => e.stopPropagation()}
-                onChange={(e) => edit({ name: e.target.value })}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') e.currentTarget.blur();
-                  e.stopPropagation();
-                }}
-              />
-            ) : (
-              <span className="gname">{x.name}</span>
-            )}
-          </div>
-        ))}
-        <button
-          className="guide add"
-          onClick={() => {
-            onGuides([...doc.guides, { name: `Couleur ${doc.guides.length + 1}`, type: 'color', color: '#6c8cd5' }]);
-            onPick(doc.guides.length);
-          }}
-          title="Ajouter une couleur : ajoute-lui une seconde teinte pour en faire un dégradé"
-        >
-          <span className="sw plus">＋</span>
-          <span className="gname">Ajouter</span>
-        </button>
-      </div>
     </div>
   );
 }
