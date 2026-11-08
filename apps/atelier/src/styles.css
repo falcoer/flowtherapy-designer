@@ -1546,7 +1546,9 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 @media (min-width: 760px) and (max-height: 1000px) {
   .color-dialog { width: min(720px, calc(100vw - 20px)); }
   .pe { flex-direction: row; align-items: flex-start; gap: 14px; }
-  .pe-main { flex: 0 0 min(340px, calc(100dvh - 210px)); }
+  .pe-main { flex: 0 0 clamp(260px, calc(100dvh - 210px), 340px); }
+  .pe-head { flex-wrap: wrap; row-gap: 6px; }
+  .pe-mode { flex: 1 1 200px; width: auto; }
   .pe-side { flex: 1; }
   .pe-stage:not(.sliders) { width: 100%; }
 }
