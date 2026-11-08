@@ -300,4 +300,35 @@ describe('équipes', () => {
     await lauris.send('PUT', '/api/ateliers/affiche-jenni', { title: 'Nouvelle', doc });
     expect(((await max.get('/api/ateliers')).json() as Array<{ id: string; votes: string[] }>).find((m) => m.id === 'affiche-jenni')?.votes).toEqual([]);
   });
+
+  it('les messages d’une composition : tout membre écrit, met des smileys, retire le sien', async () => {
+    const { login, as } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    await lauris.send('POST', '/api/teams/flowtherapy/members', { email: 'max@example.org', role: 'viewer' });
+    const max = as((await login('max@example.org'))!);
+    await lauris.send('PUT', '/api/ateliers/affiche', { title: 'Affiche', doc });
+
+    const first = await max.send('POST', '/api/ateliers/affiche/messages', { text: '  Le titre est trop petit en story  ', target: { channel: 'instagram', format: 'story' } });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().messages).toMatchObject([{ by: 'max@example.org', text: 'Le titre est trop petit en story', target: { channel: 'instagram', format: 'story' }, reactions: [] }]);
+    expect((await max.send('POST', '/api/ateliers/affiche/messages', { text: ' ' })).statusCode).toBe(400);
+    expect((await max.send('POST', '/api/ateliers/inconnue/messages', { text: 'x' })).statusCode).toBe(404);
+    await lauris.send('POST', '/api/ateliers/affiche/messages', { text: 'Je le grossis' });
+    const [a, b] = (await max.get('/api/ateliers/affiche/messages')).json() as Array<{ id: number }>;
+
+    // smileys sur ses messages et ceux des autres
+    await lauris.send('POST', `/api/ateliers/affiche/messages/${a!.id}/react`, { emoji: '👍' });
+    const r = (await max.send('POST', `/api/ateliers/affiche/messages/${a!.id}/react`, { emoji: '👍' })).json().messages[0].reactions;
+    expect(r).toEqual([{ emoji: '👍', by: ['lauris@example.org', 'max@example.org'], mine: true }]);
+    expect((await max.send('POST', `/api/ateliers/affiche/messages/${a!.id}/react`, { emoji: 'bonjour' })).statusCode).toBe(400);
+    expect((await max.send('POST', `/api/ateliers/affiche/messages/${a!.id}/react`, { emoji: '👍', on: false })).json().messages[0].reactions[0].by).toEqual(['lauris@example.org']);
+
+    expect(((await max.get('/api/ateliers')).json() as Array<{ id: string; messages: number }>).find((m) => m.id === 'affiche')?.messages).toBe(2);
+    // l'auteur retire le sien ; un responsable peut tout retirer
+    expect((await max.send('DELETE', `/api/ateliers/affiche/messages/${b!.id}`)).statusCode).toBe(403);
+    expect((await lauris.send('DELETE', `/api/ateliers/affiche/messages/${a!.id}`)).json().messages).toHaveLength(1);
+    await lauris.send('DELETE', '/api/ateliers/affiche');
+    await lauris.send('PUT', '/api/ateliers/affiche', { title: 'Affiche', doc });
+    expect((await max.get('/api/ateliers/affiche/messages')).json()).toEqual([]);
+  });
 });

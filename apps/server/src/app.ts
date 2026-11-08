@@ -2,7 +2,7 @@ import path from 'node:path';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
-import { Accounts, LOGO_VARIANTS, normEmail, ROLES, type ActivityProfile, type CampaignInput, type LogoVariant, type Role, type TeamOfUser } from './accounts.js';
+import { Accounts, LOGO_VARIANTS, normEmail, ROLES, type ActivityProfile, type CampaignInput, type Target, type LogoVariant, type Role, type TeamOfUser } from './accounts.js';
 import { Ateliers } from './ateliers.js';
 import { cookie, readCookie, registerAuth, type AuthConfig } from './auth.js';
 import { Exporter, type ExportKind } from './export.js';
@@ -420,10 +420,11 @@ export async function buildApp(opts: AppOptions) {
       if (kind !== 'ateliers') return list;
       // les votes des membres, et le sien
       const votes = accounts.votes(req.team!.id);
+      const counts = accounts.messageCounts(req.team!.id);
       const me = req.user?.email ? normEmail(req.user.email) : 'groupe';
       return list.map((m) => {
         const v = votes.get(m.id) ?? [];
-        return { ...m, votes: v, voted: v.includes(me) };
+        return { ...m, votes: v, voted: v.includes(me), messages: counts.get(m.id) ?? 0 };
       });
     });
     app.get<{ Params: { id: string } }>(`${base}/:id`, read, async (req, reply) => {
@@ -507,6 +508,44 @@ export async function buildApp(opts: AppOptions) {
     const me = req.user?.email ? normEmail(req.user.email) : 'groupe';
     const votes = accounts.vote(team.id, req.params.id, me, req.body?.on !== false);
     return { ok: true, votes, voted: votes.includes(me) };
+  });
+
+  // --- messages sur une composition : tout membre écrit et met des smileys ---
+  const atelierExists = async (team: string, id: string) =>
+    storesOf(team)
+      .ateliers.read(id)
+      .then(() => true)
+      .catch(() => false);
+  const meOf = (req: FastifyRequest) => (req.user?.email ? normEmail(req.user.email) : 'groupe');
+  app.get<{ Params: { id: string } }>('/api/ateliers/:id/messages', { preHandler: needs('viewer') }, async (req, reply) => {
+    if (!(await atelierExists(req.team!.id, req.params.id))) return reply.code(404).send({ error: 'Composition introuvable' });
+    return accounts.messages(req.team!.id, req.params.id, meOf(req));
+  });
+  app.post<{ Params: { id: string }; Body: { text?: string; target?: Target } }>('/api/ateliers/:id/messages', { preHandler: needs('viewer') }, async (req, reply) => {
+    if (!(await atelierExists(req.team!.id, req.params.id))) return reply.code(404).send({ error: 'Composition introuvable' });
+    try {
+      accounts.addMessage(req.team!.id, req.params.id, meOf(req), String(req.body?.text ?? ''), req.body?.target);
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+    return { ok: true, messages: accounts.messages(req.team!.id, req.params.id, meOf(req)) };
+  });
+  // son propre message, ou n'importe lequel pour un responsable
+  app.delete<{ Params: { id: string; mid: string } }>('/api/ateliers/:id/messages/:mid', { preHandler: needs('viewer') }, async (req, reply) => {
+    const m = accounts.message(req.team!.id, req.params.id, Number(req.params.mid));
+    if (!m) return reply.code(404).send({ error: 'Message introuvable' });
+    if (m.by !== meOf(req) && req.team!.role !== 'owner') return reply.code(403).send({ error: 'Seul l’auteur peut retirer ce message' });
+    accounts.removeMessage(Number(req.params.mid));
+    return { ok: true, messages: accounts.messages(req.team!.id, req.params.id, meOf(req)) };
+  });
+  app.post<{ Params: { id: string; mid: string }; Body: { emoji?: string; on?: boolean } }>('/api/ateliers/:id/messages/:mid/react', { preHandler: needs('viewer') }, async (req, reply) => {
+    const id = Number(req.params.mid);
+    if (!accounts.message(req.team!.id, req.params.id, id)) return reply.code(404).send({ error: 'Message introuvable' });
+    const emoji = String(req.body?.emoji ?? '');
+    // un smiley : quelques caractères, pas de texte
+    if (!emoji || emoji.length > 16 || /[\p{L}\p{N}\s<>]/u.test(emoji)) return reply.code(400).send({ error: 'Smiley attendu' });
+    accounts.react(id, meOf(req), emoji, req.body?.on !== false);
+    return { ok: true, messages: accounts.messages(req.team!.id, req.params.id, meOf(req)) };
   });
 
   // --- circuit de validation : un membre propose, un responsable valide ou demande une retouche ---

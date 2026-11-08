@@ -30,6 +30,7 @@ import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, targ
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
 import { CampaignDialog, CampaignSummary, VoteButton } from './campaigns-ui';
 import { LoadDialog, NewCompositionDialog } from './compositions-ui';
+import { MessagesButton, MessagesDialog } from './messages-ui';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
@@ -435,7 +436,6 @@ export function App() {
       setCampaignRaw('');
     }
   }, [online, me?.team?.id]);
-  const [reviewNote, setReviewNote] = useState('');
   const refreshProjects = () => void listAteliers().then(setProjects, () => {});
   /** Petite image de la composition pour la liste. */
   const makeThumb = (d: Doc) => {
@@ -509,15 +509,13 @@ export function App() {
     if (!project) return;
     try {
       await saveNow();
-      const note = reviewNote.trim() || undefined;
       if (action === 'propose') {
-        const r = await proposeAtelier(project.id, note);
+        const r = await proposeAtelier(project.id);
         setToast(r.mailed ? `Proposée : ${r.notified > 1 ? `${r.notified} responsables prévenus` : 'responsable prévenu'} par e-mail` : 'Proposée aux responsables');
       } else {
-        const r = await reviewAtelier(project.id, action === 'approve', note);
+        const r = await reviewAtelier(project.id, action === 'approve');
         setToast(`${action === 'approve' ? 'Validée' : 'Retouche demandée'}${r.mailed ? ' : auteur prévenu par e-mail' : ''}`);
       }
-      setReviewNote('');
       refreshProjects();
     } catch (err) {
       setToast(`Impossible : ${(err as Error).message}`);
@@ -565,6 +563,7 @@ export function App() {
   const [campaignDialog, setCampaignDialog] = useState(false);
   const [newDialog, setNewDialog] = useState(false);
   const [loadDialog, setLoadDialog] = useState(false);
+  const [msgDialog, setMsgDialog] = useState(false);
   const followedTemplates = (followed?.templates ?? []).map((id) => projects.find((m) => m.id === id)).filter((m): m is AtelierMeta => !!m);
   const campaignCounts = projects.reduce<Record<string, number>>((o, m) => (m.campaign ? { ...o, [m.campaign]: (o[m.campaign] ?? 0) + 1 } : o), {});
   /** Nouvelle composition copiée d'une autre (modèle, ou import), rangée dans la campagne suivie, puis ouverte. */
@@ -3966,6 +3965,7 @@ export function App() {
               <button className={`btn guide-btn ${bubble === 'palette' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'palette' ? null : 'palette')} title="Palette de guides">
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
+              {online && project && me?.team && <MessagesButton count={projects.find((m) => m.id === project.id)?.messages ?? 0} on={msgDialog} onClick={() => setMsgDialog(true)} />}
               <span className="sep" />
               <button
                 className={`btn ${bubble === 'export' ? 'on' : ''}`}
@@ -4453,6 +4453,20 @@ export function App() {
               }}
             />
           )}
+          {msgDialog && project && me?.team && (
+            <MessagesDialog
+              atelier={project.id}
+              title={project.title}
+              me={(me.email ?? 'groupe').toLowerCase()}
+              owner={me.team.role === 'owner'}
+              targets={doc.targets ?? []}
+              active={doc.target ?? 0}
+              activity={activity}
+              onShowTarget={showTarget}
+              onCount={(n) => setProjects((l) => l.map((x) => (x.id === project.id ? { ...x, messages: n } : x)))}
+              onClose={() => setMsgDialog(false)}
+            />
+          )}
           {loadDialog && (
             <LoadDialog
               campaign={followed}
@@ -4540,7 +4554,7 @@ export function App() {
                   </div>
                   {project && me?.team && (
                     <details className="cur-more">
-                      <summary>Plus d’options</summary>
+                      <summary>Modèle, validation</summary>
                       {followed && canEditTeam && doc.campaign === followed.id && (
                         <label className="proj-camp proj-tpl">
                           <input
@@ -4554,20 +4568,6 @@ export function App() {
                             }
                           />
                           <span>Modèle de la campagne</span>
-                        </label>
-                      )}
-                      {canEditTeam && campaigns.length > 0 && (
-                        <label className="proj-camp">
-                          <span>Campagne</span>
-                          <select className="pf-input" value={doc.campaign ?? ''} onChange={(e) => setDoc((d) => ({ ...d, campaign: e.target.value || undefined }))}>
-                            <option value="">Aucune</option>
-                            {campaigns.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.name}
-                                {c.closed ? ' (close)' : ''}
-                              </option>
-                            ))}
-                          </select>
                         </label>
                       )}
                       {(() => {
@@ -4588,7 +4588,6 @@ export function App() {
                             )}
                             {(canPropose || canReview) && (
                               <>
-                                <input className="proj-title proj-note" value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} placeholder={canReview ? 'Message à l’auteur (facultatif)' : 'Message aux responsables (facultatif)'} />
                                 <div className="proj-review-acts">
                                   {canPropose && (
                                     <button className="fx-clear" onClick={() => void sendReview('propose')}>

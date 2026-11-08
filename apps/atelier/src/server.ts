@@ -11,6 +11,8 @@ export interface AtelierMeta {
   campaign?: string;
   /** Adresses des membres qui ont voté pour elle, et si l'on en fait partie. */
   votes?: string[];
+  /** nombre de messages laissés sur la composition */
+  messages?: number;
   voted?: boolean;
   /** Circuit de validation : proposée aux responsables, validée, ou à revoir. */
   review?: {
@@ -96,6 +98,27 @@ export const reviewAtelier = (id: string, approved: boolean, note?: string) =>
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ approved, note }),
   });
+export interface Reaction {
+  emoji: string;
+  by: string[];
+  mine: boolean;
+}
+/** Message sur une composition, avec le rendu (cible) qu'on regardait en l'écrivant. */
+export interface AtelierMessage {
+  id: number;
+  by: string;
+  name?: string;
+  picture?: string;
+  text: string;
+  target?: Target;
+  at: string;
+  reactions: Reaction[];
+}
+type Msgs = { messages: AtelierMessage[] };
+export const listMessages = (id: string) => call<AtelierMessage[]>(`/api/ateliers/${id}/messages`);
+export const postMessage = (id: string, text: string, target?: Target) => call<Msgs>(`/api/ateliers/${id}/messages`, json('POST', { text, target })).then((r) => r.messages);
+export const deleteMessage = (id: string, mid: number) => call<Msgs>(`/api/ateliers/${id}/messages/${mid}`, { method: 'DELETE' }).then((r) => r.messages);
+export const reactMessage = (id: string, mid: number, emoji: string, on: boolean) => call<Msgs>(`/api/ateliers/${id}/messages/${mid}/react`, json('POST', { emoji, on })).then((r) => r.messages);
 export const removeAtelier = (id: string) => call<{ ok: boolean }>(`/api/ateliers/${id}`, { method: 'DELETE' });
 export const thumbUrl = (m: AtelierMeta) => `/api/ateliers/${m.id}/thumb.png?v=${encodeURIComponent(m.updated)}`;
 

@@ -286,6 +286,17 @@ export class Accounts {
         team TEXT NOT NULL, atelier TEXT NOT NULL, email TEXT NOT NULL, at TEXT NOT NULL,
         PRIMARY KEY (team, atelier, email)
       );
+      CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        team TEXT NOT NULL, atelier TEXT NOT NULL, email TEXT NOT NULL,
+        text TEXT NOT NULL, target TEXT, at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS messages_atelier ON messages(team, atelier);
+      CREATE TABLE IF NOT EXISTS reactions (
+        message INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+        email TEXT NOT NULL, emoji TEXT NOT NULL, at TEXT NOT NULL,
+        PRIMARY KEY (message, email, emoji)
+      );
     `);
     // colonnes ajoutées après coup : fiche d'activité, logo, photo de profil
     this.addColumn('teams', 'profile', 'TEXT');
@@ -563,7 +574,86 @@ export class Accounts {
 
   forgetVotes(team: string, atelier: string) {
     this.db.prepare('DELETE FROM votes WHERE team = ? AND atelier = ?').run(team, atelier);
+    this.db.prepare('DELETE FROM messages WHERE team = ? AND atelier = ?').run(team, atelier);
   }
+
+  /* ---------- messages sur une composition, et leurs smileys ---------- */
+
+  /** Nombre de messages par composition. */
+  messageCounts(team: string): Map<string, number> {
+    const out = new Map<string, number>();
+    for (const r of this.db.prepare('SELECT atelier, COUNT(*) AS n FROM messages WHERE team = ? GROUP BY atelier').all(team) as Row[]) out.set(String(r.atelier), Number(r.n));
+    return out;
+  }
+
+  messages(team: string, atelier: string, me: string): Message[] {
+    const rows = this.db
+      .prepare('SELECT m.id, m.email, m.text, m.target, m.at, u.name, u.picture FROM messages m LEFT JOIN users u ON u.email = m.email WHERE m.team = ? AND m.atelier = ? ORDER BY m.id')
+      .all(team, atelier) as Row[];
+    const reacts = this.db
+      .prepare('SELECT r.message, r.email, r.emoji FROM reactions r JOIN messages m ON m.id = r.message WHERE m.team = ? AND m.atelier = ? ORDER BY r.at')
+      .all(team, atelier) as Row[];
+    const mine = normEmail(me);
+    return rows.map((r) => {
+      const rs: Reaction[] = [];
+      for (const x of reacts.filter((y) => Number(y.message) === Number(r.id))) {
+        const e = String(x.emoji);
+        let g = rs.find((y) => y.emoji === e);
+        if (!g) rs.push((g = { emoji: e, by: [], mine: false }));
+        g.by.push(String(x.email));
+        if (x.email === mine) g.mine = true;
+      }
+      return {
+        id: Number(r.id),
+        by: String(r.email),
+        ...(r.name ? { name: String(r.name) } : {}),
+        ...(r.picture ? { picture: String(r.picture) } : {}),
+        text: String(r.text),
+        ...(r.target ? { target: JSON.parse(String(r.target)) as Target } : {}),
+        at: String(r.at),
+        reactions: rs,
+      };
+    });
+  }
+
+  addMessage(team: string, atelier: string, email: string, text: string, target?: Target) {
+    const t = text.trim().slice(0, 2000);
+    if (!t) throw new Error('Message vide');
+    const tg = target && typeof target.format === 'string' ? { ...(target.channel ? { channel: str(target.channel, 40) } : {}), format: str(target.format, 40), ...(target.palette ? { palette: str(target.palette, 40) } : {}) } : null;
+    this.db.prepare('INSERT INTO messages (team, atelier, email, text, target, at) VALUES (?, ?, ?, ?, ?, ?)').run(team, atelier, normEmail(email), t, tg ? JSON.stringify(tg) : null, new Date().toISOString());
+  }
+
+  /** Message d'une composition de l'équipe (pour vérifier qu'il existe et à qui il est). */
+  message(team: string, atelier: string, id: number) {
+    const r = this.db.prepare('SELECT email FROM messages WHERE team = ? AND atelier = ? AND id = ?').get(team, atelier, id) as Row | undefined;
+    return r ? { by: String(r.email) } : null;
+  }
+
+  removeMessage(id: number) {
+    this.db.prepare('DELETE FROM messages WHERE id = ?').run(id);
+  }
+
+  react(id: number, email: string, emoji: string, on: boolean) {
+    if (on) this.db.prepare('INSERT OR IGNORE INTO reactions (message, email, emoji, at) VALUES (?, ?, ?, ?)').run(id, normEmail(email), emoji, new Date().toISOString());
+    else this.db.prepare('DELETE FROM reactions WHERE message = ? AND email = ? AND emoji = ?').run(id, normEmail(email), emoji);
+  }
+}
+
+export interface Reaction {
+  emoji: string;
+  by: string[];
+  mine: boolean;
+}
+/** Message laissé sur une composition, avec le rendu (cible) qu'on regardait en l'écrivant. */
+export interface Message {
+  id: number;
+  by: string;
+  name?: string;
+  picture?: string;
+  text: string;
+  target?: Target;
+  at: string;
+  reactions: Reaction[];
 }
 
 /** Campagne : un temps de communication (souvent la promotion d'un évènement) où chacun propose des documents et vote. */
