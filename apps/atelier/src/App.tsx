@@ -25,10 +25,14 @@ import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers }
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
-import { createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me } from './server';
+import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me } from './server';
 import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, targetLabel } from './targets';
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
-import { CampaignBar, VoteButton } from './campaigns-ui';
+import { CampaignDialog, CampaignSummary, VoteButton } from './campaigns-ui';
+import { LoadDialog, NewCompositionDialog } from './compositions-ui';
+import { CampaignSheet, planFromOperation } from './campaign-sheet';
+import { MessagesButton, MessagesDialog } from './messages-ui';
+import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
@@ -434,7 +438,40 @@ export function App() {
       setCampaignRaw('');
     }
   }, [online, me?.team?.id]);
-  const [reviewNote, setReviewNote] = useState('');
+  // fil de l'activité : relu chaque minute ; la dernière visite est retenue par activité dans ce navigateur
+  const [feed, setFeed] = useState<ActivityEvent[] | null>(null);
+  const [feedOpen, setFeedOpen] = useState(false);
+  const feedKey = `ftd-fil-${me?.team?.id ?? ''}`;
+  const readSeen = () => {
+    try {
+      return localStorage.getItem(feedKey) ?? '';
+    } catch {
+      return '';
+    }
+  };
+  const [feedSeen, setFeedSeen] = useState('');
+  useEffect(() => {
+    setFeedSeen(readSeen());
+    if (!online || !me?.team) return setFeed(null);
+    const load = () => void fetchActivity().then(setFeed, () => {});
+    load();
+    const t = setInterval(load, 60000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online, me?.team?.id]);
+  const openFeed = () => {
+    setFeedOpen(true);
+    void fetchActivity().then(setFeed, () => {});
+    try {
+      localStorage.setItem(feedKey, new Date().toISOString());
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  const closeFeed = () => {
+    setFeedOpen(false);
+    setFeedSeen(readSeen());
+  };
   const refreshProjects = () => void listAteliers().then(setProjects, () => {});
   /** Petite image de la composition pour la liste. */
   const makeThumb = (d: Doc) => {
@@ -508,15 +545,13 @@ export function App() {
     if (!project) return;
     try {
       await saveNow();
-      const note = reviewNote.trim() || undefined;
       if (action === 'propose') {
-        const r = await proposeAtelier(project.id, note);
+        const r = await proposeAtelier(project.id);
         setToast(r.mailed ? `Proposée : ${r.notified > 1 ? `${r.notified} responsables prévenus` : 'responsable prévenu'} par e-mail` : 'Proposée aux responsables');
       } else {
-        const r = await reviewAtelier(project.id, action === 'approve', note);
+        const r = await reviewAtelier(project.id, action === 'approve');
         setToast(`${action === 'approve' ? 'Validée' : 'Retouche demandée'}${r.mailed ? ' : auteur prévenu par e-mail' : ''}`);
       }
-      setReviewNote('');
       refreshProjects();
     } catch (err) {
       setToast(`Impossible : ${(err as Error).message}`);
@@ -560,16 +595,51 @@ export function App() {
   // l'occasion de la campagne suivie vient en premier
   const operations = followed?.operation ? [...allOperations.filter((o) => o.id === followed.operation), ...allOperations.filter((o) => o.id !== followed.operation)] : allOperations;
   // dans une campagne : ses compositions, les plus votées d'abord
-  const shownProjects = campaign ? projects.filter((m) => m.campaign === campaign).sort((a, b) => (b.votes?.length ?? 0) - (a.votes?.length ?? 0) || b.updated.localeCompare(a.updated)) : projects;
+  const canEditTeam = !!me?.team && me.team.role !== 'viewer';
+  const [campaignDialog, setCampaignDialog] = useState(false);
+  const [newDialog, setNewDialog] = useState(false);
+  const [loadDialog, setLoadDialog] = useState(false);
+  const [msgDialog, setMsgDialog] = useState(false);
+  const [sheet, setSheet] = useState<string | null>(null);
+  const followedTemplates = (followed?.templates ?? []).map((id) => projects.find((m) => m.id === id)).filter((m): m is AtelierMeta => !!m);
+  const campaignCounts = projects.reduce<Record<string, number>>((o, m) => (m.campaign ? { ...o, [m.campaign]: (o[m.campaign] ?? 0) + 1 } : o), {});
+  /** Nouvelle composition copiée d'une autre (modèle, ou import), rangée dans la campagne suivie, puis ouverte. */
+  const fromComposition = async (m: AtelierMeta, title: string) => {
+    try {
+      const meta = await copyAtelier(m.id, newAtelierId(title), title, campaign || undefined);
+      refreshProjects();
+      await openProject(meta);
+      setToast(`« ${title} » créée`);
+    } catch (err) {
+      setToast(`Copie impossible : ${(err as Error).message}`);
+    }
+  };
   const palettes = palettesOf(activity);
   const activeTarget = doc.targets?.[doc.target ?? 0];
-  const [confirmDel, setConfirmDel] = useState<string | null>(null);
 
   // --- export ---
   const [exportFormats, setExportFormats] = useState<string[]>([]);
   const [exportKind, setExportKind] = useState<'png' | 'pdf'>('png');
   const [exporting, setExporting] = useState(false);
   const [exportTargets, setExportTargets] = useState<number[]>([]);
+  // --- publier : le plan de la campagne du document, les mentions de l'activité ---
+  const pubCampaign = campaigns.find((c) => c.id === doc.campaign);
+  const pubTargets = (doc.targets ?? []).filter((_, i) => exportTargets.includes(i));
+  const pubPlan = (pubCampaign?.plan ?? []).filter((it) => pubTargets.some((t) => (t.channel ?? '') === (it.channel ?? '') && t.format === it.format));
+  const pubChannels = channels.filter((c) => pubTargets.some((t) => t.channel === c.id));
+  const pubMentions = (activity?.branding?.mentions ?? []).map((m) => ({ ...m, channel: pubChannels.some((c) => c.mentions?.includes(m.name)) }));
+  const markPublished = async (id: string) => {
+    if (!pubCampaign || !project) return;
+    try {
+      const plan = (pubCampaign.plan ?? []).map((it) => (it.id === id ? { ...it, published: new Date().toISOString(), composition: it.composition ?? project.id } : it));
+      const x = await updateCampaign(pubCampaign.id, { plan });
+      setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y)));
+      setToast('Marquée publiée dans le plan');
+    } catch (err) {
+      setToast(`Impossible : ${(err as Error).message}`);
+    }
+  };
+
   const runExport = async () => {
     const d0 = docRef.current;
     // avec des cibles : chacune dans son format et sa variante ; sinon les formats cochés
@@ -3950,6 +4020,14 @@ export function App() {
               <button className={`btn guide-btn ${bubble === 'palette' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'palette' ? null : 'palette')} title="Palette de guides">
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
+              {online && me?.team && (
+                <FeedButton
+                  count={feed ? unreadCount(feed, feedSeen, (me.email ?? 'groupe').toLowerCase(), overdueOf(campaigns).length) : 0}
+                  on={feedOpen}
+                  onClick={openFeed}
+                />
+              )}
+              {online && project && me?.team && <MessagesButton count={projects.find((m) => m.id === project.id)?.messages ?? 0} on={msgDialog} onClick={() => setMsgDialog(true)} />}
               <span className="sep" />
               <button
                 className={`btn ${bubble === 'export' ? 'on' : ''}`}
@@ -3960,7 +4038,7 @@ export function App() {
                   }
                   setBubble(bubble === 'export' ? null : 'export');
                 }}
-                title="Exporter en PNG ou PDF, dans un ou plusieurs formats"
+                title="Publier : télécharger les rendus, texte d’accompagnement, plan de la campagne"
               >
                 <Icon name="export" />
               </button>
@@ -4388,161 +4466,205 @@ export function App() {
             </div>
           )}
 
+          {campaignDialog && me?.team && (
+            <CampaignDialog
+              campaigns={campaigns}
+              current={campaign}
+              counts={campaignCounts}
+              operations={operations}
+              canEdit={canEditTeam}
+              onClose={() => setCampaignDialog(false)}
+              onPick={(id) => {
+                setCampaign(id);
+                setCampaignDialog(false);
+              }}
+              onSheet={(id) => {
+                setCampaignDialog(false);
+                setSheet(id);
+              }}
+              create={async (c: CampaignInput) => {
+                // le plan de publication part de l'occasion et de la date
+                const plan = planFromOperation(allOperations.find((o) => o.id === c.operation), c.date, activity);
+                const x = await createCampaign(plan.length ? { ...c, plan } : c);
+                setCampaigns((l) => [x, ...l]);
+                setCampaign(x.id);
+              }}
+              update={async (id, c) => {
+                const x = await updateCampaign(id, c);
+                setCampaigns((l) => l.map((y) => (y.id === id ? x : y)));
+              }}
+            />
+          )}
+          {feedOpen && me?.team && (
+            <FeedDialog
+              events={feed}
+              seen={feedSeen}
+              me={(me.email ?? 'groupe').toLowerCase()}
+              campaigns={campaigns}
+              activity={activity}
+              onClose={closeFeed}
+              onCampaign={(id) => {
+                closeFeed();
+                setSheet(id);
+              }}
+              onEvent={(e) => {
+                closeFeed();
+                if (e.type === 'campaign' && e.campaign) return setSheet(e.campaign);
+                const m = projects.find((x) => x.id === e.atelier);
+                if (!m) return;
+                void openProject(m).then(() => {
+                  if (e.type !== 'composition' && e.type !== 'vote') setMsgDialog(true);
+                });
+              }}
+            />
+          )}
+          {sheet && campaigns.some((c) => c.id === sheet) && (
+            <CampaignSheet
+              campaign={campaigns.find((c) => c.id === sheet)!}
+              operations={allOperations}
+              activity={activity}
+              projects={projects}
+              canEdit={canEditTeam}
+              current={project?.id}
+              onClose={() => setSheet(null)}
+              onSave={async (c) => {
+                const x = await updateCampaign(sheet, c);
+                setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y)));
+              }}
+              onOpen={(m) => {
+                setSheet(null);
+                void openProject(m);
+              }}
+            />
+          )}
+          {newDialog && (
+            <NewCompositionDialog
+              campaign={followed}
+              operations={operations}
+              templates={followedTemplates}
+              others={projects.filter((m) => m.campaign !== campaign)}
+              campaigns={campaigns}
+              targetsLabel={(op) => op.targets.map((t) => targetLabel(t, activity)).join(', ')}
+              onClose={() => setNewDialog(false)}
+              onBlank={() => {
+                setNewDialog(false);
+                setBubble(null);
+                void newProject('Sans titre', false);
+              }}
+              onOperation={(op) => {
+                setNewDialog(false);
+                setBubble(null);
+                void newProject(op.name, false, op);
+              }}
+              onCopy={(m) => {
+                setNewDialog(false);
+                const mine = followedTemplates.includes(m) ? `${m.title} · ${(me?.name ?? me?.email ?? '').split(' ')[0]}` : m.title;
+                void fromComposition(m, mine);
+              }}
+            />
+          )}
+          {msgDialog && project && me?.team && (
+            <MessagesDialog
+              atelier={project.id}
+              title={project.title}
+              me={(me.email ?? 'groupe').toLowerCase()}
+              owner={me.team.role === 'owner'}
+              targets={doc.targets ?? []}
+              active={doc.target ?? 0}
+              activity={activity}
+              review={projects.find((x) => x.id === project.id)?.review}
+              canPropose={me.team.role !== 'viewer' && projects.find((x) => x.id === project.id)?.review?.status !== 'proposed'}
+              canReview={me.team.role === 'owner' && projects.find((x) => x.id === project.id)?.review?.status === 'proposed'}
+              onStep={sendReview}
+              onShowTarget={showTarget}
+              onCount={(n) => setProjects((l) => l.map((x) => (x.id === project.id ? { ...x, messages: n } : x)))}
+              onClose={() => setMsgDialog(false)}
+            />
+          )}
+          {loadDialog && (
+            <LoadDialog
+              campaign={followed}
+              campaigns={campaigns}
+              projects={projects}
+              current={project?.id}
+              canDelete={!me?.team || canEditTeam}
+              canVote={!!me?.team}
+              onClose={() => setLoadDialog(false)}
+              onOpen={(m) => {
+                setLoadDialog(false);
+                void openProject(m);
+              }}
+              onVote={(m) =>
+                void voteAtelier(m.id, !m.voted).then(
+                  (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
+                  (e: Error) => setToast(`Vote impossible : ${e.message}`),
+                )
+              }
+              onDelete={(m) =>
+                void removeAtelier(m.id).then(
+                  () => {
+                    if (project?.id === m.id) setProject(null);
+                    refreshProjects();
+                    setToast(`« ${m.title} » supprimée`);
+                  },
+                  (e: Error) => setToast(`Suppression impossible : ${e.message}`),
+                )
+              }
+            />
+          )}
           {bubble === 'projects' && (
             <div className="bubble projects-bubble">
-              {online && me?.team ? <div className="b-title">Campagne</div> : <div className="b-title">Composition</div>}
               {online ? (
                 <>
-                  {me?.team && (
-                    <CampaignBar
-                      campaigns={campaigns}
-                      current={campaign}
-                      setCurrent={setCampaign}
-                      canEdit={me.team.role !== 'viewer'}
-                      operations={operations}
-                      counts={projects.reduce<Record<string, number>>((o, m) => (m.campaign ? { ...o, [m.campaign]: (o[m.campaign] ?? 0) + 1 } : o), {})}
-                      create={async (c: CampaignInput) => {
-                        const x = await createCampaign(c);
-                        setCampaigns((l) => [x, ...l]);
-                        setCampaign(x.id);
-                      }}
-                      update={async (id, c) => {
-                        const x = await updateCampaign(id, c);
-                        setCampaigns((l) => l.map((y) => (y.id === id ? x : y)));
-                      }}
-                    />
-                  )}
-                  {me?.team && <div className="b-title">Composition</div>}
-                  <div className="proj-current">
-                    <input className="proj-title" value={project?.title ?? ''} placeholder="Titre de la composition" onChange={(e) => project && setProject({ ...project, title: e.target.value })} disabled={!project} />
-                    {project ? (
-                      <button className="fx-clear" onClick={() => void saveNow()} disabled={saving === 'saving'}>
-                        {saving === 'saving' ? 'Enregistrement…' : saving === 'saved' ? 'Enregistrée' : 'Enregistrer'}
-                      </button>
-                    ) : (
-                      <button className="fx-clear" onClick={() => void newProject('Sans titre', true)}>
-                        Enregistrer cette page
-                      </button>
-                    )}
-                  </div>
-                  {project && me?.team && me.team.role !== 'viewer' && campaigns.length > 0 && (
-                    <label className="proj-camp">
-                      <span>Campagne</span>
-                      <select className="pf-input" value={doc.campaign ?? ''} onChange={(e) => setDoc((d) => ({ ...d, campaign: e.target.value || undefined }))}>
-                        <option value="">Aucune</option>
-                        {campaigns.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                            {c.closed ? ' (close)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  {project &&
-                    me?.team &&
-                    (() => {
-                      const r = projects.find((x) => x.id === project.id)?.review;
-                      const role = me.team.role;
-                      const canPropose = role !== 'viewer' && r?.status !== 'proposed';
-                      const canReview = role === 'owner' && r?.status === 'proposed';
-                      const who = (e?: string) => (e ? e.split('@')[0] : '');
-                      return (
-                        <div className="proj-review">
-                          {r && (
-                            <p className={`proj-status st-${r.status}`}>
-                              <b>{REVIEW_LABELS[r.status]}</b>
-                              {r.status === 'proposed' ? ` par ${who(r.proposedBy)}` : ` par ${who(r.reviewedBy)}`}
-                              {r.status === 'proposed' && r.note ? ` : « ${r.note} »` : ''}
-                              {r.status !== 'proposed' && r.reviewNote ? ` : « ${r.reviewNote} »` : ''}
-                            </p>
-                          )}
-                          {(canPropose || canReview) && (
-                            <>
-                              <input className="proj-title proj-note" value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} placeholder={canReview ? 'Message à l’auteur (facultatif)' : 'Message aux responsables (facultatif)'} />
-                              <div className="proj-review-acts">
-                                {canPropose && (
-                                  <button className="fx-clear" onClick={() => void sendReview('propose')}>
-                                    Proposer aux responsables
-                                  </button>
-                                )}
-                                {canReview && (
-                                  <>
-                                    <button className="fx-clear" onClick={() => void sendReview('approve')}>
-                                      Valider
-                                    </button>
-                                    <button className="fx-clear" onClick={() => void sendReview('changes')}>
-                                      À revoir
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  <button className="row" onClick={() => void newProject('Sans titre', false)}>
-                    <Icon name="plus" />
-                    <span>Nouvelle composition</span>
-                    <small>page vierge, même format et palette</small>
-                  </button>
-                  {operations.length > 0 && (
-                    <div className="proj-channels">
-                      <div className="b-sub">ou pour une occasion</div>
-                      {operations.map((op) => (
-                        <button key={op.id} className="row" onClick={() => void newProject(op.name, false, op)}>
-                          <Icon name="plus" />
-                          <span>{op.name}</span>
-                          <small>{op.targets.map((t) => targetLabel(t, activity)).join(', ')}</small>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <div className="b-title">{followed ? `Compositions · ${followed.name}` : me?.team ? `Compositions · ${me.team.name}` : 'Compositions du groupe'}</div>
-                  <div className="proj-list">
-                    {shownProjects.map((m) => (
-                      <div key={m.id} className={`proj ${m.id === project?.id ? 'on' : ''}`}>
-                        <button className="proj-open" onClick={() => void openProject(m)} title={`Ouvrir « ${m.title} »`}>
-                          <img src={thumbUrl(m)} alt="" loading="lazy" />
-                          <span className="proj-name">{m.title}</span>
-                          {m.review && <span className={`proj-badge st-${m.review.status}`}>{REVIEW_LABELS[m.review.status]}</span>}
+                  {me?.team && <CampaignSummary campaign={followed} onOpen={() => setCampaignDialog(true)} onSheet={() => followed && setSheet(followed.id)} />}
+                  {(() => {
+                    const m = project ? projects.find((x) => x.id === project.id) : undefined;
+                    const votes = m?.votes ?? [];
+                    return (
+                      <div className="cur-card">
+                        {m ? <img className="cur-thumb" src={thumbUrl(m)} alt="" /> : <span className="cur-thumb empty" />}
+                        <div className="cur-txt">
+                          <input className="proj-title" value={project?.title ?? ''} placeholder="Composition non enregistrée" onChange={(e) => project && setProject({ ...project, title: e.target.value })} disabled={!project} />
                           <small>
-                            {new Date(m.updated).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
-                            {m.by ? ` · ${m.by.split('@')[0]}` : ''}
-                            {!campaign && m.campaign ? ` · ${campaigns.find((c) => c.id === m.campaign)?.name ?? ''}` : ''}
+                            {project
+                              ? [(m?.author ?? m?.by)?.split('@')[0], m?.updated && new Date(m.updated).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })].filter(Boolean).join(' · ') || 'nouvelle'
+                              : 'Cette page n’est pas encore enregistrée'}
                           </small>
-                        </button>
-                        {me?.team && (
-                          <VoteButton
-                            votes={m.votes ?? []}
-                            voted={!!m.voted}
-                            onVote={() =>
-                              void voteAtelier(m.id, !m.voted).then(
-                                (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
-                                (e: Error) => setToast(`Vote impossible : ${e.message}`),
-                              )
-                            }
-                          />
-                        )}
-                        <button
-                          className={`proj-del ${confirmDel === m.id ? 'hot' : ''}`}
-                          title={confirmDel === m.id ? 'Toucher encore pour supprimer' : 'Supprimer'}
-                          onClick={() => {
-                            if (confirmDel !== m.id) return setConfirmDel(m.id);
-                            setConfirmDel(null);
-                            void removeAtelier(m.id).then(() => {
-                              if (project?.id === m.id) setProject(null);
-                              refreshProjects();
-                              setToast(`« ${m.title} » supprimée`);
-                            });
-                          }}
-                        >
-                          <Icon name="trash" />
-                        </button>
+                          <div className="cur-acts">
+                            {project ? (
+                              <button className="fx-clear" onClick={() => void saveNow()} disabled={saving === 'saving'}>
+                                {saving === 'saving' ? 'Enregistrement…' : saving === 'saved' ? 'Enregistrée' : 'Enregistrer'}
+                              </button>
+                            ) : (
+                              <button className="fx-clear" onClick={() => void newProject('Sans titre', true)}>
+                                Enregistrer cette page
+                              </button>
+                            )}
+                            {m?.review && <span className={`proj-badge st-${m.review.status}`}>{REVIEW_LABELS[m.review.status]}</span>}
+                            {m && me?.team && (
+                              <VoteButton
+                                votes={votes}
+                                voted={!!m.voted}
+                                onVote={() =>
+                                  void voteAtelier(m.id, !m.voted).then(
+                                    (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
+                                    (e: Error) => setToast(`Vote impossible : ${e.message}`),
+                                  )
+                                }
+                              />
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    ))}
-                    {!shownProjects.length && <p className="fx-hint">{campaign ? 'Aucune composition dans cette campagne pour l’instant : crée la première.' : 'Aucune composition enregistrée pour l’instant.'}</p>}
+                    );
+                  })()}
+                  <div className="cur-main">
+                    <button className="pf-btn" onClick={() => setNewDialog(true)} disabled={!!me?.team && !canEditTeam}>
+                      <Icon name="plus" /> Nouvelle
+                    </button>
+                    <button className="pf-btn" onClick={() => setLoadDialog(true)}>
+                      Charger…
+                    </button>
                   </div>
                 </>
               ) : (
@@ -4575,15 +4697,8 @@ export function App() {
                 <span>Vue 3D</span>
                 <small>les couches en relief, à leur hauteur</small>
               </button>
-              <div className="b-title">Exporter</div>
-              <div className="seg">
-                {(['png', 'pdf'] as const).map((k) => (
-                  <button key={k} className={exportKind === k ? 'on' : ''} onClick={() => setExportKind(k)}>
-                    {k.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-              <div className="b-title">{doc.targets?.length ? 'Cibles' : 'Formats'}</div>
+              <div className="b-title">Publier</div>
+              <div className="b-sub">{doc.targets?.length ? 'Rendus' : 'Formats'}</div>
               {doc.targets?.map((t, i) => {
                 const on = exportTargets.includes(i);
                 const x = formatOf(t.format);
@@ -4611,10 +4726,70 @@ export function App() {
                   </button>
                 );
               })}
-              <p className="fx-hint">Les autres formats sont déclinés par les ancrages : chaque élément garde sa place relative et ses bords tenus.</p>
-              <button className="btn-primary" disabled={exporting || !exportFormats.length} onClick={() => void runExport()}>
-                {exporting ? 'Export…' : `Exporter ${exportFormats.length > 1 ? `${exportFormats.length} formats` : ''}`}
+              <div className="pub-caption">
+                <div className="b-sub">Texte d’accompagnement</div>
+                <textarea
+                  className="pf-input"
+                  rows={4}
+                  value={doc.caption ?? ''}
+                  placeholder="Ce qui accompagne le post : l’annonce, la date, le lien de billetterie…"
+                  onChange={(e) => setDoc((d) => ({ ...d, caption: e.target.value || undefined }))}
+                />
+                {pubMentions.length > 0 && (
+                  <div className="pub-mentions">
+                    {pubMentions.map((m) => (
+                      <button key={m.name} className={`pub-mention ${m.channel ? 'on' : ''}`} title={m.text} onClick={() => setDoc((d) => ({ ...d, caption: `${(d.caption ?? '').trimEnd()}${d.caption ? '\n' : ''}${m.text}` }))}>
+                        + {m.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="pub-cap-acts">
+                  <small>{(doc.caption ?? '').length} caractères</small>
+                  <button className="ab-link" disabled={!doc.caption} onClick={() => void navigator.clipboard?.writeText(doc.caption ?? '').then(() => setToast('Texte copié'), () => setToast('Copie impossible'))}>
+                    Copier le texte
+                  </button>
+                </div>
+              </div>
+              <div className="pub-dl">
+                <div className="seg">
+                  {(['png', 'pdf'] as const).map((k) => (
+                    <button key={k} className={exportKind === k ? 'on' : ''} onClick={() => setExportKind(k)}>
+                      {k.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+                <button className="btn-primary" disabled={exporting || (doc.targets?.length ? !exportTargets.length : !exportFormats.length)} onClick={() => void runExport()}>
+                  {exporting ? 'Téléchargement…' : 'Télécharger'}
+                </button>
+              </div>
+              {pubPlan.length > 0 && (
+                <div className="pub-plan">
+                  <div className="b-sub">Dans le plan de « {pubCampaign!.name} »</div>
+                  {pubPlan.map((it) => (
+                    <div key={it.id} className="pub-plan-row">
+                      <span>
+                        {targetLabel(it, activity)}
+                        {it.label ? ` · ${it.label}` : ''}
+                        {it.date ? ` · ${new Date(`${it.date}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}` : ''}
+                      </span>
+                      {it.published ? (
+                        <small className="pub-done">publiée</small>
+                      ) : (
+                        canEditTeam && (
+                          <button className="ab-link" onClick={() => void markPublished(it.id)}>
+                            Marquer publiée
+                          </button>
+                        )
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button className="pf-btn pub-schedule" disabled title="Bientôt : relier les comptes Facebook et Instagram de l’activité">
+                Programmer la publication
               </button>
+              <p className="fx-hint">La publication programmée viendra quand les comptes Facebook et Instagram de l’activité seront reliés.</p>
             </div>
           )}
 

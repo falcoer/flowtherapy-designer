@@ -11,6 +11,11 @@ export interface AtelierMeta {
   campaign?: string;
   /** Adresses des membres qui ont voté pour elle, et si l'on en fait partie. */
   votes?: string[];
+  /** création, et qui l'a créée */
+  created?: string;
+  author?: string;
+  /** nombre de messages laissés sur la composition */
+  messages?: number;
   voted?: boolean;
   /** Circuit de validation : proposée aux responsables, validée, ou à revoir. */
   review?: {
@@ -64,15 +69,38 @@ export interface Campaign {
   operation?: string;
   date?: string;
   place?: string;
+  /** Heure d'accueil (HH:MM). */
+  time?: string;
+  /** Type de prestation : concert, DJ set… */
+  kind?: string;
+  /** Contact réservation. */
+  contact?: { name?: string; phone?: string; email?: string };
   note?: string;
+  /** Compositions proposées comme modèles de la campagne. */
+  templates?: string[];
+  /** Plan de publication : ce qu'il faut sortir, quand, avec quelle composition. */
+  plan?: PlanItem[];
   created: string;
   by?: string;
   closed?: string;
 }
-export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'note'>> & { closed?: boolean };
+/** Une publication prévue : un rendu (média, format, variante), une date, la composition retenue. */
+export interface PlanItem extends Target {
+  id: string;
+  /** « rappel », « annonce »… */
+  label?: string;
+  date?: string;
+  composition?: string;
+  /** publiée : quand, et le lien de la publication */
+  published?: string;
+  link?: string;
+}
+export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'templates' | 'plan'>> & { closed?: boolean };
 export const listCampaigns = () => call<Campaign[]>('/api/campaigns');
 export const createCampaign = (c: CampaignInput) => call<{ campaign: Campaign }>('/api/campaigns', json('POST', c)).then((r) => r.campaign);
 export const updateCampaign = (id: string, c: CampaignInput) => call<{ campaign: Campaign }>(`/api/campaigns/${id}`, json('PATCH', c)).then((r) => r.campaign);
+export const copyAtelier = (id: string, to: string, title: string, campaign?: string) =>
+  call<{ meta: AtelierMeta }>(`/api/ateliers/${id}/copy`, json('POST', { to, title, campaign })).then((r) => r.meta);
 export const voteAtelier = (id: string, on: boolean) => call<{ votes: string[]; voted: boolean }>(`/api/ateliers/${id}/vote`, json('POST', { on }));
 export const proposeAtelier = (id: string, note?: string) =>
   call<{ meta: AtelierMeta; mailed: boolean; notified: number }>(`/api/ateliers/${id}/propose`, {
@@ -86,6 +114,44 @@ export const reviewAtelier = (id: string, approved: boolean, note?: string) =>
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ approved, note }),
   });
+export interface Reaction {
+  emoji: string;
+  by: string[];
+  mine: boolean;
+}
+/** Message sur une composition, avec le rendu (cible) qu'on regardait en l'écrivant. */
+export interface AtelierMessage {
+  id: number;
+  by: string;
+  name?: string;
+  picture?: string;
+  text: string;
+  target?: Target;
+  /** une étape de validation (proposée, validée, à revoir) plutôt qu'un message */
+  kind?: 'proposed' | 'approved' | 'changes';
+  at: string;
+  reactions: Reaction[];
+}
+type Msgs = { messages: AtelierMessage[] };
+/** Une nouveauté du fil de l'activité. */
+export interface ActivityEvent {
+  type: 'message' | 'proposed' | 'approved' | 'changes' | 'vote' | 'campaign' | 'composition';
+  atelier?: string;
+  /** titre de la composition, et sa campagne */
+  title?: string;
+  inCampaign?: string;
+  campaign?: string;
+  by: string;
+  name?: string;
+  text?: string;
+  target?: Target;
+  at: string;
+}
+export const fetchActivity = () => call<ActivityEvent[]>('/api/activity');
+export const listMessages = (id: string) => call<AtelierMessage[]>(`/api/ateliers/${id}/messages`);
+export const postMessage = (id: string, text: string, target?: Target) => call<Msgs>(`/api/ateliers/${id}/messages`, json('POST', { text, target })).then((r) => r.messages);
+export const deleteMessage = (id: string, mid: number) => call<Msgs>(`/api/ateliers/${id}/messages/${mid}`, { method: 'DELETE' }).then((r) => r.messages);
+export const reactMessage = (id: string, mid: number, emoji: string, on: boolean) => call<Msgs>(`/api/ateliers/${id}/messages/${mid}/react`, json('POST', { emoji, on })).then((r) => r.messages);
 export const removeAtelier = (id: string) => call<{ ok: boolean }>(`/api/ateliers/${id}`, { method: 'DELETE' });
 export const thumbUrl = (m: AtelierMeta) => `/api/ateliers/${m.id}/thumb.png?v=${encodeURIComponent(m.updated)}`;
 

@@ -2,7 +2,7 @@ import path from 'node:path';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
-import { Accounts, LOGO_VARIANTS, normEmail, ROLES, type ActivityProfile, type CampaignInput, type LogoVariant, type Role, type TeamOfUser } from './accounts.js';
+import { Accounts, LOGO_VARIANTS, normEmail, ROLES, type ActivityProfile, type CampaignInput, type Target, type LogoVariant, type Role, type TeamOfUser } from './accounts.js';
 import { Ateliers } from './ateliers.js';
 import { cookie, readCookie, registerAuth, type AuthConfig } from './auth.js';
 import { Exporter, type ExportKind } from './export.js';
@@ -420,10 +420,11 @@ export async function buildApp(opts: AppOptions) {
       if (kind !== 'ateliers') return list;
       // les votes des membres, et le sien
       const votes = accounts.votes(req.team!.id);
+      const counts = accounts.messageCounts(req.team!.id);
       const me = req.user?.email ? normEmail(req.user.email) : 'groupe';
       return list.map((m) => {
         const v = votes.get(m.id) ?? [];
-        return { ...m, votes: v, voted: v.includes(me) };
+        return { ...m, votes: v, voted: v.includes(me), messages: counts.get(m.id) ?? 0 };
       });
     });
     app.get<{ Params: { id: string } }>(`${base}/:id`, read, async (req, reply) => {
@@ -478,6 +479,24 @@ export async function buildApp(opts: AppOptions) {
       return reply.code(404).send({ error: (err as Error).message });
     }
   });
+  // copier une composition (modèle de campagne, ou import depuis une autre campagne)
+  app.post<{ Params: { id: string }; Body: { to?: string; title?: string; campaign?: string } }>('/api/ateliers/:id/copy', { preHandler: needs('editor') }, async (req, reply) => {
+    const store = storesOf(req.team!.id).ateliers;
+    const to = req.body?.to ?? '';
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(to)) return reply.code(400).send({ error: 'Identifiant de destination attendu' });
+    try {
+      await store.read(to);
+      return reply.code(409).send({ error: 'Cette composition existe déjà' });
+    } catch {
+      /* libre */
+    }
+    try {
+      const meta = await store.copy(req.params.id, to, { title: req.body?.title?.trim().slice(0, 120) || undefined, campaign: req.body?.campaign || undefined }, req.user?.email);
+      return { ok: true, meta };
+    } catch (err) {
+      return reply.code(404).send({ error: (err as Error).message.includes('ENOENT') ? 'Composition introuvable' : (err as Error).message });
+    }
+  });
   // tout membre vote, lecteurs compris ; un vote par personne et par composition
   app.post<{ Params: { id: string }; Body: { on?: boolean } }>('/api/ateliers/:id/vote', { preHandler: needs('viewer') }, async (req, reply) => {
     const team = req.team!;
@@ -491,6 +510,57 @@ export async function buildApp(opts: AppOptions) {
     return { ok: true, votes, voted: votes.includes(me) };
   });
 
+  // --- fil de l'activité : messages, étapes, votes, campagnes et compositions créées, avec le titre des compositions ---
+  app.get('/api/activity', { preHandler: needs('viewer') }, async (req) => {
+    const team = req.team!.id;
+    const list = await storesOf(team).ateliers.list();
+    const titles = new Map(list.map((m) => [m.id, m]));
+    const made = list.filter((m) => m.created).map((m) => ({ type: 'composition' as const, atelier: m.id, by: m.author ?? m.by ?? '', at: m.created! }));
+    return [...accounts.activity(team), ...made]
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .slice(0, 80)
+      .map((e) => (e.atelier ? { ...e, title: titles.get(e.atelier)?.title ?? 'composition supprimée', ...(titles.get(e.atelier)?.campaign ? { inCampaign: titles.get(e.atelier)!.campaign } : {}) } : e))
+      .filter((e) => !('atelier' in e) || titles.has(e.atelier!));
+  });
+
+  // --- messages sur une composition : tout membre écrit et met des smileys ---
+  const atelierExists = async (team: string, id: string) =>
+    storesOf(team)
+      .ateliers.read(id)
+      .then(() => true)
+      .catch(() => false);
+  const meOf = (req: FastifyRequest) => (req.user?.email ? normEmail(req.user.email) : 'groupe');
+  app.get<{ Params: { id: string } }>('/api/ateliers/:id/messages', { preHandler: needs('viewer') }, async (req, reply) => {
+    if (!(await atelierExists(req.team!.id, req.params.id))) return reply.code(404).send({ error: 'Composition introuvable' });
+    return accounts.messages(req.team!.id, req.params.id, meOf(req));
+  });
+  app.post<{ Params: { id: string }; Body: { text?: string; target?: Target } }>('/api/ateliers/:id/messages', { preHandler: needs('viewer') }, async (req, reply) => {
+    if (!(await atelierExists(req.team!.id, req.params.id))) return reply.code(404).send({ error: 'Composition introuvable' });
+    try {
+      accounts.addMessage(req.team!.id, req.params.id, meOf(req), String(req.body?.text ?? ''), req.body?.target);
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+    return { ok: true, messages: accounts.messages(req.team!.id, req.params.id, meOf(req)) };
+  });
+  // son propre message, ou n'importe lequel pour un responsable
+  app.delete<{ Params: { id: string; mid: string } }>('/api/ateliers/:id/messages/:mid', { preHandler: needs('viewer') }, async (req, reply) => {
+    const m = accounts.message(req.team!.id, req.params.id, Number(req.params.mid));
+    if (!m) return reply.code(404).send({ error: 'Message introuvable' });
+    if (m.by !== meOf(req) && req.team!.role !== 'owner') return reply.code(403).send({ error: 'Seul l’auteur peut retirer ce message' });
+    accounts.removeMessage(Number(req.params.mid));
+    return { ok: true, messages: accounts.messages(req.team!.id, req.params.id, meOf(req)) };
+  });
+  app.post<{ Params: { id: string; mid: string }; Body: { emoji?: string; on?: boolean } }>('/api/ateliers/:id/messages/:mid/react', { preHandler: needs('viewer') }, async (req, reply) => {
+    const id = Number(req.params.mid);
+    if (!accounts.message(req.team!.id, req.params.id, id)) return reply.code(404).send({ error: 'Message introuvable' });
+    const emoji = String(req.body?.emoji ?? '');
+    // un smiley : quelques caractères, pas de texte
+    if (!emoji || emoji.length > 16 || /[\p{L}\p{N}\s<>]/u.test(emoji)) return reply.code(400).send({ error: 'Smiley attendu' });
+    accounts.react(id, meOf(req), emoji, req.body?.on !== false);
+    return { ok: true, messages: accounts.messages(req.team!.id, req.params.id, meOf(req)) };
+  });
+
   // --- circuit de validation : un membre propose, un responsable valide ou demande une retouche ---
   app.post<{ Params: { id: string }; Body: { note?: string } }>('/api/ateliers/:id/propose', { preHandler: needs('editor') }, async (req, reply) => {
     const team = req.team!;
@@ -498,7 +568,9 @@ export async function buildApp(opts: AppOptions) {
     try {
       const current = await store.read(req.params.id);
       const by = req.user?.email ?? 'groupe';
-      const note = req.body?.note?.trim().slice(0, 500) || undefined;
+      // le mot d'accompagnement : celui donné, sinon ce que la personne vient d'écrire dans la conversation
+      const note = req.body?.note?.trim().slice(0, 500) || accounts.noteSinceStep(team.id, req.params.id, by);
+      accounts.addStep(team.id, req.params.id, by, 'proposed');
       const meta = await store.setReview(req.params.id, { status: 'proposed', proposedBy: by, proposedAt: new Date().toISOString(), ...(note ? { note } : {}) });
       const owners = opts.auth ? accounts.members(team.id).filter((m) => m.role === 'owner' && m.email !== by).map((m) => m.email) : [];
       const mailed = await mail(
@@ -518,7 +590,8 @@ export async function buildApp(opts: AppOptions) {
       if (!current.review) return reply.code(409).send({ error: 'Cette composition n’a pas été proposée' });
       const by = req.user?.email ?? 'groupe';
       const approved = req.body?.approved === true;
-      const note = req.body?.note?.trim().slice(0, 500) || undefined;
+      const note = req.body?.note?.trim().slice(0, 500) || accounts.noteSinceStep(team.id, req.params.id, by);
+      accounts.addStep(team.id, req.params.id, by, approved ? 'approved' : 'changes');
       const meta = await store.setReview(req.params.id, {
         ...current.review,
         status: approved ? 'approved' : 'changes',

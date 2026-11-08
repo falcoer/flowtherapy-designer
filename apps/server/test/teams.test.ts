@@ -275,14 +275,88 @@ describe('équipes', () => {
     expect(list.find((m) => m.id === 'affiche-lauris')).toMatchObject({ votes: [], voted: false });
     expect((await max.send('POST', '/api/ateliers/affiche-jenni/vote', { on: false })).json().votes).toEqual(['lauris@example.org']);
 
+    const more = (
+      await jenni.send('PATCH', '/api/campaigns/concert-du-plan', { time: '19:30', kind: 'Concert', contact: { name: 'Sam', phone: '06 12 34 56 78', email: 'pas une adresse' } })
+    ).json().campaign;
+    expect(more).toMatchObject({ time: '19:30', kind: 'Concert', contact: { name: 'Sam', phone: '06 12 34 56 78' }, place: 'Le Plan' });
+    expect(more.contact.email).toBeUndefined();
+    expect((await jenni.send('PATCH', '/api/campaigns/concert-du-plan', { time: '25:00' })).json().campaign.time).toBeUndefined();
     const closed = (await lauris.send('PATCH', '/api/campaigns/concert-du-plan', { closed: true })).json().campaign;
     expect(closed.closed).toBeTruthy();
     expect(closed.place).toBe('Le Plan');
     const all = (await max.get('/api/campaigns')).json() as Array<{ id: string }>;
     expect(all.map((x) => x.id)).toEqual(['concert-du-plan-2', 'concert-du-plan']);
 
+    // plan de publication : rendus, dates, composition retenue, publication
+    const plan = (
+      await jenni.send('PATCH', '/api/campaigns/concert-du-plan', {
+        plan: [
+          { id: 'affiche', channel: 'affiche', format: 'a4', date: '2026-11-21', composition: 'affiche-jenni' },
+          { id: 'rappel', channel: 'facebook', format: 'carre', label: 'rappel', date: 'bientôt', link: 'javascript:alert(1)' },
+          { id: 'affiche', format: 'a4' },
+          { id: 'sans-format' },
+          { id: 'story', channel: 'instagram', format: 'story', published: '2026-12-11T18:00:00Z', link: 'https://instagram.com/p/x' },
+        ],
+      })
+    ).json().campaign.plan;
+    expect(plan).toEqual([
+      { id: 'affiche', channel: 'affiche', format: 'a4', date: '2026-11-21', composition: 'affiche-jenni' },
+      { id: 'rappel', channel: 'facebook', format: 'carre', label: 'rappel' },
+      { id: 'story', channel: 'instagram', format: 'story', published: '2026-12-11T18:00:00Z', link: 'https://instagram.com/p/x' },
+    ]);
+
+    // modèles de la campagne, et copie d'une composition dans une autre campagne
+    const tpl = (await jenni.send('PATCH', '/api/campaigns/concert-du-plan', { templates: ['affiche-lauris', 'affiche-lauris', 'Pas Valide'] })).json().campaign;
+    expect(tpl.templates).toEqual(['affiche-lauris']);
+    const copy = await jenni.send('POST', '/api/ateliers/affiche-lauris/copy', { to: 'affiche-jenni-2', title: 'Ma version', campaign: 'concert-du-plan-2' });
+    expect(copy.json().meta).toMatchObject({ id: 'affiche-jenni-2', title: 'Ma version', campaign: 'concert-du-plan-2', by: 'jenni@example.org' });
+    expect((await jenni.get('/api/ateliers/affiche-jenni-2')).json().doc.layers).toEqual([]);
+    expect((await jenni.send('POST', '/api/ateliers/affiche-lauris/copy', { to: 'affiche-jenni-2' })).statusCode).toBe(409);
+    expect((await max.send('POST', '/api/ateliers/affiche-lauris/copy', { to: 'x' })).statusCode).toBe(403);
+
     await lauris.send('DELETE', '/api/ateliers/affiche-jenni');
     await lauris.send('PUT', '/api/ateliers/affiche-jenni', { title: 'Nouvelle', doc });
     expect(((await max.get('/api/ateliers')).json() as Array<{ id: string; votes: string[] }>).find((m) => m.id === 'affiche-jenni')?.votes).toEqual([]);
+  });
+
+  it('les messages d’une composition : tout membre écrit, met des smileys, retire le sien', async () => {
+    const { login, as } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    await lauris.send('POST', '/api/teams/flowtherapy/members', { email: 'max@example.org', role: 'viewer' });
+    const max = as((await login('max@example.org'))!);
+    await lauris.send('PUT', '/api/ateliers/affiche', { title: 'Affiche', doc });
+
+    const first = await max.send('POST', '/api/ateliers/affiche/messages', { text: '  Le titre est trop petit en story  ', target: { channel: 'instagram', format: 'story' } });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().messages).toMatchObject([{ by: 'max@example.org', text: 'Le titre est trop petit en story', target: { channel: 'instagram', format: 'story' }, reactions: [] }]);
+    expect((await max.send('POST', '/api/ateliers/affiche/messages', { text: ' ' })).statusCode).toBe(400);
+    expect((await max.send('POST', '/api/ateliers/inconnue/messages', { text: 'x' })).statusCode).toBe(404);
+    await lauris.send('POST', '/api/ateliers/affiche/messages', { text: 'Je le grossis' });
+    const [a, b] = (await max.get('/api/ateliers/affiche/messages')).json() as Array<{ id: number }>;
+
+    // smileys sur ses messages et ceux des autres
+    await lauris.send('POST', `/api/ateliers/affiche/messages/${a!.id}/react`, { emoji: '👍' });
+    const r = (await max.send('POST', `/api/ateliers/affiche/messages/${a!.id}/react`, { emoji: '👍' })).json().messages[0].reactions;
+    expect(r).toEqual([{ emoji: '👍', by: ['lauris@example.org', 'max@example.org'], mine: true }]);
+    expect((await max.send('POST', `/api/ateliers/affiche/messages/${a!.id}/react`, { emoji: 'bonjour' })).statusCode).toBe(400);
+    expect((await max.send('POST', `/api/ateliers/affiche/messages/${a!.id}/react`, { emoji: '👍', on: false })).json().messages[0].reactions[0].by).toEqual(['lauris@example.org']);
+
+    // proposer et valider s'inscrivent dans la conversation, sans compter comme messages
+    await lauris.send('POST', '/api/ateliers/affiche/propose', {});
+    await lauris.send('POST', '/api/ateliers/affiche/review', { approved: true });
+    const steps = ((await max.get('/api/ateliers/affiche/messages')).json() as Array<{ kind?: string; by: string }>).filter((m) => m.kind);
+    expect(steps).toMatchObject([{ kind: 'proposed', by: 'lauris@example.org' }, { kind: 'approved', by: 'lauris@example.org' }]);
+    expect(((await max.get('/api/ateliers')).json() as Array<{ id: string; messages: number }>).find((m) => m.id === 'affiche')?.messages).toBe(2);
+    // le fil de l'activité : du plus récent au plus ancien, avec le titre
+    const feed = (await max.get('/api/activity')).json() as Array<{ type: string; title?: string; by: string }>;
+    expect(feed.map((e) => e.type)).toEqual(['approved', 'proposed', 'message', 'message', 'composition']);
+    expect(feed[0]).toMatchObject({ title: 'Affiche', by: 'lauris@example.org' });
+
+    // l'auteur retire le sien ; un responsable peut tout retirer
+    expect((await max.send('DELETE', `/api/ateliers/affiche/messages/${b!.id}`)).statusCode).toBe(403);
+    expect((await lauris.send('DELETE', `/api/ateliers/affiche/messages/${a!.id}`)).json().messages).toHaveLength(3);
+    await lauris.send('DELETE', '/api/ateliers/affiche');
+    await lauris.send('PUT', '/api/ateliers/affiche', { title: 'Affiche', doc });
+    expect((await max.get('/api/ateliers/affiche/messages')).json()).toEqual([]);
   });
 });

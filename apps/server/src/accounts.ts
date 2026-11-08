@@ -286,6 +286,17 @@ export class Accounts {
         team TEXT NOT NULL, atelier TEXT NOT NULL, email TEXT NOT NULL, at TEXT NOT NULL,
         PRIMARY KEY (team, atelier, email)
       );
+      CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        team TEXT NOT NULL, atelier TEXT NOT NULL, email TEXT NOT NULL,
+        text TEXT NOT NULL, target TEXT, at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS messages_atelier ON messages(team, atelier);
+      CREATE TABLE IF NOT EXISTS reactions (
+        message INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+        email TEXT NOT NULL, emoji TEXT NOT NULL, at TEXT NOT NULL,
+        PRIMARY KEY (message, email, emoji)
+      );
     `);
     // colonnes ajoutées après coup : fiche d'activité, logo, photo de profil
     this.addColumn('teams', 'profile', 'TEXT');
@@ -293,6 +304,8 @@ export class Accounts {
     this.addColumn('teams', 'updated', 'TEXT');
     this.addColumn('teams', 'logos', 'TEXT');
     this.addColumn('users', 'picture', 'TEXT');
+    // étapes de validation inscrites dans la conversation : proposed | approved | changes
+    this.addColumn('messages', 'kind', 'TEXT');
   }
 
   private addColumn(table: string, column: string, type: string) {
@@ -538,7 +551,8 @@ export class Accounts {
     const cur = this.campaign(team, id);
     if (!cur) throw new Error('Campagne introuvable');
     const name = str(input.name, 80) || cur.name;
-    const data = cleanCampaign({ operation: cur.operation, date: cur.date, place: cur.place, note: cur.note, ...input });
+    const { id: _i, name: _n, created: _c, by: _b, closed: _x, ...prev } = cur;
+    const data = cleanCampaign({ ...prev, ...input });
     const closed = input.closed === undefined ? (cur.closed ?? null) : input.closed ? (cur.closed ?? new Date().toISOString()) : null;
     this.db.prepare('UPDATE campaigns SET name = ?, data = ?, closed = ? WHERE team = ? AND id = ?').run(name, JSON.stringify(data), closed, team, id);
     return this.campaign(team, id)!;
@@ -562,7 +576,141 @@ export class Accounts {
 
   forgetVotes(team: string, atelier: string) {
     this.db.prepare('DELETE FROM votes WHERE team = ? AND atelier = ?').run(team, atelier);
+    this.db.prepare('DELETE FROM messages WHERE team = ? AND atelier = ?').run(team, atelier);
   }
+
+  /* ---------- messages sur une composition, et leurs smileys ---------- */
+
+  /** Nombre de messages par composition. */
+  messageCounts(team: string): Map<string, number> {
+    const out = new Map<string, number>();
+    for (const r of this.db.prepare('SELECT atelier, COUNT(*) AS n FROM messages WHERE team = ? AND kind IS NULL GROUP BY atelier').all(team) as Row[]) out.set(String(r.atelier), Number(r.n));
+    return out;
+  }
+
+  messages(team: string, atelier: string, me: string): Message[] {
+    const rows = this.db
+      .prepare('SELECT m.id, m.email, m.text, m.target, m.kind, m.at, u.name, u.picture FROM messages m LEFT JOIN users u ON u.email = m.email WHERE m.team = ? AND m.atelier = ? ORDER BY m.id')
+      .all(team, atelier) as Row[];
+    const reacts = this.db
+      .prepare('SELECT r.message, r.email, r.emoji FROM reactions r JOIN messages m ON m.id = r.message WHERE m.team = ? AND m.atelier = ? ORDER BY r.at')
+      .all(team, atelier) as Row[];
+    const mine = normEmail(me);
+    return rows.map((r) => {
+      const rs: Reaction[] = [];
+      for (const x of reacts.filter((y) => Number(y.message) === Number(r.id))) {
+        const e = String(x.emoji);
+        let g = rs.find((y) => y.emoji === e);
+        if (!g) rs.push((g = { emoji: e, by: [], mine: false }));
+        g.by.push(String(x.email));
+        if (x.email === mine) g.mine = true;
+      }
+      return {
+        id: Number(r.id),
+        by: String(r.email),
+        ...(r.name ? { name: String(r.name) } : {}),
+        ...(r.picture ? { picture: String(r.picture) } : {}),
+        text: String(r.text),
+        ...(r.target ? { target: JSON.parse(String(r.target)) as Target } : {}),
+        ...(r.kind ? { kind: String(r.kind) as ReviewStep } : {}),
+        at: String(r.at),
+        reactions: rs,
+      };
+    });
+  }
+
+  addMessage(team: string, atelier: string, email: string, text: string, target?: Target) {
+    const t = text.trim().slice(0, 2000);
+    if (!t) throw new Error('Message vide');
+    const tg = target && typeof target.format === 'string' ? { ...(target.channel ? { channel: str(target.channel, 40) } : {}), format: str(target.format, 40), ...(target.palette ? { palette: str(target.palette, 40) } : {}) } : null;
+    this.db.prepare('INSERT INTO messages (team, atelier, email, text, target, at) VALUES (?, ?, ?, ?, ?, ?)').run(team, atelier, normEmail(email), t, tg ? JSON.stringify(tg) : null, new Date().toISOString());
+  }
+
+  /** Ce qui s'est passé dans l'équipe : messages et étapes de validation, votes ; du plus récent au plus ancien. */
+  activity(team: string, limit = 80): ActivityEvent[] {
+    const msgs = this.db
+      .prepare('SELECT m.atelier, m.email, m.text, m.kind, m.target, m.at, u.name FROM messages m LEFT JOIN users u ON u.email = m.email WHERE m.team = ? ORDER BY m.at DESC, m.id DESC LIMIT ?')
+      .all(team, limit) as Row[];
+    const votes = this.db.prepare('SELECT v.atelier, v.email, v.at, u.name FROM votes v LEFT JOIN users u ON u.email = v.email WHERE v.team = ? ORDER BY v.at DESC LIMIT ?').all(team, limit) as Row[];
+    const camps = this.db.prepare('SELECT id, name, by, created FROM campaigns WHERE team = ? ORDER BY created DESC LIMIT ?').all(team, limit) as Row[];
+    const name = (r: Row) => (r.name ? { name: String(r.name) } : {});
+    return [
+      ...msgs.map((r) => ({
+        type: (r.kind ? String(r.kind) : 'message') as ActivityEvent['type'],
+        atelier: String(r.atelier),
+        by: String(r.email),
+        ...name(r),
+        ...(r.text ? { text: String(r.text).slice(0, 140) } : {}),
+        ...(r.target ? { target: JSON.parse(String(r.target)) as Target } : {}),
+        at: String(r.at),
+      })),
+      ...votes.map((r) => ({ type: 'vote' as const, atelier: String(r.atelier), by: String(r.email), ...name(r), at: String(r.at) })),
+      ...camps.map((r) => ({ type: 'campaign' as const, campaign: String(r.id), text: String(r.name), by: String(r.by ?? ''), at: String(r.created) })),
+    ]
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .slice(0, limit);
+  }
+
+  /** Étape de validation, inscrite dans la conversation de la composition. */
+  addStep(team: string, atelier: string, email: string, kind: ReviewStep) {
+    this.db.prepare('INSERT INTO messages (team, atelier, email, text, kind, at) VALUES (?, ?, ?, ?, ?, ?)').run(team, atelier, normEmail(email), '', kind, new Date().toISOString());
+  }
+
+  /** Ce que la personne a écrit depuis la dernière étape : le mot qui accompagne l'e-mail de proposition ou de réponse. */
+  noteSinceStep(team: string, atelier: string, email: string) {
+    const last = this.db.prepare('SELECT MAX(id) AS id FROM messages WHERE team = ? AND atelier = ? AND kind IS NOT NULL').get(team, atelier) as Row | undefined;
+    const rows = this.db
+      .prepare('SELECT text FROM messages WHERE team = ? AND atelier = ? AND email = ? AND kind IS NULL AND id > ? ORDER BY id')
+      .all(team, atelier, normEmail(email), Number(last?.id ?? 0)) as Row[];
+    const t = rows.map((r) => String(r.text)).join('\n').trim();
+    return t ? t.slice(0, 500) : undefined;
+  }
+
+  /** Message d'une composition de l'équipe (pour vérifier qu'il existe et à qui il est). */
+  message(team: string, atelier: string, id: number) {
+    const r = this.db.prepare('SELECT email FROM messages WHERE team = ? AND atelier = ? AND id = ?').get(team, atelier, id) as Row | undefined;
+    return r ? { by: String(r.email) } : null;
+  }
+
+  removeMessage(id: number) {
+    this.db.prepare('DELETE FROM messages WHERE id = ?').run(id);
+  }
+
+  react(id: number, email: string, emoji: string, on: boolean) {
+    if (on) this.db.prepare('INSERT OR IGNORE INTO reactions (message, email, emoji, at) VALUES (?, ?, ?, ?)').run(id, normEmail(email), emoji, new Date().toISOString());
+    else this.db.prepare('DELETE FROM reactions WHERE message = ? AND email = ? AND emoji = ?').run(id, normEmail(email), emoji);
+  }
+}
+
+export interface Reaction {
+  emoji: string;
+  by: string[];
+  mine: boolean;
+}
+export type ReviewStep = 'proposed' | 'approved' | 'changes';
+/** Une nouveauté du fil de l'activité. */
+export interface ActivityEvent {
+  type: 'message' | ReviewStep | 'vote' | 'campaign' | 'composition';
+  atelier?: string;
+  campaign?: string;
+  by: string;
+  name?: string;
+  text?: string;
+  target?: Target;
+  at: string;
+}
+/** Message laissé sur une composition, avec le rendu (cible) qu'on regardait en l'écrivant. */
+export interface Message {
+  id: number;
+  by: string;
+  name?: string;
+  picture?: string;
+  text: string;
+  target?: Target;
+  /** une étape de validation plutôt qu'un message */
+  kind?: ReviewStep;
+  at: string;
+  reactions: Reaction[];
 }
 
 /** Campagne : un temps de communication (souvent la promotion d'un évènement) où chacun propose des documents et vote. */
@@ -574,20 +722,73 @@ export interface Campaign {
   /** Date de l'évènement promu (AAAA-MM-JJ). */
   date?: string;
   place?: string;
+  /** Heure d'accueil (HH:MM). */
+  time?: string;
+  /** Type de prestation : concert, DJ set, showcase… */
+  kind?: string;
+  /** Contact réservation. */
+  contact?: { name?: string; phone?: string; email?: string };
   note?: string;
+  /** Compositions proposées comme modèles : chacun peut partir de l'une d'elles. */
+  templates?: string[];
+  /** Plan de publication : ce qu'il faut sortir, quand, avec quelle composition. */
+  plan?: PlanItem[];
   created: string;
   by?: string;
   closed?: string;
 }
-export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'note'>>;
+/** Une publication prévue : un rendu (média, format, variante), une date, la composition retenue. */
+export interface PlanItem {
+  id: string;
+  channel?: string;
+  format: string;
+  palette?: string;
+  /** « rappel », « annonce »… */
+  label?: string;
+  date?: string;
+  composition?: string;
+  /** publiée : quand, et le lien de la publication */
+  published?: string;
+  link?: string;
+}
+export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'templates' | 'plan'>>;
 
 function cleanCampaign(c: CampaignInput) {
   const date = str(c.date, 10);
+  const k = c.contact ?? {};
+  const email = str(k.email, 120);
+  const ct = {
+    ...(str(k.name, 80) ? { name: str(k.name, 80) } : {}),
+    ...(str(k.phone, 30) ? { phone: str(k.phone, 30) } : {}),
+    ...(/^[^\s@]+@[^\s@]+$/.test(email) ? { email } : {}),
+  };
+  const contact = Object.keys(ct).length ? ct : undefined;
+  const templates = [...new Set(arr<string>(c.templates).filter((t) => typeof t === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(t)))].slice(0, 20);
+  const ids = new Set<string>();
+  const plan = arr<PlanItem>(c.plan)
+    .filter((x) => x && typeof x === 'object' && str(x.format, 40) && /^[a-z0-9][a-z0-9-]{0,39}$/.test(str(x.id, 40)) && !ids.has(x.id) && ids.add(x.id))
+    .slice(0, 40)
+    .map((x) => ({
+      id: x.id,
+      ...(str(x.channel, 40) ? { channel: str(x.channel, 40) } : {}),
+      format: str(x.format, 40),
+      ...(str(x.palette, 40) ? { palette: str(x.palette, 40) } : {}),
+      ...(str(x.label, 60) ? { label: str(x.label, 60) } : {}),
+      ...(/^\d{4}-\d{2}-\d{2}$/.test(str(x.date, 10)) ? { date: str(x.date, 10) } : {}),
+      ...(/^[a-z0-9][a-z0-9-]{0,63}$/.test(str(x.composition, 64)) ? { composition: str(x.composition, 64) } : {}),
+      ...(str(x.published, 30) ? { published: str(x.published, 30) } : {}),
+      ...(/^https?:\/\/\S+$/.test(str(x.link, 300)) ? { link: str(x.link, 300) } : {}),
+    }));
   return {
     ...(str(c.operation, 40) ? { operation: str(c.operation, 40) } : {}),
     ...(/^\d{4}-\d{2}-\d{2}$/.test(date) ? { date } : {}),
     ...(str(c.place, 120) ? { place: str(c.place, 120) } : {}),
+    ...(/^([01]\d|2[0-3]):[0-5]\d$/.test(str(c.time, 5)) ? { time: str(c.time, 5) } : {}),
+    ...(str(c.kind, 60) ? { kind: str(c.kind, 60) } : {}),
+    ...(contact ? { contact } : {}),
     ...(str(c.note, 1000) ? { note: str(c.note, 1000) } : {}),
+    ...(templates.length ? { templates } : {}),
+    ...(plan.length ? { plan } : {}),
   };
 }
 

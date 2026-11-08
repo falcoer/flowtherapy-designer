@@ -9,7 +9,11 @@ export interface AtelierMeta {
   id: string;
   title: string;
   updated: string;
+  /** dernière personne à l'avoir enregistrée */
   by?: string;
+  /** création, et qui l'a créée (absents des compositions d'avant) */
+  created?: string;
+  author?: string;
   formatId?: string;
   /** Campagne à laquelle la composition contribue. */
   campaign?: string;
@@ -67,6 +71,8 @@ export class Ateliers {
       title: (input.title ?? '').trim().slice(0, 120) || 'Sans titre',
       updated: new Date().toISOString(),
       ...(by ? { by } : {}),
+      ...(previous ? (previous.created ? { created: previous.created } : {}) : { created: new Date().toISOString() }),
+      ...(previous ? (previous.author ? { author: previous.author } : {}) : by ? { author: by } : {}),
       ...(typeof doc.formatId === 'string' ? { formatId: doc.formatId } : {}),
       ...(typeof doc.campaign === 'string' && ID.test(doc.campaign) ? { campaign: doc.campaign } : {}),
       ...(previous?.review ? { review: previous.review } : {}),
@@ -97,6 +103,16 @@ export class Ateliers {
     await writeFile(target + '.tmp', JSON.stringify(next));
     await rename(target + '.tmp', target);
     const { doc: _doc, ...meta } = next;
+    return meta;
+  }
+
+  /** Copie une composition (document et vignette) sous un nouvel identifiant, rattachée à une autre campagne. */
+  async copy(from: string, to: string, o: { title?: string; campaign?: string }, by?: string): Promise<AtelierMeta> {
+    const src = await this.read(from);
+    const doc = { ...(src.doc as object), campaign: o.campaign };
+    const meta = await this.write(to, { title: o.title ?? src.title, doc }, by);
+    const thumb = await this.thumb(from);
+    if (thumb) await writeFile(this.file(to, 'png'), await readFile(thumb));
     return meta;
   }
 
