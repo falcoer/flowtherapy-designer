@@ -1026,13 +1026,17 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 
 /* Potards : réglages rotatifs à la place des curseurs verticaux (la Hauteur reste un curseur).
    On tourne d'un geste ; tant qu'on tient, le libellé et le niveau s'affichent à côté. */
-.knob { position: relative; width: 44px; height: 44px; flex: none; touch-action: none; cursor: ns-resize; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.knob { position: relative; width: 46px; height: 46px; flex: none; touch-action: none; cursor: ns-resize; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .knob > svg { width: 100%; height: 100%; display: block; overflow: visible; }
-.knob .kn-track { fill: none; stroke: var(--line); stroke-width: 4; stroke-linecap: round; }
-.knob .kn-level { fill: none; stroke: var(--accent); stroke-width: 4; stroke-linecap: round; }
-.knob .kn-zero { stroke: var(--ink); stroke-width: 1.5; stroke-linecap: round; opacity: 0.45; }
-.knob .kn-cap { fill: var(--chrome-solid); stroke: var(--line); stroke-width: 1; filter: drop-shadow(0 1px 2px rgba(20, 16, 30, 0.18)); }
-.knob .kn-hand { stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; }
+.knob .kn-seg { fill: var(--line); }
+.knob .kn-seg.on { fill: var(--accent); }
+.knob .kn-seg.half { fill: var(--accent); opacity: 0.45; }
+.knob .kn-zero { stroke: var(--ink); stroke-width: 1.4; stroke-linecap: round; opacity: 0.5; }
+.knob .kn-cap { fill: var(--chrome-solid); stroke: var(--line); stroke-width: 1; }
+.knob .kn-glyph { fill: none; stroke: var(--ink); stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; }
+.knob .kn-glyph.filled { fill: var(--ink); fill-rule: evenodd; }
+.knob.held .kn-glyph { stroke: var(--accent); }
+.knob.held .kn-glyph.filled { fill: var(--accent); }
 .knob.held .kn-cap { fill: color-mix(in srgb, var(--accent) 14%, var(--chrome-solid)); stroke: var(--accent); }
 .kn-tag {
   position: absolute; z-index: 30; top: 50%; left: calc(100% + 14px); transform: translateY(-50%);
@@ -1045,3 +1049,11 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .side-params.two .knob:nth-child(odd) .kn-tag { left: calc(100% + 64px); }
 .hand-left .side-params.two .knob:nth-child(even) .kn-tag { left: auto; right: calc(100% + 64px); }
 
+
+/* Roue : logée dans le coin (le quart vide de la jauge, en bas à droite, porte le choix du pinceau
+   et la perspective, de même taille) ; plus de place perdue à gauche et en bas */
+.brush-wheel.side-left { translate: -10.5% 3%; }
+.brush-wheel.side-right { translate: 3% 3%; }
+.bw-pick { width: 19.7%; height: auto; aspect-ratio: 1; }
+@media (pointer: coarse) and (min-width: 600px) { .bw-pick { width: 19.7%; height: auto; } }
+@media (max-width: 560px) { .bw-pick { width: 19.7%; height: auto; } }

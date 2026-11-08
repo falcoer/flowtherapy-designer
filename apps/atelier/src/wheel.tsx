@@ -21,7 +21,7 @@ interface Props {
   tip?: Tip;
   stamp?: string;
   /**
-   * Choix du pinceau, en bas à gauche, à la même place dans tous les modes :
+   * Choix du pinceau, dans le quart vide en bas à droite, à la même place dans tous les modes :
    * un toucher passe au suivant ; double toucher ou appui long ouvre le choix.
    */
   pick?: { face: ReactNode; title: string; next?: () => void; choices?: (close: () => void) => ReactNode; options?: FanItem[]; onOption?: (key: string) => void };
@@ -49,13 +49,14 @@ const MINF = 6;
 const A0 = Math.PI;
 const A1 = 2.5 * Math.PI;
 const SEG = 18;
-// cadran de perspective, en bas à droite ; choix du pinceau, en bas à gauche
-// leur côté dépend de la main : le choix du pinceau reste du côté visible quand la roue s'écarte
-const BY = C + RO * 0.74;
-const BX = RO * 0.74;
-const TR = 32;
-// la flèche de rotation tourne au-delà des bulles du bas, pour rester visible
-const RA = RO + 20;
+// le choix du pinceau et le cadran de perspective, de même taille, dans le quart vide
+// de la jauge (en bas à droite) : la roue peut se loger dans le coin de l'écran
+const RB = 104; // distance des deux boutons au centre
+const AP = (118 * Math.PI) / 180; // choix du pinceau, vers 4 h
+const AT = (152 * Math.PI) / 180; // perspective, vers 5 h
+const TR = 26;
+// la pastille de rotation tourne dans l'anneau d'intensité
+const RA = (RI + RO) / 2;
 
 const fr = (v: number) => MINF + v * (MAXF - MINF);
 const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
@@ -96,18 +97,15 @@ type Zone = 'size' | 'ring' | 'rot' | 'tilt' | 'edge';
 
 /**
  * Roue du pinceau : une seule palette pour le modelage, le dessin et les tampons.
- * La flèche extérieure tourne la pointe ; la jauge (3/4 de tour) règle l'intensité ;
- * le milieu règle la taille (glisser vers le haut ou la droite pour grossir, vers le bas ou la gauche pour réduire) ; en bas à gauche le choix du pinceau, en bas à droite la perspective.
+ * La pastille dans l'anneau tourne la pointe ; la jauge (3/4 de tour) règle l'intensité ;
+ * le milieu règle la taille (glisser vers le haut ou la droite pour grossir, vers le bas ou la gauche pour réduire) ; dans le quart vide en bas à droite, le choix du pinceau et la perspective.
  */
 export function BrushWheel(p: Props) {
   const ref = useRef<SVGSVGElement>(null);
   const drag = useRef<{ zone: Zone; a0: number; rot0: number; r0: number; v0: number; x0: number; y0: number } | null>(null);
-  // roue posée à gauche : le pinceau à droite (visible), la perspective à gauche ; l'inverse pour un gaucher
   const left = (p.side ?? 'left') === 'left';
-  const TX = left ? C - BX : C + BX;
-  const TY = BY;
-  const PX = left ? C + BX : C - BX;
-  const PY = BY;
+  const [TX, TY] = at(AT, RB);
+  const [PX, PY] = at(AP, RB);
   // écartée sur le côté ; elle revient au survol ou au toucher, puis repart
   const [out, setOut] = useState(true);
   const away = useRef<number | null>(null);
@@ -220,11 +218,11 @@ export function BrushWheel(p: Props) {
     const r = Math.hypot(x - C, y - C);
     let zone: Zone | null = null;
     const [ax0, ay0] = at(rot, RA);
-    if (p.onRotation && Math.hypot(x - ax0, y - ay0) < 18) zone = 'rot';
+    if (p.onRotation && Math.hypot(x - ax0, y - ay0) < 15) zone = 'rot';
     else if (Math.hypot(x - TX, y - TY) <= TR) zone = p.onTilt ? 'tilt' : null;
     else if (r < RI) zone = 'size';
     else if (r <= RO) zone = p.onIntensity ? 'ring' : null;
-    else if (r <= RA + 18) zone = 'edge';
+    else if (r <= RO + 30) zone = 'edge';
     if (!zone) return;
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     const now = performance.now();
@@ -323,7 +321,7 @@ export function BrushWheel(p: Props) {
         </g>
         {/* rotation : même convention que les objets de la page, un axe pointillé et sa pastille */}
         <g className={`bw-arrow-g ${p.onRotation ? '' : 'off'}`} style={{ transform: `translate(${C}px, ${C}px) rotate(${(rot * 180) / Math.PI}deg)` }}>
-          <line x1={0} y1={-RI + 4} x2={0} y2={-RA + 11} className="bw-axis" />
+          <line x1={0} y1={-MAXF} x2={0} y2={-RA + 11} className="bw-axis" />
           <circle cx={0} cy={-RA} r={11} className="bw-rot" />
           <path d="M-4.76 -1.55 A5 5 0 1 1 1.55 4.76" transform={`translate(0 ${-RA})`} className="bw-rot-ico" />
         </g>
@@ -335,11 +333,11 @@ export function BrushWheel(p: Props) {
             <text x={C} y={C - RI + 14}>
               Taille
             </text>
-            <text x={TX} y={TY + TR + 12}>
+            <text x={TX} y={TY + TR + 11}>
               {p.onTilt ? 'Inclinaison' : ''}
             </text>
             {p.onRotation && (
-              <text x={at(rot, RA + 20)[0]} y={at(rot, RA + 20)[1] + 3}>
+              <text x={at(rot, RO + 14)[0]} y={at(rot, RO + 14)[1] + 3}>
                 Rotation
               </text>
             )}
