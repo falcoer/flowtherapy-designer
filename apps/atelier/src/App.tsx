@@ -24,7 +24,7 @@ import { blankDoc } from './blank';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
-import { listAteliers, newAtelierId, readAtelier, removeAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta } from './server';
+import { fetchMe, listAteliers, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta, type Me } from './server';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
@@ -395,6 +395,12 @@ export function App() {
   useEffect(() => {
     void serverOnline().then(setOnline);
   }, []);
+  // qui est connecté, et son rôle dans l'équipe active (proposer, valider)
+  const [me, setMe] = useState<Me | null>(null);
+  useEffect(() => {
+    if (online) fetchMe().then(setMe, () => setMe(null));
+  }, [online]);
+  const [reviewNote, setReviewNote] = useState('');
   const refreshProjects = () => void listAteliers().then(setProjects, () => {});
   /** Petite image de la composition pour la liste. */
   const makeThumb = (d: Doc) => {
@@ -448,6 +454,38 @@ export function App() {
       setToast(`« ${r.title} » ouverte`);
     } catch (err) {
       setToast(`Ouverture impossible : ${(err as Error).message}`);
+    }
+  };
+  // lien reçu par e-mail : ?equipe=…&composition=… ouvre la composition (le serveur a déjà choisi l'équipe)
+  useEffect(() => {
+    if (!online) return;
+    const url = new URL(location.href);
+    const id = url.searchParams.get('composition');
+    if (url.searchParams.has('equipe') || id) {
+      url.searchParams.delete('equipe');
+      url.searchParams.delete('composition');
+      history.replaceState(null, '', url.pathname + url.search + url.hash);
+    }
+    if (id) void openProject({ id, title: '', updated: '' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online]);
+  /** Propose la composition aux responsables, ou (responsable) la valide / demande une retouche. */
+  const sendReview = async (action: 'propose' | 'approve' | 'changes') => {
+    if (!project) return;
+    try {
+      await saveNow();
+      const note = reviewNote.trim() || undefined;
+      if (action === 'propose') {
+        const r = await proposeAtelier(project.id, note);
+        setToast(r.mailed ? `Proposée : ${r.notified > 1 ? `${r.notified} responsables prévenus` : 'responsable prévenu'} par e-mail` : 'Proposée aux responsables');
+      } else {
+        const r = await reviewAtelier(project.id, action === 'approve', note);
+        setToast(`${action === 'approve' ? 'Validée' : 'Retouche demandée'}${r.mailed ? ' : auteur prévenu par e-mail' : ''}`);
+      }
+      setReviewNote('');
+      refreshProjects();
+    } catch (err) {
+      setToast(`Impossible : ${(err as Error).message}`);
     }
   };
   const newProject = async (title: string, fromCurrent: boolean) => {
@@ -4286,18 +4324,62 @@ export function App() {
                       </button>
                     )}
                   </div>
+                  {project &&
+                    me?.team &&
+                    (() => {
+                      const r = projects.find((x) => x.id === project.id)?.review;
+                      const role = me.team.role;
+                      const canPropose = role !== 'viewer' && r?.status !== 'proposed';
+                      const canReview = role === 'owner' && r?.status === 'proposed';
+                      const who = (e?: string) => (e ? e.split('@')[0] : '');
+                      return (
+                        <div className="proj-review">
+                          {r && (
+                            <p className={`proj-status st-${r.status}`}>
+                              <b>{REVIEW_LABELS[r.status]}</b>
+                              {r.status === 'proposed' ? ` par ${who(r.proposedBy)}` : ` par ${who(r.reviewedBy)}`}
+                              {r.status === 'proposed' && r.note ? ` : « ${r.note} »` : ''}
+                              {r.status !== 'proposed' && r.reviewNote ? ` : « ${r.reviewNote} »` : ''}
+                            </p>
+                          )}
+                          {(canPropose || canReview) && (
+                            <>
+                              <input className="proj-title proj-note" value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} placeholder={canReview ? 'Message à l’auteur (facultatif)' : 'Message aux responsables (facultatif)'} />
+                              <div className="proj-review-acts">
+                                {canPropose && (
+                                  <button className="fx-clear" onClick={() => void sendReview('propose')}>
+                                    Proposer aux responsables
+                                  </button>
+                                )}
+                                {canReview && (
+                                  <>
+                                    <button className="fx-clear" onClick={() => void sendReview('approve')}>
+                                      Valider
+                                    </button>
+                                    <button className="fx-clear" onClick={() => void sendReview('changes')}>
+                                      À revoir
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
                   <button className="row" onClick={() => void newProject('Sans titre', false)}>
                     <Icon name="plus" />
                     <span>Nouvelle composition</span>
                     <small>page vierge, même format et palette</small>
                   </button>
-                  <div className="b-title">Compositions du groupe</div>
+                  <div className="b-title">{me?.team ? `Compositions · ${me.team.name}` : 'Compositions du groupe'}</div>
                   <div className="proj-list">
                     {projects.map((m) => (
                       <div key={m.id} className={`proj ${m.id === project?.id ? 'on' : ''}`}>
                         <button className="proj-open" onClick={() => void openProject(m)} title={`Ouvrir « ${m.title} »`}>
                           <img src={thumbUrl(m)} alt="" loading="lazy" />
                           <span className="proj-name">{m.title}</span>
+                          {m.review && <span className={`proj-badge st-${m.review.status}`}>{REVIEW_LABELS[m.review.status]}</span>}
                           <small>
                             {new Date(m.updated).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
                             {m.by ? ` · ${m.by.split('@')[0]}` : ''}

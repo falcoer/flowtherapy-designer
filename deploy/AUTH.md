@@ -66,3 +66,24 @@ FTD_APPLE_PRIVATE_KEY_FILE=/etc/ft-designer-apple.p8
 ```
 
 Puis `sudo systemctl restart ft-designer`. Un fournisseur sans variables n'apparaît pas : on peut démarrer avec Google seul et ajouter Apple plus tard. Dès qu'un fournisseur est configuré, le mot de passe `FTD_PASSWORD` n'est plus utilisé. Pour ajouter un membre, invite-le depuis Préférences › Compte, sans redémarrer.
+
+## E-mails (Brevo)
+
+FT Designer envoie trois e-mails : l'invitation dans une équipe, « nouveau support proposé » aux responsables, et la réponse (validé ou à revoir) à l'auteur. Sans les variables ci-dessous, rien n'est envoyé et l'écran d'invitation le dit.
+
+1. Crée un compte gratuit sur [brevo.com](https://www.brevo.com) (300 e-mails par jour).
+2. **Expéditeurs, domaines et IP dédiées → Domaines → Ajouter un domaine** : `flowtherapymusic.com`. Brevo affiche des enregistrements DNS (code Brevo, DKIM, DMARC) : ajoute-les dans Cloudflare (DNS, en « DNS only »), puis clique « Authentifier ».
+3. **Expéditeurs → Ajouter** : `noreply@flowtherapymusic.com`, nom « FT Designer ».
+4. **SMTP et API → SMTP** : note le serveur, le port, l'identifiant SMTP, et génère une **clé SMTP** (c'est le mot de passe).
+
+Dans `/etc/ft-designer.env` :
+
+```ini
+FTD_SMTP_HOST=smtp-relay.brevo.com
+FTD_SMTP_PORT=587
+FTD_SMTP_USER=...@smtp-brevo.com
+FTD_SMTP_PASSWORD=...
+FTD_MAIL_FROM=FT Designer <noreply@flowtherapymusic.com>
+```
+
+Puis `sudo systemctl restart ft-designer`. Les liens des e-mails (`?equipe=…&composition=…`) ouvrent directement la bonne équipe et la bonne composition.

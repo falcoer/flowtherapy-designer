@@ -6,6 +6,7 @@ import { Accounts, ROLES, type Role, type TeamOfUser } from './accounts.js';
 import { Ateliers } from './ateliers.js';
 import { cookie, readCookie, registerAuth, type AuthConfig } from './auth.js';
 import { Exporter, type ExportKind } from './export.js';
+import { invitationMail, proposalMail, reviewMail, type Mail, type Mailer } from './mail.js';
 import { Library } from './library.js';
 import { CACHE_PROFILES, type CacheProfile } from './media.js';
 
@@ -33,6 +34,10 @@ export interface AppOptions {
   accountsFile?: string;
   /** Équipe d'origine : elle garde les dossiers ateliers/ et objets/ existants. */
   defaultTeam?: { id: string; name: string };
+  /** Envoi d'e-mails (invitations, propositions). Sans lui, rien n'est envoyé. */
+  mailer?: Mailer | null;
+  /** Adresse publique pour les liens des e-mails ; par défaut celle de la connexion externe. */
+  publicUrl?: string;
 }
 
 declare module 'fastify' {
@@ -118,13 +123,33 @@ export async function buildApp(opts: AppOptions) {
     if (!isAdmin(req)) return mine;
     return [...mine, ...accounts.teams().filter((t) => !mine.some((m) => m.id === t.id)).map((t) => ({ ...t, role: 'owner' as Role }))];
   };
-  app.addHook('preHandler', async (req) => {
-    if (!req.url.startsWith('/api/')) return;
+  const secureCookies = !!(opts.auth?.publicUrl ?? opts.publicUrl)?.startsWith('https://');
+  app.addHook('preHandler', async (req, reply) => {
+    // un lien d'e-mail (?equipe=…) fait entrer dans l'équipe qu'il vise
+    const linked = (req.query as Record<string, string> | undefined)?.equipe;
+    if (!req.url.startsWith('/api/') && !linked) return;
     const teams = teamsOfReq(req);
-    const wanted = readCookie(req, TEAM_COOKIE);
+    const fromLink = linked ? teams.find((t) => t.id === linked) : undefined;
+    if (fromLink) reply.header('Set-Cookie', cookie(TEAM_COOKIE, fromLink.id, 365 * 86_400, { secure: secureCookies }));
+    const wanted = fromLink?.id ?? readCookie(req, TEAM_COOKIE);
     const mine = opts.auth && req.user ? accounts.teamsOf(req.user.email) : teams;
     req.team = teams.find((t) => t.id === wanted) ?? mine[0] ?? teams[0];
   });
+
+  // --- e-mails : un échec d'envoi ne fait jamais échouer l'action ---
+  const publicUrl = (opts.auth?.publicUrl ?? opts.publicUrl ?? 'http://localhost:4310').replace(/\/$/, '');
+  const link = (team: string, composition?: string) =>
+    `${publicUrl}/?equipe=${encodeURIComponent(team)}${composition ? `&composition=${encodeURIComponent(composition)}` : ''}`;
+  const mail = async (req: FastifyRequest, m: Mail) => {
+    if (!opts.mailer || (Array.isArray(m.to) && !m.to.length)) return false;
+    try {
+      await opts.mailer.send(m);
+      return true;
+    } catch (err) {
+      req.log.warn({ err, subject: m.subject }, 'e-mail non envoyé');
+      return false;
+    }
+  };
   /** Garde : il faut une équipe active, avec au moins ce rôle. */
   const needs = (min: Role) => async (req: FastifyRequest, reply: FastifyReply) => {
     if (!req.team) return reply.code(403).send({ error: 'Tu ne fais partie d’aucune équipe' });
@@ -143,14 +168,14 @@ export async function buildApp(opts: AppOptions) {
   app.get('/api/me', async (req) => {
     const teams = teamsOfReq(req).map(({ id, name, role }) => ({ id, name, role }));
     const team = req.team && { id: req.team.id, name: req.team.name, role: req.team.role };
-    if (opts.auth) return req.user ? { ...req.user, admin: isAdmin(req), mode: 'compte', team, teams } : null;
-    return { name: opts.password ? 'Accès partagé' : 'Accès local', admin: true, mode: opts.password ? 'mot-de-passe' : 'local', team, teams };
+    const mailOn = !!opts.mailer;
+    if (opts.auth) return req.user ? { ...req.user, admin: isAdmin(req), mode: 'compte', team, teams, mail: mailOn } : null;
+    return { name: opts.password ? 'Accès partagé' : 'Accès local', admin: true, mode: opts.password ? 'mot-de-passe' : 'local', team, teams, mail: mailOn };
   });
   app.post<{ Body: { team?: string } }>('/api/me/team', async (req, reply) => {
     const t = teamsOfReq(req).find((x) => x.id === req.body?.team);
     if (!t) return reply.code(404).send({ error: 'Équipe introuvable' });
-    const secure = !!opts.auth?.publicUrl.startsWith('https://');
-    reply.header('Set-Cookie', cookie(TEAM_COOKIE, t.id, 365 * 86_400, { secure }));
+    reply.header('Set-Cookie', cookie(TEAM_COOKIE, t.id, 365 * 86_400, { secure: secureCookies }));
     return { ok: true, team: { id: t.id, name: t.name, role: t.role } };
   });
 
@@ -174,7 +199,13 @@ export async function buildApp(opts: AppOptions) {
   app.get<{ Params: { id: string } }>('/api/teams/:id/members', { preHandler: needsIn('viewer') }, async (req) => accounts.members(req.params.id));
   app.post<{ Params: { id: string }; Body: { email?: string; role?: Role } }>('/api/teams/:id/members', { preHandler: needsIn('owner') }, async (req, reply) => {
     try {
-      return { ok: true, member: accounts.addMember(req.params.id, req.body?.email ?? '', req.body?.role ?? 'editor', req.user?.email) };
+      const member = accounts.addMember(req.params.id, req.body?.email ?? '', req.body?.role ?? 'editor', req.user?.email);
+      const team = accounts.team(req.params.id)!;
+      const mailed = await mail(
+        req,
+        invitationMail({ to: member.email, team: team.name, role: member.role, inviter: req.user, url: link(team.id) }),
+      );
+      return { ok: true, member, mailed };
     } catch (err) {
       return reply.code(400).send({ error: (err as Error).message });
     }
@@ -367,6 +398,52 @@ export async function buildApp(opts: AppOptions) {
       return reply.type('image/png').header('Cache-Control', 'private, no-cache').send(createReadStream(f));
     });
   }
+
+  // --- circuit de validation : un membre propose, un responsable valide ou demande une retouche ---
+  app.post<{ Params: { id: string }; Body: { note?: string } }>('/api/ateliers/:id/propose', { preHandler: needs('editor') }, async (req, reply) => {
+    const team = req.team!;
+    const store = storesOf(team.id).ateliers;
+    try {
+      const current = await store.read(req.params.id);
+      const by = req.user?.email ?? 'groupe';
+      const note = req.body?.note?.trim().slice(0, 500) || undefined;
+      const meta = await store.setReview(req.params.id, { status: 'proposed', proposedBy: by, proposedAt: new Date().toISOString(), ...(note ? { note } : {}) });
+      const owners = opts.auth ? accounts.members(team.id).filter((m) => m.role === 'owner' && m.email !== by).map((m) => m.email) : [];
+      const mailed = await mail(
+        req,
+        proposalMail({ to: owners, team: team.name, title: current.title, by: { email: by, name: req.user?.name }, note, url: link(team.id, req.params.id) }),
+      );
+      return { ok: true, meta, mailed, notified: mailed ? owners.length : 0 };
+    } catch (err) {
+      return reply.code(404).send({ error: (err as Error).message.includes('ENOENT') ? 'Composition introuvable' : (err as Error).message });
+    }
+  });
+  app.post<{ Params: { id: string }; Body: { approved?: boolean; note?: string } }>('/api/ateliers/:id/review', { preHandler: needs('owner') }, async (req, reply) => {
+    const team = req.team!;
+    const store = storesOf(team.id).ateliers;
+    try {
+      const current = await store.read(req.params.id);
+      if (!current.review) return reply.code(409).send({ error: 'Cette composition n’a pas été proposée' });
+      const by = req.user?.email ?? 'groupe';
+      const approved = req.body?.approved === true;
+      const note = req.body?.note?.trim().slice(0, 500) || undefined;
+      const meta = await store.setReview(req.params.id, {
+        ...current.review,
+        status: approved ? 'approved' : 'changes',
+        reviewedBy: by,
+        reviewedAt: new Date().toISOString(),
+        ...(note ? { reviewNote: note } : { reviewNote: undefined }),
+      });
+      const proposer = current.review.proposedBy;
+      const mailed =
+        opts.auth && proposer !== by && proposer.includes('@')
+          ? await mail(req, reviewMail({ to: proposer, team: team.name, title: current.title, by: { email: by, name: req.user?.name }, approved, note, url: link(team.id, req.params.id) }))
+          : false;
+      return { ok: true, meta, mailed };
+    } catch (err) {
+      return reply.code(404).send({ error: (err as Error).message.includes('ENOENT') ? 'Composition introuvable' : (err as Error).message });
+    }
+  });
 
   // fichiers sources de la bibliothèque (images, polices...)
   await app.register(fastifyStatic, { root: path.resolve(opts.libraryRoot), prefix: '/files/', decorateReply: false });

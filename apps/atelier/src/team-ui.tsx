@@ -16,6 +16,7 @@ export function TeamSection({ me }: { me: Me }) {
   const [role, setRole] = useState<Role>('editor');
   const [removing, setRemoving] = useState<string | null>(null);
   const [newTeam, setNewTeam] = useState('');
+  const [info, setInfo] = useState<string | null>(null);
 
   const load = () => {
     if (!team) return;
@@ -112,8 +113,9 @@ export function TeamSection({ me }: { me: Me }) {
             e.preventDefault();
             if (!email.trim()) return;
             void run(async () => {
-              await inviteMember(team.id, email.trim(), role);
+              const r = await inviteMember(team.id, email.trim(), role);
               setEmail('');
+              setInfo(r.mailed ? `Invitation envoyée par e-mail à ${r.member.email}.` : `${r.member.email} est ajouté ; préviens-le toi-même (aucun e-mail envoyé).`);
             });
           }}
         >
@@ -130,7 +132,13 @@ export function TeamSection({ me }: { me: Me }) {
           </button>
         </form>
       )}
-      {owner && <p className="pf-note">L'invité entre avec le compte Google (ou Apple) de cette adresse ; aucun e-mail n'est envoyé, préviens-le toi-même.</p>}
+      {owner && info && <p className="pf-note">{info}</p>}
+      {owner && !info && (
+        <p className="pf-note">
+          L'invité entre avec le compte Google (ou Apple) de cette adresse.{' '}
+          {me.mail ? 'Il reçoit un e-mail avec le lien.' : "Aucun e-mail n'est envoyé : préviens-le toi-même."}
+        </p>
+      )}
 
       {me.admin && (
         <>

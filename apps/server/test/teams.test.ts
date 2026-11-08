@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { googleProvider, type AuthConfig } from '../src/auth.js';
+import type { Mail } from '../src/mail.js';
 
 const repoLibrary = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'fixtures/library');
 const jwt = (claims: object) => `e30.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.sig`;
@@ -24,7 +25,9 @@ async function setup() {
     sessionSecret: 'x'.repeat(40),
     fetch: fakeFetch,
   };
+  const sent: Mail[] = [];
   const app = await buildApp({
+    mailer: { send: async (m) => void sent.push(m) },
     libraryRoot: lib,
     cacheRoot: path.join(root, 'cache'),
     ateliersRoot: path.join(root, 'ateliers'),
@@ -45,7 +48,7 @@ async function setup() {
     send: (method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', url: string, payload?: object) =>
       app.inject({ method, url, headers: { cookie }, ...(payload ? { payload } : {}) }),
   });
-  return { app, root, login, as };
+  return { app, root, login, as, sent };
 }
 
 describe('équipes', () => {
@@ -117,5 +120,41 @@ describe('équipes', () => {
     const { login, as } = await setup();
     const betty = as((await login('betty@example.org'))!);
     expect((await betty.get('/api/me')).json().team).toMatchObject({ id: 'flowtherapy', role: 'editor' });
+  });
+
+  it('envoie l’invitation par e-mail, et le circuit proposer / valider prévient les bonnes personnes', async () => {
+    const { login, as, sent } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    expect((await lauris.get('/api/me')).json().mail).toBe(true);
+    const inv = (await lauris.send('POST', '/api/teams/flowtherapy/members', { email: 'jenni@example.org', role: 'editor' })).json();
+    expect(inv.mailed).toBe(true);
+    expect(sent[0]).toMatchObject({ to: 'jenni@example.org', replyTo: 'lauris@example.org' });
+    expect(sent[0]!.subject).toContain('Flowtherapy');
+    expect(sent[0]!.text).toContain('https://designer.example.org/?equipe=flowtherapy');
+
+    const jenni = as((await login('jenni@example.org'))!);
+    await jenni.send('PUT', '/api/ateliers/concert', { title: 'Concert du 12', doc });
+    const prop = (await jenni.send('POST', '/api/ateliers/concert/propose', { note: 'Version avec le lama' })).json();
+    expect(prop).toMatchObject({ mailed: true, notified: 1, meta: { review: { status: 'proposed', proposedBy: 'jenni@example.org', note: 'Version avec le lama' } } });
+    expect(sent[1]).toMatchObject({ to: ['lauris@example.org'], subject: 'Nouveau support proposé : Concert du 12 · Flowtherapy' });
+    expect(sent[1]!.text).toContain('composition=concert');
+
+    // l'état suit les enregistrements suivants
+    await jenni.send('PUT', '/api/ateliers/concert', { title: 'Concert du 12', doc });
+    expect((await jenni.get('/api/ateliers')).json()[0].review.status).toBe('proposed');
+    // seule une responsable valide
+    expect((await jenni.send('POST', '/api/ateliers/concert/review', { approved: true })).statusCode).toBe(403);
+    const rev = (await lauris.send('POST', '/api/ateliers/concert/review', { approved: false, note: 'Logo plus grand' })).json();
+    expect(rev.meta.review).toMatchObject({ status: 'changes', reviewedBy: 'lauris@example.org', reviewNote: 'Logo plus grand' });
+    expect(sent[2]).toMatchObject({ to: 'jenni@example.org', subject: 'À revoir : Concert du 12 · Flowtherapy' });
+  });
+
+  it('un lien d’e-mail fait entrer dans l’équipe visée', async () => {
+    const { login, as } = await setup();
+    const cookie = (await login('lauris@example.org'))!;
+    await as(cookie).send('POST', '/api/teams', { name: 'Café Concert' });
+    const r = await as(cookie).get('/api/me?equipe=cafe-concert');
+    expect(String(r.headers['set-cookie'])).toContain('ftd_team=cafe-concert');
+    expect(r.json().team.id).toBe('cafe-concert');
   });
 });
