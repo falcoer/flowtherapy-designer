@@ -695,11 +695,27 @@ export interface Campaign {
   note?: string;
   /** Compositions proposées comme modèles : chacun peut partir de l'une d'elles. */
   templates?: string[];
+  /** Plan de publication : ce qu'il faut sortir, quand, avec quelle composition. */
+  plan?: PlanItem[];
   created: string;
   by?: string;
   closed?: string;
 }
-export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'templates'>>;
+/** Une publication prévue : un rendu (média, format, variante), une date, la composition retenue. */
+export interface PlanItem {
+  id: string;
+  channel?: string;
+  format: string;
+  palette?: string;
+  /** « rappel », « annonce »… */
+  label?: string;
+  date?: string;
+  composition?: string;
+  /** publiée : quand, et le lien de la publication */
+  published?: string;
+  link?: string;
+}
+export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'templates' | 'plan'>>;
 
 function cleanCampaign(c: CampaignInput) {
   const date = str(c.date, 10);
@@ -712,6 +728,21 @@ function cleanCampaign(c: CampaignInput) {
   };
   const contact = Object.keys(ct).length ? ct : undefined;
   const templates = [...new Set(arr<string>(c.templates).filter((t) => typeof t === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(t)))].slice(0, 20);
+  const ids = new Set<string>();
+  const plan = arr<PlanItem>(c.plan)
+    .filter((x) => x && typeof x === 'object' && str(x.format, 40) && /^[a-z0-9][a-z0-9-]{0,39}$/.test(str(x.id, 40)) && !ids.has(x.id) && ids.add(x.id))
+    .slice(0, 40)
+    .map((x) => ({
+      id: x.id,
+      ...(str(x.channel, 40) ? { channel: str(x.channel, 40) } : {}),
+      format: str(x.format, 40),
+      ...(str(x.palette, 40) ? { palette: str(x.palette, 40) } : {}),
+      ...(str(x.label, 60) ? { label: str(x.label, 60) } : {}),
+      ...(/^\d{4}-\d{2}-\d{2}$/.test(str(x.date, 10)) ? { date: str(x.date, 10) } : {}),
+      ...(/^[a-z0-9][a-z0-9-]{0,63}$/.test(str(x.composition, 64)) ? { composition: str(x.composition, 64) } : {}),
+      ...(str(x.published, 30) ? { published: str(x.published, 30) } : {}),
+      ...(/^https?:\/\/\S+$/.test(str(x.link, 300)) ? { link: str(x.link, 300) } : {}),
+    }));
   return {
     ...(str(c.operation, 40) ? { operation: str(c.operation, 40) } : {}),
     ...(/^\d{4}-\d{2}-\d{2}$/.test(date) ? { date } : {}),
@@ -721,6 +752,7 @@ function cleanCampaign(c: CampaignInput) {
     ...(contact ? { contact } : {}),
     ...(str(c.note, 1000) ? { note: str(c.note, 1000) } : {}),
     ...(templates.length ? { templates } : {}),
+    ...(plan.length ? { plan } : {}),
   };
 }
 

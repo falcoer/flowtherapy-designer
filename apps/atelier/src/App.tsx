@@ -30,6 +30,7 @@ import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, targ
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
 import { CampaignDialog, CampaignSummary, VoteButton } from './campaigns-ui';
 import { LoadDialog, NewCompositionDialog } from './compositions-ui';
+import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
@@ -564,6 +565,7 @@ export function App() {
   const [newDialog, setNewDialog] = useState(false);
   const [loadDialog, setLoadDialog] = useState(false);
   const [msgDialog, setMsgDialog] = useState(false);
+  const [sheet, setSheet] = useState<string | null>(null);
   const followedTemplates = (followed?.templates ?? []).map((id) => projects.find((m) => m.id === id)).filter((m): m is AtelierMeta => !!m);
   const campaignCounts = projects.reduce<Record<string, number>>((o, m) => (m.campaign ? { ...o, [m.campaign]: (o[m.campaign] ?? 0) + 1 } : o), {});
   /** Nouvelle composition copiée d'une autre (modèle, ou import), rangée dans la campagne suivie, puis ouverte. */
@@ -4416,14 +4418,39 @@ export function App() {
                 setCampaign(id);
                 setCampaignDialog(false);
               }}
+              onSheet={(id) => {
+                setCampaignDialog(false);
+                setSheet(id);
+              }}
               create={async (c: CampaignInput) => {
-                const x = await createCampaign(c);
+                // le plan de publication part de l'occasion et de la date
+                const plan = planFromOperation(allOperations.find((o) => o.id === c.operation), c.date, activity);
+                const x = await createCampaign(plan.length ? { ...c, plan } : c);
                 setCampaigns((l) => [x, ...l]);
                 setCampaign(x.id);
               }}
               update={async (id, c) => {
                 const x = await updateCampaign(id, c);
                 setCampaigns((l) => l.map((y) => (y.id === id ? x : y)));
+              }}
+            />
+          )}
+          {sheet && campaigns.some((c) => c.id === sheet) && (
+            <CampaignSheet
+              campaign={campaigns.find((c) => c.id === sheet)!}
+              operations={allOperations}
+              activity={activity}
+              projects={projects}
+              canEdit={canEditTeam}
+              current={project?.id}
+              onClose={() => setSheet(null)}
+              onSave={async (c) => {
+                const x = await updateCampaign(sheet, c);
+                setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y)));
+              }}
+              onOpen={(m) => {
+                setSheet(null);
+                void openProject(m);
               }}
             />
           )}
@@ -4506,7 +4533,7 @@ export function App() {
             <div className="bubble projects-bubble">
               {online ? (
                 <>
-                  {me?.team && <CampaignSummary campaign={followed} onOpen={() => setCampaignDialog(true)} />}
+                  {me?.team && <CampaignSummary campaign={followed} onOpen={() => setCampaignDialog(true)} onSheet={() => followed && setSheet(followed.id)} />}
                   {(() => {
                     const m = project ? projects.find((x) => x.id === project.id) : undefined;
                     const votes = m?.votes ?? [];
@@ -4556,22 +4583,6 @@ export function App() {
                       Charger…
                     </button>
                   </div>
-                  {/* le modèle se choisira dans la fiche de campagne ; en attendant, une case ici */}
-                  {project && followed && canEditTeam && doc.campaign === followed.id && (
-                    <label className="proj-camp proj-tpl">
-                      <input
-                        type="checkbox"
-                        checked={!!followed.templates?.includes(project.id)}
-                        onChange={(e) =>
-                          void updateCampaign(followed.id, { templates: e.target.checked ? [...(followed.templates ?? []), project.id] : (followed.templates ?? []).filter((t) => t !== project.id) }).then(
-                            (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
-                            (err: Error) => setToast(err.message),
-                          )
-                        }
-                      />
-                      <span>Modèle de la campagne</span>
-                    </label>
-                  )}
                 </>
               ) : (
                 <p className="fx-hint">{online === null ? 'Connexion au serveur…' : 'Hors ligne : la page reste dans ce navigateur. Sur designer.flowtherapymusic.com, elle s’enregistre pour tout le groupe.'}</p>

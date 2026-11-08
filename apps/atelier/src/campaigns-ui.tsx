@@ -1,15 +1,15 @@
 import { useMemo, useState } from 'react';
 import { thumbUrl, type AtelierMeta, type Campaign, type CampaignInput, type Operation } from './server';
 
-const day = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'long' });
+export const day = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'long' });
 const dayShort = (d: string) => {
   const x = new Date(`${d}T12:00:00`);
   return { d: x.toLocaleDateString('fr-FR', { day: 'numeric' }), m: x.toLocaleDateString('fr-FR', { month: 'short' }), y: x.getFullYear() };
 };
-const isEventOp = (ops: Operation[], id?: string) => !id || id === 'concert' || /concert|[ée]v[èe]nement|spectacle|festival|soir[ée]e/i.test(ops.find((o) => o.id === id)?.name ?? '');
+export const isEventOp = (ops: Operation[], id?: string) => !id || id === 'concert' || /concert|[ée]v[èe]nement|spectacle|festival|soir[ée]e/i.test(ops.find((o) => o.id === id)?.name ?? '');
 
 /** Formulaire d'une campagne : nom, occasion, date ; pour un évènement, prestation, accueil, lieu, contact réservation. */
-function CampaignForm(p: { initial: CampaignInput & { id?: string }; operations: Operation[]; onCancel: () => void; onSubmit: (c: CampaignInput & { id?: string }) => Promise<void> }) {
+export function CampaignForm(p: { initial: CampaignInput & { id?: string }; operations: Operation[]; onCancel: () => void; onSubmit: (c: CampaignInput & { id?: string }) => Promise<void> }) {
   const [form, setForm] = useState(p.initial);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -87,6 +87,7 @@ export function CampaignDialog(p: {
   operations: Operation[];
   canEdit: boolean;
   onPick: (id: string) => void;
+  onSheet: (id: string) => void;
   onClose: () => void;
   create: (c: CampaignInput) => Promise<void>;
   update: (id: string, c: CampaignInput) => Promise<void>;
@@ -212,16 +213,16 @@ export function CampaignDialog(p: {
                         </small>
                       </span>
                     </button>
-                    {p.canEdit && (
-                      <span className="cp-row-acts">
-                        <button className="ab-link" onClick={() => setForm({ id: c.id, name: c.name, operation: c.operation, date: c.date, place: c.place, time: c.time, kind: c.kind, contact: c.contact })}>
-                          Modifier
-                        </button>
+                    <span className="cp-row-acts">
+                      <button className="ab-link" onClick={() => p.onSheet(c.id)} title="Infos, plan de publication, contributions">
+                        Fiche
+                      </button>
+                      {p.canEdit && (
                         <button className="ab-link" onClick={() => void p.update(c.id, { closed: !c.closed })}>
                           {c.closed ? 'Rouvrir' : 'Clore'}
                         </button>
-                      </span>
-                    )}
+                      )}
+                    </span>
                   </div>
                 );
               })}
@@ -235,7 +236,7 @@ export function CampaignDialog(p: {
 }
 
 /** Présentation de la campagne suivie, dans le menu des compositions. */
-export function CampaignSummary({ campaign, onOpen }: { campaign?: Campaign; onOpen: () => void }) {
+export function CampaignSummary({ campaign, onOpen, onSheet }: { campaign?: Campaign; onOpen: () => void; onSheet: () => void }) {
   if (!campaign)
     return (
       <div className="cp-summary empty">
@@ -248,13 +249,14 @@ export function CampaignSummary({ campaign, onOpen }: { campaign?: Campaign; onO
   const c = campaign;
   return (
     <div className={`cp-summary ${c.closed ? 'closed' : ''}`}>
-      <div className="cp-lines">
+      <button className="cp-lines cp-open-sheet" onClick={onSheet} title="Ouvrir la fiche de la campagne">
         <b className="cp-name">
           {c.name}
           {c.closed && <em> · close</em>}
         </b>
         {(c.date || c.place) && <span>{[c.date && day(c.date), c.place].filter(Boolean).join(' · ')}</span>}
-      </div>
+        <span className="cp-sheet-link">Fiche et plan de publication ›</span>
+      </button>
       <button className="pf-btn" onClick={onOpen} title="Choisir, créer ou clore une campagne">
         Changer
       </button>

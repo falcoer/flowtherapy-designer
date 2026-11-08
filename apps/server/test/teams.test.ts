@@ -287,6 +287,24 @@ describe('équipes', () => {
     const all = (await max.get('/api/campaigns')).json() as Array<{ id: string }>;
     expect(all.map((x) => x.id)).toEqual(['concert-du-plan-2', 'concert-du-plan']);
 
+    // plan de publication : rendus, dates, composition retenue, publication
+    const plan = (
+      await jenni.send('PATCH', '/api/campaigns/concert-du-plan', {
+        plan: [
+          { id: 'affiche', channel: 'affiche', format: 'a4', date: '2026-11-21', composition: 'affiche-jenni' },
+          { id: 'rappel', channel: 'facebook', format: 'carre', label: 'rappel', date: 'bientôt', link: 'javascript:alert(1)' },
+          { id: 'affiche', format: 'a4' },
+          { id: 'sans-format' },
+          { id: 'story', channel: 'instagram', format: 'story', published: '2026-12-11T18:00:00Z', link: 'https://instagram.com/p/x' },
+        ],
+      })
+    ).json().campaign.plan;
+    expect(plan).toEqual([
+      { id: 'affiche', channel: 'affiche', format: 'a4', date: '2026-11-21', composition: 'affiche-jenni' },
+      { id: 'rappel', channel: 'facebook', format: 'carre', label: 'rappel' },
+      { id: 'story', channel: 'instagram', format: 'story', published: '2026-12-11T18:00:00Z', link: 'https://instagram.com/p/x' },
+    ]);
+
     // modèles de la campagne, et copie d'une composition dans une autre campagne
     const tpl = (await jenni.send('PATCH', '/api/campaigns/concert-du-plan', { templates: ['affiche-lauris', 'affiche-lauris', 'Pas Valide'] })).json().campaign;
     expect(tpl.templates).toEqual(['affiche-lauris']);

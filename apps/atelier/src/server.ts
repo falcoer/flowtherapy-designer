@@ -75,11 +75,24 @@ export interface Campaign {
   note?: string;
   /** Compositions proposées comme modèles de la campagne. */
   templates?: string[];
+  /** Plan de publication : ce qu'il faut sortir, quand, avec quelle composition. */
+  plan?: PlanItem[];
   created: string;
   by?: string;
   closed?: string;
 }
-export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'templates'>> & { closed?: boolean };
+/** Une publication prévue : un rendu (média, format, variante), une date, la composition retenue. */
+export interface PlanItem extends Target {
+  id: string;
+  /** « rappel », « annonce »… */
+  label?: string;
+  date?: string;
+  composition?: string;
+  /** publiée : quand, et le lien de la publication */
+  published?: string;
+  link?: string;
+}
+export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'templates' | 'plan'>> & { closed?: boolean };
 export const listCampaigns = () => call<Campaign[]>('/api/campaigns');
 export const createCampaign = (c: CampaignInput) => call<{ campaign: Campaign }>('/api/campaigns', json('POST', c)).then((r) => r.campaign);
 export const updateCampaign = (id: string, c: CampaignInput) => call<{ campaign: Campaign }>(`/api/campaigns/${id}`, json('PATCH', c)).then((r) => r.campaign);
