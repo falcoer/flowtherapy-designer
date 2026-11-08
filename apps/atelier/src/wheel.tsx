@@ -139,6 +139,19 @@ export function BrushWheel(p: Props) {
     },
     [],
   );
+  // petit écran : dès qu'on touche la page, la roue s'écarte pour lui laisser la place
+  useEffect(() => {
+    if (!p.hideAfter) return;
+    const onDown = (e: PointerEvent) => {
+      if (!(e.target instanceof Element) || !e.target.closest('canvas.stage')) return;
+      if (!window.matchMedia('(max-width: 560px)').matches) return;
+      if (away.current) clearTimeout(away.current);
+      away.current = null;
+      if (!drag.current) setOut(false);
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    return () => window.removeEventListener('pointerdown', onDown, true);
+  }, [p.hideAfter]);
   const [active, setActive] = useState<string | null>(null);
   const lastTap = useRef<{ t: number; zone: string }>({ t: 0, zone: '' });
   const rot = p.rotation ?? 0;
