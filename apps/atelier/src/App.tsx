@@ -19,21 +19,23 @@ import { currentPx, growPatch, localToPx, MOLD_UNIT, moldPatch, pristinePx, unit
 import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
 import { QuickText, TextBar, type SwashTool } from './textbar';
 import { PaletteEditor } from './colorpicker';
+import { cssShaped } from './gradient';
+import { GradientOverlay, GradStyleRow } from './gradient-ui';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
-import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me } from './server';
-import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, targetKey, targetLabel } from './targets';
+import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
+import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, targetKey, targetLabel } from './targets';
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
 import { CampaignDialog, CampaignSummary, VoteButton } from './campaigns-ui';
 import { LoadDialog, NewCompositionDialog } from './compositions-ui';
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
-import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
+import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, type GradStyle, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
@@ -265,7 +267,7 @@ export const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
   ['aura', 'Énergie', 'aura de flammes'],
   ['fire', 'Flammes', 'langues de feu qui montent'],
 ];
-export const swatch = (g: Guide | undefined) => (g?.type === 'gradient' ? cssGradient(g.stops, g.blend) : guideColor(g));
+export const swatch = (g: Guide | undefined) => (g?.type === 'gradient' ? cssShaped(g.stops, g.blend, shapeOf(g)) : guideColor(g));
 const EDGE_MODES: Array<[EdgeMode, string, string]> = [
   ['contrast', 'Contraste', 'bords de lumière'],
   ['color', 'Couleur', 'bords de teinte'],
@@ -3326,7 +3328,7 @@ export function App() {
     const guideFor = (hex: string, name: string) => {
       const n = nearestOf(hex, colors);
       if (n.d <= SAME_COLOR) return n.i;
-      guides.push({ name, type: 'color', color: hex });
+      guides.push({ name, type: 'color', color: hex, from: kit.name });
       colors.push(hex);
       added++;
       return guides.length - 1;
@@ -3911,7 +3913,7 @@ export function App() {
     try {
       const o = await readObjet(e);
       const at = client ? toPage(client.x, client.y) : { x: f.width / 2, y: f.height / 2 };
-      const r = unpackObjet(o, doc, f, at.x, at.y);
+      const r = unpackObjet(o, doc, f, at.x, at.y, e.title);
       update((d) => ({ ...d, guides: r.guides, layers: [...d.layers, ...r.layers] }));
       setSelected(r.layers[0]?.id ?? null);
       setBubble(null);
@@ -3943,6 +3945,31 @@ export function App() {
         style={tool === 'stamp' ? { backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(stampLook(stampOf(stampId)))}")` } : undefined}
       />
 
+      {!rendu &&
+        tool === 'move' &&
+        sel &&
+        sel.kind !== 'photo' &&
+        (() => {
+          // une surface en dégradé montre son repère : centre et axe à glisser, propres à l'objet
+          const g = doc.guides[sel.guide];
+          if (g?.type !== 'gradient') return null;
+          const shape = shapeOf(g, sel.grad) ?? DEFAULT_SHAPE;
+          const b = layerBox(sel, f);
+          const map = {
+            ar: b.w / Math.max(1e-6, b.h),
+            toScreen: (u: number, v: number) => {
+              const p = localToPage(sel, f, u, v);
+              const q = matrix.transformPoint(new DOMPoint(p.x, p.y));
+              return { x: q.x, y: q.y };
+            },
+            fromScreen: (x: number, y: number) => {
+              const p = toPage(x, y);
+              return pageToLocal(sel, f, p.x, p.y);
+            },
+          };
+          const set = (s: GradShape, commit: boolean) => patchLayer(sel.id, { grad: { cx: s.cx, cy: s.cy, angle: s.angle, spread: s.spread } }, commit);
+          return <GradientOverlay shape={shape} map={map} color={g.stops[g.stops.length - 1]!} onChange={set} />;
+        })()}
       {!rendu && (
         <>
           <header
@@ -5099,6 +5126,7 @@ export function App() {
             <PaletteBubble
               doc={doc}
               active={guide}
+              declared={paletteFor(activeTarget, activity)}
               onPick={setGuide}
               onGuides={(guides, commit = true) => (commit ? update : setDoc)((d) => ({ ...d, guides }))}
               onDrag={(i, x, y) => setDragGuide(i === null ? null : { i, x, y })}
@@ -5530,6 +5558,17 @@ function LampPanel({ doc, f, onChange, onClose }: { doc: Doc; f: Format; onChang
 }
 
 const SAVED = 'ftd-atelier-palettes';
+const ROLE_SHORT: Record<string, string> = { fond: 'fond', texte: 'texte', accent: 'accent', secondaire: 'second.' };
+/** Toute la palette en un seul dégradé, comme les variantes : chaque guide au milieu de sa part, les dégradés étalés dans la leur. */
+function railGradient(guides: Guide[]): string {
+  const n = guides.length;
+  if (!n) return 'transparent';
+  const stops = guides.flatMap((x, i) => {
+    const cs = x.type === 'gradient' ? x.stops : [x.color];
+    return cs.map((c, k) => `${c} ${(((i + (cs.length === 1 ? 0.5 : 0.15 + (0.7 * k) / (cs.length - 1))) / n) * 100).toFixed(1)}%`);
+  });
+  return `linear-gradient(90deg, ${stops.join(', ')})`;
+}
 function PaletteBubble({
   doc,
   active,
@@ -5537,16 +5576,20 @@ function PaletteBubble({
   onGuides,
   onDrag,
   onDrop,
+  declared,
 }: {
   doc: Doc;
   active: number;
+  /** Variante de couleurs que déclare la cible affichée (elle se choisit avec le format). */
+  declared?: Palette;
   onPick: (i: number) => void;
   onGuides: (g: Guide[], commit?: boolean) => void;
   onDrag: (i: number | null, x: number, y: number) => void;
   onDrop: (i: number, x: number, y: number) => void;
 }) {
-  // glisser une couleur jusqu'à un objet : elle devient sa couleur de fond
+  // glisser une couleur jusqu'à un objet : elle devient sa couleur de fond ; jusqu'à « Mes couleurs » : elle y est reprise
   const drag = useRef<{ i: number; x: number; y: number; on: boolean } | null>(null);
+  const [over, setOver] = useState(false);
   const g = doc.guides[active];
   const [saved, setSaved] = useState<Array<{ name: string; guides: Guide[] }>>(() => {
     try {
@@ -5557,9 +5600,8 @@ function PaletteBubble({
   });
   const [renaming, setRenaming] = useState<number | null>(null);
   const [lib, setLib] = useState(false);
-  // édition de la couleur : escamotable, retenue d'une ouverture à l'autre
-  // édition de la couleur : fermée à chaque ouverture de la palette ; double toucher sur une couleur l'ouvre
-  const [editing, setEditing] = useState(false);
+  // la couleur en cours de modification, dans sa propre boîte de dialogue
+  const [editing, setEditing] = useState<number | null>(null);
   const lastPick = useRef<{ i: number; t: number } | null>(null);
   const store = (list: typeof saved) => {
     setSaved(list);
@@ -5569,23 +5611,90 @@ function PaletteBubble({
       /* stockage indisponible */
     }
   };
-  const edit = (patch: Partial<Guide>) => onGuides(doc.guides.map((x, i) => (i === active ? ({ ...x, ...patch } as Guide) : x)));
-  // une teinte = une couleur ; deux ou plus = un dégradé
-  const stopsOf = (x: Guide) => (x.type === 'gradient' ? x.stops : [x.color]);
-  const setStops = (stops: string[], commit = true) =>
-    onGuides(
-      doc.guides.map((x, i) =>
-        i !== active ? x : stops.length > 1 ? { name: x.name, type: 'gradient', stops, ...(x.type === 'gradient' && x.blend ? { blend: x.blend } : {}) } : { name: x.name, type: 'color', color: stops[0]! },
-      ),
-      commit,
-    );
+  // trois origines : la variante (fixe, vient de la fiche de l'activité), mes couleurs, les couleurs venues avec un import
+  const fixed = (x: Guide) => !!x.role;
+  const all = doc.guides.map((x, i) => ({ x, i }));
+  const variantOnes = all.filter(({ x }) => fixed(x));
+  const mine = all.filter(({ x }) => !fixed(x) && !x.from);
+  const sources = [...new Set(all.filter(({ x }) => !fixed(x) && x.from).map(({ x }) => x.from!))];
+  /** Reprend une couleur dans « Mes couleurs » : une copie libre pour la variante, l'import perd son origine. */
+  const adopt = (i: number) => {
+    const x = doc.guides[i];
+    if (!x) return;
+    if (fixed(x)) {
+      const { role: _r, ...rest } = x;
+      onGuides([...doc.guides, { ...rest, name: `${x.name} (perso)` } as Guide]);
+      onPick(doc.guides.length);
+    } else if (x.from) {
+      const { from: _f, ...rest } = x;
+      onGuides(doc.guides.map((y, k) => (k === i ? (rest as Guide) : y)));
+    }
+  };
+  const chip = ({ x, i }: { x: Guide; i: number }) => (
+    <div
+      key={i}
+      role="button"
+      tabIndex={0}
+      className={`guide ${i === active ? 'on' : ''}`}
+      onClick={() => {
+        onPick(i);
+        const now = performance.now();
+        const lp = lastPick.current;
+        if (lp && lp.i === i && now - lp.t < 400 && !fixed(x)) {
+          setEditing(i);
+          lastPick.current = null;
+        } else lastPick.current = { i, t: now };
+      }}
+      title={fixed(x) ? `${x.name} : couleur de la variante. Glisse-la sur un objet, ou dans « Mes couleurs » pour la modifier` : `${x.name} : double toucher pour la modifier, glisse-la sur un objet pour lui donner cette couleur`}
+      onPointerDown={(e) => {
+        (e.currentTarget as Element).setPointerCapture(e.pointerId);
+        drag.current = { i, x: e.clientX, y: e.clientY, on: false };
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (!d) return;
+        if (!d.on && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) d.on = true;
+        if (!d.on) return;
+        const intoMine = !!(document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest('.pal-sec.mine');
+        setOver(intoMine && (fixed(x) || !!x.from));
+        onDrag(intoMine ? null : d.i, e.clientX, e.clientY);
+      }}
+      onPointerUp={(e) => {
+        const d = drag.current;
+        drag.current = null;
+        setOver(false);
+        if (!d?.on) return;
+        e.preventDefault();
+        if ((document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest('.pal-sec.mine')) {
+          onDrag(null, 0, 0);
+          adopt(d.i);
+        } else onDrop(d.i, e.clientX, e.clientY);
+      }}
+      onPointerCancel={() => {
+        drag.current = null;
+        setOver(false);
+        onDrag(null, 0, 0);
+      }}
+    >
+      <span className="sw" style={{ background: swatch(x) }} />
+    </div>
+  );
+  const editable = g && !fixed(g);
   return (
-    <div className={`bubble palette-bubble ${editing ? 'editing' : ''}`}>
+    <div className="bubble palette-bubble">
       <div className="pal-head">
-        <button className={`cp-bench cp-toggle ${editing ? 'on' : ''}`} aria-pressed={editing} onClick={() => setEditing(!editing)} title="Afficher ou masquer l'édition de la couleur choisie">
-          Modifier
-        </button>
-        <div className="b-title">Palette du document</div>
+        <div className="b-title">Palette</div>
+        {g && (
+          <span className="pal-sel" title={g.name}>
+            <span className="pal-sel-name">{g.name}</span>
+            {fixed(g) && <small>{ROLE_SHORT[g.role!] ?? g.role}</small>}
+          </span>
+        )}
+        {editable && (
+          <button className="pal-edit" onClick={() => setEditing(active)} title="Modifier la couleur choisie">
+            <Icon name="pen" /> Modifier
+          </button>
+        )}
         <button className={`pal-lib-btn ${lib ? 'on' : ''}`} aria-pressed={lib} onClick={() => setLib(!lib)} title="Palettes enregistrées : sauvegarder ou recharger" aria-label="Palettes enregistrées">
           <Icon name="palettes" />
         </button>
@@ -5611,7 +5720,7 @@ function PaletteBubble({
                   onGuides(guides);
                 }}
               >
-                <span className="strip" style={{ background: `linear-gradient(90deg, ${p.guides.map((x) => guideColor(x, 0.5)).join(',')})` }} />
+                <span className="strip" style={{ background: railGradient(p.guides) }} />
               </button>
               {renaming === i ? (
                 <input
@@ -5646,88 +5755,105 @@ function PaletteBubble({
           ))}
         </div>
       )}
-      {editing && g && (
-        <div className="guide-edit">
-          <PaletteEditor
-            key={active}
-            stops={stopsOf(g)}
-            blend={g.type === 'gradient' ? (g.blend ?? 'smooth') : 'smooth'}
-            onBlend={(blend: Blend) => onGuides(doc.guides.map((x, i) => (i === active && x.type === 'gradient' ? { ...x, blend } : x)))}
-            onChange={(stops, commit) => setStops(stops, commit)}
-          />
-        </div>
+      {variantOnes.length > 0 && (
+        <section className="pal-sec fixed">
+          <span className="pal-sec-label" title="La variante se choisit avec le format">
+            Variante
+            {declared && <small>{declared.name}</small>}
+          </span>
+          <div className="guides">{variantOnes.map(chip)}</div>
+        </section>
       )}
-      <div className="guides">
-        {doc.guides.map((x, i) => (
-          <div
-            key={i}
-            role="button"
-            tabIndex={0}
-            className={`guide ${i === active ? 'on' : ''}`}
+      <section className={`pal-sec mine ${over ? 'over' : ''}`}>
+        <span className="pal-sec-label">Mes couleurs</span>
+        <div className="guides">
+          {mine.map(chip)}
+          <button
+            className="guide add"
             onClick={() => {
-              onPick(i);
-              const now = performance.now();
-              const lp = lastPick.current;
-              if (lp && lp.i === i && now - lp.t < 400) {
-                setEditing(true);
-                lastPick.current = null;
-              } else lastPick.current = { i, t: now };
+              onGuides([...doc.guides, { name: `Couleur ${mine.length + 1}`, type: 'color', color: g?.type === 'color' ? g.color : '#6c8cd5' }]);
+              onPick(doc.guides.length);
+              setEditing(doc.guides.length);
             }}
-            title={`${x.name} : double toucher pour la modifier, glisse-la sur un objet pour lui donner cette couleur`}
-            onPointerDown={(e) => {
-              (e.currentTarget as Element).setPointerCapture(e.pointerId);
-              drag.current = { i, x: e.clientX, y: e.clientY, on: false };
-            }}
-            onPointerMove={(e) => {
-              const d = drag.current;
-              if (!d) return;
-              if (!d.on && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) d.on = true;
-              if (d.on) onDrag(d.i, e.clientX, e.clientY);
-            }}
-            onPointerUp={(e) => {
-              const d = drag.current;
-              drag.current = null;
-              if (d?.on) {
-                e.preventDefault();
-                onDrop(d.i, e.clientX, e.clientY);
-              }
-            }}
-            onPointerCancel={() => {
-              drag.current = null;
-              onDrag(null, 0, 0);
-            }}
+            title="Ajouter une couleur ; glisse ici une couleur de la variante ou d'un import pour la reprendre"
           >
-            <span className="sw" style={{ background: swatch(x) }} />
-            {i === active ? (
-              // le nom de la couleur choisie s'écrit sur place
-              <input
-                className="gname gname-edit"
-                value={x.name}
-                aria-label="Nom de la couleur"
-                onPointerDown={(e) => e.stopPropagation()}
-                onChange={(e) => edit({ name: e.target.value })}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') e.currentTarget.blur();
-                  e.stopPropagation();
-                }}
-              />
-            ) : (
-              <span className="gname">{x.name}</span>
-            )}
-          </div>
-        ))}
-        <button
-          className="guide add"
-          onClick={() => {
-            onGuides([...doc.guides, { name: `Couleur ${doc.guides.length + 1}`, type: 'color', color: '#6c8cd5' }]);
-            onPick(doc.guides.length);
+            <span className="sw plus">＋</span>
+          </button>
+        </div>
+      </section>
+      {sources.map((src) => (
+        <section key={src} className="pal-sec imported">
+          <span className="pal-sec-label">
+            Importées<small>{src}</small>
+          </span>
+          <div className="guides">{all.filter(({ x }) => !fixed(x) && x.from === src).map(chip)}</div>
+        </section>
+      ))}
+      {editing !== null && doc.guides[editing] && !fixed(doc.guides[editing]!) && (
+        <ColorDialog
+          guide={doc.guides[editing]!}
+          variant={declared}
+          onClose={() => setEditing(null)}
+          onChange={(next, commit) => onGuides(doc.guides.map((x, k) => (k === editing ? next : x)), commit)}
+          onRemove={
+            // une couleur encore utilisée par un objet ne se retire pas : son numéro est partagé
+            doc.layers.some((l) => l.guide === editing) || editing !== doc.guides.length - 1
+              ? undefined
+              : () => {
+                  onGuides(doc.guides.slice(0, -1));
+                  onPick(Math.max(0, editing - 1));
+                  setEditing(null);
+                }
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+/** Boîte de dialogue d'une couleur : son nom, son éditeur (plan, teintes, harmonies, transition), les couleurs de la variante. */
+function ColorDialog({ guide, variant, onChange, onClose, onRemove }: { guide: Guide; variant?: Palette; onChange: (g: Guide, commit: boolean) => void; onClose: () => void; onRemove?: () => void }) {
+  const stops = guide.type === 'gradient' ? guide.stops : [guide.color];
+  const keep = { ...(guide.from ? { from: guide.from } : {}) };
+  return (
+    <div className="color-dialog" role="dialog" aria-label={`Couleur ${guide.name}`}>
+      <div className="cd-head">
+        <span className="cd-sw" style={{ background: swatch(guide) }} />
+        <input
+          className="gname-input"
+          value={guide.name}
+          aria-label="Nom de la couleur"
+          onChange={(e) => onChange({ ...guide, name: e.target.value }, false)}
+          onBlur={() => onChange(guide, true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+            e.stopPropagation();
           }}
-          title="Ajouter une couleur : ajoute-lui une seconde teinte pour en faire un dégradé"
-        >
-          <span className="sw plus">＋</span>
-          <span className="gname">Ajouter</span>
+        />
+        {onRemove && (
+          <button className="cd-remove" onClick={onRemove} title="Retirer cette couleur">
+            Retirer
+          </button>
+        )}
+        <button className="lamp-close" onClick={onClose} aria-label="Fermer">
+          ×
         </button>
       </div>
+      <PaletteEditor
+        stops={stops}
+        blend={guide.type === 'gradient' ? (guide.blend ?? 'smooth') : 'smooth'}
+        variant={variant}
+        extra={guide.type === 'gradient' ? <GradStyleRow style={guide.shape} onChange={(shape: GradStyle) => onChange({ ...guide, shape }, true)} /> : undefined}
+        onBlend={(blend: Blend) => guide.type === 'gradient' && onChange({ ...guide, blend }, true)}
+        onChange={(next, commit) =>
+          onChange(
+            next.length > 1
+              ? { name: guide.name, type: 'gradient', stops: next, ...(guide.type === 'gradient' && guide.blend ? { blend: guide.blend } : {}), ...(guide.type === 'gradient' && guide.shape ? { shape: guide.shape } : {}), ...keep }
+              : { name: guide.name, type: 'color', color: next[0]!, ...keep },
+            commit,
+          )
+        }
+      />
     </div>
   );
 }

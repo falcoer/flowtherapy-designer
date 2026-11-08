@@ -7,6 +7,7 @@ import { textCut, textEpoch } from './text';
 import { blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, type Doc, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { keepLinks, type LinkShapes } from './links';
+import { shapedFill } from './gradient';
 export { linkShapes } from './links';
 import { applyLook, lookGuides, lookOf } from './looks';
 import { applyPixelFx, hasPixelFx, hexRGB, opacityOf, type Fx, type FxId } from './fx';
@@ -835,7 +836,9 @@ function drawBorder(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format
   const wd = bd.width * minSide;
   const g = doc.guides[bd.guide];
   const box = pageBounds(l, f);
-  if (g?.type === 'gradient') {
+  const shaped = shapedFill(ctx, g, box);
+  if (shaped) ctx.strokeStyle = shaped;
+  else if (g?.type === 'gradient') {
     const grad = ctx.createLinearGradient(box.x0, box.y0, box.x1, box.y1);
     blendStops(g.stops, g.blend).forEach(([p, c]) => grad.addColorStop(p, c));
     ctx.strokeStyle = grad;
@@ -1108,7 +1111,9 @@ function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
     }
   } else {
     const g = doc.guides[l.guide];
-    if (g?.type === 'gradient') {
+    const shaped = shapedFill(ctx, g, { x0, y0, x1: x0 + b.w, y1: y0 + b.h }, l.grad);
+    if (shaped) ctx.fillStyle = shaped;
+    else if (g?.type === 'gradient') {
       const grad = ctx.createLinearGradient(x0, y0, x0, y0 + b.h);
       blendStops(g.stops, g.blend).forEach(([p, c]) => grad.addColorStop(p, c));
       ctx.fillStyle = grad;
@@ -1172,6 +1177,8 @@ function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElem
 }
 
 function guideStyle(ctx: CanvasRenderingContext2D, g: Guide | undefined, box: { x0: number; y0: number; x1: number; y1: number }) {
+  const shaped = shapedFill(ctx, g, box);
+  if (shaped) return shaped;
   if (g?.type === 'gradient') {
     const grad = ctx.createLinearGradient(box.x0, box.y0, box.x1, box.y1);
     blendStops(g.stops, g.blend).forEach(([p, c]) => grad.addColorStop(p, c));

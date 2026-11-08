@@ -1431,3 +1431,105 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .feed-txt q { color: var(--muted); }
 .feed-late { display: flex; flex-direction: column; gap: 2px; padding: 6px; border-radius: 12px; border: 1px solid #c0392b; }
 .feed-row.late { color: #c0392b; }
+
+.saved .strip { height: 16px; width: 72px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); }
+
+/* éditeur : les teintes du guide en curseurs sur leur dégradé, curseurs du plan en dégradé */
+.pe-head { align-items: center; gap: 8px; }
+.pe-harm-btn { margin-left: auto; height: 28px; padding: 0 12px; border-radius: 999px; font-size: 12px; color: var(--accent); box-shadow: inset 0 0 0 1px var(--line); }
+.pe-harm-btn.on { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.pe-tiles-wrap { flex-direction: row; align-items: center; gap: 8px; }
+.pe-tiles { flex: 1; min-width: 0; display: flex; justify-content: space-between; gap: 4px; padding: 4px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); }
+.pe-tile { width: 34px; height: 34px; flex: none; aspect-ratio: auto; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.25); }
+.pe-tile.on { box-shadow: 0 0 0 2px var(--accent), 0 2px 6px rgba(0, 0, 0, 0.3); transform: scale(1.1); }
+.pe-tile.add { width: 34px; height: 34px; border: 0; border-radius: 50%; }
+.pe-range { -webkit-appearance: none; appearance: none; height: 18px; margin: 3px 0; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); }
+.pe-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; border-radius: 50%; background: transparent; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 1px 4px rgba(0, 0, 0, 0.35); }
+.pe-range::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: transparent; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 1px 4px rgba(0, 0, 0, 0.35); }
+.pe-range::-moz-range-track { background: transparent; }
+.pe-variant { display: flex; flex-direction: column; gap: 4px; }
+.pe-variant-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pe-variant-chips button { width: 26px; height: 26px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+
+/* Palette en trois origines : variante (fixe), mes couleurs, importées ; la couleur choisie se modifie dans sa boîte */
+.pal-sec { display: flex; flex-direction: column; gap: 4px; padding: 6px; border-radius: 14px; border: 1px solid transparent; transition: background 0.12s, border-color 0.12s; }
+.pal-sec-head { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 4px; }
+.pal-sec-head small { color: var(--muted); font-size: 11px; }
+.pal-sec.fixed { background: var(--line); }
+.pal-sec.fixed .guide.on { background: var(--chrome-solid); }
+.pal-sec.mine { border-style: dashed; border-color: var(--line); }
+.pal-sec.mine.over { border-color: var(--accent); background: var(--accent-soft); }
+.pal-sec.imported { border-color: var(--line); }
+.pal-sec .guides { grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); }
+.pal-sec .guide .sw { position: relative; width: 44px; height: 44px; }
+.pal-role { position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%); padding: 0 5px; border-radius: 6px; font: var(--tool-label, 600 9.5px ui-monospace, monospace); font-style: normal; text-transform: uppercase; background: var(--chrome-solid); color: var(--muted); box-shadow: 0 0 0 1px var(--line); white-space: nowrap; }
+.pal-edit { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; height: 28px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-soft); }
+.pal-edit svg { width: 14px; height: 14px; }
+.pal-drop-hint { margin: 0; padding: 0 4px; font-size: 12px; color: var(--accent); }
+.color-dialog { position: fixed; z-index: 40; top: 64px; left: 50%; transform: translateX(-50%); width: min(400px, calc(100vw - 20px)); max-height: calc(100vh - 80px); overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 22px; background: var(--chrome-solid); box-shadow: 0 0 0 1px var(--line), var(--tool-lift, 0 6px 24px rgba(0, 0, 0, 0.2)); }
+.cd-head { display: flex; align-items: center; gap: 8px; }
+.cd-sw { flex: none; width: 36px; height: 36px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }
+.cd-remove { height: 32px; padding: 0 10px; border-radius: 9px; font-size: 12px; color: var(--muted); }
+@media (min-width: 900px) { .color-dialog { left: auto; right: 430px; transform: none; } }
+
+/* palette condensée : une ligne par origine, petites pastilles, le nom de la couleur choisie en tête */
+.palette-bubble .pal-head .b-title { flex: none; }
+.pal-sel { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; font-size: 13px; font-weight: 600; }
+.pal-sel-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-sel small { font: var(--tool-label); text-transform: uppercase; color: var(--muted); }
+.pal-sec { flex-direction: row; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 12px; }
+.pal-sec-label { flex: none; width: 64px; display: flex; flex-direction: column; font: var(--tool-label); text-transform: uppercase; color: var(--muted); line-height: 1.25; }
+.pal-sec-label small { font: 400 11px/1.2 inherit; font-family: inherit; text-transform: none; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-sec .guides { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.pal-sec .guide { padding: 3px; border-radius: 50%; }
+.pal-sec .guide.on { background: transparent; }
+.pal-sec .guide .sw { width: 30px; height: 30px; }
+.pal-sec .guide.on .sw { box-shadow: 0 0 0 2px var(--chrome-solid), 0 0 0 3.5px var(--accent); }
+.pal-sec .guide.add .sw.plus { font-size: 15px; }
+.palette-bubble { gap: 6px; }
+
+
+/* dégradé de l'objet choisi : barre (mode, répétitions…) et repère posé sur l'objet */
+.grad-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.grad-modes { display: flex; gap: 2px; padding: 2px; border-radius: 999px; background: var(--line); }
+.grad-modes button { width: 32px; height: 30px; display: grid; place-items: center; border-radius: 999px; color: var(--ink); }
+.grad-modes button.on { background: var(--chrome-solid); color: var(--accent); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15); }
+.grad-step { display: flex; align-items: center; height: 32px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); }
+.grad-step button { width: 28px; height: 32px; font-size: 16px; color: var(--accent); }
+.grad-step button:disabled { opacity: 0.3; }
+.grad-step b { min-width: 26px; text-align: center; font-size: 13px; }
+.grad-tog { flex: none; height: 32px; padding: 0 10px; border-radius: 999px; font-size: 12px; color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+.grad-tog.on { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.grad-tog:disabled { opacity: 0.4; }
+.grad-overlay { position: fixed; inset: 0; z-index: 5; pointer-events: none; }
+.grad-overlay svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.go-axis0 { stroke: #fff; stroke-width: 1; stroke-dasharray: 2 4; opacity: 0.75; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.7)); }
+.go-ring { fill: none; stroke: #fff; stroke-width: 1.2; stroke-dasharray: 4 4; opacity: 0.9; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.7)); }
+.go-line { stroke: #fff; stroke-width: 2.5; filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6)); }
+.go-tick { stroke: #fff; stroke-width: 2.5; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.6)); }
+.go-start { fill: #fff; stroke: rgba(0, 0, 0, 0.5); }
+.go-pt { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; pointer-events: auto; touch-action: none; cursor: grab; border: 4px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35); }
+.go-pt.center { width: 22px; height: 22px; margin: -11px 0 0 -11px; background: rgba(255, 255, 255, 0.25); }
+.go-pt.center::after { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: #fff; }
+.go-angle { position: absolute; padding: 1px 6px; border-radius: 6px; font: var(--tool-label); color: #fff; background: rgba(20, 16, 30, 0.6); white-space: nowrap; pointer-events: none; }
+.pe-right .grad-row { padding-top: 0; border-top: 0; gap: 6px; }
+.pe-right .grad-modes { width: 100%; justify-content: space-between; }
+.pe-right .grad-modes button { flex: 1; width: auto; }
+.grad-row-label { flex-basis: 100%; }
+.pe-right .grad-row { row-gap: 4px; }
+
+/* éditeur : saisie directe (hexa + trois curseurs RVB ou YUV) */
+.pe-mode { width: 240px; }
+.pe-channels { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); }
+.pe-ch-head { display: flex; align-items: center; gap: 8px; }
+.pe-ch-sw { flex: none; width: 40px; height: 40px; border-radius: 10px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+.pe-hex { flex: 1; min-width: 0; display: flex; align-items: center; height: 36px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line); font: 600 15px ui-monospace, monospace; color: var(--muted); }
+.pe-hex input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: inherit; text-transform: uppercase; outline: none; }
+.pe-space { width: 110px; }
+.pe-space button { height: 30px; font-size: 12px; }
+.pe-ch { display: grid; grid-template-columns: 18px minmax(0, 1fr) 46px; align-items: center; gap: 8px; }
+.pe-ch-name { font: var(--tool-label); color: var(--muted); }
+.pe-ch .pe-range { width: 100%; height: 22px; }
+.pe-ch-val { font: 12px ui-monospace, monospace; text-align: right; color: var(--muted); }
+.pe-bottom.solo { grid-template-columns: minmax(0, 1fr); }
+.pe-sliders[hidden] { display: none; }

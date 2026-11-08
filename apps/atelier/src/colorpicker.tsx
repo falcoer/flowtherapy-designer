@@ -1,6 +1,8 @@
 import { gradientStops, harmonies, hexToOklch, maxChroma, oklabToRgb8, oklchToHex, type Oklch } from '@ftd/core';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { cssGradient } from './model';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Blend } from './model';
+import type { Palette } from './server';
 
 /**
  * Éditeur de couleur de la palette : un plan carré (teinte en largeur, clarté en hauteur),
@@ -15,7 +17,7 @@ const RES = 120;
 /** Grille : une colonne de gris puis les teintes, 9 clartés. */
 const ROWS = 9;
 
-export type PlaneMode = 'grid' | 'spectrum';
+export type PlaneMode = 'grid' | 'spectrum' | 'sliders';
 /** Nature du plan : saturation, clarté moyenne, contraste (étendue des clartés), étendue des teintes, cases de la grille. */
 export interface Plane {
   mode: PlaneMode;
@@ -82,7 +84,39 @@ const HARMONIES: Array<[keyof ReturnType<typeof harmonies>, string]> = [
   ['tints', 'Camaïeu'],
 ];
 
-export function PaletteEditor({ stops, blend, onBlend, onChange: emit }: { stops: string[]; blend: Blend; onBlend: (b: Blend) => void; onChange: (stops: string[], commit: boolean) => void }) {
+/** Fond d'un curseur du plan : ce que donne chaque position, dans la teinte choisie. */
+function trackOf(k: 'sat' | 'light' | 'contrast' | 'hues', p: Plane, base: Oklch): string {
+  const at = (c: Oklch) => oklchToHex(c);
+  const n = 8;
+  const run = (f: (t: number) => Oklch) => `linear-gradient(90deg, ${Array.from({ length: n + 1 }, (_, j) => at(f(j / n))).join(', ')})`;
+  const l0 = 0.15 + 0.7 * p.light;
+  if (k === 'sat') return run((t) => ({ l: l0, c: t * maxChroma(l0, base.h), h: base.h }));
+  if (k === 'light') return run((t) => {
+    const l = 0.15 + 0.7 * t;
+    return { l, c: p.sat * maxChroma(l, base.h), h: base.h };
+  });
+  if (k === 'hues') return run((t) => ({ l: l0, c: p.sat * maxChroma(l0, (base.h + t * 360) % 360), h: (base.h + t * 360) % 360 }));
+  // contraste : à gauche des clartés proches, à droite du blanc au noir (moitié haute vers le clair, basse vers le sombre)
+  return `linear-gradient(90deg, ${at({ l: l0, c: 0, h: 0 })}, #fff) top / 100% 50% no-repeat, linear-gradient(90deg, ${at({ l: l0, c: 0, h: 0 })}, #000) bottom / 100% 50% no-repeat`;
+}
+
+export function PaletteEditor({
+  stops,
+  blend,
+  variant,
+  extra,
+  onBlend,
+  onChange: emit,
+}: {
+  /** Réglages ajoutés sous la transition (forme du dégradé). */
+  extra?: ReactNode;
+  stops: string[];
+  blend: Blend;
+  /** Variante de l'activité dont les couleurs sont proposées. */
+  variant?: Palette;
+  onBlend: (b: Blend) => void;
+  onChange: (stops: string[], commit: boolean) => void;
+}) {
   // pendant un glissé, la page n'est repeinte qu'une fois par image affichée
   const pending = useRef<{ stops: string[]; raf: number } | null>(null);
   const onChange = (next: string[], commit: boolean) => {
@@ -175,8 +209,26 @@ export function PaletteEditor({ stops, blend, onBlend, onChange: emit }: { stops
           <button className={mode === 'spectrum' ? 'on' : ''} onClick={() => setMode('spectrum')}>
             Spectre
           </button>
+          <button className={mode === 'sliders' ? 'on' : ''} onClick={() => setMode('sliders')} title="Saisie hexadécimale et trois curseurs (RVB ou YUV)">
+            Curseurs
+          </button>
         </div>
+        <button
+          className={`pe-harm-btn ${harm ? 'on' : ''}`}
+          aria-pressed={!!harm}
+          onClick={() => {
+            if (harm) return setHarm(null);
+            const c = stops[i]!;
+            setHarm({ base: c, at: placeOf(c, pl) ?? { x: 0.5, y: 0.5 } });
+          }}
+          title="Harmonies de la teinte choisie (ou garde le doigt appuyé sur le plan)"
+        >
+          Harmonies
+        </button>
       </div>
+      {mode === 'sliders' ? (
+        <ChannelPanel hex={stops[i]!} onChange={(c, commit) => setAt(i, c, commit)} />
+      ) : (
       <div
         ref={plane}
         className={`pe-plane ${mode}`}
@@ -252,6 +304,7 @@ export function PaletteEditor({ stops, blend, onBlend, onChange: emit }: { stops
             return <span key={c} className="pe-mark ghost" style={{ left: `${m.x * 100}%`, top: `${m.y * 100}%`, background: c }} />;
           })}
       </div>
+      )}
       {harm && (
         <div className="pe-harm">
           {harmSets.map((s) => (
@@ -276,8 +329,9 @@ export function PaletteEditor({ stops, blend, onBlend, onChange: emit }: { stops
           </button>
         </div>
       )}
-      <div className="pe-bottom">
-        <div className="pe-sliders">
+      <Tiles stops={stops} sel={i} setSel={setSel} onChange={onChange} blend={blend} />
+      <div className={`pe-bottom ${mode === 'sliders' ? 'solo' : ''}`}>
+        <div className="pe-sliders" hidden={mode === 'sliders'}>
           {(
             [
               ['sat', 'Saturation', 0, 1, 0.01, 'grises → vives'],
@@ -289,6 +343,8 @@ export function PaletteEditor({ stops, blend, onBlend, onChange: emit }: { stops
             <label key={k} title={hint}>
               <span className="tb-label">{name}</span>
               <input
+                className="pe-range"
+                style={{ background: trackOf(k, pl, hexToOklch(stops[i]!)) }}
                 type="range"
                 min={min}
                 max={max}
@@ -304,7 +360,16 @@ export function PaletteEditor({ stops, blend, onBlend, onChange: emit }: { stops
           ))}
         </div>
         <div className="pe-right">
-          <Tiles stops={stops} sel={i} setSel={setSel} onChange={onChange} />
+          {variant && variant.colors.length > 0 && (
+            <div className="pe-variant">
+              <span className="tb-label">{variant.name}</span>
+              <div className="pe-variant-chips">
+                {variant.colors.map((c, k) => (
+                  <button key={k} style={{ background: c.hex }} title={`${c.name || c.hex}${c.role ? ` (${c.role})` : ''} : remplace la teinte choisie`} onClick={() => setAt(i, c.hex, true)} />
+                ))}
+              </div>
+            </div>
+          )}
           <div className="pe-blend">
             <span className="tb-label">Transition</span>
             <div className="seg">
@@ -321,14 +386,15 @@ export function PaletteEditor({ stops, blend, onBlend, onChange: emit }: { stops
               ))}
             </div>
           </div>
+          {extra}
         </div>
       </div>
     </div>
   );
 }
 
-/** Teintes du guide en tuiles : toucher pour choisir, glisser pour réordonner, ＋ pour en ajouter. */
-function Tiles({ stops, sel, setSel, onChange }: { stops: string[]; sel: number; setSel: (i: number) => void; onChange: (stops: string[], commit: boolean) => void }) {
+/** Teintes du guide en curseurs posés sur leur dégradé : toucher pour choisir, glisser pour réordonner, ＋ pour en ajouter. */
+function Tiles({ stops, sel, setSel, onChange, blend }: { stops: string[]; sel: number; setSel: (i: number) => void; onChange: (stops: string[], commit: boolean) => void; blend: Blend }) {
   const box = useRef<HTMLDivElement>(null);
   const drag = useRef<{ from: number; x: number; y: number; on: boolean } | null>(null);
   const [dragging, setDragging] = useState<number | null>(null);
@@ -345,7 +411,7 @@ function Tiles({ stops, sel, setSel, onChange }: { stops: string[]; sel: number;
   };
   return (
     <div className="pe-tiles-wrap">
-      <div className="pe-tiles" ref={box}>
+      <div className="pe-tiles" ref={box} style={{ background: cssGradient(stops, blend, '90deg') }}>
         {stops.map((c, k) => (
           <button
             key={k}
@@ -405,6 +471,7 @@ function Tiles({ stops, sel, setSel, onChange }: { stops: string[]; sel: number;
             )}
           </button>
         ))}
+      </div>
         <button
           className="pe-tile add"
           onClick={() => {
@@ -416,7 +483,144 @@ function Tiles({ stops, sel, setSel, onChange }: { stops: string[]; sel: number;
         >
           ＋
         </button>
+    </div>
+  );
+}
+
+type Space = 'rgb' | 'yuv';
+const SPACE = 'ftd-atelier-space';
+const hex2 = (n: number) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, '0');
+const toHex = (r: number, g: number, b: number) => `#${hex2(r)}${hex2(g)}${hex2(b)}`;
+const rgbOf = (hex: string) => {
+  const n = parseInt(hex.slice(1, 7), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255] as const;
+};
+/** YUV (Y 0..1, U et V −0,5..0,5, comme le YCbCr des écrans) ↔ RVB 0..255. */
+const yuvOf = (r: number, g: number, b: number) => {
+  const y = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return [y, (b / 255 - y) / 1.772, (r / 255 - y) / 1.402] as const;
+};
+const fromYuv = (y: number, u: number, v: number) => {
+  const r = y + 1.402 * v;
+  const b = y + 1.772 * u;
+  const g = (y - 0.299 * r - 0.114 * b) / 0.587;
+  return toHex(r * 255, g * 255, b * 255);
+};
+const CHANNELS: Record<Space, Array<{ name: string; min: number; max: number; step: number; show: (v: number) => string }>> = {
+  rgb: [
+    { name: 'R', min: 0, max: 255, step: 1, show: (v) => String(Math.round(v)) },
+    { name: 'V', min: 0, max: 255, step: 1, show: (v) => String(Math.round(v)) },
+    { name: 'B', min: 0, max: 255, step: 1, show: (v) => String(Math.round(v)) },
+  ],
+  yuv: [
+    { name: 'Y', min: 0, max: 1, step: 0.005, show: (v) => `${Math.round(v * 100)} %` },
+    { name: 'U', min: -0.5, max: 0.5, step: 0.005, show: (v) => (v >= 0 ? '+' : '') + Math.round(v * 200) },
+    { name: 'V', min: -0.5, max: 0.5, step: 0.005, show: (v) => (v >= 0 ? '+' : '') + Math.round(v * 200) },
+  ],
+};
+
+/** Saisie directe : le code hexadécimal et trois curseurs, en RVB ou en YUV, chacun peint de ce qu'il donne. */
+function ChannelPanel({ hex, onChange }: { hex: string; onChange: (hex: string, commit: boolean) => void }) {
+  const [space, setSpaceRaw] = useState<Space>(() => {
+    try {
+      return localStorage.getItem(SPACE) === 'yuv' ? 'yuv' : 'rgb';
+    } catch {
+      return 'rgb';
+    }
+  });
+  const setSpace = (s: Space) => {
+    setSpaceRaw(s);
+    try {
+      localStorage.setItem(SPACE, s);
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  const [text, setText] = useState(hex);
+  useEffect(() => setText(hex), [hex]);
+  const rgb = rgbOf(hex);
+  // en YUV, les valeurs tenues localement évitent les sauts dus aux arrondis du code hexadécimal
+  const [yuv, setYuv] = useState<readonly [number, number, number]>(() => yuvOf(...rgb));
+  const last = useRef(hex);
+  useEffect(() => {
+    if (hex !== last.current) setYuv(yuvOf(...rgbOf(hex)));
+    last.current = hex;
+  }, [hex]);
+  const vals = space === 'rgb' ? rgb : yuv;
+  const build = (k: number, v: number) => {
+    const next = [...vals] as [number, number, number];
+    next[k] = v;
+    if (space === 'rgb') return toHex(...next);
+    setYuv(next);
+    return fromYuv(...next);
+  };
+  const track = (k: number) => {
+    const ch = CHANNELS[space][k]!;
+    const at = (t: number) => {
+      const next = [...vals] as [number, number, number];
+      next[k] = ch.min + t * (ch.max - ch.min);
+      return space === 'rgb' ? toHex(...next) : fromYuv(...next);
+    };
+    return `linear-gradient(90deg, ${Array.from({ length: 9 }, (_, j) => at(j / 8)).join(', ')})`;
+  };
+  const commitText = (t: string) => {
+    const m = t.trim().replace(/^#?/, '#').toLowerCase();
+    const full = /^#[0-9a-f]{3}$/.test(m) ? `#${m[1]}${m[1]}${m[2]}${m[2]}${m[3]}${m[3]}` : m;
+    if (/^#[0-9a-f]{6}$/.test(full)) {
+      last.current = '';
+      onChange(full, true);
+    } else setText(hex);
+  };
+  return (
+    <div className="pe-channels">
+      <div className="pe-ch-head">
+        <span className="pe-ch-sw" style={{ background: hex }} />
+        <label className="pe-hex">
+          <span>#</span>
+          <input
+            value={text.replace(/^#/, '')}
+            maxLength={7}
+            spellCheck={false}
+            aria-label="Code hexadécimal"
+            onChange={(e) => setText(e.target.value)}
+            onBlur={(e) => commitText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+              e.stopPropagation();
+            }}
+          />
+        </label>
+        <div className="seg pe-space">
+          <button className={space === 'rgb' ? 'on' : ''} onClick={() => setSpace('rgb')} title="Rouge, vert, bleu">
+            RVB
+          </button>
+          <button className={space === 'yuv' ? 'on' : ''} onClick={() => setSpace('yuv')} title="Luminance et deux écarts de couleur">
+            YUV
+          </button>
+        </div>
       </div>
+      {CHANNELS[space].map((ch, k) => (
+        <label key={`${space}${k}`} className="pe-ch">
+          <span className="pe-ch-name">{ch.name}</span>
+          <input
+            type="range"
+            className="pe-range"
+            min={ch.min}
+            max={ch.max}
+            step={ch.step}
+            value={vals[k]}
+            style={{ background: track(k) }}
+            onChange={(e) => {
+              const c = build(k, Number(e.target.value));
+              last.current = c;
+              onChange(c, false);
+            }}
+            onPointerUp={() => onChange(last.current, true)}
+            onKeyUp={() => onChange(last.current, true)}
+          />
+          <span className="pe-ch-val">{ch.show(vals[k]!)}</span>
+        </label>
+      ))}
     </div>
   );
 }
