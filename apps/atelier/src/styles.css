@@ -1066,3 +1066,13 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .brush-wheel .bw-shell { pointer-events: none; }
 .brush-wheel .bw-disc { stroke: none; }
 .bw-pick { box-shadow: 0 1px 3px rgba(20, 16, 30, 0.12); }
+
+/* Panneaux flottants : même habillage que les barres d'outils et la roue
+   (face pleine, filet fin, ombre courte), à la place du verre flou et de la grande ombre */
+.atelier :is(.bubble, .text-bar, .quick-text, .lamp-panel, .edit-sections, .coupe, .fan, .bw-choices, .mode-pop, .px-spread, .px-height, .rendu-bar .chip, .px-bar .chip) {
+  background: var(--chrome-solid); backdrop-filter: none; -webkit-backdrop-filter: none;
+  border: 0; box-shadow: 0 0 0 1px var(--line), var(--tool-lift);
+}
+@media (max-width: 560px) { .atelier .bar-center { background: var(--chrome-solid); backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: 0 0 0 1px var(--line), var(--tool-lift); } }
+/* une bulle ouverte passe devant la roue (elle se referme d'un toucher) */
+.atelier .bubble { z-index: 12; }
