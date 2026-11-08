@@ -23,8 +23,11 @@ export interface Pt {
 
 /** Passage d'une teinte à l'autre dans un dégradé : douce (fondu continu), faible (aplats aux bords fondus), sans (aplats nets). */
 export type Blend = 'smooth' | 'soft' | 'hard';
-/** `role` : rôle de la couleur dans les variantes de l'activité (fond, texte…) ; changer de variante remplace la couleur du même rôle. */
-export type Guide = { name: string; type: 'color'; color: string; role?: string } | { name: string; type: 'gradient'; stops: string[]; blend?: Blend; role?: string };
+/**
+ * `role` : rôle de la couleur dans les variantes de l'activité (fond, texte…) ; changer de variante remplace la couleur du même rôle.
+ * `from` : nom de l'objet ou du dessin importé qui a apporté la couleur dans le document.
+ */
+export type Guide = { name: string; type: 'color'; color: string; role?: string; from?: string } | { name: string; type: 'gradient'; stops: string[]; blend?: Blend; role?: string; from?: string };
 
 /** Arrêts d'un dégradé (position 0..1, couleur) selon sa transition. */
 export function blendStops(stops: string[], blend: Blend = 'smooth'): Array<[number, string]> {

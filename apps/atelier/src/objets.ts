@@ -66,13 +66,14 @@ export function packObjet(ls: Layer[], doc: Doc, f: Format): ObjetDoc {
  * Repose un objet au point (x, y) du format : nouvelles couches solidaires, et palette du document
  * complétée des couleurs de l'objet qu'elle n'a pas encore.
  */
-export function unpackObjet(o: ObjetDoc, doc: Doc, f: Format, x: number, y: number): { layers: Layer[]; guides: Guide[] } {
+export function unpackObjet(o: ObjetDoc, doc: Doc, f: Format, x: number, y: number, from?: string): { layers: Layer[]; guides: Guide[] } {
   const guides = [...doc.guides];
   const key = (g: Guide) => JSON.stringify(g);
   const idx = o.guides.map((g) => {
-    const i = guides.findIndex((h) => key(h) === key(g));
+    const i = guides.findIndex((h) => key({ ...h, from: undefined }) === key({ ...g, from: undefined }));
     if (i >= 0) return i;
-    guides.push(g);
+    // une couleur de variante garde son rôle ; les autres retiennent l'objet qui les apporte
+    guides.push(g.role || !from ? g : { ...g, from });
     return guides.length - 1;
   });
   const m = Math.min(f.width, f.height);

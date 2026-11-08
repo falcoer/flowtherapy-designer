@@ -1432,30 +1432,6 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .feed-late { display: flex; flex-direction: column; gap: 2px; padding: 6px; border-radius: 12px; border: 1px solid #c0392b; }
 .feed-row.late { color: #c0392b; }
 
-/* Palette en curseurs (comme les variantes de l'activité) : une barre en dégradé, chaque couleur posée dessus */
-.pal-rail { display: flex; align-items: flex-start; gap: 8px; padding: 4px 2px 0; }
-.pal-track { position: relative; flex: 1; min-width: 0; height: 58px; }
-.pal-bar { position: absolute; left: 0; right: 0; top: 9px; height: 18px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); }
-.pal-cursor { position: absolute; top: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; touch-action: none; cursor: grab; }
-.pal-cursor .sw { width: 32px; max-width: calc(100% - 4px); aspect-ratio: 1; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3), 0 2px 5px rgba(0, 0, 0, 0.25); transition: transform 0.12s; }
-.pal-cursor.on .sw { transform: scale(1.12); box-shadow: 0 0 0 2px var(--accent), 0 3px 8px rgba(0, 0, 0, 0.3); }
-.pal-cursor .gname { font-size: 11px; max-width: 100%; text-align: center; }
-.pal-cursor.on .gname { color: var(--accent); font-weight: 600; }
-.pal-cursor .gname-edit { width: 100%; min-width: 0; font: inherit; font-size: 11px; font-weight: 600; text-align: center; color: var(--accent); background: transparent; border: 0; border-bottom: 1px dashed var(--accent); border-radius: 0; padding: 0 2px; outline: none; }
-.pal-add { flex: none; width: 36px; height: 36px; border-radius: 50%; font-size: 18px; color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--line); }
-.pal-variant { display: flex; flex-direction: column; gap: 8px; padding: 8px; border-radius: 14px; border: 1px solid var(--line); }
-.pal-variant-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.pal-variant-pills { display: flex; gap: 6px; overflow-x: auto; min-width: 0; scrollbar-width: none; }
-.pal-variant-pills button { position: relative; display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 4px 10px 4px 4px; border-radius: 999px; font-size: 12px; color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
-.pal-variant-pills button.on { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
-.pal-variant-dot { position: absolute; top: 1px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-.pal-variant-colors { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 2px; }
-.pal-variant-colors > button { display: flex; flex-direction: column; align-items: center; gap: 1px; width: 56px; padding: 2px; border-radius: 10px; font-size: 11px; color: var(--ink); }
-.pal-variant-colors > button:hover { background: var(--accent-soft); }
-.pal-variant-colors .sw { width: 28px; height: 28px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
-.pal-variant-colors .pal-vc-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pal-variant-colors small { color: var(--muted); font-size: 10px; }
-.pal-variant-colors > button.pal-variant-all { width: auto; align-self: center; margin-left: auto; padding: 6px 10px; color: var(--accent); font-weight: 600; font-size: 12px; }
 .saved .strip { height: 16px; width: 72px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); }
 
 /* éditeur : les teintes du guide en curseurs sur leur dégradé, curseurs du plan en dégradé */
@@ -1474,5 +1450,24 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .pe-variant { display: flex; flex-direction: column; gap: 4px; }
 .pe-variant-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .pe-variant-chips button { width: 26px; height: 26px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
-.palette-bubble.editing .pal-variant-colors { display: none; }
-.palette-bubble.editing .pal-variant { padding: 6px 8px; }
+
+/* Palette en trois origines : variante (fixe), mes couleurs, importées ; la couleur choisie se modifie dans sa boîte */
+.pal-sec { display: flex; flex-direction: column; gap: 4px; padding: 6px; border-radius: 14px; border: 1px solid transparent; transition: background 0.12s, border-color 0.12s; }
+.pal-sec-head { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 4px; }
+.pal-sec-head small { color: var(--muted); font-size: 11px; }
+.pal-sec.fixed { background: var(--line); }
+.pal-sec.fixed .guide.on { background: var(--chrome-solid); }
+.pal-sec.mine { border-style: dashed; border-color: var(--line); }
+.pal-sec.mine.over { border-color: var(--accent); background: var(--accent-soft); }
+.pal-sec.imported { border-color: var(--line); }
+.pal-sec .guides { grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); }
+.pal-sec .guide .sw { position: relative; width: 44px; height: 44px; }
+.pal-role { position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%); padding: 0 5px; border-radius: 6px; font: var(--tool-label, 600 9.5px ui-monospace, monospace); font-style: normal; text-transform: uppercase; background: var(--chrome-solid); color: var(--muted); box-shadow: 0 0 0 1px var(--line); white-space: nowrap; }
+.pal-edit { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; height: 28px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-soft); }
+.pal-edit svg { width: 14px; height: 14px; }
+.pal-drop-hint { margin: 0; padding: 0 4px; font-size: 12px; color: var(--accent); }
+.color-dialog { position: fixed; z-index: 40; top: 64px; left: 50%; transform: translateX(-50%); width: min(400px, calc(100vw - 20px)); max-height: calc(100vh - 80px); overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 22px; background: var(--chrome-solid); box-shadow: 0 0 0 1px var(--line), var(--tool-lift, 0 6px 24px rgba(0, 0, 0, 0.2)); }
+.cd-head { display: flex; align-items: center; gap: 8px; }
+.cd-sw { flex: none; width: 36px; height: 36px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }
+.cd-remove { height: 32px; padding: 0 10px; border-radius: 9px; font-size: 12px; color: var(--muted); }
+@media (min-width: 900px) { .color-dialog { left: auto; right: 430px; transform: none; } }
