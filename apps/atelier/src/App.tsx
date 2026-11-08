@@ -28,7 +28,8 @@ import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
 import { copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me } from './server';
 import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, targetLabel } from './targets';
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
-import { CampaignDialog, CampaignSummary, CompositionPicker, VoteButton } from './campaigns-ui';
+import { CampaignDialog, CampaignSummary, VoteButton } from './campaigns-ui';
+import { LoadDialog, NewCompositionDialog } from './compositions-ui';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
@@ -562,7 +563,8 @@ export function App() {
   // dans une campagne : ses compositions, les plus votées d'abord
   const canEditTeam = !!me?.team && me.team.role !== 'viewer';
   const [campaignDialog, setCampaignDialog] = useState(false);
-  const [picker, setPicker] = useState<'import' | null>(null);
+  const [newDialog, setNewDialog] = useState(false);
+  const [loadDialog, setLoadDialog] = useState(false);
   const followedTemplates = (followed?.templates ?? []).map((id) => projects.find((m) => m.id === id)).filter((m): m is AtelierMeta => !!m);
   const campaignCounts = projects.reduce<Record<string, number>>((o, m) => (m.campaign ? { ...o, [m.campaign]: (o[m.campaign] ?? 0) + 1 } : o), {});
   /** Nouvelle composition copiée d'une autre (modèle, ou import), rangée dans la campagne suivie, puis ouverte. */
@@ -576,10 +578,8 @@ export function App() {
       setToast(`Copie impossible : ${(err as Error).message}`);
     }
   };
-  const shownProjects = campaign ? projects.filter((m) => m.campaign === campaign).sort((a, b) => (b.votes?.length ?? 0) - (a.votes?.length ?? 0) || b.updated.localeCompare(a.updated)) : projects;
   const palettes = palettesOf(activity);
   const activeTarget = doc.targets?.[doc.target ?? 0];
-  const [confirmDel, setConfirmDel] = useState<string | null>(null);
 
   // --- export ---
   const [exportFormats, setExportFormats] = useState<string[]>([]);
@@ -4427,192 +4427,192 @@ export function App() {
               }}
             />
           )}
-          {picker === 'import' && (
-            <CompositionPicker
-              title="Importer une composition"
-              hint={followed ? `Une copie est créée dans « ${followed.name} » ; l’original reste dans sa campagne.` : 'Une copie est créée ; l’original reste en place.'}
-              items={projects.filter((m) => m.campaign !== campaign)}
+          {newDialog && (
+            <NewCompositionDialog
+              campaign={followed}
+              operations={operations}
+              templates={followedTemplates}
+              others={projects.filter((m) => m.campaign !== campaign)}
               campaigns={campaigns}
-              onClose={() => setPicker(null)}
-              onPick={(m) => {
-                setPicker(null);
-                void fromComposition(m, m.title);
+              targetsLabel={(op) => op.targets.map((t) => targetLabel(t, activity)).join(', ')}
+              onClose={() => setNewDialog(false)}
+              onBlank={() => {
+                setNewDialog(false);
+                setBubble(null);
+                void newProject('Sans titre', false);
               }}
+              onOperation={(op) => {
+                setNewDialog(false);
+                setBubble(null);
+                void newProject(op.name, false, op);
+              }}
+              onCopy={(m) => {
+                setNewDialog(false);
+                const mine = followedTemplates.includes(m) ? `${m.title} · ${(me?.name ?? me?.email ?? '').split(' ')[0]}` : m.title;
+                void fromComposition(m, mine);
+              }}
+            />
+          )}
+          {loadDialog && (
+            <LoadDialog
+              campaign={followed}
+              campaigns={campaigns}
+              projects={projects}
+              current={project?.id}
+              canDelete={!me?.team || canEditTeam}
+              canVote={!!me?.team}
+              onClose={() => setLoadDialog(false)}
+              onOpen={(m) => {
+                setLoadDialog(false);
+                void openProject(m);
+              }}
+              onVote={(m) =>
+                void voteAtelier(m.id, !m.voted).then(
+                  (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
+                  (e: Error) => setToast(`Vote impossible : ${e.message}`),
+                )
+              }
+              onDelete={(m) =>
+                void removeAtelier(m.id).then(
+                  () => {
+                    if (project?.id === m.id) setProject(null);
+                    refreshProjects();
+                    setToast(`« ${m.title} » supprimée`);
+                  },
+                  (e: Error) => setToast(`Suppression impossible : ${e.message}`),
+                )
+              }
             />
           )}
           {bubble === 'projects' && (
             <div className="bubble projects-bubble">
-              {online && me?.team ? <div className="b-title">Campagne</div> : <div className="b-title">Composition</div>}
               {online ? (
                 <>
-                  {me?.team && <CampaignSummary campaign={followed} operations={operations} onOpen={() => setCampaignDialog(true)} />}
-                  {me?.team && followed && (followedTemplates.length > 0 || canEditTeam) && (
-                    <div className="cp-templates">
-                      <div className="cp-sub">Modèles de la campagne</div>
-                      <div className="cp-tpl-row">
-                        {followedTemplates.map((m) => (
-                          <button key={m.id} className="cp-tpl" onClick={() => void fromComposition(m, `${m.title} · ${(me.name ?? me.email ?? '').split(' ')[0]}`)} title={`Partir du modèle « ${m.title} »`} disabled={!canEditTeam}>
-                            <img src={thumbUrl(m)} alt="" loading="lazy" />
-                            <span>{m.title}</span>
-                          </button>
-                        ))}
-                        {canEditTeam && (
-                          <button className="cp-tpl cp-tpl-add" onClick={() => setPicker('import')} title="Copier ici une composition d’une autre campagne">
-                            <span className="cp-tpl-plus">+</span>
-                            <span>Importer</span>
-                          </button>
-                        )}
-                      </div>
-                      {!followedTemplates.length && <p className="b-note">Pas encore de modèle : ouvre une composition et marque-la « modèle de la campagne ».</p>}
-                    </div>
-                  )}
-                  {me?.team && <div className="b-title">Composition</div>}
-                  <div className="proj-current">
-                    <input className="proj-title" value={project?.title ?? ''} placeholder="Titre de la composition" onChange={(e) => project && setProject({ ...project, title: e.target.value })} disabled={!project} />
-                    {project ? (
-                      <button className="fx-clear" onClick={() => void saveNow()} disabled={saving === 'saving'}>
-                        {saving === 'saving' ? 'Enregistrement…' : saving === 'saved' ? 'Enregistrée' : 'Enregistrer'}
-                      </button>
-                    ) : (
-                      <button className="fx-clear" onClick={() => void newProject('Sans titre', true)}>
-                        Enregistrer cette page
-                      </button>
-                    )}
-                  </div>
-                  {project && followed && canEditTeam && doc.campaign === followed.id && (
-                    <label className="proj-camp proj-tpl">
-                      <input
-                        type="checkbox"
-                        checked={!!followed.templates?.includes(project.id)}
-                        onChange={(e) =>
-                          void updateCampaign(followed.id, { templates: e.target.checked ? [...(followed.templates ?? []), project.id] : (followed.templates ?? []).filter((t) => t !== project.id) }).then(
-                            (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
-                            (err: Error) => setToast(err.message),
-                          )
-                        }
-                      />
-                      <span>Modèle de la campagne : chacun peut partir de cette composition</span>
-                    </label>
-                  )}
-                  {project && me?.team && me.team.role !== 'viewer' && campaigns.length > 0 && (
-                    <label className="proj-camp">
-                      <span>Campagne</span>
-                      <select className="pf-input" value={doc.campaign ?? ''} onChange={(e) => setDoc((d) => ({ ...d, campaign: e.target.value || undefined }))}>
-                        <option value="">Aucune</option>
-                        {campaigns.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                            {c.closed ? ' (close)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  {project &&
-                    me?.team &&
-                    (() => {
-                      const r = projects.find((x) => x.id === project.id)?.review;
-                      const role = me.team.role;
-                      const canPropose = role !== 'viewer' && r?.status !== 'proposed';
-                      const canReview = role === 'owner' && r?.status === 'proposed';
-                      const who = (e?: string) => (e ? e.split('@')[0] : '');
-                      return (
-                        <div className="proj-review">
-                          {r && (
-                            <p className={`proj-status st-${r.status}`}>
-                              <b>{REVIEW_LABELS[r.status]}</b>
-                              {r.status === 'proposed' ? ` par ${who(r.proposedBy)}` : ` par ${who(r.reviewedBy)}`}
-                              {r.status === 'proposed' && r.note ? ` : « ${r.note} »` : ''}
-                              {r.status !== 'proposed' && r.reviewNote ? ` : « ${r.reviewNote} »` : ''}
-                            </p>
-                          )}
-                          {(canPropose || canReview) && (
-                            <>
-                              <input className="proj-title proj-note" value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} placeholder={canReview ? 'Message à l’auteur (facultatif)' : 'Message aux responsables (facultatif)'} />
-                              <div className="proj-review-acts">
-                                {canPropose && (
-                                  <button className="fx-clear" onClick={() => void sendReview('propose')}>
-                                    Proposer aux responsables
-                                  </button>
-                                )}
-                                {canReview && (
-                                  <>
-                                    <button className="fx-clear" onClick={() => void sendReview('approve')}>
-                                      Valider
-                                    </button>
-                                    <button className="fx-clear" onClick={() => void sendReview('changes')}>
-                                      À revoir
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  <button className="row" onClick={() => void newProject('Sans titre', false)}>
-                    <Icon name="plus" />
-                    <span>Nouvelle composition</span>
-                    <small>page vierge, même format et palette</small>
-                  </button>
-                  {operations.length > 0 && (
-                    <div className="proj-channels">
-                      <div className="b-sub">ou pour une occasion</div>
-                      {operations.map((op) => (
-                        <button key={op.id} className="row" onClick={() => void newProject(op.name, false, op)}>
-                          <Icon name="plus" />
-                          <span>{op.name}</span>
-                          <small>{op.targets.map((t) => targetLabel(t, activity)).join(', ')}</small>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <div className="b-title">{followed ? `Compositions · ${followed.name}` : me?.team ? `Compositions · ${me.team.name}` : 'Compositions du groupe'}</div>
-                  <div className="proj-list">
-                    {shownProjects.map((m) => (
-                      <div key={m.id} className={`proj ${m.id === project?.id ? 'on' : ''}`}>
-                        <button className="proj-open" onClick={() => void openProject(m)} title={`Ouvrir « ${m.title} »`}>
-                          <img src={thumbUrl(m)} alt="" loading="lazy" />
-                          <span className="proj-name">{m.title}</span>
-                          {m.review && <span className={`proj-badge st-${m.review.status}`}>{REVIEW_LABELS[m.review.status]}</span>}
+                  {me?.team && <CampaignSummary campaign={followed} onOpen={() => setCampaignDialog(true)} />}
+                  {(() => {
+                    const m = project ? projects.find((x) => x.id === project.id) : undefined;
+                    const votes = m?.votes ?? [];
+                    return (
+                      <div className="cur-card">
+                        {m ? <img className="cur-thumb" src={thumbUrl(m)} alt="" /> : <span className="cur-thumb empty" />}
+                        <div className="cur-txt">
+                          <input className="proj-title" value={project?.title ?? ''} placeholder="Composition non enregistrée" onChange={(e) => project && setProject({ ...project, title: e.target.value })} disabled={!project} />
                           <small>
-                            {new Date(m.updated).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
-                            {m.by ? ` · ${m.by.split('@')[0]}` : ''}
-                            {!campaign && m.campaign ? ` · ${campaigns.find((c) => c.id === m.campaign)?.name ?? ''}` : ''}
+                            {project
+                              ? [m?.by && m.by.split('@')[0], m?.updated && new Date(m.updated).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })].filter(Boolean).join(' · ') || 'nouvelle'
+                              : 'Cette page n’est pas encore enregistrée'}
                           </small>
-                        </button>
-                        {me?.team && (
-                          <VoteButton
-                            votes={m.votes ?? []}
-                            voted={!!m.voted}
-                            onVote={() =>
-                              void voteAtelier(m.id, !m.voted).then(
-                                (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
-                                (e: Error) => setToast(`Vote impossible : ${e.message}`),
+                          <div className="cur-acts">
+                            {project ? (
+                              <button className="fx-clear" onClick={() => void saveNow()} disabled={saving === 'saving'}>
+                                {saving === 'saving' ? 'Enregistrement…' : saving === 'saved' ? 'Enregistrée' : 'Enregistrer'}
+                              </button>
+                            ) : (
+                              <button className="fx-clear" onClick={() => void newProject('Sans titre', true)}>
+                                Enregistrer cette page
+                              </button>
+                            )}
+                            {m?.review && <span className={`proj-badge st-${m.review.status}`}>{REVIEW_LABELS[m.review.status]}</span>}
+                            {m && me?.team && (
+                              <VoteButton
+                                votes={votes}
+                                voted={!!m.voted}
+                                onVote={() =>
+                                  void voteAtelier(m.id, !m.voted).then(
+                                    (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
+                                    (e: Error) => setToast(`Vote impossible : ${e.message}`),
+                                  )
+                                }
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  <div className="cur-main">
+                    <button className="pf-btn" onClick={() => setNewDialog(true)} disabled={!!me?.team && !canEditTeam}>
+                      <Icon name="plus" /> Nouvelle
+                    </button>
+                    <button className="pf-btn" onClick={() => setLoadDialog(true)}>
+                      Charger…
+                    </button>
+                  </div>
+                  {project && me?.team && (
+                    <details className="cur-more">
+                      <summary>Plus d’options</summary>
+                      {followed && canEditTeam && doc.campaign === followed.id && (
+                        <label className="proj-camp proj-tpl">
+                          <input
+                            type="checkbox"
+                            checked={!!followed.templates?.includes(project.id)}
+                            onChange={(e) =>
+                              void updateCampaign(followed.id, { templates: e.target.checked ? [...(followed.templates ?? []), project.id] : (followed.templates ?? []).filter((t) => t !== project.id) }).then(
+                                (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
+                                (err: Error) => setToast(err.message),
                               )
                             }
                           />
-                        )}
-                        <button
-                          className={`proj-del ${confirmDel === m.id ? 'hot' : ''}`}
-                          title={confirmDel === m.id ? 'Toucher encore pour supprimer' : 'Supprimer'}
-                          onClick={() => {
-                            if (confirmDel !== m.id) return setConfirmDel(m.id);
-                            setConfirmDel(null);
-                            void removeAtelier(m.id).then(() => {
-                              if (project?.id === m.id) setProject(null);
-                              refreshProjects();
-                              setToast(`« ${m.title} » supprimée`);
-                            });
-                          }}
-                        >
-                          <Icon name="trash" />
-                        </button>
-                      </div>
-                    ))}
-                    {!shownProjects.length && <p className="fx-hint">{campaign ? 'Aucune composition dans cette campagne pour l’instant : crée la première.' : 'Aucune composition enregistrée pour l’instant.'}</p>}
-                  </div>
+                          <span>Modèle de la campagne</span>
+                        </label>
+                      )}
+                      {canEditTeam && campaigns.length > 0 && (
+                        <label className="proj-camp">
+                          <span>Campagne</span>
+                          <select className="pf-input" value={doc.campaign ?? ''} onChange={(e) => setDoc((d) => ({ ...d, campaign: e.target.value || undefined }))}>
+                            <option value="">Aucune</option>
+                            {campaigns.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                                {c.closed ? ' (close)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                      {(() => {
+                        const r = projects.find((x) => x.id === project.id)?.review;
+                        const role = me.team.role;
+                        const canPropose = role !== 'viewer' && r?.status !== 'proposed';
+                        const canReview = role === 'owner' && r?.status === 'proposed';
+                        const who = (e?: string) => (e ? e.split('@')[0] : '');
+                        return (
+                          <div className="proj-review">
+                            {r && (
+                              <p className={`proj-status st-${r.status}`}>
+                                <b>{REVIEW_LABELS[r.status]}</b>
+                                {r.status === 'proposed' ? ` par ${who(r.proposedBy)}` : ` par ${who(r.reviewedBy)}`}
+                                {r.status === 'proposed' && r.note ? ` : « ${r.note} »` : ''}
+                                {r.status !== 'proposed' && r.reviewNote ? ` : « ${r.reviewNote} »` : ''}
+                              </p>
+                            )}
+                            {(canPropose || canReview) && (
+                              <>
+                                <input className="proj-title proj-note" value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} placeholder={canReview ? 'Message à l’auteur (facultatif)' : 'Message aux responsables (facultatif)'} />
+                                <div className="proj-review-acts">
+                                  {canPropose && (
+                                    <button className="fx-clear" onClick={() => void sendReview('propose')}>
+                                      Proposer aux responsables
+                                    </button>
+                                  )}
+                                  {canReview && (
+                                    <>
+                                      <button className="fx-clear" onClick={() => void sendReview('approve')}>
+                                        Valider
+                                      </button>
+                                      <button className="fx-clear" onClick={() => void sendReview('changes')}>
+                                        À revoir
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </details>
+                  )}
                 </>
               ) : (
                 <p className="fx-hint">{online === null ? 'Connexion au serveur…' : 'Hors ligne : la page reste dans ce navigateur. Sur designer.flowtherapymusic.com, elle s’enregistre pour tout le groupe.'}</p>

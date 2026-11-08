@@ -1287,3 +1287,37 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 @media (max-width: 520px) { .cp-dates input { width: 130px; } }
 .cp-item.on .cp-main b { color: var(--accent); }
 .cp-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+
+/* menu Compositions : la composition courante, nouvelle, charger */
+.cur-card { display: flex; gap: 10px; align-items: flex-start; }
+.cur-thumb { flex: none; width: 64px; height: 64px; border-radius: 10px; object-fit: cover; background: var(--accent-soft); border: 1px solid var(--line); }
+.cur-thumb.empty { border-style: dashed; background: none; }
+.cur-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cur-txt > small { color: var(--muted); font-size: 12px; padding-left: 2px; }
+.cur-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cur-acts .proj-badge { align-self: center; }
+.cur-main { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.cur-main .pf-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.cur-more { font-size: 12.5px; }
+.cur-more > summary { cursor: pointer; color: var(--muted); padding: 4px 2px; }
+.cur-more[open] { display: flex; flex-direction: column; gap: 8px; }
+
+/* fenêtre Compositions : liste, chargement, suppression */
+.cp-modal.wide { width: min(720px, 100%); }
+.ld-tools { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.ld-tools .pf-input[type='search'] { flex: 1 1 160px; min-width: 0; }
+.ld-scope { flex: none; }
+.ld-sort { flex: none; width: auto; }
+.ld-list { display: flex; flex-direction: column; gap: 4px; overflow: auto; max-height: 62dvh; }
+.ld-row { display: flex; align-items: center; gap: 6px; padding: 4px; border-radius: 12px; }
+.ld-row.on { background: var(--accent-soft); }
+.ld-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 2px; text-align: left; color: inherit; border-radius: 10px; }
+.ld-open:hover { background: var(--accent-soft); }
+.ld-open img { flex: none; width: 56px; height: 56px; border-radius: 8px; object-fit: cover; background: var(--accent-soft); }
+.ld-txt { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ld-txt b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ld-row.on .ld-txt b { color: var(--accent); }
+.ld-txt small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ld-del { flex: none; min-width: 32px; height: 32px; padding: 0 8px; border-radius: 999px; color: var(--muted); font-size: 18px; }
+.ld-del.hot { background: #c0392b; color: #fff; font-size: 12px; font-weight: 700; }
+.ld-scope button { white-space: nowrap; padding: 0 12px; }

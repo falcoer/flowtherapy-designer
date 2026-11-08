@@ -235,7 +235,7 @@ export function CampaignDialog(p: {
 }
 
 /** Présentation de la campagne suivie, dans le menu des compositions. */
-export function CampaignSummary({ campaign, operations, onOpen }: { campaign?: Campaign; operations: Operation[]; onOpen: () => void }) {
+export function CampaignSummary({ campaign, onOpen }: { campaign?: Campaign; onOpen: () => void }) {
   if (!campaign)
     return (
       <div className="cp-summary empty">
@@ -246,7 +246,6 @@ export function CampaignSummary({ campaign, operations, onOpen }: { campaign?: C
       </div>
     );
   const c = campaign;
-  const op = operations.find((o) => o.id === c.operation)?.name;
   return (
     <div className={`cp-summary ${c.closed ? 'closed' : ''}`}>
       <div className="cp-lines">
@@ -254,53 +253,11 @@ export function CampaignSummary({ campaign, operations, onOpen }: { campaign?: C
           {c.name}
           {c.closed && <em> · close</em>}
         </b>
-        {(op || c.kind) && <span>{[op, c.kind].filter(Boolean).join(' · ')}</span>}
-        {(c.date || c.time || c.place) && <span>{[c.date && day(c.date), c.time && `accueil ${c.time.replace(':', 'h')}`, c.place].filter(Boolean).join(' · ')}</span>}
-        {c.contact && (
-          <span>
-            Réservation : {[c.contact.name, c.contact.phone].filter(Boolean).join(', ')}
-            {c.contact.email && (
-              <>
-                {c.contact.name || c.contact.phone ? ', ' : ''}
-                <a href={`mailto:${c.contact.email}`}>{c.contact.email}</a>
-              </>
-            )}
-          </span>
-        )}
+        {(c.date || c.place) && <span>{[c.date && day(c.date), c.place].filter(Boolean).join(' · ')}</span>}
       </div>
       <button className="pf-btn" onClick={onOpen} title="Choisir, créer ou clore une campagne">
         Changer
       </button>
-    </div>
-  );
-}
-
-/** Choisir une composition à copier dans la campagne (modèle ou import d'une autre campagne). */
-export function CompositionPicker(p: { title: string; hint: string; items: AtelierMeta[]; campaigns: Campaign[]; onPick: (m: AtelierMeta) => void; onClose: () => void }) {
-  const [q, setQ] = useState('');
-  const shown = p.items.filter((m) => !q || `${m.title} ${p.campaigns.find((c) => c.id === m.campaign)?.name ?? ''}`.toLowerCase().includes(q.toLowerCase()));
-  return (
-    <div className="cp-modal-back" onPointerDown={(e) => e.target === e.currentTarget && p.onClose()}>
-      <div className="cp-modal" role="dialog" aria-label={p.title} onPointerDown={(e) => e.stopPropagation()}>
-        <div className="pf-head">
-          <span className="b-title">{p.title}</span>
-          <button className="lamp-close" onClick={p.onClose} aria-label="Fermer">
-            ×
-          </button>
-        </div>
-        <p className="pf-note">{p.hint}</p>
-        <input className="pf-input" type="search" placeholder="Chercher…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <div className="proj-list cp-picker">
-          {shown.map((m) => (
-            <button key={m.id} className="proj-open" onClick={() => p.onPick(m)}>
-              <img src={thumbUrl(m)} alt="" loading="lazy" />
-              <span className="proj-name">{m.title}</span>
-              <small>{p.campaigns.find((c) => c.id === m.campaign)?.name ?? 'Hors campagne'}</small>
-            </button>
-          ))}
-          {!shown.length && <p className="fx-hint">Rien à importer pour l’instant.</p>}
-        </div>
-      </div>
     </div>
   );
 }
