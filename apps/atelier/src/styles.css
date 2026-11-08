@@ -1517,3 +1517,19 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .pe-right .grad-modes button { flex: 1; width: auto; }
 .grad-row-label { flex-basis: 100%; }
 .pe-right .grad-row { row-gap: 4px; }
+
+/* éditeur : saisie directe (hexa + trois curseurs RVB ou YUV) */
+.pe-mode { width: 240px; }
+.pe-channels { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); }
+.pe-ch-head { display: flex; align-items: center; gap: 8px; }
+.pe-ch-sw { flex: none; width: 40px; height: 40px; border-radius: 10px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+.pe-hex { flex: 1; min-width: 0; display: flex; align-items: center; height: 36px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line); font: 600 15px ui-monospace, monospace; color: var(--muted); }
+.pe-hex input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: inherit; text-transform: uppercase; outline: none; }
+.pe-space { width: 110px; }
+.pe-space button { height: 30px; font-size: 12px; }
+.pe-ch { display: grid; grid-template-columns: 18px minmax(0, 1fr) 46px; align-items: center; gap: 8px; }
+.pe-ch-name { font: var(--tool-label); color: var(--muted); }
+.pe-ch .pe-range { width: 100%; height: 22px; }
+.pe-ch-val { font: 12px ui-monospace, monospace; text-align: right; color: var(--muted); }
+.pe-bottom.solo { grid-template-columns: minmax(0, 1fr); }
+.pe-sliders[hidden] { display: none; }

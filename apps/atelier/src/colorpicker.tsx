@@ -17,7 +17,7 @@ const RES = 120;
 /** Grille : une colonne de gris puis les teintes, 9 clartés. */
 const ROWS = 9;
 
-export type PlaneMode = 'grid' | 'spectrum';
+export type PlaneMode = 'grid' | 'spectrum' | 'sliders';
 /** Nature du plan : saturation, clarté moyenne, contraste (étendue des clartés), étendue des teintes, cases de la grille. */
 export interface Plane {
   mode: PlaneMode;
@@ -209,6 +209,9 @@ export function PaletteEditor({
           <button className={mode === 'spectrum' ? 'on' : ''} onClick={() => setMode('spectrum')}>
             Spectre
           </button>
+          <button className={mode === 'sliders' ? 'on' : ''} onClick={() => setMode('sliders')} title="Saisie hexadécimale et trois curseurs (RVB ou YUV)">
+            Curseurs
+          </button>
         </div>
         <button
           className={`pe-harm-btn ${harm ? 'on' : ''}`}
@@ -223,6 +226,9 @@ export function PaletteEditor({
           Harmonies
         </button>
       </div>
+      {mode === 'sliders' ? (
+        <ChannelPanel hex={stops[i]!} onChange={(c, commit) => setAt(i, c, commit)} />
+      ) : (
       <div
         ref={plane}
         className={`pe-plane ${mode}`}
@@ -298,6 +304,7 @@ export function PaletteEditor({
             return <span key={c} className="pe-mark ghost" style={{ left: `${m.x * 100}%`, top: `${m.y * 100}%`, background: c }} />;
           })}
       </div>
+      )}
       {harm && (
         <div className="pe-harm">
           {harmSets.map((s) => (
@@ -323,8 +330,8 @@ export function PaletteEditor({
         </div>
       )}
       <Tiles stops={stops} sel={i} setSel={setSel} onChange={onChange} blend={blend} />
-      <div className="pe-bottom">
-        <div className="pe-sliders">
+      <div className={`pe-bottom ${mode === 'sliders' ? 'solo' : ''}`}>
+        <div className="pe-sliders" hidden={mode === 'sliders'}>
           {(
             [
               ['sat', 'Saturation', 0, 1, 0.01, 'grises → vives'],
@@ -476,6 +483,144 @@ function Tiles({ stops, sel, setSel, onChange, blend }: { stops: string[]; sel: 
         >
           ＋
         </button>
+    </div>
+  );
+}
+
+type Space = 'rgb' | 'yuv';
+const SPACE = 'ftd-atelier-space';
+const hex2 = (n: number) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, '0');
+const toHex = (r: number, g: number, b: number) => `#${hex2(r)}${hex2(g)}${hex2(b)}`;
+const rgbOf = (hex: string) => {
+  const n = parseInt(hex.slice(1, 7), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255] as const;
+};
+/** YUV (Y 0..1, U et V −0,5..0,5, comme le YCbCr des écrans) ↔ RVB 0..255. */
+const yuvOf = (r: number, g: number, b: number) => {
+  const y = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return [y, (b / 255 - y) / 1.772, (r / 255 - y) / 1.402] as const;
+};
+const fromYuv = (y: number, u: number, v: number) => {
+  const r = y + 1.402 * v;
+  const b = y + 1.772 * u;
+  const g = (y - 0.299 * r - 0.114 * b) / 0.587;
+  return toHex(r * 255, g * 255, b * 255);
+};
+const CHANNELS: Record<Space, Array<{ name: string; min: number; max: number; step: number; show: (v: number) => string }>> = {
+  rgb: [
+    { name: 'R', min: 0, max: 255, step: 1, show: (v) => String(Math.round(v)) },
+    { name: 'V', min: 0, max: 255, step: 1, show: (v) => String(Math.round(v)) },
+    { name: 'B', min: 0, max: 255, step: 1, show: (v) => String(Math.round(v)) },
+  ],
+  yuv: [
+    { name: 'Y', min: 0, max: 1, step: 0.005, show: (v) => `${Math.round(v * 100)} %` },
+    { name: 'U', min: -0.5, max: 0.5, step: 0.005, show: (v) => (v >= 0 ? '+' : '') + Math.round(v * 200) },
+    { name: 'V', min: -0.5, max: 0.5, step: 0.005, show: (v) => (v >= 0 ? '+' : '') + Math.round(v * 200) },
+  ],
+};
+
+/** Saisie directe : le code hexadécimal et trois curseurs, en RVB ou en YUV, chacun peint de ce qu'il donne. */
+function ChannelPanel({ hex, onChange }: { hex: string; onChange: (hex: string, commit: boolean) => void }) {
+  const [space, setSpaceRaw] = useState<Space>(() => {
+    try {
+      return localStorage.getItem(SPACE) === 'yuv' ? 'yuv' : 'rgb';
+    } catch {
+      return 'rgb';
+    }
+  });
+  const setSpace = (s: Space) => {
+    setSpaceRaw(s);
+    try {
+      localStorage.setItem(SPACE, s);
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  const [text, setText] = useState(hex);
+  useEffect(() => setText(hex), [hex]);
+  const rgb = rgbOf(hex);
+  // en YUV, les valeurs tenues localement évitent les sauts dus aux arrondis du code hexadécimal
+  const [yuv, setYuv] = useState<readonly [number, number, number]>(() => yuvOf(...rgb));
+  const last = useRef(hex);
+  useEffect(() => {
+    if (hex !== last.current) setYuv(yuvOf(...rgbOf(hex)));
+    last.current = hex;
+  }, [hex]);
+  const vals = space === 'rgb' ? rgb : yuv;
+  const build = (k: number, v: number) => {
+    const next = [...vals] as [number, number, number];
+    next[k] = v;
+    if (space === 'rgb') return toHex(...next);
+    setYuv(next);
+    return fromYuv(...next);
+  };
+  const track = (k: number) => {
+    const ch = CHANNELS[space][k]!;
+    const at = (t: number) => {
+      const next = [...vals] as [number, number, number];
+      next[k] = ch.min + t * (ch.max - ch.min);
+      return space === 'rgb' ? toHex(...next) : fromYuv(...next);
+    };
+    return `linear-gradient(90deg, ${Array.from({ length: 9 }, (_, j) => at(j / 8)).join(', ')})`;
+  };
+  const commitText = (t: string) => {
+    const m = t.trim().replace(/^#?/, '#').toLowerCase();
+    const full = /^#[0-9a-f]{3}$/.test(m) ? `#${m[1]}${m[1]}${m[2]}${m[2]}${m[3]}${m[3]}` : m;
+    if (/^#[0-9a-f]{6}$/.test(full)) {
+      last.current = '';
+      onChange(full, true);
+    } else setText(hex);
+  };
+  return (
+    <div className="pe-channels">
+      <div className="pe-ch-head">
+        <span className="pe-ch-sw" style={{ background: hex }} />
+        <label className="pe-hex">
+          <span>#</span>
+          <input
+            value={text.replace(/^#/, '')}
+            maxLength={7}
+            spellCheck={false}
+            aria-label="Code hexadécimal"
+            onChange={(e) => setText(e.target.value)}
+            onBlur={(e) => commitText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+              e.stopPropagation();
+            }}
+          />
+        </label>
+        <div className="seg pe-space">
+          <button className={space === 'rgb' ? 'on' : ''} onClick={() => setSpace('rgb')} title="Rouge, vert, bleu">
+            RVB
+          </button>
+          <button className={space === 'yuv' ? 'on' : ''} onClick={() => setSpace('yuv')} title="Luminance et deux écarts de couleur">
+            YUV
+          </button>
+        </div>
+      </div>
+      {CHANNELS[space].map((ch, k) => (
+        <label key={`${space}${k}`} className="pe-ch">
+          <span className="pe-ch-name">{ch.name}</span>
+          <input
+            type="range"
+            className="pe-range"
+            min={ch.min}
+            max={ch.max}
+            step={ch.step}
+            value={vals[k]}
+            style={{ background: track(k) }}
+            onChange={(e) => {
+              const c = build(k, Number(e.target.value));
+              last.current = c;
+              onChange(c, false);
+            }}
+            onPointerUp={() => onChange(last.current, true)}
+            onKeyUp={() => onChange(last.current, true)}
+          />
+          <span className="pe-ch-val">{ch.show(vals[k]!)}</span>
+        </label>
+      ))}
     </div>
   );
 }
