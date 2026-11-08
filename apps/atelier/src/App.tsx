@@ -8,6 +8,7 @@ import { STAMPS, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { PrefsPanel, type FingerMode, type Theme } from './prefs';
+import { PointGrids } from './anchor-ui';
 import { BrushWheel } from './wheel';
 import { SHIFT_IDLE, shiftButtonOn, shiftDown, shiftHeld, shiftUp, tiltStep, wheelAction, wheelDevice, zoomFactor } from './shift';
 import { ParallaxView } from './parallax';
@@ -24,7 +25,7 @@ import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers }
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { listAteliers, newAtelierId, readAtelier, removeAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta } from './server';
-import { ANCHOR_EXTRAS, anchorPointOf, anchorsOf, objectGrips, ungrip, compact, extraOn, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
+import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
@@ -905,7 +906,26 @@ export function App() {
   // les calculs d'ancrage suivent la densité du document ouvert
   setAnchorDensity(doc.density);
   setAnchorMargin(doc.margin);
-  setAnchorExtras(doc.points);
+  /** Points d'accroche par défaut (Préférences) : pour les compositions qui n'ont pas les leurs. */
+  const [defaultPoints, setDefaultPointsRaw] = useState<AnchorExtras>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('ftd-atelier-points') ?? 'null') ?? {};
+    } catch {
+      return {};
+    }
+  });
+  const setDefaultPoints = (v: AnchorExtras) => {
+    setDefaultPointsRaw(v);
+    try {
+      localStorage.setItem('ftd-atelier-points', JSON.stringify(v));
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  const points = doc.points ?? defaultPoints;
+  setAnchorExtras(points);
+  /** Bulle de positionnement : les points d'accroche s'ouvrent sur « Plus ». */
+  const [anchorMore, setAnchorMore] = useState(false);
   /** Couleurs caractéristiques des repères (marges, points) : préférence de l'atelier, par-dessus les couleurs d'origine. */
   const [markColors, setMarkColorsRaw] = useState(loadMarkColors);
   setMarkColors(markColors);
@@ -1548,7 +1568,7 @@ export function App() {
         const bb = pageBounds(held, f);
         ctx.save();
         ctx.lineWidth = 1.5 * px;
-        for (const g of objectGrips(doc.points)) {
+        for (const g of objectGrips(points)) {
           const x = (bb.x0 + bb.x1) / 2 + g.x * (bb.x1 - bb.x0);
           const y = (bb.y0 + bb.y1) / 2 + g.y * (bb.y1 - bb.y0);
           const r = 3.2 * px;
@@ -2433,7 +2453,7 @@ export function App() {
       // Maj : ni ancrage ni bord, l'objet suit le doigt
       const free = shiftHeld(shiftLatch, shiftKey, e.shiftKey);
       let bestD = free ? 0 : MAGNET / scale;
-      for (const g of free ? [] : objectGrips(doc.points)) {
+      for (const g of free ? [] : objectGrips(points)) {
         // le point de l'objet, d'après sa découpe, relatif au centre de sa boîte
         const ox = g.x || g.y ? (bb.x0 + bb.x1) / 2 + g.x * (bb.x1 - bb.x0) - b.cx : 0;
         const oy = g.x || g.y ? (bb.y0 + bb.y1) / 2 + g.y * (bb.y1 - bb.y0) - b.cy : 0;
@@ -4387,6 +4407,8 @@ export function App() {
               setGuides={setGuidesOn}
               markColors={markColors}
               setMarkColors={changeMarkColors}
+              points={defaultPoints}
+              setPoints={setDefaultPoints}
               onClose={() => setBubble(null)}
             />
           )}
@@ -4535,7 +4557,17 @@ export function App() {
 
           {bubble === 'anchor' && (
             <div className="bubble anchor-bubble">
-              <div className="b-title">Aide au positionnement</div>
+              <div className="ab-head">
+                <div className="b-title">Aide au positionnement</div>
+                <button
+                  className={`btn small ${guidesOn.on ? 'on' : ''}`}
+                  onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}
+                  aria-pressed={guidesOn.on}
+                  title={guidesOn.on ? 'Repères affichés en permanence : toucher pour ne les voir qu’en déplaçant' : 'Repères visibles seulement en déplaçant : toucher pour les afficher en permanence'}
+                >
+                  <Icon name={guidesOn.on ? 'eye' : 'eyeoff'} />
+                </button>
+              </div>
               <div className="seg">
                 {ANCHOR_FRAMES.filter((x) => x !== 'grid').map((x) => (
                   <button key={x} className={doc.frame === x ? 'on' : ''} onClick={() => setDoc((d) => ({ ...d, frame: x as AnchorFrame }))} title={FRAME_TITLES[x]}>
@@ -4543,27 +4575,25 @@ export function App() {
                   </button>
                 ))}
               </div>
-              <div className="b-title">
-                Densité des points <span className="b-count">{anchorsOf(doc.frame, f).length} points</span>
-              </div>
-              <label className={`density ${doc.frame === 'repartition' ? '' : 'off'}`}>
-                <span>−</span>
-                <input
-                  type="range"
-                  min={1}
-                  max={DENSITY_STEPS.length}
-                  step={1}
-                  disabled={doc.frame !== 'repartition'}
-                  value={doc.density ?? DEFAULT_DENSITY}
-                  onChange={(e) => setDoc((d) => ({ ...d, density: Number(e.target.value) }))}
-                />
-                <span>+</span>
-              </label>
-              <small className="fx-hint">
-                {doc.frame === 'repartition'
-                  ? ['Demis', 'Demis et tiers', 'Demis, tiers et quarts', 'Jusqu’aux sixièmes', 'Douzièmes', 'Vingt-quatrièmes'][(doc.density ?? DEFAULT_DENSITY) - 1]
-                  : 'Le nombre d’or et l’armature ont des points fixes : la densité règle la répartition.'}
-              </small>
+              {doc.frame === 'repartition' && (
+                <>
+                  <div className="b-title">
+                    Densité <span className="b-count">{['Demis', 'Tiers', 'Quarts', 'Sixièmes', 'Douzièmes', '24es'][(doc.density ?? DEFAULT_DENSITY) - 1]}</span>
+                  </div>
+                  <label className="density">
+                    <span>−</span>
+                    <input
+                      type="range"
+                      min={1}
+                      max={DENSITY_STEPS.length}
+                      step={1}
+                      value={doc.density ?? DEFAULT_DENSITY}
+                      onChange={(e) => setDoc((d) => ({ ...d, density: Number(e.target.value) }))}
+                    />
+                    <span>+</span>
+                  </label>
+                </>
+              )}
               <div className="b-title">
                 Marge <span className="b-count">{Math.round((doc.margin ?? 0) * 100)} %</span>
               </div>
@@ -4588,46 +4618,7 @@ export function App() {
                 />
                 <span>+</span>
               </label>
-              <small className="fx-hint">Les repères se répartissent à cette distance du bord, dedans (+) ou au-delà (−) ; elle suit le format quand il change.</small>
-              {([
-                ['Points de l’objet qui s’accrochent', true],
-                ['Points de la page', false],
-              ] as const).map(([title, obj]) => (
-                <Fragment key={title}>
-                  <div className="b-title">{title}</div>
-                  <div className="anchor-extras">
-                    {obj && (
-                      <label className="off" title="Le centre s’accroche toujours">
-                        <input type="checkbox" checked disabled />
-                        <span>Centre</span>
-                      </label>
-                    )}
-                    {ANCHOR_EXTRAS.filter((x) => !!x.obj === obj).map((x) => {
-                      const off = !!x.frame && x.frame !== doc.frame;
-                      return (
-                        <label key={x.key} className={off ? 'off' : ''} title={off ? 'Avec la répartition ½ ⅓ seulement' : x.hint}>
-                          <input
-                            type="checkbox"
-                            disabled={off}
-                            checked={extraOn(doc.points, x.key)}
-                            onChange={(e) => setDoc((d) => ({ ...d, points: { ...d.points, [x.key]: e.target.checked } }))}
-                          />
-                          <span>
-                            {x.label}
-                            <small>{x.hint}</small>
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </Fragment>
-              ))}
-              <div className="b-title">Repères visibles</div>
-              <div className="guides-look">
-                <button className={`pal-lib-save ${guidesOn.on ? 'on' : ''}`} onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}>
-                  {guidesOn.on ? 'Toujours' : 'Au déplacement'}
-                </button>
-              </div>
+              {/* légende : seulement ce qui est sur la page en ce moment */}
               <MarkLegend
                 kinds={(() => {
                   const seen = new Set(anchorsOf(doc.frame, f).map((a) => anchorKind(doc.frame, a.id)));
@@ -4635,6 +4626,18 @@ export function App() {
                 })()}
                 colors={markColors}
               />
+              <button className={`ab-more ${anchorMore ? 'on' : ''}`} onClick={() => setAnchorMore(!anchorMore)} aria-expanded={anchorMore}>
+                <span>Points d’accroche</span>
+                <span className="ab-chev">{anchorMore ? '−' : '+'}</span>
+              </button>
+              {anchorMore && (
+                <>
+                  <PointGrids points={points} frame={doc.frame} onChange={(k, v) => setDoc((d) => ({ ...d, points: { ...(d.points ?? defaultPoints), [k]: v } }))} />
+                  <button className="ab-link" onClick={() => setBubble('prefs')}>
+                    Réglages par défaut dans Préférences
+                  </button>
+                </>
+              )}
             </div>
           )}
 

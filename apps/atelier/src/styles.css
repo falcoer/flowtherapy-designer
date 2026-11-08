@@ -1076,3 +1076,28 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 @media (max-width: 560px) { .atelier .bar-center { background: var(--chrome-solid); backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: 0 0 0 1px var(--line), var(--tool-lift); } }
 /* une bulle ouverte passe devant la roue (elle se referme d'un toucher) */
 .atelier .bubble { z-index: 12; }
+
+/* Aide au positionnement : l'essentiel d'abord, les points d'accroche sur « + » */
+.ab-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ab-head .b-title { padding-top: 0; }
+.anchor-bubble .mark-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin: 2px 0; padding: 8px 10px; border-radius: 12px; background: var(--line); }
+.anchor-bubble .mark-legend .mark { gap: 8px; font-size: 12px; }
+.ab-more { display: flex; align-items: center; justify-content: space-between; padding: 8px 6px 6px; border-top: 1px solid var(--line); margin-top: 2px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.ab-chev { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--line); color: var(--ink); font-size: 15px; letter-spacing: 0; }
+.ab-more.on .ab-chev { background: var(--accent-soft); color: var(--accent); }
+.ab-link { align-self: flex-start; padding: 4px 6px; border-radius: 8px; color: var(--accent); font-size: 12.5px; font-weight: 500; }
+.ab-link:hover { background: var(--accent-soft); }
+.pt-grids { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pt-grid { margin: 0; padding: 6px 4px 4px; border-radius: 12px; background: var(--line); display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.pt-grid svg { width: 100%; max-width: 132px; height: auto; display: block; overflow: visible; }
+.pt-grid figcaption { font-size: 11px; color: var(--muted); }
+.pt-shape { fill: var(--chrome-solid); stroke: var(--ink); stroke-width: 1; opacity: 0.9; }
+.pt-page { fill: var(--chrome-solid); stroke: var(--ink); stroke-width: 1; }
+.pt-margin { fill: none; stroke: var(--muted); stroke-width: 0.8; stroke-dasharray: 2 2; }
+.pt-hit { fill: transparent; }
+.pt-dot { fill: var(--chrome-solid); stroke: var(--muted); stroke-width: 1.2; transition: fill 0.12s, stroke 0.12s; }
+.pt-dot.fixed { fill: var(--ink); stroke: none; }
+.pt-fam { cursor: pointer; }
+.pt-fam.on .pt-dot { fill: var(--accent); stroke: var(--chrome-solid); }
+.pt-fam.off { cursor: default; opacity: 0.35; }
+.pf-row .pt-grids { margin-top: 8px; }
