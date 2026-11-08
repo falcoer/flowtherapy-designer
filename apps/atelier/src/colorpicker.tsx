@@ -255,7 +255,7 @@ export function PaletteEditor({
         onPointerDown={(e) => {
           (e.currentTarget as Element).setPointerCapture(e.pointerId);
           const p = local(e);
-          setHarm(null);
+          // les harmonies restent ouvertes : le plan ne change pas de taille pendant le geste
           press.current = { start: p, moved: false, before: stops };
           setAt(i, hexAt(p), true);
         }}
