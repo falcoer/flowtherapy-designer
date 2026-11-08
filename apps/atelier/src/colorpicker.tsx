@@ -340,7 +340,6 @@ export function PaletteEditor({
           Harmonies
         </button>
       </div>
-      {harm && harmList('in-main')}
       </div>
       <div className="pe-side">
       <Tiles stops={stops} sel={i} setSel={setSel} onChange={onChange} blend={blend} />
