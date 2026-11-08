@@ -1512,3 +1512,8 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .go-pt.center { width: 22px; height: 22px; margin: -11px 0 0 -11px; background: rgba(255, 255, 255, 0.25); }
 .go-pt.center::after { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: #fff; }
 .go-angle { position: absolute; padding: 1px 6px; border-radius: 6px; font: var(--tool-label); color: #fff; background: rgba(20, 16, 30, 0.6); white-space: nowrap; pointer-events: none; }
+.pe-right .grad-row { padding-top: 0; border-top: 0; gap: 6px; }
+.pe-right .grad-modes { width: 100%; justify-content: space-between; }
+.pe-right .grad-modes button { flex: 1; width: auto; }
+.grad-row-label { flex-basis: 100%; }
+.pe-right .grad-row { row-gap: 4px; }

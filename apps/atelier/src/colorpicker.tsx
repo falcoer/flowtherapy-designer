@@ -1,6 +1,6 @@
 import { gradientStops, harmonies, hexToOklch, maxChroma, oklabToRgb8, oklchToHex, type Oklch } from '@ftd/core';
 import { cssGradient } from './model';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Blend } from './model';
 import type { Palette } from './server';
 
@@ -104,9 +104,12 @@ export function PaletteEditor({
   stops,
   blend,
   variant,
+  extra,
   onBlend,
   onChange: emit,
 }: {
+  /** Réglages ajoutés sous la transition (forme du dégradé). */
+  extra?: ReactNode;
   stops: string[];
   blend: Blend;
   /** Variante de l'activité dont les couleurs sont proposées. */
@@ -376,6 +379,7 @@ export function PaletteEditor({
               ))}
             </div>
           </div>
+          {extra}
         </div>
       </div>
     </div>

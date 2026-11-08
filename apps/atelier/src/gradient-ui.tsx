@@ -50,6 +50,7 @@ export function GradStyleRow({ style, onChange }: { style?: GradStyle; onChange:
   const set = (patch: Partial<GradStyle>) => onChange({ ...s, ...patch });
   return (
     <div className="grad-row" role="group" aria-label="Forme du dégradé">
+      <span className="tb-label grad-row-label">Forme</span>
       <div className="grad-modes">
         {MODES.map(([m, name, hint]) => (
           <button key={m} className={s.mode === m ? 'on' : ''} onClick={() => set({ mode: m })} title={`${name} : ${hint}`} aria-label={name}>

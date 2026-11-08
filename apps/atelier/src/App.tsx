@@ -5843,6 +5843,7 @@ function ColorDialog({ guide, variant, onChange, onClose, onRemove }: { guide: G
         stops={stops}
         blend={guide.type === 'gradient' ? (guide.blend ?? 'smooth') : 'smooth'}
         variant={variant}
+        extra={guide.type === 'gradient' ? <GradStyleRow style={guide.shape} onChange={(shape: GradStyle) => onChange({ ...guide, shape }, true)} /> : undefined}
         onBlend={(blend: Blend) => guide.type === 'gradient' && onChange({ ...guide, blend }, true)}
         onChange={(next, commit) =>
           onChange(
@@ -5853,7 +5854,6 @@ function ColorDialog({ guide, variant, onChange, onClose, onRemove }: { guide: G
           )
         }
       />
-      {guide.type === 'gradient' && <GradStyleRow style={guide.shape} onChange={(shape: GradStyle) => onChange({ ...guide, shape }, true)} />}
     </div>
   );
 }
