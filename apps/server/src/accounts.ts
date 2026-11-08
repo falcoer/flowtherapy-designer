@@ -582,11 +582,13 @@ export interface Campaign {
   /** Contact réservation. */
   contact?: { name?: string; phone?: string; email?: string };
   note?: string;
+  /** Compositions proposées comme modèles : chacun peut partir de l'une d'elles. */
+  templates?: string[];
   created: string;
   by?: string;
   closed?: string;
 }
-export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note'>>;
+export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'templates'>>;
 
 function cleanCampaign(c: CampaignInput) {
   const date = str(c.date, 10);
@@ -598,6 +600,7 @@ function cleanCampaign(c: CampaignInput) {
     ...(/^[^\s@]+@[^\s@]+$/.test(email) ? { email } : {}),
   };
   const contact = Object.keys(ct).length ? ct : undefined;
+  const templates = [...new Set(arr<string>(c.templates).filter((t) => typeof t === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(t)))].slice(0, 20);
   return {
     ...(str(c.operation, 40) ? { operation: str(c.operation, 40) } : {}),
     ...(/^\d{4}-\d{2}-\d{2}$/.test(date) ? { date } : {}),
@@ -606,6 +609,7 @@ function cleanCampaign(c: CampaignInput) {
     ...(str(c.kind, 60) ? { kind: str(c.kind, 60) } : {}),
     ...(contact ? { contact } : {}),
     ...(str(c.note, 1000) ? { note: str(c.note, 1000) } : {}),
+    ...(templates.length ? { templates } : {}),
   };
 }
 

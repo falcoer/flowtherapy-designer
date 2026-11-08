@@ -25,10 +25,10 @@ import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers }
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
-import { createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me } from './server';
+import { copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me } from './server';
 import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, targetLabel } from './targets';
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
-import { CampaignBar, VoteButton } from './campaigns-ui';
+import { CampaignDialog, CampaignSummary, CompositionPicker, VoteButton } from './campaigns-ui';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
@@ -560,6 +560,22 @@ export function App() {
   // l'occasion de la campagne suivie vient en premier
   const operations = followed?.operation ? [...allOperations.filter((o) => o.id === followed.operation), ...allOperations.filter((o) => o.id !== followed.operation)] : allOperations;
   // dans une campagne : ses compositions, les plus votées d'abord
+  const canEditTeam = !!me?.team && me.team.role !== 'viewer';
+  const [campaignDialog, setCampaignDialog] = useState(false);
+  const [picker, setPicker] = useState<'import' | null>(null);
+  const followedTemplates = (followed?.templates ?? []).map((id) => projects.find((m) => m.id === id)).filter((m): m is AtelierMeta => !!m);
+  const campaignCounts = projects.reduce<Record<string, number>>((o, m) => (m.campaign ? { ...o, [m.campaign]: (o[m.campaign] ?? 0) + 1 } : o), {});
+  /** Nouvelle composition copiée d'une autre (modèle, ou import), rangée dans la campagne suivie, puis ouverte. */
+  const fromComposition = async (m: AtelierMeta, title: string) => {
+    try {
+      const meta = await copyAtelier(m.id, newAtelierId(title), title, campaign || undefined);
+      refreshProjects();
+      await openProject(meta);
+      setToast(`« ${title} » créée`);
+    } catch (err) {
+      setToast(`Copie impossible : ${(err as Error).message}`);
+    }
+  };
   const shownProjects = campaign ? projects.filter((m) => m.campaign === campaign).sort((a, b) => (b.votes?.length ?? 0) - (a.votes?.length ?? 0) || b.updated.localeCompare(a.updated)) : projects;
   const palettes = palettesOf(activity);
   const activeTarget = doc.targets?.[doc.target ?? 0];
@@ -4388,29 +4404,67 @@ export function App() {
             </div>
           )}
 
+          {campaignDialog && me?.team && (
+            <CampaignDialog
+              campaigns={campaigns}
+              current={campaign}
+              counts={campaignCounts}
+              operations={operations}
+              canEdit={canEditTeam}
+              onClose={() => setCampaignDialog(false)}
+              onPick={(id) => {
+                setCampaign(id);
+                setCampaignDialog(false);
+              }}
+              create={async (c: CampaignInput) => {
+                const x = await createCampaign(c);
+                setCampaigns((l) => [x, ...l]);
+                setCampaign(x.id);
+              }}
+              update={async (id, c) => {
+                const x = await updateCampaign(id, c);
+                setCampaigns((l) => l.map((y) => (y.id === id ? x : y)));
+              }}
+            />
+          )}
+          {picker === 'import' && (
+            <CompositionPicker
+              title="Importer une composition"
+              hint={followed ? `Une copie est créée dans « ${followed.name} » ; l’original reste dans sa campagne.` : 'Une copie est créée ; l’original reste en place.'}
+              items={projects.filter((m) => m.campaign !== campaign)}
+              campaigns={campaigns}
+              onClose={() => setPicker(null)}
+              onPick={(m) => {
+                setPicker(null);
+                void fromComposition(m, m.title);
+              }}
+            />
+          )}
           {bubble === 'projects' && (
             <div className="bubble projects-bubble">
               {online && me?.team ? <div className="b-title">Campagne</div> : <div className="b-title">Composition</div>}
               {online ? (
                 <>
-                  {me?.team && (
-                    <CampaignBar
-                      campaigns={campaigns}
-                      current={campaign}
-                      setCurrent={setCampaign}
-                      canEdit={me.team.role !== 'viewer'}
-                      operations={operations}
-                      counts={projects.reduce<Record<string, number>>((o, m) => (m.campaign ? { ...o, [m.campaign]: (o[m.campaign] ?? 0) + 1 } : o), {})}
-                      create={async (c: CampaignInput) => {
-                        const x = await createCampaign(c);
-                        setCampaigns((l) => [x, ...l]);
-                        setCampaign(x.id);
-                      }}
-                      update={async (id, c) => {
-                        const x = await updateCampaign(id, c);
-                        setCampaigns((l) => l.map((y) => (y.id === id ? x : y)));
-                      }}
-                    />
+                  {me?.team && <CampaignSummary campaign={followed} operations={operations} onOpen={() => setCampaignDialog(true)} />}
+                  {me?.team && followed && (followedTemplates.length > 0 || canEditTeam) && (
+                    <div className="cp-templates">
+                      <div className="cp-sub">Modèles de la campagne</div>
+                      <div className="cp-tpl-row">
+                        {followedTemplates.map((m) => (
+                          <button key={m.id} className="cp-tpl" onClick={() => void fromComposition(m, `${m.title} · ${(me.name ?? me.email ?? '').split(' ')[0]}`)} title={`Partir du modèle « ${m.title} »`} disabled={!canEditTeam}>
+                            <img src={thumbUrl(m)} alt="" loading="lazy" />
+                            <span>{m.title}</span>
+                          </button>
+                        ))}
+                        {canEditTeam && (
+                          <button className="cp-tpl cp-tpl-add" onClick={() => setPicker('import')} title="Copier ici une composition d’une autre campagne">
+                            <span className="cp-tpl-plus">+</span>
+                            <span>Importer</span>
+                          </button>
+                        )}
+                      </div>
+                      {!followedTemplates.length && <p className="b-note">Pas encore de modèle : ouvre une composition et marque-la « modèle de la campagne ».</p>}
+                    </div>
                   )}
                   {me?.team && <div className="b-title">Composition</div>}
                   <div className="proj-current">
@@ -4425,6 +4479,21 @@ export function App() {
                       </button>
                     )}
                   </div>
+                  {project && followed && canEditTeam && doc.campaign === followed.id && (
+                    <label className="proj-camp proj-tpl">
+                      <input
+                        type="checkbox"
+                        checked={!!followed.templates?.includes(project.id)}
+                        onChange={(e) =>
+                          void updateCampaign(followed.id, { templates: e.target.checked ? [...(followed.templates ?? []), project.id] : (followed.templates ?? []).filter((t) => t !== project.id) }).then(
+                            (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
+                            (err: Error) => setToast(err.message),
+                          )
+                        }
+                      />
+                      <span>Modèle de la campagne : chacun peut partir de cette composition</span>
+                    </label>
+                  )}
                   {project && me?.team && me.team.role !== 'viewer' && campaigns.length > 0 && (
                     <label className="proj-camp">
                       <span>Campagne</span>

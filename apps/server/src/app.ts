@@ -478,6 +478,24 @@ export async function buildApp(opts: AppOptions) {
       return reply.code(404).send({ error: (err as Error).message });
     }
   });
+  // copier une composition (modèle de campagne, ou import depuis une autre campagne)
+  app.post<{ Params: { id: string }; Body: { to?: string; title?: string; campaign?: string } }>('/api/ateliers/:id/copy', { preHandler: needs('editor') }, async (req, reply) => {
+    const store = storesOf(req.team!.id).ateliers;
+    const to = req.body?.to ?? '';
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(to)) return reply.code(400).send({ error: 'Identifiant de destination attendu' });
+    try {
+      await store.read(to);
+      return reply.code(409).send({ error: 'Cette composition existe déjà' });
+    } catch {
+      /* libre */
+    }
+    try {
+      const meta = await store.copy(req.params.id, to, { title: req.body?.title?.trim().slice(0, 120) || undefined, campaign: req.body?.campaign || undefined }, req.user?.email);
+      return { ok: true, meta };
+    } catch (err) {
+      return reply.code(404).send({ error: (err as Error).message.includes('ENOENT') ? 'Composition introuvable' : (err as Error).message });
+    }
+  });
   // tout membre vote, lecteurs compris ; un vote par personne et par composition
   app.post<{ Params: { id: string }; Body: { on?: boolean } }>('/api/ateliers/:id/vote', { preHandler: needs('viewer') }, async (req, reply) => {
     const team = req.team!;

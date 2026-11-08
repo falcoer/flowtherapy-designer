@@ -100,6 +100,16 @@ export class Ateliers {
     return meta;
   }
 
+  /** Copie une composition (document et vignette) sous un nouvel identifiant, rattachée à une autre campagne. */
+  async copy(from: string, to: string, o: { title?: string; campaign?: string }, by?: string): Promise<AtelierMeta> {
+    const src = await this.read(from);
+    const doc = { ...(src.doc as object), campaign: o.campaign };
+    const meta = await this.write(to, { title: o.title ?? src.title, doc }, by);
+    const thumb = await this.thumb(from);
+    if (thumb) await writeFile(this.file(to, 'png'), await readFile(thumb));
+    return meta;
+  }
+
   async remove(id: string) {
     await rm(this.file(id, 'json'), { force: true });
     await rm(this.file(id, 'png'), { force: true });

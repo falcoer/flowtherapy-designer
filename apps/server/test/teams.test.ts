@@ -287,6 +287,15 @@ describe('équipes', () => {
     const all = (await max.get('/api/campaigns')).json() as Array<{ id: string }>;
     expect(all.map((x) => x.id)).toEqual(['concert-du-plan-2', 'concert-du-plan']);
 
+    // modèles de la campagne, et copie d'une composition dans une autre campagne
+    const tpl = (await jenni.send('PATCH', '/api/campaigns/concert-du-plan', { templates: ['affiche-lauris', 'affiche-lauris', 'Pas Valide'] })).json().campaign;
+    expect(tpl.templates).toEqual(['affiche-lauris']);
+    const copy = await jenni.send('POST', '/api/ateliers/affiche-lauris/copy', { to: 'affiche-jenni-2', title: 'Ma version', campaign: 'concert-du-plan-2' });
+    expect(copy.json().meta).toMatchObject({ id: 'affiche-jenni-2', title: 'Ma version', campaign: 'concert-du-plan-2', by: 'jenni@example.org' });
+    expect((await jenni.get('/api/ateliers/affiche-jenni-2')).json().doc.layers).toEqual([]);
+    expect((await jenni.send('POST', '/api/ateliers/affiche-lauris/copy', { to: 'affiche-jenni-2' })).statusCode).toBe(409);
+    expect((await max.send('POST', '/api/ateliers/affiche-lauris/copy', { to: 'x' })).statusCode).toBe(403);
+
     await lauris.send('DELETE', '/api/ateliers/affiche-jenni');
     await lauris.send('PUT', '/api/ateliers/affiche-jenni', { title: 'Nouvelle', doc });
     expect(((await max.get('/api/ateliers')).json() as Array<{ id: string; votes: string[] }>).find((m) => m.id === 'affiche-jenni')?.votes).toEqual([]);
