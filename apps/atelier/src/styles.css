@@ -994,18 +994,9 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .pf-reset { align-self: flex-start; font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
 /* bulles posées à gauche : à côté des barres de gauche (réglages d'outil, Hauteur), jamais dessous */
 .atelier .format-bubble, .atelier .anchor-bubble, .atelier .projects-bubble { left: max(10px, env(safe-area-inset-left, 0px), var(--bubble-left, 0px)); }
-.atelier .format-bubble { width: min(340px, calc(100vw - max(10px, var(--bubble-left, 0px)) - 10px)); max-height: min(78dvh, calc(100dvh - 120px)); overflow-y: auto; }
+.atelier .format-bubble { width: min(340px, calc(100vw - max(10px, var(--bubble-left, 0px)) - 10px)); overflow: visible; }
 .b-note { margin: 0 4px 4px; font-size: 12.5px; line-height: 1.4; color: var(--muted); }
-.tg-row { display: flex; align-items: center; gap: 4px; border-radius: 12px; }
-.tg-row > .row { flex: 1; min-width: 0; }
-.tg-row.on > .row { background: var(--accent-soft); color: var(--accent); }
 .tg-pal { display: inline-flex; align-items: center; gap: 6px; }
-.tg-dots { display: inline-flex; }
-.tg-dots i { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--chrome-solid); margin-left: -4px; }
-.tg-dots i:first-child { margin-left: 0; }
-.tg-add { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--accent); border-radius: 14px; }
-.tg-add label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-.tg-add-btns { display: flex; justify-content: flex-end; gap: 6px; }
 .atelier .anchor-bubble { width: min(290px, calc(100vw - max(10px, var(--bubble-left, 0px)) - 10px)); }
 .atelier .projects-bubble { width: min(360px, calc(100vw - max(10px, var(--bubble-left, 0px)) - 10px)); }
 
@@ -1214,3 +1205,25 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 }
 .chip-label { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-chip .brand { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tg-line { display: flex; align-items: center; gap: 4px; }
+.tg-show { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 12px; text-align: left; }
+.tg-show:hover { background: var(--accent-soft); }
+.tg-line.on .tg-show { background: var(--accent-soft); color: var(--accent); }
+.tg-name { flex: 1; min-width: 0; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-icon { flex: none; }
+.variant-bar { display: inline-block; flex: none; width: 54px; height: 16px; border-radius: 999px; border: 1px solid var(--line); }
+.variant-bar.wide { width: 72px; }
+.tg-new { margin-top: 6px; padding: 6px; border: 1px dashed var(--line); border-radius: 14px; gap: 6px; }
+.cb { position: relative; }
+.cb.grow { flex: 1; min-width: 0; }
+.cb-btn { display: flex; align-items: center; gap: 4px; height: 38px; padding: 0 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--chrome-solid); }
+.cb.grow .cb-btn { width: 100%; }
+.cb.grow .cb-btn .variant-bar { flex: 1; width: auto; }
+.cb-btn.on { border-color: var(--accent); }
+.cb-caret { font-size: 10px; color: var(--muted); }
+.cb-list { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; min-width: 200px; display: flex; flex-direction: column; padding: 4px; border-radius: 12px; background: var(--chrome-solid); border: 1px solid var(--line); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
+.cb.grow .cb-list { left: auto; right: 0; }
+.cb-list button { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; text-align: left; font-size: 13px; white-space: nowrap; }
+.cb-list button:hover, .cb-list button.on { background: var(--accent-soft); color: var(--accent); }
+.tg-plus { flex: none; width: 38px; height: 38px; border-radius: 10px; background: var(--accent); color: #fff; font-size: 20px; }
+.tg-plus:disabled { opacity: 0.35; }

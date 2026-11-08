@@ -5,6 +5,7 @@ import { createTeam, fetchProfile, palettesOf, ROLE_LABELS, saveProfile, switchT
 import { fontList, loadFonts } from './text';
 import { MembersSection } from './team-ui';
 import { DEFAULT_CHANNELS, DEFAULT_OPERATIONS, formatsFor } from './targets';
+import { MediaIcon, VariantBar } from './targets-ui';
 
 /**
  * L'activité (le groupe, l'association, le lieu…) pour laquelle tout l'outil existe :
@@ -227,6 +228,7 @@ function PaletteEditor(p: { pal: Palette; first: boolean; edit: boolean; set: (q
   return (
     <div className="act-pal">
       <div className="act-pal-head">
+        <VariantBar pal={pal} />
         <input className="pf-input act-pal-name" value={pal.name} disabled={!edit} onChange={(e) => p.set({ ...pal, name: e.target.value })} aria-label="Nom de la variante" />
         {p.first ? (
           <span className="tm-badge">par défaut</span>
@@ -284,6 +286,7 @@ function ChannelCard(p: { c: Channel; set: (c: Channel) => void; remove: () => v
   return (
     <div className={`act-channel ${p.open ? 'open' : ''}`}>
       <button className="act-channel-head" onClick={p.toggle} aria-expanded={p.open}>
+        <MediaIcon ch={c} size={26} />
         <span className="act-txt">
           <b>{c.name || 'Nouveau média'}</b>
           <small>{[CHANNEL_KINDS[c.kind], c.formats.map(fmt).join(', ')].filter(Boolean).join(' · ')}</small>

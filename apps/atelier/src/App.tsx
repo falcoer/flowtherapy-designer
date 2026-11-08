@@ -26,7 +26,8 @@ import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
 import { fetchMe, fetchProfile, listAteliers, palettesOf, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me } from './server';
-import { channelsOf, docForTarget, formatsFor, operationsOf, paletteFor, paletteGuides, targetKey, targetLabel } from './targets';
+import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, targetLabel } from './targets';
+import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
@@ -530,8 +531,6 @@ export function App() {
   const operations = operationsOf(activity);
   const palettes = palettesOf(activity);
   const activeTarget = doc.targets?.[doc.target ?? 0];
-  // cible en cours d'ajout : média, format, variante
-  const [addTarget, setAddTarget] = useState<{ channel: string; format: string; palette: string } | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
 
   // --- export ---
@@ -4512,10 +4511,10 @@ export function App() {
                 const sz = exportSize(x);
                 return (
                   <button key={i} className={`row ${on ? 'on' : ''}`} onClick={() => setExportTargets(on ? exportTargets.filter((y) => y !== i) : [...exportTargets, i])}>
-                    <FormatGlyph w={x.width} h={x.height} big />
+                    <MediaIcon ch={channels.find((c) => c.id === t.channel)} />
                     <span>{targetLabel(t, activity)}</span>
-                    <small>
-                      {sz.w} × {sz.h} px{paletteFor(t, activity) ? ` · ${paletteFor(t, activity)!.name}` : ''}
+                    <small className="tg-pal">
+                      {sz.w} × {sz.h} px <VariantBar pal={paletteFor(t, activity)} />
                     </small>
                   </button>
                 );
@@ -4581,117 +4580,24 @@ export function App() {
             <div className="bubble format-bubble">
               <div className="b-title">Cibles du document</div>
               {!doc.targets?.length && <p className="b-note">Choisis où partira ce document : un média, un format, une variante de couleurs.</p>}
-              {doc.targets?.map((t, i) => {
-                const x = formatOf(t.format);
-                const pal = paletteFor(t, activity);
-                const on = i === (doc.target ?? 0);
-                return (
-                  <div key={i} className={`tg-row ${on ? 'on' : ''}`}>
-                    <button className="row" onClick={() => showTarget(i)}>
-                      <FormatGlyph w={x.width} h={x.height} big />
-                      <span>{targetLabel(t, activity)}</span>
-                      <small className="tg-pal">
-                        {pal && (
-                          <span className="tg-dots">
-                            {paletteGuides(pal).slice(0, 4).map((g, k) => (
-                              <i key={k} style={{ background: g.type === 'color' ? g.color : undefined }} />
-                            ))}
-                          </span>
-                        )}
-                        {pal?.name ?? `${x.width} × ${x.height} ${x.unit}`}
-                      </small>
-                    </button>
-                    <button
-                      className="tm-remove"
-                      title="Retirer cette cible"
-                      onClick={() =>
-                        setDoc((d) => {
-                          const targets = (d.targets ?? []).filter((_, j) => j !== i);
-                          const cur = d.target ?? 0;
-                          return { ...d, targets, target: Math.max(0, cur > i ? cur - 1 : Math.min(cur, targets.length - 1)) };
-                        })
-                      }
-                    >
-                      ×
-                    </button>
-                  </div>
-                );
-              })}
-              {addTarget ? (
-                (() => {
-                  const ch = channels.find((c) => c.id === addTarget.channel);
-                  const fs = formatsFor(ch);
-                  const fmt = fs.some((x) => x.id === addTarget.format) ? addTarget.format : fs[0]!.id;
-                  const t = { ...(ch ? { channel: ch.id } : {}), format: fmt, ...(addTarget.palette ? { palette: addTarget.palette } : {}) };
-                  const dup = doc.targets?.some((x) => targetKey(x) === targetKey(t));
-                  return (
-                    <div className="tg-add">
-                      <label>
-                        <span>Média</span>
-                        <select className="pf-input" value={addTarget.channel} onChange={(e) => setAddTarget({ ...addTarget, channel: e.target.value })}>
-                          {channels.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                          <option value="">Libre (tous formats)</option>
-                        </select>
-                      </label>
-                      <label>
-                        <span>Format</span>
-                        <select className="pf-input" value={fmt} onChange={(e) => setAddTarget({ ...addTarget, format: e.target.value })}>
-                          {fs.map((x) => (
-                            <option key={x.id} value={x.id}>
-                              {x.title}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      {palettes.length > 0 && (
-                        <label>
-                          <span>Variante</span>
-                          <select className="pf-input" value={addTarget.palette} onChange={(e) => setAddTarget({ ...addTarget, palette: e.target.value })}>
-                            <option value="">{`Celle du média (${paletteFor(ch ? { channel: ch.id, format: fmt } : undefined, activity)?.name ?? '—'})`}</option>
-                            {palettes.map((q) => (
-                              <option key={q.id} value={q.id}>
-                                {q.name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      )}
-                      <div className="tg-add-btns">
-                        <button className="pf-btn" onClick={() => setAddTarget(null)}>
-                          Annuler
-                        </button>
-                        <button
-                          className="pf-btn act-primary"
-                          disabled={dup}
-                          title={dup ? 'Cette cible est déjà dans la liste' : undefined}
-                          onClick={() => {
-                            setAddTarget(null);
-                            const i = doc.targets?.length ?? 0;
-                            setDoc((d) => {
-                              // la première cible reprend le format affiché : il devient une cible comme les autres
-                              const targets = [...(d.targets ?? []), t];
-                              return { ...d, targets, target: d.targets?.length ? d.target : 0 };
-                            });
-                            showTarget(i);
-                          }}
-                        >
-                          Ajouter
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })()
-              ) : (
-                <button className="row" onClick={() => setAddTarget({ channel: channels[0]?.id ?? '', format: '', palette: '' })}>
-                  <Icon name="plus" />
-                  <span>Ajouter une cible</span>
-                  <small>média, format, variante</small>
-                </button>
-              )}
+              <TargetsPanel
+                targets={doc.targets ?? []}
+                active={doc.target ?? 0}
+                activity={activity}
+                onShow={showTarget}
+                onRemove={(i) =>
+                  setDoc((d) => {
+                    const targets = (d.targets ?? []).filter((_, j) => j !== i);
+                    const cur = d.target ?? 0;
+                    return { ...d, targets, target: Math.max(0, cur > i ? cur - 1 : Math.min(cur, targets.length - 1)) };
+                  })
+                }
+                onAdd={(t) => {
+                  const i = doc.targets?.length ?? 0;
+                  setDoc((d) => ({ ...d, targets: [...(d.targets ?? []), t] }));
+                  showTarget(i);
+                }}
+              />
               {!doc.targets?.length && (
                 <>
                   <div className="b-title">Format libre</div>
