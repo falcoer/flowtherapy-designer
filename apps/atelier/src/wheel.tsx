@@ -273,27 +273,21 @@ export function BrushWheel(p: Props) {
     const across = (-a * s + b * c) * (1 - (k * 0.45 * (a * c + b * s)) / h);
     return [TX + along * c - across * s, TY + along * s + across * c];
   });
-  // enveloppe : le disque, les deux boutons, et un pont droit entre eux côté extérieur (pas de creux)
+  // enveloppe : le disque, les deux boutons, et un arc entre eux côté extérieur (pas de creux)
   const shell: Array<[number, number, number]> = [
     [C, C, RO + 6],
     [PX, PY, TR + 7],
     [TX, TY, TR + 7],
     [...at((AP + AT) / 2, RB - 4), TR + 5],
   ];
+  // entre les deux boutons, l'enveloppe suit un arc centré sur la roue : elle bombe vers l'extérieur
   const bridge = (r: number) => {
-    const [dx, dy] = [TX - PX, TY - PY];
-    const L = Math.hypot(dx, dy);
-    // normale vers l'extérieur de la roue
-    let [nx, ny] = [dy / L, -dx / L];
-    if (nx * (PX + TX - 2 * C) + ny * (PY + TY - 2 * C) < 0) [nx, ny] = [-nx, -ny];
-    return [
-      [PX, PY],
-      [PX + nx * r, PY + ny * r],
-      [TX + nx * r, TY + ny * r],
-      [TX, TY],
-    ]
-      .map((q) => q.join(','))
-      .join(' ');
+    const R = RB + r;
+    const [x0, y0] = at(AP, RO);
+    const [x1, y1] = at(AP, R);
+    const [x2, y2] = at(AT, R);
+    const [x3, y3] = at(AT, RO);
+    return `M${x0} ${y0}L${x1} ${y1}A${R} ${R} 0 0 1 ${x2} ${y2}L${x3} ${y3}Z`;
   };
   return (
     <div
@@ -313,11 +307,11 @@ export function BrushWheel(p: Props) {
           {shell.map(([x, y, r], i) => (
             <circle key={`e${i}`} cx={x} cy={y} r={r + 1} className="bw-shell-edge" />
           ))}
-          <polygon points={bridge(TR + 8)} className="bw-shell-edge" />
+          <path d={bridge(TR + 8)} className="bw-shell-edge" />
           {shell.map(([x, y, r], i) => (
             <circle key={`f${i}`} cx={x} cy={y} r={r} className="bw-shell-face" />
           ))}
-          <polygon points={bridge(TR + 7)} className="bw-shell-face" />
+          <path d={bridge(TR + 7)} className="bw-shell-face" />
         </g>
         <circle cx={C} cy={C} r={RO} className="bw-disc" />
         {segs.map(([a, b], i) => (
