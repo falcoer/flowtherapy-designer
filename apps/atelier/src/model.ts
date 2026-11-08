@@ -27,7 +27,27 @@ export type Blend = 'smooth' | 'soft' | 'hard';
  * `role` : rôle de la couleur dans les variantes de l'activité (fond, texte…) ; changer de variante remplace la couleur du même rôle.
  * `from` : nom de l'objet ou du dessin importé qui a apporté la couleur dans le document.
  */
-export type Guide = { name: string; type: 'color'; color: string; role?: string; from?: string } | { name: string; type: 'gradient'; stops: string[]; blend?: Blend; role?: string; from?: string };
+export type Guide = { name: string; type: 'color'; color: string; role?: string; from?: string } | { name: string; type: 'gradient'; stops: string[]; blend?: Blend; shape?: GradShape; role?: string; from?: string };
+
+/** Mode d'un dégradé : le long d'un axe, en cercle, autour d'un centre (angle), en losange. */
+export type GradMode = 'linear' | 'radial' | 'conic' | 'diamond';
+/**
+ * Forme d'un dégradé, dans la boîte de l'objet qu'il colore (0..1 sur chaque côté).
+ * `angle` en degrés (0 = vers la droite, 90 = vers le bas) ; `spread` : étendue (1 = la boîte) ;
+ * `repeat` : nombre de passages ; `mirror` : un passage sur deux à l'envers ; `ellipse` : le radial suit la boîte.
+ */
+export interface GradShape {
+  mode: GradMode;
+  cx: number;
+  cy: number;
+  angle: number;
+  spread: number;
+  repeat: number;
+  mirror?: boolean;
+  ellipse?: boolean;
+}
+/** Sans forme enregistrée : l'ancien dégradé, du haut vers le bas. */
+export const DEFAULT_SHAPE: GradShape = { mode: 'linear', cx: 0.5, cy: 0.5, angle: 90, spread: 1, repeat: 1 };
 
 /** Arrêts d'un dégradé (position 0..1, couleur) selon sa transition. */
 export function blendStops(stops: string[], blend: Blend = 'smooth'): Array<[number, string]> {

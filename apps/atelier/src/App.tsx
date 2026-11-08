@@ -19,6 +19,8 @@ import { currentPx, growPatch, localToPx, MOLD_UNIT, moldPatch, pristinePx, unit
 import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
 import { QuickText, TextBar, type SwashTool } from './textbar';
 import { PaletteEditor } from './colorpicker';
+import { cssShaped } from './gradient';
+import { GradientFrame } from './gradient-ui';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
@@ -265,7 +267,7 @@ export const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
   ['aura', 'Énergie', 'aura de flammes'],
   ['fire', 'Flammes', 'langues de feu qui montent'],
 ];
-export const swatch = (g: Guide | undefined) => (g?.type === 'gradient' ? cssGradient(g.stops, g.blend) : guideColor(g));
+export const swatch = (g: Guide | undefined) => (g?.type === 'gradient' ? cssShaped(g.stops, g.blend, g.shape) : guideColor(g));
 const EDGE_MODES: Array<[EdgeMode, string, string]> = [
   ['contrast', 'Contraste', 'bords de lumière'],
   ['color', 'Couleur', 'bords de teinte'],
@@ -5788,6 +5790,9 @@ function PaletteBubble({
 function ColorDialog({ guide, variant, onChange, onClose, onRemove }: { guide: Guide; variant?: Palette; onChange: (g: Guide, commit: boolean) => void; onClose: () => void; onRemove?: () => void }) {
   const stops = guide.type === 'gradient' ? guide.stops : [guide.color];
   const keep = { ...(guide.from ? { from: guide.from } : {}) };
+  // un dégradé se règle en deux pages : ses teintes, sa forme (mode et repère)
+  const [tab, setTab] = useState<'colors' | 'shape'>('colors');
+  const page = guide.type === 'gradient' ? tab : 'colors';
   return (
     <div className="color-dialog" role="dialog" aria-label={`Couleur ${guide.name}`}>
       <div className="cd-head">
@@ -5812,7 +5817,18 @@ function ColorDialog({ guide, variant, onChange, onClose, onRemove }: { guide: G
           ×
         </button>
       </div>
-      <PaletteEditor
+      {guide.type === 'gradient' && (
+        <div className="seg cd-tabs">
+          <button className={tab === 'colors' ? 'on' : ''} onClick={() => setTab('colors')}>
+            Teintes
+          </button>
+          <button className={tab === 'shape' ? 'on' : ''} onClick={() => setTab('shape')}>
+            Forme du dégradé
+          </button>
+        </div>
+      )}
+      {page === 'colors' && (
+        <PaletteEditor
         stops={stops}
         blend={guide.type === 'gradient' ? (guide.blend ?? 'smooth') : 'smooth'}
         variant={variant}
@@ -5820,12 +5836,16 @@ function ColorDialog({ guide, variant, onChange, onClose, onRemove }: { guide: G
         onChange={(next, commit) =>
           onChange(
             next.length > 1
-              ? { name: guide.name, type: 'gradient', stops: next, ...(guide.type === 'gradient' && guide.blend ? { blend: guide.blend } : {}), ...keep }
+              ? { name: guide.name, type: 'gradient', stops: next, ...(guide.type === 'gradient' && guide.blend ? { blend: guide.blend } : {}), ...(guide.type === 'gradient' && guide.shape ? { shape: guide.shape } : {}), ...keep }
               : { name: guide.name, type: 'color', color: next[0]!, ...keep },
             commit,
           )
         }
       />
+      )}
+      {page === 'shape' && guide.type === 'gradient' && (
+        <GradientFrame stops={guide.stops} blend={guide.blend ?? 'smooth'} shape={guide.shape} onChange={(shape, commit) => onChange({ ...guide, shape }, commit)} />
+      )}
     </div>
   );
 }
