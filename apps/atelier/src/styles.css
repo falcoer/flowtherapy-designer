@@ -1010,7 +1010,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 /* Maj : un disque comme ceux de la roue, en tête de la colonne de gauche ;
    son anneau s'allume tant qu'on le tient, il se remplit quand Maj est verrouillée */
 .shift-big {
-  position: absolute; top: 64px; left: calc(max(8px, env(safe-area-inset-left, 0px)) - 3px); z-index: 12;
+  position: absolute; top: 64px; left: calc(max(8px, env(safe-area-inset-left, 0px)) - 1px); z-index: 12;
   width: 56px; height: 56px; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
   background: var(--chrome-solid); color: var(--ink);
@@ -1022,4 +1022,26 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .shift-big span { font: var(--tool-label); letter-spacing: 0.08em; text-transform: uppercase; line-height: 1; }
 .shift-big.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--chrome-solid)); box-shadow: 0 0 0 1px var(--accent), inset 0 0 0 4px var(--accent), var(--tool-lift); transform: scale(0.96); }
 .shift-big.latched { color: #fff; background: var(--accent); box-shadow: 0 0 0 1px var(--accent), inset 0 0 0 4px color-mix(in srgb, #fff 35%, var(--accent)), var(--tool-lift); transform: none; }
-.hand-left .shift-big { left: auto; right: calc(max(8px, env(safe-area-inset-right, 0px)) - 3px); }
+.hand-left .shift-big { left: auto; right: calc(max(8px, env(safe-area-inset-right, 0px)) - 1px); }
+
+/* Potards : réglages rotatifs à la place des curseurs verticaux (la Hauteur reste un curseur).
+   On tourne d'un geste ; tant qu'on tient, le libellé et le niveau s'affichent à côté. */
+.knob { position: relative; width: 44px; height: 44px; flex: none; touch-action: none; cursor: ns-resize; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.knob > svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.knob .kn-track { fill: none; stroke: var(--line); stroke-width: 4; stroke-linecap: round; }
+.knob .kn-level { fill: none; stroke: var(--accent); stroke-width: 4; stroke-linecap: round; }
+.knob .kn-zero { stroke: var(--ink); stroke-width: 1.5; stroke-linecap: round; opacity: 0.45; }
+.knob .kn-cap { fill: var(--chrome-solid); stroke: var(--line); stroke-width: 1; filter: drop-shadow(0 1px 2px rgba(20, 16, 30, 0.18)); }
+.knob .kn-hand { stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; }
+.knob.held .kn-cap { fill: color-mix(in srgb, var(--accent) 14%, var(--chrome-solid)); stroke: var(--accent); }
+.kn-tag {
+  position: absolute; z-index: 30; top: 50%; left: calc(100% + 14px); transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 3px; padding: 7px 11px; border-radius: 12px; white-space: nowrap; pointer-events: none;
+  background: var(--accent); color: #fff; box-shadow: var(--tool-lift); animation: pop 0.1s ease-out;
+}
+.kn-tag b { font: var(--tool-label); letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.85; }
+.kn-tag span { font: 600 17px ui-monospace, 'SF Mono', Menlo, monospace; font-variant-numeric: tabular-nums; line-height: 1; }
+.hand-left .kn-tag { left: auto; right: calc(100% + 14px); }
+.side-params.two .knob:nth-child(odd) .kn-tag { left: calc(100% + 64px); }
+.hand-left .side-params.two .knob:nth-child(even) .kn-tag { left: auto; right: calc(100% + 64px); }
+

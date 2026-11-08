@@ -3976,20 +3976,20 @@ export function App() {
                   )}
                   {brushKind === 'branch' && (
                     <>
-                      <VSlider label="Ramifications" value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
-                      <VSlider label="Chaos" value={converge} onChange={(v) => setConverge(Math.round(v * 100) / 100)} />
-                      <VSlider label="Taille noyau" value={branchCore} onChange={(v) => setBranchCore(Math.round(v * 100) / 100)} />
+                      <Knob label="Ramifications" fmt={(v) => String(1 + Math.round(v * 15))} value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
+                      <Knob label="Chaos" value={converge} onChange={(v) => setConverge(Math.round(v * 100) / 100)} />
+                      <Knob label="Taille noyau" value={branchCore} onChange={(v) => setBranchCore(Math.round(v * 100) / 100)} />
                     </>
                   )}
                   {brushKind === 'hair' && (
                     <>
-                      <VSlider label="Longueur" value={hairLen} onChange={(v) => setHairLen(Math.max(0.03, Math.round(v * 100) / 100))} />
-                      <VSlider label={curl < 0.15 ? 'Frisure · raide' : curl < 0.6 ? 'Frisure · alpaga' : 'Frisure · mouton'} value={curl} onChange={(v) => setCurl(Math.round(v * 100) / 100)} />
+                      <Knob label="Longueur" value={hairLen} onChange={(v) => setHairLen(Math.max(0.03, Math.round(v * 100) / 100))} />
+                      <Knob label={curl < 0.15 ? 'Frisure · raide' : curl < 0.6 ? 'Frisure · alpaga' : 'Frisure · mouton'} value={curl} onChange={(v) => setCurl(Math.round(v * 100) / 100)} />
                     </>
                   )}
                   {brushKind === 'burn' && (
                     <>
-                      <VSlider label="Roussi" value={burnChar} onChange={(v) => setBurnChar(Math.max(0.02, Math.round(v * 100) / 100))} />
+                      <Knob label="Roussi" value={burnChar} onChange={(v) => setBurnChar(Math.max(0.02, Math.round(v * 100) / 100))} />
                       <button className={`btn small ${burnHole ? 'on' : ''}`} onClick={() => setBurnHole(!burnHole)} title={burnHole ? 'Trous : la brûlure perce la couche' : 'Sans trou : la brûlure teinte seulement'}>
                         <Icon name="burn-hole" />
                       </button>
@@ -4074,8 +4074,8 @@ export function App() {
                     </button>
                   {stampSow && (
                     <>
-                      <VSlider label="Densité" value={sowDensity} onChange={(v) => setSowDensity(Math.round(v * 100) / 100)} />
-                      <VSlider label="Écart" value={sowSpread} onChange={(v) => setSowSpread(Math.round(v * 100) / 100)} />
+                      <Knob label="Densité" value={sowDensity} onChange={(v) => setSowDensity(Math.round(v * 100) / 100)} />
+                      <Knob label="Écart" value={sowSpread} onChange={(v) => setSowSpread(Math.round(v * 100) / 100)} />
                     </>
                   )}
                 </>
@@ -4141,8 +4141,8 @@ export function App() {
                           ))}
                         </div>
                       )}
-                      <VSlider label="Seuil" value={(edgeThreshold - 0.05) / 0.9} onChange={(v) => setEdgeThreshold(Math.round((0.05 + v * 0.9) * 50) / 50)} />
-                      <VSlider label="Lissage" value={edgeSmooth} onChange={(v) => setEdgeSmooth(Math.round(v * 20) / 20)} />
+                      <Knob label="Seuil" value={(edgeThreshold - 0.05) / 0.9} onChange={(v) => setEdgeThreshold(Math.round((0.05 + v * 0.9) * 50) / 50)} />
+                      <Knob label="Lissage" value={edgeSmooth} onChange={(v) => setEdgeSmooth(Math.round(v * 20) / 20)} />
                     </>
                   )}
                 </>
@@ -4814,6 +4814,71 @@ function VSlider({ label, value, onChange, center, onActive }: { label: string; 
   );
 }
 
+/** Potard : tourne d'un geste (glisser vers le haut ou vers la droite pour monter),
+ *  le libellé et le niveau s'affichent en surbrillance à côté tant qu'on le tient.
+ *  Double appui : retour au neutre pour un réglage à deux sens. */
+function Knob({ label, value, onChange, center, fmt }: { label: string; value: number; onChange: (v: number) => void; center?: boolean; fmt?: (v: number) => string }) {
+  const drag = useRef<{ x: number; y: number; v: number; id: number } | null>(null);
+  const lastTap = useRef(0);
+  const [held, setHeld] = useState(false);
+  const A = 135; // course : de -135° à +135°
+  const ang = -A + value * 2 * A;
+  const R = 17;
+  const pt = (a: number, r = R) => [22 + r * Math.sin((a * Math.PI) / 180), 22 - r * Math.cos((a * Math.PI) / 180)];
+  const arc = (a0: number, a1: number) => {
+    if (Math.abs(a1 - a0) < 0.5) return '';
+    const [x0, y0] = pt(a0);
+    const [x1, y1] = pt(a1);
+    return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${R} ${R} 0 ${Math.abs(a1 - a0) > 180 ? 1 : 0} ${a1 > a0 ? 1 : 0} ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+  };
+  const from = center ? 0 : -A;
+  const [hx, hy] = pt(ang, R - 7);
+  const shown = fmt ? fmt(value) : center ? `${value >= 0.5 ? '+' : '−'}${Math.round(Math.abs(value - 0.5) * 200)}` : `${Math.round(value * 100)} %`;
+  const end = () => {
+    drag.current = null;
+    setHeld(false);
+  };
+  return (
+    <div
+      className={`knob ${held ? 'held' : ''}`}
+      title={label}
+      onPointerDown={(e) => {
+        (e.currentTarget as Element).setPointerCapture(e.pointerId);
+        const now = performance.now();
+        if (center && now - lastTap.current < 320) onChange(0.5);
+        lastTap.current = now;
+        drag.current = { x: e.clientX, y: e.clientY, v: value, id: e.pointerId };
+        setHeld(true);
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (!d || d.id !== e.pointerId) return;
+        // 180 px de geste pour toute la course ; le crayon règle plus finement
+        const span = e.pointerType === 'pen' ? 320 : 180;
+        let v = Math.max(0, Math.min(1, d.v + (d.y - e.clientY + (e.clientX - d.x)) / span));
+        if (center && Math.abs(v - 0.5) < 0.03) v = 0.5;
+        if (v !== value) onChange(v);
+      }}
+      onPointerUp={end}
+      onPointerCancel={end}
+    >
+      <svg viewBox="0 0 44 44" aria-hidden>
+        <path className="kn-track" d={arc(-A, A)} />
+        <path className="kn-level" d={center ? arc(Math.min(from, ang), Math.max(from, ang)) : arc(from, ang)} />
+        {center && <line className="kn-zero" x1="22" y1="1.5" x2="22" y2="7.5" />}
+        <circle className="kn-cap" cx="22" cy="22" r="11" />
+        <line className="kn-hand" x1="22" y1="22" x2={hx.toFixed(2)} y2={hy.toFixed(2)} />
+      </svg>
+      {held && (
+        <span className="kn-tag">
+          <b>{label}</b>
+          <span>{shown}</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
 function FormatGlyph({ w, h, big }: { w: number; h: number; big?: boolean }) {
   const s = big ? 26 : 16;
   const k = s / Math.max(w, h);
@@ -5312,7 +5377,7 @@ function LookControls({
           </div>
         </div>
       )}
-      {look && def && <VSlider label="Mélange" value={look.mix} onChange={(v) => onChange({ ...look, mix: Math.round(v * 100) / 100 }, false)} />}
+      {look && def && <Knob label="Mélange" value={look.mix} onChange={(v) => onChange({ ...look, mix: Math.round(v * 100) / 100 }, false)} />}
       {look && draw && drawDef && (
         <>
           {drawDef.slots.map((sl, i) => (
@@ -5348,7 +5413,7 @@ function LookControls({
               </div>
             </div>
           )}
-          <VSlider label="Dessin" value={draw.amount} onChange={(v) => onChange({ ...look, draw: { ...draw, amount: Math.round(v * 100) / 100 } }, false)} />
+          <Knob label="Dessin" value={draw.amount} onChange={(v) => onChange({ ...look, draw: { ...draw, amount: Math.round(v * 100) / 100 } }, false)} />
         </>
       )}
     </>
@@ -5434,7 +5499,7 @@ function MaterialControls({
           </div>
         </div>
       )}
-      {cur && <VSlider label="Intensité" value={cur.amount} onChange={(v) => onChange({ ...cur, amount: Math.round(v * 100) / 100 }, false)} />}
+      {cur && <Knob label="Intensité" value={cur.amount} onChange={(v) => onChange({ ...cur, amount: Math.round(v * 100) / 100 }, false)} />}
     </>
   );
 }
@@ -5598,7 +5663,7 @@ function FxControls({
           </div>
         </div>
       )}
-      {def && cur && <VSlider label="Intensité" value={cur.amount} onChange={(v) => patchCur({ amount: Math.round(v * 100) / 100 }, false)} />}
+      {def && cur && <Knob label="Intensité" value={cur.amount} onChange={(v) => patchCur({ amount: Math.round(v * 100) / 100 }, false)} />}
     </>
   );
 }
@@ -5673,10 +5738,10 @@ function EdgeControls({ layer: l, guides, pop, setPop, patch }: { layer: Layer; 
             onPick={(i) => patch({ border: { ...bd, guide: i } })}
           />
           {bd.style === 'double' && <GuidePick title="Bord extérieur" value={bd.guide2 ?? 1} guides={guides} open={pop === 'c2'} setOpen={toggle('c2')} onPick={(i) => patch({ border: { ...bd, guide2: i } })} />}
-          <VSlider label="Bord" value={Math.sqrt((bd.width - 0.002) / 0.198)} onChange={(v) => patch({ border: { ...bd, width: 0.002 + Math.round(v * v * 198) / 1000 } }, false)} />
+          <Knob label="Bord" value={Math.sqrt((bd.width - 0.002) / 0.198)} onChange={(v) => patch({ border: { ...bd, width: 0.002 + Math.round(v * v * 198) / 1000 } }, false)} />
         </>
       )}
-      <VSlider label="Biseau" value={l.bevel ?? 0} onChange={(v) => patch({ bevel: Math.round(v * 100) / 100 }, false)} />
+      <Knob label="Biseau" value={l.bevel ?? 0} onChange={(v) => patch({ bevel: Math.round(v * 100) / 100 }, false)} />
       <span className="side-sep" />
       <button className={`btn small ${pop === 'glow' ? 'on' : ''}`} onClick={() => setPop(pop === 'glow' ? null : 'glow')} title={`Lueur : ${GLOW_TYPES.find((x) => x[0] === (gl?.style ?? null))![1]}`}>
         <Icon name={`glow-${gl?.style ?? 'none'}`} />
@@ -5703,8 +5768,8 @@ function EdgeControls({ layer: l, guides, pop, setPop, patch }: { layer: Layer; 
       {gl && (
         <>
           <GuidePick title="Couleur de la lueur" value={gl.guide} guides={guides} open={pop === 'gc'} setOpen={toggle('gc')} onPick={(i) => patch({ glow: { ...gl, guide: i } })} />
-          <VSlider label="Distance" center value={(gl.distance + 1) / 2} onChange={(v) => patch({ glow: { ...gl, distance: Math.round((v * 2 - 1) * 100) / 100 } }, false)} />
-          <VSlider label="Largeur" value={gl.width} onChange={(v) => patch({ glow: { ...gl, width: Math.round(v * 100) / 100 } }, false)} />
+          <Knob label="Distance" center value={(gl.distance + 1) / 2} onChange={(v) => patch({ glow: { ...gl, distance: Math.round((v * 2 - 1) * 100) / 100 } }, false)} />
+          <Knob label="Largeur" value={gl.width} onChange={(v) => patch({ glow: { ...gl, width: Math.round(v * 100) / 100 } }, false)} />
         </>
       )}
     </>
