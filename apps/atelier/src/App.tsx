@@ -587,6 +587,24 @@ export function App() {
   const [exportKind, setExportKind] = useState<'png' | 'pdf'>('png');
   const [exporting, setExporting] = useState(false);
   const [exportTargets, setExportTargets] = useState<number[]>([]);
+  // --- publier : le plan de la campagne du document, les mentions de l'activité ---
+  const pubCampaign = campaigns.find((c) => c.id === doc.campaign);
+  const pubTargets = (doc.targets ?? []).filter((_, i) => exportTargets.includes(i));
+  const pubPlan = (pubCampaign?.plan ?? []).filter((it) => pubTargets.some((t) => (t.channel ?? '') === (it.channel ?? '') && t.format === it.format));
+  const pubChannels = channels.filter((c) => pubTargets.some((t) => t.channel === c.id));
+  const pubMentions = (activity?.branding?.mentions ?? []).map((m) => ({ ...m, channel: pubChannels.some((c) => c.mentions?.includes(m.name)) }));
+  const markPublished = async (id: string) => {
+    if (!pubCampaign || !project) return;
+    try {
+      const plan = (pubCampaign.plan ?? []).map((it) => (it.id === id ? { ...it, published: new Date().toISOString(), composition: it.composition ?? project.id } : it));
+      const x = await updateCampaign(pubCampaign.id, { plan });
+      setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y)));
+      setToast('Marquée publiée dans le plan');
+    } catch (err) {
+      setToast(`Impossible : ${(err as Error).message}`);
+    }
+  };
+
   const runExport = async () => {
     const d0 = docRef.current;
     // avec des cibles : chacune dans son format et sa variante ; sinon les formats cochés
@@ -3978,7 +3996,7 @@ export function App() {
                   }
                   setBubble(bubble === 'export' ? null : 'export');
                 }}
-                title="Exporter en PNG ou PDF, dans un ou plusieurs formats"
+                title="Publier : télécharger les rendus, texte d’accompagnement, plan de la campagne"
               >
                 <Icon name="export" />
               </button>
@@ -4614,15 +4632,8 @@ export function App() {
                 <span>Vue 3D</span>
                 <small>les couches en relief, à leur hauteur</small>
               </button>
-              <div className="b-title">Exporter</div>
-              <div className="seg">
-                {(['png', 'pdf'] as const).map((k) => (
-                  <button key={k} className={exportKind === k ? 'on' : ''} onClick={() => setExportKind(k)}>
-                    {k.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-              <div className="b-title">{doc.targets?.length ? 'Cibles' : 'Formats'}</div>
+              <div className="b-title">Publier</div>
+              <div className="b-sub">{doc.targets?.length ? 'Rendus' : 'Formats'}</div>
               {doc.targets?.map((t, i) => {
                 const on = exportTargets.includes(i);
                 const x = formatOf(t.format);
@@ -4650,10 +4661,70 @@ export function App() {
                   </button>
                 );
               })}
-              <p className="fx-hint">Les autres formats sont déclinés par les ancrages : chaque élément garde sa place relative et ses bords tenus.</p>
-              <button className="btn-primary" disabled={exporting || !exportFormats.length} onClick={() => void runExport()}>
-                {exporting ? 'Export…' : `Exporter ${exportFormats.length > 1 ? `${exportFormats.length} formats` : ''}`}
+              <div className="pub-caption">
+                <div className="b-sub">Texte d’accompagnement</div>
+                <textarea
+                  className="pf-input"
+                  rows={4}
+                  value={doc.caption ?? ''}
+                  placeholder="Ce qui accompagne le post : l’annonce, la date, le lien de billetterie…"
+                  onChange={(e) => setDoc((d) => ({ ...d, caption: e.target.value || undefined }))}
+                />
+                {pubMentions.length > 0 && (
+                  <div className="pub-mentions">
+                    {pubMentions.map((m) => (
+                      <button key={m.name} className={`pub-mention ${m.channel ? 'on' : ''}`} title={m.text} onClick={() => setDoc((d) => ({ ...d, caption: `${(d.caption ?? '').trimEnd()}${d.caption ? '\n' : ''}${m.text}` }))}>
+                        + {m.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="pub-cap-acts">
+                  <small>{(doc.caption ?? '').length} caractères</small>
+                  <button className="ab-link" disabled={!doc.caption} onClick={() => void navigator.clipboard?.writeText(doc.caption ?? '').then(() => setToast('Texte copié'), () => setToast('Copie impossible'))}>
+                    Copier le texte
+                  </button>
+                </div>
+              </div>
+              <div className="pub-dl">
+                <div className="seg">
+                  {(['png', 'pdf'] as const).map((k) => (
+                    <button key={k} className={exportKind === k ? 'on' : ''} onClick={() => setExportKind(k)}>
+                      {k.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+                <button className="btn-primary" disabled={exporting || (doc.targets?.length ? !exportTargets.length : !exportFormats.length)} onClick={() => void runExport()}>
+                  {exporting ? 'Téléchargement…' : 'Télécharger'}
+                </button>
+              </div>
+              {pubPlan.length > 0 && (
+                <div className="pub-plan">
+                  <div className="b-sub">Dans le plan de « {pubCampaign!.name} »</div>
+                  {pubPlan.map((it) => (
+                    <div key={it.id} className="pub-plan-row">
+                      <span>
+                        {targetLabel(it, activity)}
+                        {it.label ? ` · ${it.label}` : ''}
+                        {it.date ? ` · ${new Date(`${it.date}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}` : ''}
+                      </span>
+                      {it.published ? (
+                        <small className="pub-done">publiée</small>
+                      ) : (
+                        canEditTeam && (
+                          <button className="ab-link" onClick={() => void markPublished(it.id)}>
+                            Marquer publiée
+                          </button>
+                        )
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button className="pf-btn pub-schedule" disabled title="Bientôt : relier les comptes Facebook et Instagram de l’activité">
+                Programmer la publication
               </button>
+              <p className="fx-hint">La publication programmée viendra quand les comptes Facebook et Instagram de l’activité seront reliés.</p>
             </div>
           )}
 

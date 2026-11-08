@@ -575,7 +575,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .proj-del { position: absolute; top: 10px; right: 10px; width: 30px; height: 30px; border-radius: 50%; background: var(--chrome-solid); display: grid; place-items: center; opacity: 0.75; }
 .proj-del.hot { background: var(--danger); color: #fff; opacity: 1; }
 .proj-del svg { width: 16px; height: 16px; }
-.export-bubble { width: min(320px, calc(100vw - 20px)); }
+.export-bubble { width: min(360px, calc(100vw - 20px)); max-height: calc(100dvh - 90px); overflow: auto; }
 .btn-primary { height: 42px; border-radius: 12px; background: var(--accent); color: #fff; font-weight: 600; margin-top: 4px; }
 .btn-primary:disabled { opacity: 0.5; }
 .tb-mode { display: flex; align-items: center; gap: 6px; padding: 0 12px; flex: none; width: auto; }
@@ -1400,3 +1400,17 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
   .cs-row { grid-template-columns: 1fr 1fr; }
   .cs-target { grid-column: 1 / -1; }
 }
+
+/* publier */
+.pub-caption { display: flex; flex-direction: column; gap: 6px; }
+.pub-caption textarea { resize: vertical; font: inherit; font-size: 13.5px; min-height: 84px; }
+.pub-mentions { display: flex; flex-wrap: wrap; gap: 4px; }
+.pub-mention { height: 26px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.pub-mention.on { border-color: var(--accent); color: var(--accent); }
+.pub-cap-acts { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); }
+.pub-dl { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; }
+.pub-dl .btn-primary { margin: 0; }
+.pub-plan { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 12px; background: var(--accent-soft); }
+.pub-plan-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
+.pub-done { color: #2e8b57; font-weight: 700; }
+.pub-schedule { align-self: stretch; justify-content: center; }

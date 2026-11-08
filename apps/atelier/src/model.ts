@@ -207,6 +207,8 @@ export interface Doc {
   operation?: string;
   /** Campagne à laquelle il contribue. */
   campaign?: string;
+  /** Texte qui accompagne la publication (légende du post). */
+  caption?: string;
   /** Lumière unique : direction d'où elle vient (degrés, 0 = haut, sens horaire). */
   light: number;
   /** Lampe au-dessus de la feuille : position (fractions de la page, peut sortir de la page), hauteur 0..1 et couleur. */
