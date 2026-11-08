@@ -507,11 +507,6 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .pe-mark { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; border: 2.5px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 1px 4px rgba(0, 0, 0, 0.35); pointer-events: none; }
 .pe-mark.on { width: 24px; height: 24px; margin: -12px 0 0 -12px; box-shadow: 0 0 0 2px var(--ink), 0 2px 6px rgba(0, 0, 0, 0.4); }
 .pe-mark.ghost { width: 14px; height: 14px; margin: -7px 0 0 -7px; border-style: dashed; animation: pop 0.14s ease-out; }
-.pe-harm { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-radius: 12px; background: var(--line); animation: pop 0.14s ease-out; }
-.pe-harm button { display: flex; align-items: center; gap: 6px; padding: 4px 8px 4px 4px; border-radius: 9px; background: var(--chrome-solid); font-size: 11px; }
-.pe-harm-sw { display: inline-flex; border-radius: 6px; overflow: hidden; }
-.pe-harm-sw i { width: 12px; height: 22px; }
-.pe-harm .pe-harm-x { padding: 4px 8px; margin-left: auto; }
 .pe-bottom { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 12px; align-items: start; }
 .pe-sliders { display: flex; flex-direction: column; gap: 8px; }
 .pe-sliders label { display: flex; flex-direction: column; gap: 2px; }
@@ -1466,7 +1461,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .pal-edit { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; height: 28px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-soft); }
 .pal-edit svg { width: 14px; height: 14px; }
 .pal-drop-hint { margin: 0; padding: 0 4px; font-size: 12px; color: var(--accent); }
-.color-dialog { position: fixed; z-index: 40; top: 64px; left: 50%; transform: translateX(-50%); width: min(400px, calc(100vw - 20px)); max-height: calc(100vh - 80px); overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 22px; background: var(--chrome-solid); box-shadow: 0 0 0 1px var(--line), var(--tool-lift, 0 6px 24px rgba(0, 0, 0, 0.2)); }
+.color-dialog { position: fixed; z-index: 40; top: 64px; left: 50%; transform: translateX(-50%); width: min(400px, calc(100vw - 20px)); max-height: calc(100dvh - 76px); overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 22px; background: var(--chrome-solid); box-shadow: 0 0 0 1px var(--line), var(--tool-lift, 0 6px 24px rgba(0, 0, 0, 0.2)); }
 .cd-head { display: flex; align-items: center; gap: 8px; }
 .cd-sw { flex: none; width: 36px; height: 36px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }
 .cd-remove { height: 32px; padding: 0 10px; border-radius: 9px; font-size: 12px; color: var(--muted); }
@@ -1533,3 +1528,32 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .pe-ch-val { font: 12px ui-monospace, monospace; text-align: right; color: var(--muted); }
 .pe-bottom.solo { grid-template-columns: minmax(0, 1fr); }
 .pe-sliders[hidden] { display: none; }
+
+/* Boîte de couleur sans ascenseur : le plan se règle sur la hauteur, deux colonnes quand l'écran est bas */
+.pe-main, .pe-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.pe-stage { position: relative; }
+.pe-stage:not(.sliders) { width: min(100%, max(220px, calc(100dvh - 440px))); margin: 0 auto; }
+.pe-plane { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.pe-harm { position: absolute; z-index: 2; left: 8px; right: 8px; bottom: 8px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; padding: 8px; border-radius: 14px; background: color-mix(in srgb, var(--chrome-solid) 86%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: 0 0 0 1px var(--line), 0 8px 24px rgba(0, 0, 0, 0.35); animation: pop 0.14s ease-out; }
+.pe-harm-head { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding: 0 2px 2px; }
+.pe-harm-base { width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(0, 0, 0, 0.3); }
+.pe-harm-head .tb-label { flex: 1; }
+.pe-harm .pe-harm-x { width: 26px; height: 26px; border-radius: 50%; font-size: 12px; color: var(--muted); }
+.pe-harm > button { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 4px 6px 4px 4px; border-radius: 9px; background: var(--chrome-solid); font-size: 11px; text-align: left; box-shadow: inset 0 0 0 1px var(--line); }
+.pe-harm-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pe-harm-sw { flex: none; display: inline-flex; border-radius: 6px; overflow: hidden; }
+.pe-harm-sw i { width: 9px; height: 20px; }
+@media (min-width: 760px) and (max-height: 1000px) {
+  .color-dialog { width: min(720px, calc(100vw - 20px)); }
+  .pe { flex-direction: row; align-items: flex-start; gap: 14px; }
+  .pe-main { flex: 0 0 min(340px, calc(100dvh - 210px)); }
+  .pe-side { flex: 1; }
+  .pe-stage:not(.sliders) { width: 100%; }
+}
+@media (min-width: 760px) and (max-height: 1000px) and (min-width: 900px) { .color-dialog { right: max(10px, min(430px, calc(100vw - 740px))); } }
+.pe-stage { container-type: inline-size; }
+@container (max-width: 300px) {
+  .pe-harm { grid-template-columns: minmax(0, 1fr); gap: 3px; padding: 6px; }
+  .pe-harm > button { padding: 2px 6px 2px 2px; }
+  .pe-harm-sw i { height: 16px; }
+}
