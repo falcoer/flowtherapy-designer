@@ -312,9 +312,12 @@ export function BrushWheel(p: Props) {
           )}
           <circle r={R} className="bw-edge" />
         </g>
-        <text x={C} y={C + RI - 8} className="bw-label">
-          {active ?? `Ø ${p.sizeText}`}
-        </text>
+        {/* au repos, pas de diamètre affiché : seulement le réglage en cours */}
+        {active && (
+          <text x={C} y={C + RI - 8} className="bw-label">
+            {active}
+          </text>
+        )}
         {/* perspective, en bas à droite */}
         <g className={`bw-tilt-pad ${p.onTilt ? '' : 'off'}`}>
           <circle cx={TX} cy={TY} r={TR} className="bw-pad" />
