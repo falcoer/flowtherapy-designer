@@ -5649,17 +5649,25 @@ function PaletteBubble({
         onDrag(null, 0, 0);
       }}
     >
-      <span className="sw" style={{ background: swatch(x) }}>
-        {fixed(x) && <i className="pal-role">{ROLE_SHORT[x.role!] ?? x.role}</i>}
-      </span>
-      <span className="gname">{x.name}</span>
+      <span className="sw" style={{ background: swatch(x) }} />
     </div>
   );
   const editable = g && !fixed(g);
   return (
     <div className="bubble palette-bubble">
       <div className="pal-head">
-        <div className="b-title">Palette du document</div>
+        <div className="b-title">Palette</div>
+        {g && (
+          <span className="pal-sel" title={g.name}>
+            <span className="pal-sel-name">{g.name}</span>
+            {fixed(g) && <small>{ROLE_SHORT[g.role!] ?? g.role}</small>}
+          </span>
+        )}
+        {editable && (
+          <button className="pal-edit" onClick={() => setEditing(active)} title="Modifier la couleur choisie">
+            <Icon name="pen" /> Modifier
+          </button>
+        )}
         <button className={`pal-lib-btn ${lib ? 'on' : ''}`} aria-pressed={lib} onClick={() => setLib(!lib)} title="Palettes enregistrées : sauvegarder ou recharger" aria-label="Palettes enregistrées">
           <Icon name="palettes" />
         </button>
@@ -5722,22 +5730,15 @@ function PaletteBubble({
       )}
       {variantOnes.length > 0 && (
         <section className="pal-sec fixed">
-          <div className="pal-sec-head">
-            <span className="tb-label">Variante{declared ? ` · ${declared.name}` : ''}</span>
-            <small>se choisit avec le format</small>
-          </div>
+          <span className="pal-sec-label" title="La variante se choisit avec le format">
+            Variante
+            {declared && <small>{declared.name}</small>}
+          </span>
           <div className="guides">{variantOnes.map(chip)}</div>
         </section>
       )}
       <section className={`pal-sec mine ${over ? 'over' : ''}`}>
-        <div className="pal-sec-head">
-          <span className="tb-label">Mes couleurs</span>
-          {editable && (
-            <button className="pal-edit" onClick={() => setEditing(active)} title="Modifier la couleur choisie">
-              <Icon name="pen" /> Modifier
-            </button>
-          )}
-        </div>
+        <span className="pal-sec-label">Mes couleurs</span>
         <div className="guides">
           {mine.map(chip)}
           <button
@@ -5750,16 +5751,14 @@ function PaletteBubble({
             title="Ajouter une couleur ; glisse ici une couleur de la variante ou d'un import pour la reprendre"
           >
             <span className="sw plus">＋</span>
-            <span className="gname">Ajouter</span>
           </button>
         </div>
-        {over && <p className="pal-drop-hint">Lâche pour la reprendre dans tes couleurs</p>}
       </section>
       {sources.map((src) => (
         <section key={src} className="pal-sec imported">
-          <div className="pal-sec-head">
-            <span className="tb-label">Importées · {src}</span>
-          </div>
+          <span className="pal-sec-label">
+            Importées<small>{src}</small>
+          </span>
           <div className="guides">{all.filter(({ x }) => !fixed(x) && x.from === src).map(chip)}</div>
         </section>
       ))}

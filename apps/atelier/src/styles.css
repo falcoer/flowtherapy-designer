@@ -1471,3 +1471,19 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .cd-sw { flex: none; width: 36px; height: 36px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }
 .cd-remove { height: 32px; padding: 0 10px; border-radius: 9px; font-size: 12px; color: var(--muted); }
 @media (min-width: 900px) { .color-dialog { left: auto; right: 430px; transform: none; } }
+
+/* palette condensée : une ligne par origine, petites pastilles, le nom de la couleur choisie en tête */
+.palette-bubble .pal-head .b-title { flex: none; }
+.pal-sel { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; font-size: 13px; font-weight: 600; }
+.pal-sel-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-sel small { font: var(--tool-label); text-transform: uppercase; color: var(--muted); }
+.pal-sec { flex-direction: row; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 12px; }
+.pal-sec-label { flex: none; width: 64px; display: flex; flex-direction: column; font: var(--tool-label); text-transform: uppercase; color: var(--muted); line-height: 1.25; }
+.pal-sec-label small { font: 400 11px/1.2 inherit; font-family: inherit; text-transform: none; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-sec .guides { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.pal-sec .guide { padding: 3px; border-radius: 50%; }
+.pal-sec .guide.on { background: transparent; }
+.pal-sec .guide .sw { width: 30px; height: 30px; }
+.pal-sec .guide.on .sw { box-shadow: 0 0 0 2px var(--chrome-solid), 0 0 0 3.5px var(--accent); }
+.pal-sec .guide.add .sw.plus { font-size: 15px; }
+.palette-bubble { gap: 6px; }
