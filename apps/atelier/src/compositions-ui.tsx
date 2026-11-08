@@ -21,9 +21,12 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
   );
 }
 
-/** Nouvelle composition : page vierge, une occasion (ses cibles), un modèle de la campagne, ou la copie d'une autre composition. */
+/** Nouvelle composition : dans une campagne, ses rendus (l'occasion est celle de la campagne) ou un de ses modèles ;
+ *  hors campagne, une occasion au choix ; toujours une page vierge ou la copie d'une autre composition. */
 export function NewCompositionDialog(p: {
   campaign?: Campaign;
+  /** les rendus de la campagne suivie, prêts à composer */
+  campaignOp?: Operation;
   operations: Operation[];
   templates: AtelierMeta[];
   others: AtelierMeta[];
@@ -59,11 +62,17 @@ export function NewCompositionDialog(p: {
         </>
       ) : (
         <>
+          {p.campaignOp && (
+            <button className="row primary" onClick={() => p.onOperation(p.campaignOp!)}>
+              <span>Les rendus de la campagne</span>
+              <small>{p.targetsLabel(p.campaignOp)}</small>
+            </button>
+          )}
           <button className="row" onClick={p.onBlank}>
             <span>Page vierge</span>
             <small>même format et palette</small>
           </button>
-          {p.operations.map((op) => (
+          {!p.campaign && p.operations.map((op) => (
             <button key={op.id} className="row" onClick={() => p.onOperation(op)}>
               <span>{op.name}</span>
               <small>{p.targetsLabel(op)}</small>

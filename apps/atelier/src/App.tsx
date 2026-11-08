@@ -26,7 +26,7 @@ import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
 import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me } from './server';
-import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, targetLabel } from './targets';
+import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, targetKey, targetLabel } from './targets';
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
 import { CampaignDialog, CampaignSummary, VoteButton } from './campaigns-ui';
 import { LoadDialog, NewCompositionDialog } from './compositions-ui';
@@ -594,6 +594,17 @@ export function App() {
   const followed = campaigns.find((c) => c.id === campaign);
   // l'occasion de la campagne suivie vient en premier
   const operations = followed?.operation ? [...allOperations.filter((o) => o.id === followed.operation), ...allOperations.filter((o) => o.id !== followed.operation)] : allOperations;
+  // la campagne fixe l'occasion : une nouvelle composition reprend les rendus de son plan, à défaut ceux de l'occasion
+  const campaignOp = ((): Operation | undefined => {
+    if (!followed) return undefined;
+    const op = allOperations.find((o) => o.id === followed.operation);
+    const seen = new Set<string>();
+    const fromPlan = (followed.plan ?? [])
+      .map((it) => ({ channel: it.channel, format: it.format, palette: it.palette }))
+      .filter((t) => !seen.has(targetKey(t)) && !!seen.add(targetKey(t)));
+    const targets = fromPlan.length ? fromPlan : (op?.targets ?? []);
+    return targets.length ? { id: op?.id ?? followed.id, name: followed.name, targets } : undefined;
+  })();
   // dans une campagne : ses compositions, les plus votées d'abord
   const canEditTeam = !!me?.team && me.team.role !== 'viewer';
   const [campaignDialog, setCampaignDialog] = useState(false);
@@ -4540,7 +4551,8 @@ export function App() {
           {newDialog && (
             <NewCompositionDialog
               campaign={followed}
-              operations={operations}
+              campaignOp={campaignOp}
+              operations={allOperations}
               templates={followedTemplates}
               others={projects.filter((m) => m.campaign !== campaign)}
               campaigns={campaigns}

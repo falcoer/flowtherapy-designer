@@ -165,6 +165,8 @@ button:disabled { opacity: 0.35; cursor: default; }
 .row.on { background: var(--accent-soft); color: var(--accent); }
 .row small { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
 .row.danger { color: var(--danger); }
+.row.primary { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.row.primary > span { white-space: nowrap; }
 .seg { display: flex; gap: 4px; padding: 3px; border-radius: 12px; background: var(--line); }
 .seg button { flex: 1; height: 34px; border-radius: 9px; font-weight: 600; }
 .seg button.on { background: var(--chrome-solid); color: var(--accent); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15); }
