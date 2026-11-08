@@ -487,7 +487,7 @@ export function App() {
     }
   };
 
-  const [tool, setToolState] = useState<Tool>('paint');
+  const [tool, setToolState] = useState<Tool>('move');
   /** Maj : le bouton de la barre (tenu, ou verrouillé d'un double appui), ou la touche du clavier. */
   const [shiftBtn, setShiftBtn] = useState(SHIFT_IDLE);
   const shiftLatch = shiftButtonOn(shiftBtn);
@@ -3753,23 +3753,6 @@ export function App() {
                   <Icon name={fingerDraws ? 'finger-draw' : 'finger'} />
                 </button>
               )}
-              <button
-                className={`btn shift-btn ${shift ? 'on' : ''} ${shiftBtn.latched ? 'latched' : ''}`}
-                onPointerDown={(e) => {
-                  (e.currentTarget as Element).setPointerCapture(e.pointerId);
-                  const next = shiftDown(shiftBtn, performance.now());
-                  setShiftBtn(next);
-                  if (next.latched && !shiftBtn.latched) setToast('Maj verrouillée : un appui la relâche');
-                  else if (shiftBtn.latched && !next.latched) setToast('Maj relâchée');
-                }}
-                onPointerUp={() => setShiftBtn((st) => shiftUp(st, performance.now()))}
-                onPointerCancel={() => setShiftBtn((st) => shiftUp(st, performance.now()))}
-                onContextMenu={(e) => e.preventDefault()}
-                aria-pressed={shift}
-                title="Maj (comme la touche du clavier), tenue du doigt ; double appui pour la verrouiller, un appui pour la relâcher. Sans aimant, une pièce bouge sans se détacher de son ensemble"
-              >
-                <Icon name="shift" />
-              </button>
               <button className="btn" onClick={undo} disabled={!past.current.length} title="Annuler (deux doigts)">
                 <Icon name="undo" />
               </button>
@@ -3839,6 +3822,25 @@ export function App() {
               </button>
             </div>
           </header>
+          {/* Maj : gros bouton en tête de la colonne de gauche (de droite pour un gaucher) */}
+          <button
+            className={`shift-big ${shift ? 'on' : ''} ${shiftBtn.latched ? 'latched' : ''}`}
+            onPointerDown={(e) => {
+              (e.currentTarget as Element).setPointerCapture(e.pointerId);
+              const next = shiftDown(shiftBtn, performance.now());
+              setShiftBtn(next);
+              if (next.latched && !shiftBtn.latched) setToast('Maj verrouillée : un appui la relâche');
+              else if (shiftBtn.latched && !next.latched) setToast('Maj relâchée');
+            }}
+            onPointerUp={() => setShiftBtn((st) => shiftUp(st, performance.now()))}
+            onPointerCancel={() => setShiftBtn((st) => shiftUp(st, performance.now()))}
+            onContextMenu={(e) => e.preventDefault()}
+            aria-pressed={shift}
+            title="Maj (comme la touche du clavier), tenue du doigt ; double appui pour la verrouiller, un appui pour la relâcher. Sans aimant, une pièce bouge sans se détacher de son ensemble"
+          >
+            <Icon name="shift" />
+            <span>maj</span>
+          </button>
 
           <aside className="side tools-bar">
             <button

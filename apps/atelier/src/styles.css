@@ -72,8 +72,6 @@ button:disabled { opacity: 0.35; cursor: default; }
 .btn { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; flex: none; }
 .btn:hover:not(:disabled) { background: var(--accent-soft); }
 .btn.on { color: var(--accent); background: var(--accent-soft); }
-.shift-btn { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-.shift-btn.latched { box-shadow: inset 0 0 0 2px var(--accent); }
 .btn.small { width: 38px; height: 38px; }
 .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
 .guide-btn .dot { width: 24px; height: 24px; border-radius: 50%; box-shadow: 0 0 0 2px var(--chrome-solid), 0 0 0 3.5px var(--line); }
@@ -985,3 +983,20 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
   .brush-wheel.side-left.away { transform: translateX(-66%); }
   .brush-wheel.side-right.away { transform: translateX(66%); }
 }
+
+/* Maj : gros bouton en tête de la colonne de gauche ; les réglages d'outil et la Hauteur passent dessous */
+.shift-big {
+  position: absolute; top: 64px; left: max(8px, env(safe-area-inset-left, 0px)); z-index: 12;
+  width: 54px; height: 54px; border-radius: 16px; border: 0; padding: 0; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  background: var(--chrome); color: var(--ink); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: var(--shadow);
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  transition: background 0.1s, color 0.1s, transform 0.1s;
+}
+.shift-big svg { width: 26px; height: 26px; }
+.shift-big span { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; line-height: 1; }
+.shift-big.on { background: var(--accent-soft); color: var(--accent); transform: scale(0.96); }
+.shift-big.latched { background: var(--accent); color: #fff; transform: none; }
+.hand-left .shift-big { left: auto; right: max(8px, env(safe-area-inset-right, 0px)); }
+.atelier .side:not(.tools-bar) { top: 126px; }
+.hand-right .height-bar, .hand-left .height-bar { top: 126px; }
