@@ -4,7 +4,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 /**
  * Connexion par fournisseurs externes : Google (OpenID Connect) et
- * Sign in with Apple. Seules les adresses de la liste blanche entrent.
+ * Sign in with Apple. Entrent les adresses de la liste d'amorçage et les membres d'une équipe.
  * La session est un cookie signé, sans base de données.
  */
 
@@ -32,6 +32,7 @@ export interface AuthConfig {
   providers: Provider[];
   /** URL publique de l'app, ex. https://designer.flowtherapymusic.com */
   publicUrl: string;
+  /** Adresses admises d'office (amorçage) ; ensuite, ce sont les équipes qui font entrer. */
   allowedEmails: string[];
   sessionSecret: string;
   /** Remplaçable dans les tests. */
@@ -93,7 +94,7 @@ export function decodeJwtPayload<T>(jwt: string): T {
   return JSON.parse(Buffer.from(part, 'base64url').toString()) as T;
 }
 
-function readCookie(req: FastifyRequest, name: string): string | undefined {
+export function readCookie(req: FastifyRequest, name: string): string | undefined {
   const header = req.headers.cookie ?? '';
   for (const part of header.split(';')) {
     const [k, ...v] = part.trim().split('=');
@@ -102,7 +103,7 @@ function readCookie(req: FastifyRequest, name: string): string | undefined {
   return undefined;
 }
 
-function cookie(name: string, value: string, maxAgeSec: number, opts: { secure: boolean; crossSitePost?: boolean }): string {
+export function cookie(name: string, value: string, maxAgeSec: number, opts: { secure: boolean; crossSitePost?: boolean }): string {
   // le retour d'Apple est un POST venant d'un autre site : SameSite=None est nécessaire
   const sameSite = opts.crossSitePost && opts.secure ? 'SameSite=None' : 'SameSite=Lax';
   return [`${name}=${encodeURIComponent(value)}`, 'Path=/', 'HttpOnly', sameSite, `Max-Age=${maxAgeSec}`, opts.secure ? 'Secure' : '']
@@ -172,7 +173,14 @@ export function appleProvider(o: { clientId: string; teamId: string; keyId: stri
 
 /* ---------- Routes ---------- */
 
-export function registerAuth(app: FastifyInstance, cfg: AuthConfig) {
+export interface AuthHooks {
+  /** Vrai si l'adresse appartient à une équipe (invitation comprise). */
+  admit?: (email: string) => boolean;
+  /** Appelé à chaque connexion réussie. */
+  signedIn?: (email: string, name?: string) => void;
+}
+
+export function registerAuth(app: FastifyInstance, cfg: AuthConfig, hooks: AuthHooks = {}) {
   const doFetch = cfg.fetch ?? fetch;
   const secure = cfg.publicUrl.startsWith('https://');
   const allowed = new Set(cfg.allowedEmails.map((e) => e.trim().toLowerCase()).filter(Boolean));
@@ -254,13 +262,14 @@ export function registerAuth(app: FastifyInstance, cfg: AuthConfig) {
     }
     const profile = await p.profile((await tokenRes.json()) as TokenResponse, input, doFetch);
     const email = profile.email?.toLowerCase();
-    if (!email || !profile.emailVerified || !allowed.has(email)) {
+    if (!email || !profile.emailVerified || !(allowed.has(email) || hooks.admit?.(email))) {
       req.log.warn({ email, provider: p.id }, 'connexion refusée (adresse non autorisée)');
       return reply
         .code(403)
         .type('text/html')
-        .send(page(`L'adresse ${escapeHtml(email ?? 'inconnue')} n'est pas autorisée. Demande à Lauris de l'ajouter.`));
+        .send(page(`L'adresse ${escapeHtml(email ?? 'inconnue')} n'est pas autorisée. Demande au responsable de ton équipe de t'inviter.`));
     }
+    hooks.signedIn?.(email, profile.name);
     const session = sign({ email, name: profile.name, exp: Date.now() + SESSION_DAYS * 86_400_000 }, cfg.sessionSecret);
     reply.header('Set-Cookie', [
       cookie(SESSION, session, SESSION_DAYS * 86_400, { secure }),
@@ -305,9 +314,10 @@ export function authFromEnv(env = process.env): AuthConfig | null {
   }
   if (providers.length === 0) return null;
   const { FTD_PUBLIC_URL, FTD_ALLOWED_EMAILS, FTD_SESSION_SECRET } = env;
-  if (!FTD_PUBLIC_URL || !FTD_SESSION_SECRET || !FTD_ALLOWED_EMAILS) {
-    throw new Error('Connexion externe : FTD_PUBLIC_URL, FTD_SESSION_SECRET et FTD_ALLOWED_EMAILS sont requis.');
+  const { FTD_ADMIN_EMAILS } = env;
+  if (!FTD_PUBLIC_URL || !FTD_SESSION_SECRET || !(FTD_ALLOWED_EMAILS || FTD_ADMIN_EMAILS)) {
+    throw new Error('Connexion externe : FTD_PUBLIC_URL, FTD_SESSION_SECRET et FTD_ADMIN_EMAILS (ou FTD_ALLOWED_EMAILS) sont requis.');
   }
   if (FTD_SESSION_SECRET.length < 32) throw new Error('FTD_SESSION_SECRET doit faire au moins 32 caractères.');
-  return { providers, publicUrl: FTD_PUBLIC_URL, allowedEmails: FTD_ALLOWED_EMAILS.split(','), sessionSecret: FTD_SESSION_SECRET };
+  return { providers, publicUrl: FTD_PUBLIC_URL, allowedEmails: (FTD_ALLOWED_EMAILS ?? '').split(',').filter((e) => e.trim()), sessionSecret: FTD_SESSION_SECRET };
 }

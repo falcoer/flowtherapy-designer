@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { TeamSection } from './team-ui';
 import { fetchMe, fetchSystem, reindexLibrary, restartServer, serverOnline, type Me, type SystemInfo } from './server';
 import { MARK_KINDS, MARKS, type MarkGroup, type MarkKind } from './marks';
 import { MarkLegend } from './marks-ui';
@@ -271,14 +272,19 @@ export function PrefsPanel(p: {
               <dl className="pf-dl">
                 <dt>Connexion</dt>
                 <dd>{MODES[me.mode]}</dd>
-                <dt>Rôle</dt>
-                <dd>{me.admin ? 'Administrateur' : 'Membre'}</dd>
+                {me.admin && (
+                  <>
+                    <dt>Accès</dt>
+                    <dd>Administrateur du site</dd>
+                  </>
+                )}
               </dl>
               {me.mode === 'compte' && (
                 <a className="pf-btn" href="/auth/logout">
                   Se déconnecter
                 </a>
               )}
+              {me.mode === 'compte' && <TeamSection me={me} />}
             </>
           )}
         </div>
@@ -305,6 +311,12 @@ export function PrefsPanel(p: {
                   <dd>{sys.library} éléments</dd>
                   <dt>Compositions</dt>
                   <dd>{sys.ateliers}</dd>
+                  {sys.teams != null && (
+                    <>
+                      <dt>Équipes</dt>
+                      <dd>{sys.teams}</dd>
+                    </>
+                  )}
                   <dt>Connexion</dt>
                   <dd>{MODES[sys.auth]}</dd>
                   <dt>Node</dt>

@@ -1,6 +1,22 @@
 # Connexion avec Google et Apple
 
-Les membres du groupe se connectent avec leur compte Google ou Apple. Seules les adresses listées dans `FTD_ALLOWED_EMAILS` peuvent entrer. Chaque enregistrement de projet note qui l'a fait (`meta.updatedBy` dans le YAML).
+Les membres se connectent avec leur compte Google ou Apple. Chacun appartient à une ou plusieurs **équipes** ; une équipe partage ses compositions et ses objets. Entrent les administrateurs (`FTD_ADMIN_EMAILS`) et toute adresse invitée dans une équipe. Chaque enregistrement note qui l'a fait.
+
+## Équipes et rôles
+
+| Rôle | Peut |
+| --- | --- |
+| Responsable | tout, plus inviter, changer les rôles, retirer des membres |
+| Peut modifier | ouvrir, créer, enregistrer et supprimer compositions et objets |
+| Lecture seule | ouvrir et exporter |
+
+- L'équipe d'origine (`flowtherapy`) garde les dossiers existants `ateliers/` et `objets/` : rien n'est déplacé.
+- Les autres équipes rangent leurs fichiers dans `equipes/<id>/ateliers` et `equipes/<id>/objets`, à côté.
+- Les comptes et équipes sont dans `comptes.sqlite`, à côté de `ateliers/` (sur le VPS : `/srv/ft-designer/comptes.sqlite`). Elle n'est pas reconstructible : à sauvegarder avec le reste.
+- Un administrateur (`FTD_ADMIN_EMAILS`) rejoint l'équipe d'origine comme responsable à sa première connexion, crée les autres équipes et peut entrer dans toutes.
+- `FTD_ALLOWED_EMAILS` reste facultatif : ces adresses rejoignent l'équipe d'origine (rôle « Peut modifier ») à leur première connexion.
+- On invite depuis **Préférences › Compte** : adresse et rôle. Aucun e-mail n'est envoyé ; l'invité entre ensuite avec le compte Google de cette adresse.
+- Avec l'accès par mot de passe (`FTD_PASSWORD`, sans Google), tout le monde travaille dans l'équipe d'origine, comme avant.
 
 Adresse de retour à déclarer chez chaque fournisseur :
 
@@ -34,7 +50,9 @@ sudo nano /etc/ft-designer.env && sudo chmod 600 /etc/ft-designer.env
 
 ```ini
 FTD_PUBLIC_URL=https://designer.flowtherapymusic.com
-FTD_ALLOWED_EMAILS=lauris@exemple.fr,membre2@exemple.fr
+FTD_ADMIN_EMAILS=lauris@exemple.fr
+# facultatif : adresses admises d'office dans l'équipe d'origine
+FTD_ALLOWED_EMAILS=membre2@exemple.fr
 # openssl rand -hex 32
 FTD_SESSION_SECRET=...
 
@@ -47,4 +65,4 @@ FTD_APPLE_KEY_ID=...
 FTD_APPLE_PRIVATE_KEY_FILE=/etc/ft-designer-apple.p8
 ```
 
-Puis `sudo systemctl restart ft-designer`. Un fournisseur sans variables n'apparaît pas : on peut démarrer avec Google seul et ajouter Apple plus tard. Pour ajouter un membre, complète `FTD_ALLOWED_EMAILS` et redémarre le service.
+Puis `sudo systemctl restart ft-designer`. Un fournisseur sans variables n'apparaît pas : on peut démarrer avec Google seul et ajouter Apple plus tard. Dès qu'un fournisseur est configuré, le mot de passe `FTD_PASSWORD` n'est plus utilisé. Pour ajouter un membre, invite-le depuis Préférences › Compte, sans redémarrer.

@@ -30,7 +30,7 @@ beforeAll(async () => {
   root = await mkdtemp(path.join(os.tmpdir(), 'ftd-p1-'));
   await cp(repoLibrary, root, { recursive: true });
   cacheRoot = await mkdtemp(path.join(os.tmpdir(), 'ftd-p1-cache-'));
-  app = await buildApp({ libraryRoot: root, cacheRoot, webFonts: false });
+  app = await buildApp({ libraryRoot: root, cacheRoot, webFonts: false, accountsFile: ':memory:' });
 });
 afterAll(() => app.close());
 
