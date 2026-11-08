@@ -25,7 +25,8 @@ import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers }
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
-import { fetchMe, fetchProfile, listAteliers, palettesOf, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Channel, type Me } from './server';
+import { fetchMe, fetchProfile, listAteliers, palettesOf, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me } from './server';
+import { channelsOf, docForTarget, formatsFor, operationsOf, paletteFor, paletteGuides, targetKey, targetLabel } from './targets';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
@@ -496,9 +497,9 @@ export function App() {
       setToast(`Impossible : ${(err as Error).message}`);
     }
   };
-  const newProject = async (title: string, fromCurrent: boolean, ch?: Channel) => {
+  const newProject = async (title: string, fromCurrent: boolean, op?: Operation) => {
     const p = { id: newAtelierId(title), title };
-    const d = fromCurrent ? docRef.current : ch ? channelDoc(ch) : { ...blankDoc(), formatId: docRef.current.formatId, frame: docRef.current.frame, guides: docRef.current.guides };
+    const d = fromCurrent ? docRef.current : op ? operationDoc(op) : { ...blankDoc(), formatId: docRef.current.formatId, frame: docRef.current.frame, guides: docRef.current.guides };
     if (!fromCurrent) {
       forgetPaint();
       past.current = [];
@@ -510,36 +511,51 @@ export function App() {
     await saveNow(p, d);
     refreshProjects();
   };
-  /** Page vierge réglée par un canal : son premier format, sa marge, sa palette (le fond d'abord). */
-  const channelDoc = (ch: Channel): Doc => {
-    const base = blankDoc();
-    const pals = palettesOf(activity);
-    const pal = pals.find((q) => q.id === ch.palette) ?? pals[0];
-    const order = ['fond', 'texte', 'accent', 'secondaire'];
-    const rank = (r?: string) => (r ? order.indexOf(r) : order.length);
-    const guides: Guide[] | undefined = pal?.colors.length
-      ? [...pal.colors].sort((a, b) => rank(a.role) - rank(b.role)).map((c) => ({ name: c.name || c.role || c.hex, type: 'color', color: c.hex }))
-      : undefined;
-    const formatId = ch.formats.find((id) => FORMATS.some((f) => f.id === id)) ?? docRef.current.formatId;
-    return { ...base, formatId, frame: docRef.current.frame, margin: ch.margin ?? base.margin, channel: ch.id, guides: guides ?? docRef.current.guides };
+  /** Page vierge pour une occasion : ses cibles, la première affichée avec son format, sa marge et sa variante. */
+  const operationDoc = (op: Operation): Doc => {
+    const t = op.targets[0]!;
+    const pal = paletteFor(t, activity);
+    const base: Doc = { ...blankDoc(), frame: docRef.current.frame, guides: pal ? paletteGuides(pal) : docRef.current.guides };
+    return { ...docForTarget(base, t, activity), formatId: t.format, targets: op.targets.map((x) => ({ ...x })), target: 0, operation: op.id };
   };
-  const channels = activity?.channels ?? [];
-  const docChannel = channels.find((c) => c.id === doc.channel);
+  /** Affiche une cible : format (les objets gardent leurs accroches), marge du média, couleurs de la variante. */
+  const showTarget = (i: number) =>
+    setDoc((d) => {
+      const t = d.targets?.[i];
+      if (!t) return d;
+      const moved = d.formatId === t.format ? d : holdPins({ ...d, formatId: t.format }, formatOf(t.format), linkShapes(d, formatOf(d.formatId)));
+      return { ...docForTarget(moved, t, activity), target: i };
+    });
+  const channels = channelsOf(activity);
+  const operations = operationsOf(activity);
+  const palettes = palettesOf(activity);
+  const activeTarget = doc.targets?.[doc.target ?? 0];
+  // cible en cours d'ajout : média, format, variante
+  const [addTarget, setAddTarget] = useState<{ channel: string; format: string; palette: string } | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
 
   // --- export ---
   const [exportFormats, setExportFormats] = useState<string[]>([]);
   const [exportKind, setExportKind] = useState<'png' | 'pdf'>('png');
   const [exporting, setExporting] = useState(false);
+  const [exportTargets, setExportTargets] = useState<number[]>([]);
   const runExport = async () => {
-    const list = FORMATS.filter((x) => (exportFormats.length ? exportFormats : [doc.formatId]).includes(x.id));
+    const d0 = docRef.current;
+    // avec des cibles : chacune dans son format et sa variante ; sinon les formats cochés
+    const jobs = d0.targets?.length
+      ? exportTargets
+          .map((i) => d0.targets![i])
+          .filter((t): t is NonNullable<typeof t> => !!t)
+          .map((t) => ({ ff: formatOf(t.format), d: docForTarget(d0, t, activity), name: [project?.title ?? 'composition', t.channel].filter(Boolean).join(' ') }))
+      : FORMATS.filter((x) => (exportFormats.length ? exportFormats : [d0.formatId]).includes(x.id)).map((ff) => ({ ff, d: d0, name: project?.title ?? 'composition' }));
+    const list = jobs;
     setExporting(true);
     try {
-      for (const ff of list) {
+      for (const { ff, d, name } of jobs) {
         setToast(`Export ${ff.title}…`);
-        const c = await renderDoc(docRef.current, ff);
+        const c = await renderDoc(d, ff);
         const blob = exportKind === 'pdf' ? await pdfOf(c, ff) : await pngOf(c);
-        await download(blob, fileName(project?.title ?? 'composition', ff, exportKind));
+        await download(blob, fileName(name, ff, exportKind));
       }
       setToast(list.length > 1 ? `${list.length} fichiers exportés` : 'Fichier exporté');
     } catch (err) {
@@ -3887,7 +3903,7 @@ export function App() {
                 {online && project && <span className={`save-dot ${saving}`} title={{ saved: 'Enregistrée', dirty: 'Modifications en attente', saving: 'Enregistrement…', error: 'Non enregistrée' }[saving]} />}
               </button>
               <button className={`chip ${bubble === 'format' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'format' ? null : 'format')}>
-                <FormatGlyph w={f.width} h={f.height} /> <span className="chip-label">{f.title}</span>
+                <FormatGlyph w={f.width} h={f.height} /> <span className="chip-label">{activeTarget ? targetLabel(activeTarget, activity) : f.title}</span>
               </button>
               <button className={`btn ${bubble === 'anchor' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'anchor' ? null : 'anchor')} title="Aide au positionnement : repères, densité, marge">
                 <Icon name="layout" />
@@ -3908,8 +3924,8 @@ export function App() {
                 className={`btn ${bubble === 'export' ? 'on' : ''}`}
                 onClick={() => {
                   if (bubble !== 'export') {
-                    const fs = docChannel?.formats.filter((id) => FORMATS.some((x) => x.id === id)) ?? [];
-                    setExportFormats(fs.length ? [doc.formatId, ...fs.filter((id) => id !== doc.formatId)] : [doc.formatId]);
+                    setExportFormats([doc.formatId]);
+                    setExportTargets((doc.targets ?? []).map((_, i) => i));
                   }
                   setBubble(bubble === 'export' ? null : 'export');
                 }}
@@ -4406,18 +4422,14 @@ export function App() {
                     <span>Nouvelle composition</span>
                     <small>page vierge, même format et palette</small>
                   </button>
-                  {channels.length > 0 && (
+                  {operations.length > 0 && (
                     <div className="proj-channels">
-                      <div className="b-sub">ou pour un canal</div>
-                      {channels.map((ch) => (
-                        <button key={ch.id} className="row" onClick={() => void newProject(ch.name, false, ch)} title={ch.focus ? `Zone d’intérêt : ${ch.focus}` : undefined}>
+                      <div className="b-sub">ou pour une occasion</div>
+                      {operations.map((op) => (
+                        <button key={op.id} className="row" onClick={() => void newProject(op.name, false, op)}>
                           <Icon name="plus" />
-                          <span>{ch.name}</span>
-                          <small>
-                            {[ch.formats.map((id) => FORMATS.find((x) => x.id === id)?.title ?? id).join(', '), palettesOf(activity).find((q) => q.id === ch.palette)?.name]
-                              .filter(Boolean)
-                              .join(' · ')}
-                          </small>
+                          <span>{op.name}</span>
+                          <small>{op.targets.map((t) => targetLabel(t, activity)).join(', ')}</small>
                         </button>
                       ))}
                     </div>
@@ -4493,8 +4505,22 @@ export function App() {
                   </button>
                 ))}
               </div>
-              <div className="b-title">Formats</div>
-              {FORMATS.map((x) => {
+              <div className="b-title">{doc.targets?.length ? 'Cibles' : 'Formats'}</div>
+              {doc.targets?.map((t, i) => {
+                const on = exportTargets.includes(i);
+                const x = formatOf(t.format);
+                const sz = exportSize(x);
+                return (
+                  <button key={i} className={`row ${on ? 'on' : ''}`} onClick={() => setExportTargets(on ? exportTargets.filter((y) => y !== i) : [...exportTargets, i])}>
+                    <FormatGlyph w={x.width} h={x.height} big />
+                    <span>{targetLabel(t, activity)}</span>
+                    <small>
+                      {sz.w} × {sz.h} px{paletteFor(t, activity) ? ` · ${paletteFor(t, activity)!.name}` : ''}
+                    </small>
+                  </button>
+                );
+              })}
+              {!doc.targets?.length && FORMATS.map((x) => {
                 const on = exportFormats.includes(x.id);
                 const sz = exportSize(x);
                 return (
@@ -4553,16 +4579,133 @@ export function App() {
           )}
           {bubble === 'format' && (
             <div className="bubble format-bubble">
-              <div className="b-title">Format</div>
-              {FORMATS.map((x) => (
-                <button key={x.id} className={`row ${x.id === f.id ? 'on' : ''}`} onClick={() => setDoc((d) => holdPins({ ...d, formatId: x.id }, x, linkShapes(d, formatOf(d.formatId))))}>
-                  <FormatGlyph w={x.width} h={x.height} big />
-                  <span>{x.title}</span>
-                  <small>
-                    {x.width} × {x.height} {x.unit}
-                  </small>
+              <div className="b-title">Cibles du document</div>
+              {!doc.targets?.length && <p className="b-note">Choisis où partira ce document : un média, un format, une variante de couleurs.</p>}
+              {doc.targets?.map((t, i) => {
+                const x = formatOf(t.format);
+                const pal = paletteFor(t, activity);
+                const on = i === (doc.target ?? 0);
+                return (
+                  <div key={i} className={`tg-row ${on ? 'on' : ''}`}>
+                    <button className="row" onClick={() => showTarget(i)}>
+                      <FormatGlyph w={x.width} h={x.height} big />
+                      <span>{targetLabel(t, activity)}</span>
+                      <small className="tg-pal">
+                        {pal && (
+                          <span className="tg-dots">
+                            {paletteGuides(pal).slice(0, 4).map((g, k) => (
+                              <i key={k} style={{ background: g.type === 'color' ? g.color : undefined }} />
+                            ))}
+                          </span>
+                        )}
+                        {pal?.name ?? `${x.width} × ${x.height} ${x.unit}`}
+                      </small>
+                    </button>
+                    <button
+                      className="tm-remove"
+                      title="Retirer cette cible"
+                      onClick={() =>
+                        setDoc((d) => {
+                          const targets = (d.targets ?? []).filter((_, j) => j !== i);
+                          const cur = d.target ?? 0;
+                          return { ...d, targets, target: Math.max(0, cur > i ? cur - 1 : Math.min(cur, targets.length - 1)) };
+                        })
+                      }
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+              {addTarget ? (
+                (() => {
+                  const ch = channels.find((c) => c.id === addTarget.channel);
+                  const fs = formatsFor(ch);
+                  const fmt = fs.some((x) => x.id === addTarget.format) ? addTarget.format : fs[0]!.id;
+                  const t = { ...(ch ? { channel: ch.id } : {}), format: fmt, ...(addTarget.palette ? { palette: addTarget.palette } : {}) };
+                  const dup = doc.targets?.some((x) => targetKey(x) === targetKey(t));
+                  return (
+                    <div className="tg-add">
+                      <label>
+                        <span>Média</span>
+                        <select className="pf-input" value={addTarget.channel} onChange={(e) => setAddTarget({ ...addTarget, channel: e.target.value })}>
+                          {channels.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                          <option value="">Libre (tous formats)</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Format</span>
+                        <select className="pf-input" value={fmt} onChange={(e) => setAddTarget({ ...addTarget, format: e.target.value })}>
+                          {fs.map((x) => (
+                            <option key={x.id} value={x.id}>
+                              {x.title}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {palettes.length > 0 && (
+                        <label>
+                          <span>Variante</span>
+                          <select className="pf-input" value={addTarget.palette} onChange={(e) => setAddTarget({ ...addTarget, palette: e.target.value })}>
+                            <option value="">{`Celle du média (${paletteFor(ch ? { channel: ch.id, format: fmt } : undefined, activity)?.name ?? '—'})`}</option>
+                            {palettes.map((q) => (
+                              <option key={q.id} value={q.id}>
+                                {q.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                      <div className="tg-add-btns">
+                        <button className="pf-btn" onClick={() => setAddTarget(null)}>
+                          Annuler
+                        </button>
+                        <button
+                          className="pf-btn act-primary"
+                          disabled={dup}
+                          title={dup ? 'Cette cible est déjà dans la liste' : undefined}
+                          onClick={() => {
+                            setAddTarget(null);
+                            const i = doc.targets?.length ?? 0;
+                            setDoc((d) => {
+                              // la première cible reprend le format affiché : il devient une cible comme les autres
+                              const targets = [...(d.targets ?? []), t];
+                              return { ...d, targets, target: d.targets?.length ? d.target : 0 };
+                            });
+                            showTarget(i);
+                          }}
+                        >
+                          Ajouter
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                <button className="row" onClick={() => setAddTarget({ channel: channels[0]?.id ?? '', format: '', palette: '' })}>
+                  <Icon name="plus" />
+                  <span>Ajouter une cible</span>
+                  <small>média, format, variante</small>
                 </button>
-              ))}
+              )}
+              {!doc.targets?.length && (
+                <>
+                  <div className="b-title">Format libre</div>
+                  {FORMATS.map((x) => (
+                    <button key={x.id} className={`row ${x.id === f.id ? 'on' : ''}`} onClick={() => setDoc((d) => holdPins({ ...d, formatId: x.id }, x, linkShapes(d, formatOf(d.formatId))))}>
+                      <FormatGlyph w={x.width} h={x.height} big />
+                      <span>{x.title}</span>
+                      <small>
+                        {x.width} × {x.height} {x.unit}
+                      </small>
+                    </button>
+                  ))}
+                </>
+              )}
               <button
                 className="row danger"
                 onClick={() => {

@@ -23,7 +23,8 @@ export interface Pt {
 
 /** Passage d'une teinte à l'autre dans un dégradé : douce (fondu continu), faible (aplats aux bords fondus), sans (aplats nets). */
 export type Blend = 'smooth' | 'soft' | 'hard';
-export type Guide = { name: string; type: 'color'; color: string } | { name: string; type: 'gradient'; stops: string[]; blend?: Blend };
+/** `role` : rôle de la couleur dans les variantes de l'activité (fond, texte…) ; changer de variante remplace la couleur du même rôle. */
+export type Guide = { name: string; type: 'color'; color: string; role?: string } | { name: string; type: 'gradient'; stops: string[]; blend?: Blend; role?: string };
 
 /** Arrêts d'un dégradé (position 0..1, couleur) selon sa transition. */
 export function blendStops(stops: string[], blend: Blend = 'smooth'): Array<[number, string]> {
@@ -183,6 +184,12 @@ export interface Lamp {
   color: string;
 }
 
+export interface Target {
+  channel?: string;
+  format: string;
+  palette?: string;
+}
+
 export interface Doc {
   formatId: string;
   frame: AnchorFrame;
@@ -193,8 +200,11 @@ export interface Doc {
   /** Points d'ancrage ajoutables (cases à cocher), tous présents par défaut : sommets et milieux des côtés de la page et de la marge, points des bords en répartition. */
   points?: AnchorExtras;
   guides: Guide[];
-  /** Canal de communication de l'activité dont part la composition (identifiant). */
-  channel?: string;
+  /** Cibles du document (média, format, variante) ; `target` est celle affichée. */
+  targets?: Target[];
+  target?: number;
+  /** Occasion dont part le document. */
+  operation?: string;
   /** Lumière unique : direction d'où elle vient (degrés, 0 = haut, sens horaire). */
   light: number;
   /** Lampe au-dessus de la feuille : position (fractions de la page, peut sortir de la page), hauteur 0..1 et couleur. */

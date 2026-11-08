@@ -234,5 +234,17 @@ describe('équipes', () => {
     ]);
     expect(prof.channels[0].palette).toBe('jour-2');
     expect(prof.channels[1].palette).toBeUndefined();
+    expect(prof.operations).toBeUndefined();
+
+    // occasions : cibles présélectionnées (média, format, variante)
+    const ops = await lauris.send('PUT', '/api/teams/flowtherapy/profile', {
+      operations: [
+        { id: 'concert', name: 'Concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }, { format: '' }] },
+        { name: '' },
+      ],
+    });
+    expect(ops.json().profile.operations).toEqual([
+      { id: 'concert', name: 'Concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }] },
+    ]);
   });
 });

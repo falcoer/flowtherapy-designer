@@ -83,8 +83,22 @@ export interface ActivityProfile {
     /** Textes récurrents prêts à poser (partenaires, réseaux, hashtags…). */
     mentions?: Array<{ name: string; text: string }>;
   };
-  /** Canaux de communication : chacun fixe ses formats, sa marge, son logo et ses mentions. */
+  /** Canaux de communication (médias) : chacun fixe ses formats, sa marge, son logo et ses mentions. */
   channels?: Channel[];
+  /** Occasions (concert, nouvelle musique…) : les cibles présélectionnées d'un nouveau document. */
+  operations?: Operation[];
+}
+
+/** Une cible d'un document : un média, un format compatible, une variante de couleurs. */
+export interface Target {
+  channel?: string;
+  format: string;
+  palette?: string;
+}
+export interface Operation {
+  id: string;
+  name: string;
+  targets: Target[];
 }
 
 export interface PaletteColor {
@@ -208,6 +222,26 @@ export function cleanProfile(p: ActivityProfile): ActivityProfile {
       const { palette, ...rest } = c;
       return { ...rest, id, ...(palette && seenPal.has(palette) ? { palette } : {}) };
     });
+  const seenOp = new Set<string>();
+  const operations = arr<Partial<Operation>>(p.operations)
+    .slice(0, 30)
+    .map((o, i) => {
+      const name = str(o?.name, 60);
+      const base = str(o?.id, 40).replace(/[^a-z0-9-]/g, '') || `occasion-${i + 1}`;
+      let id = base;
+      for (let n = 2; seenOp.has(id); n++) id = `${base}-${n}`;
+      seenOp.add(id);
+      const targets = arr<Partial<Target>>(o?.targets)
+        .slice(0, 20)
+        .map((t) => ({
+          ...(str(t?.channel, 40) ? { channel: str(t?.channel, 40) } : {}),
+          format: str(t?.format, 40),
+          ...(str(t?.palette, 40) ? { palette: str(t?.palette, 40) } : {}),
+        }))
+        .filter((t) => t.format);
+      return { id, name, targets };
+    })
+    .filter((o) => o.name);
   const keywords = (Array.isArray(p.branding?.keywords) ? p.branding!.keywords : [])
     .map((k) => str(k, 40))
     .filter(Boolean)
@@ -217,6 +251,7 @@ export function cleanProfile(p: ActivityProfile): ActivityProfile {
     services: { events: cleanLinks(p.services?.events), assets: cleanLinks(p.services?.assets) },
     branding: { palettes, fonts, purpose: str(p.branding?.purpose, 2000), keywords, mentions },
     channels,
+    ...(Array.isArray(p.operations) ? { operations } : {}),
   };
 }
 

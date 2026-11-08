@@ -994,7 +994,19 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .pf-reset { align-self: flex-start; font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
 /* bulles posées à gauche : à côté des barres de gauche (réglages d'outil, Hauteur), jamais dessous */
 .atelier .format-bubble, .atelier .anchor-bubble, .atelier .projects-bubble { left: max(10px, env(safe-area-inset-left, 0px), var(--bubble-left, 0px)); }
-.atelier .format-bubble, .atelier .anchor-bubble { width: min(290px, calc(100vw - max(10px, var(--bubble-left, 0px)) - 10px)); }
+.atelier .format-bubble { width: min(340px, calc(100vw - max(10px, var(--bubble-left, 0px)) - 10px)); max-height: min(78dvh, calc(100dvh - 120px)); overflow-y: auto; }
+.b-note { margin: 0 4px 4px; font-size: 12.5px; line-height: 1.4; color: var(--muted); }
+.tg-row { display: flex; align-items: center; gap: 4px; border-radius: 12px; }
+.tg-row > .row { flex: 1; min-width: 0; }
+.tg-row.on > .row { background: var(--accent-soft); color: var(--accent); }
+.tg-pal { display: inline-flex; align-items: center; gap: 6px; }
+.tg-dots { display: inline-flex; }
+.tg-dots i { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--chrome-solid); margin-left: -4px; }
+.tg-dots i:first-child { margin-left: 0; }
+.tg-add { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--accent); border-radius: 14px; }
+.tg-add label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.tg-add-btns { display: flex; justify-content: flex-end; gap: 6px; }
+.atelier .anchor-bubble { width: min(290px, calc(100vw - max(10px, var(--bubble-left, 0px)) - 10px)); }
 .atelier .projects-bubble { width: min(360px, calc(100vw - max(10px, var(--bubble-left, 0px)) - 10px)); }
 
 /* roue écartée : seul son disque visible la rappelle ; autour (coins du carré, jauge, flèche), les touches vont à la page */
@@ -1200,3 +1212,5 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
   .act-mention { grid-template-columns: 1fr auto; }
   .act-mention textarea { grid-column: 1; }
 }
+.chip-label { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-chip .brand { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

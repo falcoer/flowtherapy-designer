@@ -138,6 +138,18 @@ export interface Channel {
   mentions?: string[];
   url?: string;
 }
+/** Une cible d'un document : un média, un format compatible, une variante de couleurs. */
+export interface Target {
+  channel?: string;
+  format: string;
+  palette?: string;
+}
+/** Occasion (concert, nouvelle musique…) et ses cibles. */
+export interface Operation {
+  id: string;
+  name: string;
+  targets: Target[];
+}
 /** Fiche de l'activité : identité, branding général, canaux, services. */
 export interface ActivityProfile {
   id: string;
@@ -155,6 +167,8 @@ export interface ActivityProfile {
     mentions?: Array<{ name: string; text: string }>;
   };
   channels?: Channel[];
+  /** Occasions : cibles présélectionnées d'un nouveau document. */
+  operations?: Operation[];
   /** Adresses des logos présents, par variante. */
   logos?: Partial<Record<LogoVariant, string>>;
 }

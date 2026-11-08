@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Icon } from './icons';
 import { FORMATS } from './model';
-import { createTeam, fetchProfile, palettesOf, ROLE_LABELS, saveProfile, switchTeam, type ActivityProfile, type Channel, type ChannelKind, type ColorRole, type LogoVariant, type Me, type Palette, type PaletteColor, type ServiceLink, type TeamRef } from './server';
+import { createTeam, fetchProfile, palettesOf, ROLE_LABELS, saveProfile, switchTeam, type ActivityProfile, type Channel, type ChannelKind, type ColorRole, type LogoVariant, type Me, type Operation, type Palette, type PaletteColor, type ServiceLink, type TeamRef } from './server';
 import { fontList, loadFonts } from './text';
 import { MembersSection } from './team-ui';
+import { DEFAULT_CHANNELS, DEFAULT_OPERATIONS, formatsFor } from './targets';
 
 /**
  * L'activité (le groupe, l'association, le lieu…) pour laquelle tout l'outil existe :
@@ -130,7 +131,7 @@ export function ActivityMenu(p: { me: Me | null; online: boolean | null; onEdit:
   );
 }
 
-type FormTab = 'identity' | 'branding' | 'channels' | 'services' | 'members';
+type FormTab = 'identity' | 'branding' | 'channels' | 'operations' | 'services' | 'members';
 
 export const ROLE_COLOR_LABELS: Record<ColorRole, string> = { fond: 'Fond', texte: 'Texte', accent: 'Accent', secondaire: 'Secondaire' };
 export const CHANNEL_KINDS: Record<ChannelKind, string> = { social: 'Réseau social', affichage: 'Affichage', impression: 'Impression', email: 'E-mail', site: 'Site' };
@@ -226,7 +227,7 @@ function PaletteEditor(p: { pal: Palette; first: boolean; edit: boolean; set: (q
   return (
     <div className="act-pal">
       <div className="act-pal-head">
-        <input className="pf-input act-pal-name" value={pal.name} disabled={!edit} onChange={(e) => p.set({ ...pal, name: e.target.value })} aria-label="Nom de la palette" />
+        <input className="pf-input act-pal-name" value={pal.name} disabled={!edit} onChange={(e) => p.set({ ...pal, name: e.target.value })} aria-label="Nom de la variante" />
         {p.first ? (
           <span className="tm-badge">par défaut</span>
         ) : (
@@ -237,7 +238,7 @@ function PaletteEditor(p: { pal: Palette; first: boolean; edit: boolean; set: (q
           )
         )}
         {edit && (
-          <button className="tm-remove" onClick={p.remove} title="Retirer la palette">
+          <button className="tm-remove" onClick={p.remove} title="Retirer la variante">
             ×
           </button>
         )}
@@ -284,7 +285,7 @@ function ChannelCard(p: { c: Channel; set: (c: Channel) => void; remove: () => v
     <div className={`act-channel ${p.open ? 'open' : ''}`}>
       <button className="act-channel-head" onClick={p.toggle} aria-expanded={p.open}>
         <span className="act-txt">
-          <b>{c.name || 'Nouveau canal'}</b>
+          <b>{c.name || 'Nouveau média'}</b>
           <small>{[CHANNEL_KINDS[c.kind], c.formats.map(fmt).join(', ')].filter(Boolean).join(' · ')}</small>
         </span>
         <span className="ab-chev">{p.open ? '−' : '+'}</span>
@@ -334,7 +335,7 @@ function ChannelCard(p: { c: Channel; set: (c: Channel) => void; remove: () => v
             </Field>
           </div>
           {p.palettes.length > 1 && (
-            <Field label="Palette">
+            <Field label="Variante de couleurs">
               <select className="pf-input" value={c.palette ?? p.palettes[0].id} disabled={!p.edit} onChange={(e) => p.set({ ...c, palette: e.target.value })}>
                 {p.palettes.map((q) => (
                   <option key={q.id} value={q.id}>
@@ -394,7 +395,11 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    fetchProfile(team.id).then(setProf, (e: Error) => setErr(e.message));
+    fetchProfile(team.id).then(
+      // médias et occasions proposés tant que l'activité n'a pas les siens
+      (x) => setProf({ ...x, channels: x.channels?.length ? x.channels : DEFAULT_CHANNELS, operations: x.operations ?? DEFAULT_OPERATIONS }),
+      (e: Error) => setErr(e.message),
+    );
     void loadFonts().then(setFonts);
   }, [team.id]);
 
@@ -420,6 +425,7 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
     if (add.length) setBranding({ keywords: [...keywords, ...add] });
     setKw('');
   };
+  const setOperation = (i: number, o: Operation) => set({ operations: (prof?.operations ?? []).map((x, j) => (j === i ? o : x)) });
   const setChannel = (i: number, c: Channel) => set({ channels: channels.map((x, j) => (j === i ? c : x)) });
   const addChannel = () => {
     const id = `canal-${Date.now().toString(36)}`;
@@ -454,7 +460,8 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
   const tabs = [
     ['identity', 'Identité'],
     ['branding', 'Branding'],
-    ['channels', 'Canaux'],
+    ['channels', 'Médias'],
+    ['operations', 'Occasions'],
     ['services', 'Services'],
     ['members', 'Membres'],
   ] as const;
@@ -515,8 +522,8 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
       )}
       {prof && tab === 'branding' && (
         <div className="pf-body">
-          <div className="pf-group">Palettes</div>
-          <p className="pf-note">Plusieurs palettes possibles (jour, nuit, saison…). Chaque canal choisit la sienne ; la première sert par défaut.</p>
+          <div className="pf-group">Variantes de couleurs</div>
+          <p className="pf-note">Chaque variante (jour, nuit, saison…) est une base de palette. Les compositions colorent avec ces rôles : changer de variante recolore tout, sur tous les supports. La première sert par défaut.</p>
           {palettes.map((pal, pi) => (
             <PaletteEditor
               key={pal.id}
@@ -530,10 +537,10 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
           ))}
           {edit && (
             <button className="pf-btn act-add" onClick={addPalette}>
-              + Nouvelle palette
+              + Nouvelle variante
             </button>
           )}
-          {!palettes.length && !edit && <p className="pf-note">Aucune palette pour l’instant.</p>}
+          {!palettes.length && !edit && <p className="pf-note">Aucune variante pour l’instant.</p>}
           <div className="pf-group">Polices</div>
           <div className="act-row3">
             {(
@@ -609,7 +616,7 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
       )}
       {prof && tab === 'channels' && (
         <div className="pf-body">
-          <p className="pf-note">Chaque canal (post, story, affiche, lettre…) fixe ses formats, sa marge, sa palette, sa version du logo et ses mentions. Une nouvelle composition part d’un canal.</p>
+          <p className="pf-note">Chaque média (Facebook, Instagram, affiche, lettre…) dit ses formats compatibles, sa marge, sa variante de couleurs, sa version du logo et ses mentions.</p>
           {channels.map((c, i) => (
             <ChannelCard
               key={c.id}
@@ -623,10 +630,52 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
               palettes={palettes}
             />
           ))}
-          {!channels.length && !edit && <p className="pf-note">Aucun canal pour l’instant.</p>}
+          {!channels.length && !edit && <p className="pf-note">Aucun média pour l’instant.</p>}
           {edit && (
             <button className="pf-btn act-add" onClick={addChannel}>
-              + Ajouter un canal
+              + Ajouter un média
+            </button>
+          )}
+        </div>
+      )}
+      {prof && tab === 'operations' && (
+        <div className="pf-body">
+          <p className="pf-note">Pour chaque occasion, les cibles cochées sont présélectionnées quand on crée un document.</p>
+          {(prof.operations ?? []).map((o, i) => (
+            <div key={o.id} className="act-pal">
+              <div className="act-pal-head">
+                <input className="pf-input act-pal-name" value={o.name} placeholder="Concert, évènement" disabled={!edit} onChange={(e) => setOperation(i, { ...o, name: e.target.value })} aria-label="Nom de l’occasion" />
+                {edit && (
+                  <button className="tm-remove" onClick={() => set({ operations: (prof.operations ?? []).filter((_, j) => j !== i) })} title="Retirer l’occasion">
+                    ×
+                  </button>
+                )}
+              </div>
+              <div className="act-checks">
+                {channels.flatMap((c) =>
+                  formatsFor(c).map((fm) => {
+                    const on = o.targets.some((t) => t.channel === c.id && t.format === fm.id);
+                    return (
+                      <label key={`${c.id}/${fm.id}`} className={`act-check ${on ? 'on' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          disabled={!edit}
+                          onChange={() =>
+                            setOperation(i, { ...o, targets: on ? o.targets.filter((t) => !(t.channel === c.id && t.format === fm.id)) : [...o.targets, { channel: c.id, format: fm.id }] })
+                          }
+                        />
+                        {c.name} · {fm.title}
+                      </label>
+                    );
+                  }),
+                )}
+              </div>
+            </div>
+          ))}
+          {edit && (
+            <button className="pf-btn act-add" onClick={() => set({ operations: [...(prof.operations ?? []), { id: `occasion-${Date.now().toString(36)}`, name: '', targets: [] }] })}>
+              + Nouvelle occasion
             </button>
           )}
         </div>
