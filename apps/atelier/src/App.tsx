@@ -4,10 +4,11 @@ import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive, type T
 import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
 import { steadyPath } from './steady';
 import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
-import { STAMPS, stampOf, stampSvg } from './stamps';
+import { STAMPS, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel } from './coupe';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { PrefsPanel, type FingerMode, type Theme } from './prefs';
+import { PointGrids } from './anchor-ui';
 import { BrushWheel } from './wheel';
 import { SHIFT_IDLE, shiftButtonOn, shiftDown, shiftHeld, shiftUp, tiltStep, wheelAction, wheelDevice, zoomFactor } from './shift';
 import { ParallaxView } from './parallax';
@@ -24,7 +25,7 @@ import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers }
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { listAteliers, newAtelierId, readAtelier, removeAtelier, saveAtelier, serverOnline, thumbUrl, type AtelierMeta } from './server';
-import { ANCHOR_EXTRAS, anchorPointOf, anchorsOf, objectGrips, ungrip, compact, extraOn, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin } from './model';
+import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
@@ -905,7 +906,26 @@ export function App() {
   // les calculs d'ancrage suivent la densité du document ouvert
   setAnchorDensity(doc.density);
   setAnchorMargin(doc.margin);
-  setAnchorExtras(doc.points);
+  /** Points d'accroche par défaut (Préférences) : pour les compositions qui n'ont pas les leurs. */
+  const [defaultPoints, setDefaultPointsRaw] = useState<AnchorExtras>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('ftd-atelier-points') ?? 'null') ?? {};
+    } catch {
+      return {};
+    }
+  });
+  const setDefaultPoints = (v: AnchorExtras) => {
+    setDefaultPointsRaw(v);
+    try {
+      localStorage.setItem('ftd-atelier-points', JSON.stringify(v));
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  const points = doc.points ?? defaultPoints;
+  setAnchorExtras(points);
+  /** Bulle de positionnement : les points d'accroche s'ouvrent sur « Plus ». */
+  const [anchorMore, setAnchorMore] = useState(false);
   /** Couleurs caractéristiques des repères (marges, points) : préférence de l'atelier, par-dessus les couleurs d'origine. */
   const [markColors, setMarkColorsRaw] = useState(loadMarkColors);
   setMarkColors(markColors);
@@ -1548,7 +1568,7 @@ export function App() {
         const bb = pageBounds(held, f);
         ctx.save();
         ctx.lineWidth = 1.5 * px;
-        for (const g of objectGrips(doc.points)) {
+        for (const g of objectGrips(points)) {
           const x = (bb.x0 + bb.x1) / 2 + g.x * (bb.x1 - bb.x0);
           const y = (bb.y0 + bb.y1) / 2 + g.y * (bb.y1 - bb.y0);
           const r = 3.2 * px;
@@ -2140,6 +2160,11 @@ export function App() {
       onOption: (k: string) => set(k as 'round' | 'flat' | 'triangle'),
     };
   };
+  /** Aperçu d'un tampon tel qu'il s'imprime : couleur ou dégradé du guide, rempli si l'option est prise. */
+  const stampLook = (def: StampDef) => {
+    const g = doc.guides[guide];
+    return stampSvg(def, guideColor(g, 0.5), { filled: stampFilled, ...(g?.type === 'gradient' ? { stops: Array.from({ length: 9 }, (_, q) => guideColor(g, q / 8)) } : {}) });
+  };
   /** Empreinte en vraie grandeur au centre de l'écran, pendant le réglage de la taille sur la roue. */
   const [sizing, setSizing] = useState<'on' | 'after' | null>(null);
   /** Où survole le stylet (s'il survole la page) : l'empreinte réglée sur la roue s'y montre plutôt qu'au centre. */
@@ -2428,7 +2453,7 @@ export function App() {
       // Maj : ni ancrage ni bord, l'objet suit le doigt
       const free = shiftHeld(shiftLatch, shiftKey, e.shiftKey);
       let bestD = free ? 0 : MAGNET / scale;
-      for (const g of free ? [] : objectGrips(doc.points)) {
+      for (const g of free ? [] : objectGrips(points)) {
         // le point de l'objet, d'après sa découpe, relatif au centre de sa boîte
         const ox = g.x || g.y ? (bb.x0 + bb.x1) / 2 + g.x * (bb.x1 - bb.x0) - b.cx : 0;
         const oy = g.x || g.y ? (bb.y0 + bb.y1) / 2 + g.y * (bb.y1 - bb.y0) - b.cy : 0;
@@ -3726,7 +3751,7 @@ export function App() {
       <div
         ref={hoverRef}
         className={`pen-hover ${tool === 'stamp' ? 'stamp' : ''}`}
-        style={tool === 'stamp' ? { backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(stampSvg(stampOf(stampId), guideColor(doc.guides[guide], 0.5)))}")` } : undefined}
+        style={tool === 'stamp' ? { backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(stampLook(stampOf(stampId)))}")` } : undefined}
       />
 
       {!rendu && (
@@ -3976,20 +4001,20 @@ export function App() {
                   )}
                   {brushKind === 'branch' && (
                     <>
-                      <VSlider label="Ramifications" value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
-                      <VSlider label="Chaos" value={converge} onChange={(v) => setConverge(Math.round(v * 100) / 100)} />
-                      <VSlider label="Taille noyau" value={branchCore} onChange={(v) => setBranchCore(Math.round(v * 100) / 100)} />
+                      <Knob label="Ramifications" fmt={(v) => String(1 + Math.round(v * 15))} value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
+                      <Knob label="Chaos" value={converge} onChange={(v) => setConverge(Math.round(v * 100) / 100)} />
+                      <Knob label="Taille noyau" value={branchCore} onChange={(v) => setBranchCore(Math.round(v * 100) / 100)} />
                     </>
                   )}
                   {brushKind === 'hair' && (
                     <>
-                      <VSlider label="Longueur" value={hairLen} onChange={(v) => setHairLen(Math.max(0.03, Math.round(v * 100) / 100))} />
-                      <VSlider label={curl < 0.15 ? 'Frisure · raide' : curl < 0.6 ? 'Frisure · alpaga' : 'Frisure · mouton'} value={curl} onChange={(v) => setCurl(Math.round(v * 100) / 100)} />
+                      <Knob label="Longueur" value={hairLen} onChange={(v) => setHairLen(Math.max(0.03, Math.round(v * 100) / 100))} />
+                      <Knob label={curl < 0.15 ? 'Frisure · raide' : curl < 0.6 ? 'Frisure · alpaga' : 'Frisure · mouton'} value={curl} onChange={(v) => setCurl(Math.round(v * 100) / 100)} />
                     </>
                   )}
                   {brushKind === 'burn' && (
                     <>
-                      <VSlider label="Roussi" value={burnChar} onChange={(v) => setBurnChar(Math.max(0.02, Math.round(v * 100) / 100))} />
+                      <Knob label="Roussi" value={burnChar} onChange={(v) => setBurnChar(Math.max(0.02, Math.round(v * 100) / 100))} />
                       <button className={`btn small ${burnHole ? 'on' : ''}`} onClick={() => setBurnHole(!burnHole)} title={burnHole ? 'Trous : la brûlure perce la couche' : 'Sans trou : la brûlure teinte seulement'}>
                         <Icon name="burn-hole" />
                       </button>
@@ -4074,8 +4099,8 @@ export function App() {
                     </button>
                   {stampSow && (
                     <>
-                      <VSlider label="Densité" value={sowDensity} onChange={(v) => setSowDensity(Math.round(v * 100) / 100)} />
-                      <VSlider label="Écart" value={sowSpread} onChange={(v) => setSowSpread(Math.round(v * 100) / 100)} />
+                      <Knob label="Densité" value={sowDensity} onChange={(v) => setSowDensity(Math.round(v * 100) / 100)} />
+                      <Knob label="Écart" value={sowSpread} onChange={(v) => setSowSpread(Math.round(v * 100) / 100)} />
                     </>
                   )}
                 </>
@@ -4141,8 +4166,8 @@ export function App() {
                           ))}
                         </div>
                       )}
-                      <VSlider label="Seuil" value={(edgeThreshold - 0.05) / 0.9} onChange={(v) => setEdgeThreshold(Math.round((0.05 + v * 0.9) * 50) / 50)} />
-                      <VSlider label="Lissage" value={edgeSmooth} onChange={(v) => setEdgeSmooth(Math.round(v * 20) / 20)} />
+                      <Knob label="Seuil" value={(edgeThreshold - 0.05) / 0.9} onChange={(v) => setEdgeThreshold(Math.round((0.05 + v * 0.9) * 50) / 50)} />
+                      <Knob label="Lissage" value={edgeSmooth} onChange={(v) => setEdgeSmooth(Math.round(v * 20) / 20)} />
                     </>
                   )}
                 </>
@@ -4194,18 +4219,18 @@ export function App() {
                         }
                       : { tilt: stampTilt, onTilt: (x: number, y: number) => setStampTilt([x, y]) })}
                     pick={{
-                      face: <span className="bw-stamp-face" dangerouslySetInnerHTML={{ __html: stampSvg(stampOf(stampId)) }} />,
+                      face: <span className="bw-stamp-face" dangerouslySetInnerHTML={{ __html: stampSvg(stampOf(stampId), 'currentColor', { filled: stampFilled }) }} />,
                       title: `Tampon : ${stampOf(stampId).name}`,
                       // les tampons défilent dans l'éventail, comme les autres choix de la roue
                       options: STAMPS.map((x) => ({
                         key: x.id,
-                        icon: <span className="fan-stamp" dangerouslySetInnerHTML={{ __html: stampSvg(x, guideColor(doc.guides[guide], 0.5)) }} />,
+                        icon: <span className="fan-stamp" dangerouslySetInnerHTML={{ __html: stampLook(x) }} />,
                         label: x.name,
                         on: stampId === x.id,
                       })),
                       onOption: setStampId,
                     }}
-                    stamp={`data:image/svg+xml,${encodeURIComponent(stampSvg(stampOf(stampId), guideColor(doc.guides[guide], 0.5)))}`}
+                    stamp={`data:image/svg+xml,${encodeURIComponent(stampLook(stampOf(stampId)))}`}
                   />
                 ),
                 tool === 'mold' &&
@@ -4382,6 +4407,8 @@ export function App() {
               setGuides={setGuidesOn}
               markColors={markColors}
               setMarkColors={changeMarkColors}
+              points={defaultPoints}
+              setPoints={setDefaultPoints}
               onClose={() => setBubble(null)}
             />
           )}
@@ -4530,7 +4557,17 @@ export function App() {
 
           {bubble === 'anchor' && (
             <div className="bubble anchor-bubble">
-              <div className="b-title">Aide au positionnement</div>
+              <div className="ab-head">
+                <div className="b-title">Aide au positionnement</div>
+                <button
+                  className={`btn small ${guidesOn.on ? 'on' : ''}`}
+                  onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}
+                  aria-pressed={guidesOn.on}
+                  title={guidesOn.on ? 'Repères affichés en permanence : toucher pour ne les voir qu’en déplaçant' : 'Repères visibles seulement en déplaçant : toucher pour les afficher en permanence'}
+                >
+                  <Icon name={guidesOn.on ? 'eye' : 'eyeoff'} />
+                </button>
+              </div>
               <div className="seg">
                 {ANCHOR_FRAMES.filter((x) => x !== 'grid').map((x) => (
                   <button key={x} className={doc.frame === x ? 'on' : ''} onClick={() => setDoc((d) => ({ ...d, frame: x as AnchorFrame }))} title={FRAME_TITLES[x]}>
@@ -4538,27 +4575,25 @@ export function App() {
                   </button>
                 ))}
               </div>
-              <div className="b-title">
-                Densité des points <span className="b-count">{anchorsOf(doc.frame, f).length} points</span>
-              </div>
-              <label className={`density ${doc.frame === 'repartition' ? '' : 'off'}`}>
-                <span>−</span>
-                <input
-                  type="range"
-                  min={1}
-                  max={DENSITY_STEPS.length}
-                  step={1}
-                  disabled={doc.frame !== 'repartition'}
-                  value={doc.density ?? DEFAULT_DENSITY}
-                  onChange={(e) => setDoc((d) => ({ ...d, density: Number(e.target.value) }))}
-                />
-                <span>+</span>
-              </label>
-              <small className="fx-hint">
-                {doc.frame === 'repartition'
-                  ? ['Demis', 'Demis et tiers', 'Demis, tiers et quarts', 'Jusqu’aux sixièmes', 'Douzièmes', 'Vingt-quatrièmes'][(doc.density ?? DEFAULT_DENSITY) - 1]
-                  : 'Le nombre d’or et l’armature ont des points fixes : la densité règle la répartition.'}
-              </small>
+              {doc.frame === 'repartition' && (
+                <>
+                  <div className="b-title">
+                    Densité <span className="b-count">{['Demis', 'Tiers', 'Quarts', 'Sixièmes', 'Douzièmes', '24es'][(doc.density ?? DEFAULT_DENSITY) - 1]}</span>
+                  </div>
+                  <label className="density">
+                    <span>−</span>
+                    <input
+                      type="range"
+                      min={1}
+                      max={DENSITY_STEPS.length}
+                      step={1}
+                      value={doc.density ?? DEFAULT_DENSITY}
+                      onChange={(e) => setDoc((d) => ({ ...d, density: Number(e.target.value) }))}
+                    />
+                    <span>+</span>
+                  </label>
+                </>
+              )}
               <div className="b-title">
                 Marge <span className="b-count">{Math.round((doc.margin ?? 0) * 100)} %</span>
               </div>
@@ -4583,46 +4618,7 @@ export function App() {
                 />
                 <span>+</span>
               </label>
-              <small className="fx-hint">Les repères se répartissent à cette distance du bord, dedans (+) ou au-delà (−) ; elle suit le format quand il change.</small>
-              {([
-                ['Points de l’objet qui s’accrochent', true],
-                ['Points de la page', false],
-              ] as const).map(([title, obj]) => (
-                <Fragment key={title}>
-                  <div className="b-title">{title}</div>
-                  <div className="anchor-extras">
-                    {obj && (
-                      <label className="off" title="Le centre s’accroche toujours">
-                        <input type="checkbox" checked disabled />
-                        <span>Centre</span>
-                      </label>
-                    )}
-                    {ANCHOR_EXTRAS.filter((x) => !!x.obj === obj).map((x) => {
-                      const off = !!x.frame && x.frame !== doc.frame;
-                      return (
-                        <label key={x.key} className={off ? 'off' : ''} title={off ? 'Avec la répartition ½ ⅓ seulement' : x.hint}>
-                          <input
-                            type="checkbox"
-                            disabled={off}
-                            checked={extraOn(doc.points, x.key)}
-                            onChange={(e) => setDoc((d) => ({ ...d, points: { ...d.points, [x.key]: e.target.checked } }))}
-                          />
-                          <span>
-                            {x.label}
-                            <small>{x.hint}</small>
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </Fragment>
-              ))}
-              <div className="b-title">Repères visibles</div>
-              <div className="guides-look">
-                <button className={`pal-lib-save ${guidesOn.on ? 'on' : ''}`} onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}>
-                  {guidesOn.on ? 'Toujours' : 'Au déplacement'}
-                </button>
-              </div>
+              {/* légende : seulement ce qui est sur la page en ce moment */}
               <MarkLegend
                 kinds={(() => {
                   const seen = new Set(anchorsOf(doc.frame, f).map((a) => anchorKind(doc.frame, a.id)));
@@ -4630,6 +4626,18 @@ export function App() {
                 })()}
                 colors={markColors}
               />
+              <button className={`ab-more ${anchorMore ? 'on' : ''}`} onClick={() => setAnchorMore(!anchorMore)} aria-expanded={anchorMore}>
+                <span>Points d’accroche</span>
+                <span className="ab-chev">{anchorMore ? '−' : '+'}</span>
+              </button>
+              {anchorMore && (
+                <>
+                  <PointGrids points={points} frame={doc.frame} onChange={(k, v) => setDoc((d) => ({ ...d, points: { ...(d.points ?? defaultPoints), [k]: v } }))} />
+                  <button className="ab-link" onClick={() => setBubble('prefs')}>
+                    Réglages par défaut dans Préférences
+                  </button>
+                </>
+              )}
             </div>
           )}
 
@@ -4810,6 +4818,98 @@ function VSlider({ label, value, onChange, center, onActive }: { label: string; 
       )}
       <div className="vs-thumb" style={{ bottom: `calc(${value * 100}% - 9px)` }} />
       <span className="vs-label">{label}</span>
+    </div>
+  );
+}
+
+/** Petits dessins des potards : ce que règle chacun (repère 16 × 16, centré sur 8,8). */
+const KNOB_GLYPHS: Array<[RegExp, string, boolean?]> = [
+  [/^seuil/i, 'M8 2.5a5.5 5.5 0 0 0 0 11z M8 2.5a5.5 5.5 0 0 1 0 11 5.5 5.5 0 0 1 0-11z', true],
+  [/^lissage/i, 'M2 11c2-1 2-5 4-5s2 3 4 3 3-4 4-5'],
+  [/^densit/i, 'M4 4h.01M8 4h.01M12 4h.01M4 8h.01M8 8h.01M12 8h.01M4 12h.01M8 12h.01M12 12h.01'],
+  [/^écart/i, 'M5.5 8h.01M10.5 8h.01M3 5.5 1.5 8 3 10.5M13 5.5 14.5 8 13 10.5'],
+  [/^ramification/i, 'M8 14V8M8 8 4.5 3.5M8 8l3.5-4.5M8 10.5 5 8.5M8 10l3-2.5'],
+  [/^chaos/i, 'M2 10l2.5-5 2 7 2.5-9 2 8 2-4 1 2'],
+  [/^taille noyau/i, 'M8 6.3a1.7 1.7 0 1 1 0 3.4 1.7 1.7 0 0 1 0-3.4zM8 2.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11z'],
+  [/^longueur/i, 'M4 13.5c1-3.5 1-7 0-11M8 13.5V2.5M12 13.5c-1-3.5-1-7 0-11'],
+  [/^frisure/i, 'M2 9c0-3 3-3 3 0s3 3 3 0 3-3 3 0 3 3 3 0'],
+  [/^roussi/i, 'M8 14c-2.6 0-4-1.8-4-3.9 0-1.9 1.2-3 1.9-4.5.4 1 1 1.6 1.6 1.8C7.3 5.3 8 3.6 9.5 2c.4 2.6 2.5 4.4 2.5 7.2 0 2.9-1.6 4.8-4 4.8zM8 14c-1 0-1.6-.8-1.6-1.7 0-1.1 1-1.7 1.6-2.8.6 1.1 1.6 1.7 1.6 2.8 0 .9-.6 1.7-1.6 1.7z'],
+  [/^mélange/i, 'M6 3.5a4 4 0 1 1 0 8 4 4 0 0 1 0-8zM10 4.5a4 4 0 1 1 0 8 4 4 0 0 1 0-8z'],
+  [/^dessin/i, 'M3 13l.8-3L10.5 3.3l2.2 2.2L6 12.2zM9.3 4.5l2.2 2.2'],
+  [/^intensit/i, 'M8 2.5c2.8 3.6 4 5.6 4 7.5a4 4 0 0 1-8 0c0-1.9 1.2-3.9 4-7.5z'],
+  [/^bord/i, 'M3 3h10v10H3zM5.5 5.5h5v5h-5z'],
+  [/^biseau/i, 'M2.5 2.5h11v11h-11zM5.5 5.5h5v5h-5zM2.5 2.5l3 3M13.5 2.5l-3 3M2.5 13.5l3-3M13.5 13.5l-3-3'],
+  [/^distance/i, 'M6 6h4v4H6zM2.5 2.5h3M10.5 2.5h3M2.5 13.5h3M10.5 13.5h3M2.5 2.5v3M2.5 10.5v3M13.5 2.5v3M13.5 10.5v3'],
+  [/^largeur/i, 'M2 8h12M4 5.5 1.5 8 4 10.5M12 5.5 14.5 8 12 10.5M8 4v8'],
+];
+
+/** Potard : tourne d'un geste (glisser vers le haut ou vers la droite pour monter),
+ *  le libellé et le niveau s'affichent en surbrillance à côté tant qu'on le tient.
+ *  Sa jauge est celle de la roue du pinceau : des segments de 6 h à 3 h, par la gauche et le haut.
+ *  Double appui : retour au neutre pour un réglage à deux sens. */
+function Knob({ label, value, onChange, center, fmt }: { label: string; value: number; onChange: (v: number) => void; center?: boolean; fmt?: (v: number) => string }) {
+  const drag = useRef<{ x: number; y: number; v: number; id: number } | null>(null);
+  const lastTap = useRef(0);
+  const [held, setHeld] = useState(false);
+  const N = 12;
+  const A0 = Math.PI; // 6 h
+  const A1 = 2.5 * Math.PI; // 3 h
+  const [r0, r1] = [16, 21.5];
+  const at = (a: number, r: number) => [22 + Math.sin(a) * r, 22 - Math.cos(a) * r].map((n) => n.toFixed(2)).join(' ');
+  const seg = (a: number, b: number) => `M${at(a, r1)}A${r1} ${r1} 0 0 1 ${at(b, r1)}L${at(b, r0)}A${r0} ${r0} 0 0 0 ${at(a, r0)}Z`;
+  const lit = (i: number) => {
+    const [lo, hi] = [i / N, (i + 1) / N];
+    if (!center) return hi <= value + 1e-6 ? 'on' : (lo + hi) / 2 <= value ? 'half' : '';
+    // à deux sens : du milieu vers la valeur
+    const [a, b] = value >= 0.5 ? [0.5, value] : [value, 0.5];
+    return lo >= a - 1e-6 && hi <= b + 1e-6 ? 'on' : (lo + hi) / 2 > a && (lo + hi) / 2 < b ? 'half' : '';
+  };
+  const glyph = KNOB_GLYPHS.find(([re]) => re.test(label));
+  const shown = fmt ? fmt(value) : center ? `${value >= 0.5 ? '+' : '−'}${Math.round(Math.abs(value - 0.5) * 200)}` : `${Math.round(value * 100)} %`;
+  const end = () => {
+    drag.current = null;
+    setHeld(false);
+  };
+  return (
+    <div
+      className={`knob ${held ? 'held' : ''}`}
+      title={label}
+      onPointerDown={(e) => {
+        (e.currentTarget as Element).setPointerCapture(e.pointerId);
+        const now = performance.now();
+        if (center && now - lastTap.current < 320) onChange(0.5);
+        lastTap.current = now;
+        drag.current = { x: e.clientX, y: e.clientY, v: value, id: e.pointerId };
+        setHeld(true);
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (!d || d.id !== e.pointerId) return;
+        // 180 px de geste pour toute la course ; le crayon règle plus finement
+        const span = e.pointerType === 'pen' ? 320 : 180;
+        let v = Math.max(0, Math.min(1, d.v + (d.y - e.clientY + (e.clientX - d.x)) / span));
+        if (center && Math.abs(v - 0.5) < 0.03) v = 0.5;
+        if (v !== value) onChange(v);
+      }}
+      onPointerUp={end}
+      onPointerCancel={end}
+    >
+      <svg viewBox="0 0 44 44" aria-hidden>
+        {Array.from({ length: N }, (_, i) => {
+          const a = A0 + (i / N) * (A1 - A0);
+          const b = A0 + ((i + 1) / N) * (A1 - A0);
+          return <path key={i} className={`kn-seg ${lit(i)}`} d={seg(a + 0.035, b - 0.035)} />;
+        })}
+        {center && <path className="kn-zero" d={`M${at((A0 + A1) / 2, r0 - 1.5)}L${at((A0 + A1) / 2, r1 + 1.5)}`} />}
+        <circle className="kn-cap" cx="22" cy="22" r="13.5" />
+        {glyph && <path className={`kn-glyph ${glyph[2] ? 'filled' : ''}`} d={glyph[1]} transform="translate(11.6 11.6) scale(1.3)" />}
+      </svg>
+      {held && (
+        <span className="kn-tag">
+          <b>{label}</b>
+          <span>{shown}</span>
+        </span>
+      )}
     </div>
   );
 }
@@ -5312,7 +5412,7 @@ function LookControls({
           </div>
         </div>
       )}
-      {look && def && <VSlider label="Mélange" value={look.mix} onChange={(v) => onChange({ ...look, mix: Math.round(v * 100) / 100 }, false)} />}
+      {look && def && <Knob label="Mélange" value={look.mix} onChange={(v) => onChange({ ...look, mix: Math.round(v * 100) / 100 }, false)} />}
       {look && draw && drawDef && (
         <>
           {drawDef.slots.map((sl, i) => (
@@ -5348,7 +5448,7 @@ function LookControls({
               </div>
             </div>
           )}
-          <VSlider label="Dessin" value={draw.amount} onChange={(v) => onChange({ ...look, draw: { ...draw, amount: Math.round(v * 100) / 100 } }, false)} />
+          <Knob label="Dessin" value={draw.amount} onChange={(v) => onChange({ ...look, draw: { ...draw, amount: Math.round(v * 100) / 100 } }, false)} />
         </>
       )}
     </>
@@ -5434,7 +5534,7 @@ function MaterialControls({
           </div>
         </div>
       )}
-      {cur && <VSlider label="Intensité" value={cur.amount} onChange={(v) => onChange({ ...cur, amount: Math.round(v * 100) / 100 }, false)} />}
+      {cur && <Knob label="Intensité" value={cur.amount} onChange={(v) => onChange({ ...cur, amount: Math.round(v * 100) / 100 }, false)} />}
     </>
   );
 }
@@ -5598,7 +5698,7 @@ function FxControls({
           </div>
         </div>
       )}
-      {def && cur && <VSlider label="Intensité" value={cur.amount} onChange={(v) => patchCur({ amount: Math.round(v * 100) / 100 }, false)} />}
+      {def && cur && <Knob label="Intensité" value={cur.amount} onChange={(v) => patchCur({ amount: Math.round(v * 100) / 100 }, false)} />}
     </>
   );
 }
@@ -5673,10 +5773,10 @@ function EdgeControls({ layer: l, guides, pop, setPop, patch }: { layer: Layer; 
             onPick={(i) => patch({ border: { ...bd, guide: i } })}
           />
           {bd.style === 'double' && <GuidePick title="Bord extérieur" value={bd.guide2 ?? 1} guides={guides} open={pop === 'c2'} setOpen={toggle('c2')} onPick={(i) => patch({ border: { ...bd, guide2: i } })} />}
-          <VSlider label="Bord" value={Math.sqrt((bd.width - 0.002) / 0.198)} onChange={(v) => patch({ border: { ...bd, width: 0.002 + Math.round(v * v * 198) / 1000 } }, false)} />
+          <Knob label="Bord" value={Math.sqrt((bd.width - 0.002) / 0.198)} onChange={(v) => patch({ border: { ...bd, width: 0.002 + Math.round(v * v * 198) / 1000 } }, false)} />
         </>
       )}
-      <VSlider label="Biseau" value={l.bevel ?? 0} onChange={(v) => patch({ bevel: Math.round(v * 100) / 100 }, false)} />
+      <Knob label="Biseau" value={l.bevel ?? 0} onChange={(v) => patch({ bevel: Math.round(v * 100) / 100 }, false)} />
       <span className="side-sep" />
       <button className={`btn small ${pop === 'glow' ? 'on' : ''}`} onClick={() => setPop(pop === 'glow' ? null : 'glow')} title={`Lueur : ${GLOW_TYPES.find((x) => x[0] === (gl?.style ?? null))![1]}`}>
         <Icon name={`glow-${gl?.style ?? 'none'}`} />
@@ -5703,8 +5803,8 @@ function EdgeControls({ layer: l, guides, pop, setPop, patch }: { layer: Layer; 
       {gl && (
         <>
           <GuidePick title="Couleur de la lueur" value={gl.guide} guides={guides} open={pop === 'gc'} setOpen={toggle('gc')} onPick={(i) => patch({ glow: { ...gl, guide: i } })} />
-          <VSlider label="Distance" center value={(gl.distance + 1) / 2} onChange={(v) => patch({ glow: { ...gl, distance: Math.round((v * 2 - 1) * 100) / 100 } }, false)} />
-          <VSlider label="Largeur" value={gl.width} onChange={(v) => patch({ glow: { ...gl, width: Math.round(v * 100) / 100 } }, false)} />
+          <Knob label="Distance" center value={(gl.distance + 1) / 2} onChange={(v) => patch({ glow: { ...gl, distance: Math.round((v * 2 - 1) * 100) / 100 } }, false)} />
+          <Knob label="Largeur" value={gl.width} onChange={(v) => patch({ glow: { ...gl, width: Math.round(v * 100) / 100 } }, false)} />
         </>
       )}
     </>

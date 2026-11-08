@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { fetchMe, fetchSystem, reindexLibrary, restartServer, serverOnline, type Me, type SystemInfo } from './server';
 import { MARK_KINDS, MARKS, type MarkGroup, type MarkKind } from './marks';
 import { MarkLegend } from './marks-ui';
+import { PointGrids } from './anchor-ui';
+import type { AnchorExtras } from './model';
 
 const MARK_GROUPS: Array<[MarkGroup, string]> = [
   ['page', 'Page'],
@@ -44,6 +46,8 @@ function Toggle({ label, hint, on, set }: { label: string; hint: string; on: boo
  * Hors ligne (démo), les onglets Compte et Système le disent au lieu de rester vides.
  */
 export function PrefsPanel(p: {
+  points: AnchorExtras;
+  setPoints: (v: AnchorExtras) => void;
   online: boolean | null;
   tips: boolean;
   setTips: (v: boolean) => void;
@@ -181,6 +185,13 @@ export function PrefsPanel(p: {
           </div>
           <div className="pf-group">Repères</div>
           <Toggle label="Repères toujours visibles" hint="Sinon, ils n'apparaissent que pendant un déplacement" on={p.guides.on} set={(on) => p.setGuides({ ...p.guides, on })} />
+          <div className="pf-row pf-col">
+            <span className="pf-txt">
+              <b>Points d’accroche par défaut</b>
+              <small>Les points de l’objet et de la page qui s’aimantent, pour les compositions qui n’ont pas leurs propres réglages. Touche un point pour allumer ou éteindre sa famille.</small>
+            </span>
+            <PointGrids points={p.points} frame="repartition" onChange={(k, v) => p.setPoints({ ...p.points, [k]: v })} />
+          </div>
           <div className="pf-row pf-col">
             <span className="pf-txt">
               <b>Couleurs des repères</b>
