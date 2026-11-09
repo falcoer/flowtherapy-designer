@@ -57,13 +57,30 @@ function lut(g: Extract<Guide, { type: 'gradient' }>): Uint8ClampedArray {
 const PAD = 0.3;
 const cache = new Map<string, HTMLCanvasElement | OffscreenCanvas>();
 
-function gradCanvas(g: Extract<Guide, { type: 'gradient' }>, s: GradShape, ar: number) {
-  const key = JSON.stringify([g.stops, g.blend, s, Math.round(ar * 50) / 50]);
-  const hit = cache.get(key);
+/** Position dans le dégradé de chaque point (0..255) : ne dépend que de la forme, gardée d'une couleur à l'autre. */
+const fields = new Map<string, { W: number; H: number; t: Uint8Array }>();
+function gradField(s: GradShape, ar: number) {
+  const key = JSON.stringify([s, Math.round(ar * 50) / 50]);
+  const hit = fields.get(key);
   if (hit) return hit;
   const R = 256;
   const W = Math.max(8, Math.round(ar >= 1 ? R : R * ar));
   const H = Math.max(8, Math.round(ar >= 1 ? R / ar : R));
+  const t = new Uint8Array(W * H);
+  const span = 1 + 2 * PAD;
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) t[y * W + x] = Math.round(gradT(s, -PAD + ((x + 0.5) / W) * span, -PAD + ((y + 0.5) / H) * span, ar) * 255);
+  if (fields.size > 40) fields.clear();
+  const f = { W, H, t };
+  fields.set(key, f);
+  return f;
+}
+
+function gradCanvas(g: Extract<Guide, { type: 'gradient' }>, s: GradShape, ar: number) {
+  const key = JSON.stringify([g.stops, g.blend, s, Math.round(ar * 50) / 50]);
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const { W, H, t } = gradField(s, ar);
   const c =
     typeof OffscreenCanvas !== 'undefined'
       ? new OffscreenCanvas(W, H)
@@ -74,17 +91,15 @@ function gradCanvas(g: Extract<Guide, { type: 'gradient' }>, s: GradShape, ar: n
   const ctx = c.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
   const img = ctx.createImageData(W, H);
   const tab = lut(g);
-  const span = 1 + 2 * PAD;
-  for (let y = 0; y < H; y++)
-    for (let x = 0; x < W; x++) {
-      const t = gradT(s, -PAD + ((x + 0.5) / W) * span, -PAD + ((y + 0.5) / H) * span, ar);
-      const j = Math.round(t * 255) * 3;
-      const o = (y * W + x) * 4;
-      img.data[o] = tab[j]!;
-      img.data[o + 1] = tab[j + 1]!;
-      img.data[o + 2] = tab[j + 2]!;
-      img.data[o + 3] = 255;
-    }
+  const d = img.data;
+  for (let k = 0, n = W * H; k < n; k++) {
+    const j = t[k]! * 3;
+    const o = k * 4;
+    d[o] = tab[j]!;
+    d[o + 1] = tab[j + 1]!;
+    d[o + 2] = tab[j + 2]!;
+    d[o + 3] = 255;
+  }
   ctx.putImageData(img, 0, 0);
   if (cache.size > 80) cache.clear();
   cache.set(key, c);

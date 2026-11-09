@@ -1,4 +1,4 @@
-import { gradientStops, harmonies, hexToOklch, maxChroma, oklabToRgb8, oklchToHex, type Oklch } from '@ftd/core';
+import { gradientStops, harmonies, hexToOklch, maxChroma, oklabToLinear, oklchToHex, type Oklch } from '@ftd/core';
 import { cssGradient } from './model';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Blend } from './model';
@@ -37,8 +37,31 @@ const range = (p: Plane) => {
   return [Math.min(0.98, c + w / 2), Math.max(0.05, c - w / 2)] as const;
 };
 const hueAt = (p: Plane, u: number) => (((p.hue0 - p.hues / 2 + u * p.hues) % 360) + 360) % 360;
+/**
+ * Saturation maximale affichable, gardée en table (clarté au 1/255, teinte au degré) : repeindre le plan
+ * ou ses curseurs ne refait plus la recherche à chaque point (bornée à la peinture) ; les couleurs
+ * choisies, elles, gardent le calcul exact.
+ */
+const CL = 256;
+const chromaTab = new Float32Array(CL * 360).fill(-1);
+function maxChromaFast(l: number, h: number): number {
+  const i = Math.max(0, Math.min(CL - 1, Math.round(l * (CL - 1))));
+  const j = Math.round(((h % 360) + 360) % 360) % 360;
+  const k = i * 360 + j;
+  let v = chromaTab[k]!;
+  if (v < 0) v = chromaTab[k] = maxChroma(i / (CL - 1), j);
+  return v;
+}
+
+/** sRGB linéaire (0..1, borné) → octet, en table pour peindre le plan sans puissance par point. */
+const GAMMA = Uint8ClampedArray.from({ length: 4097 }, (_, i) => {
+  const v = i / 4096;
+  return Math.round(255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055));
+});
+const byte = (v: number) => GAMMA[Math.round(Math.max(0, Math.min(1, v)) * 4096)]!;
+
 /** Couleur d'un point du plan (u, v en 0..1). */
-function colorAt(u: number, v: number, p: Plane): Oklch {
+function colorAt(u: number, v: number, p: Plane, maxC: (l: number, h: number) => number = maxChroma): Oklch {
   const [top, bot] = range(p);
   const lAt = (t: number) => top - t * (top - bot);
   const cu = Math.max(0, Math.min(1, u));
@@ -49,11 +72,11 @@ function colorAt(u: number, v: number, p: Plane): Oklch {
     const l = lAt((row + 0.5) / ROWS);
     if (col === 0) return { l, c: 0, h: 0 };
     const h = hueAt(p, p.hues >= 360 ? (col - 1) / p.cols : (col - 0.5) / p.cols);
-    return { l, c: p.sat * maxChroma(l, h), h };
+    return { l, c: p.sat * maxC(l, h), h };
   }
   const l = lAt(Math.max(0, Math.min(1, v)));
   const h = hueAt(p, cu);
-  return { l, c: p.sat * maxChroma(l, h), h };
+  return { l, c: p.sat * maxC(l, h), h };
 }
 /** Place d'une couleur sur le plan ; null si le plan ne la montre pas. */
 function placeOf(hex: string, p: Plane): Pt | null {
@@ -89,12 +112,12 @@ function trackOf(k: 'sat' | 'light' | 'contrast' | 'hues', p: Plane, base: Oklch
   const n = 8;
   const run = (f: (t: number) => Oklch) => `linear-gradient(90deg, ${Array.from({ length: n + 1 }, (_, j) => at(f(j / n))).join(', ')})`;
   const l0 = 0.15 + 0.7 * p.light;
-  if (k === 'sat') return run((t) => ({ l: l0, c: t * maxChroma(l0, base.h), h: base.h }));
+  if (k === 'sat') return run((t) => ({ l: l0, c: t * maxChromaFast(l0, base.h), h: base.h }));
   if (k === 'light') return run((t) => {
     const l = 0.15 + 0.7 * t;
-    return { l, c: p.sat * maxChroma(l, base.h), h: base.h };
+    return { l, c: p.sat * maxChromaFast(l, base.h), h: base.h };
   });
-  if (k === 'hues') return run((t) => ({ l: l0, c: p.sat * maxChroma(l0, (base.h + t * 360) % 360), h: (base.h + t * 360) % 360 }));
+  if (k === 'hues') return run((t) => ({ l: l0, c: p.sat * maxChromaFast(l0, (base.h + t * 360) % 360), h: (base.h + t * 360) % 360 }));
   // contraste : à gauche des clartés proches, à droite du blanc au noir (moitié haute vers le clair, basse vers le sombre)
   return `linear-gradient(90deg, ${at({ l: l0, c: 0, h: 0 })}, #fff) top / 100% 50% no-repeat, linear-gradient(90deg, ${at({ l: l0, c: 0, h: 0 })}, #000) bottom / 100% 50% no-repeat`;
 }
@@ -145,14 +168,19 @@ export function PaletteEditor({
       return DEFAULT;
     }
   });
+  // réglages du plan gardés pour la prochaine fois, une fois le geste fini
+  const saveT = useRef(0);
   const setPlane = (patch: Partial<Plane>) =>
     setPlaneRaw((p) => {
       const next = { ...p, ...patch };
-      try {
-        localStorage.setItem(PLANE, JSON.stringify(next));
-      } catch {
-        /* stockage indisponible */
-      }
+      clearTimeout(saveT.current);
+      saveT.current = window.setTimeout(() => {
+        try {
+          localStorage.setItem(PLANE, JSON.stringify(next));
+        } catch {
+          /* stockage indisponible */
+        }
+      }, 400);
       return next;
     });
   const mode = pl.mode;
@@ -190,10 +218,14 @@ export function PaletteEditor({
     const img = ctx.createImageData(RES, RES);
     for (let y = 0; y < RES; y++)
       for (let x = 0; x < RES; x++) {
-        const c = colorAt((x + 0.5) / RES, (y + 0.5) / RES, pl);
+        const c = colorAt((x + 0.5) / RES, (y + 0.5) / RES, pl, maxChromaFast);
         const hr = (c.h * Math.PI) / 180;
-        const rgb = oklabToRgb8(c.l, c.c * Math.cos(hr), c.c * Math.sin(hr)) ?? [128, 128, 128];
-        img.data.set([rgb[0], rgb[1], rgb[2], 255], (y * RES + x) * 4);
+        const lin = oklabToLinear(c.l, c.c * Math.cos(hr), c.c * Math.sin(hr));
+        const o = (y * RES + x) * 4;
+        img.data[o] = byte(lin[0]);
+        img.data[o + 1] = byte(lin[1]);
+        img.data[o + 2] = byte(lin[2]);
+        img.data[o + 3] = 255;
       }
     ctx.putImageData(img, 0, 0);
   }, [pl]);
