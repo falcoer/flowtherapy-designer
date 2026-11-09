@@ -330,7 +330,10 @@ export function CompositionsMenu(p: {
 }
 
 /** La campagne dans la barre du haut : sa date, son nom, la prochaine échéance du plan et les retards. */
-export function CampaignChip(p: { campaign?: Campaign; operations: Operation[]; activity: ActivityProfile | null; on: boolean; onClick: () => void }) {
+const SAVE_LABELS = { saved: 'Enregistrée', dirty: 'Modifications en attente', saving: 'Enregistrement…', error: 'Non enregistrée' } as const;
+
+/** Fil d'Ariane de la barre : la campagne › la composition ouverte, et son état d'enregistrement. */
+export function CampaignChip(p: { campaign?: Campaign; operations: Operation[]; activity: ActivityProfile | null; on: boolean; title?: string; saving?: keyof typeof SAVE_LABELS; onClick: () => void }) {
   const c = p.campaign;
   const t = today();
   const todo = (c?.plan ?? []).filter((it) => !it.published);
@@ -343,7 +346,7 @@ export function CampaignChip(p: { campaign?: Campaign; operations: Operation[]; 
     <button
       className={`chip cmp-chip ${c ? '' : 'none'} ${p.on ? 'on' : ''}`}
       onClick={p.onClick}
-      title={c ? `${c.name}${sub ? ` · ${sub}` : ''}${next ? ` · prochaine : ${targetLabel(next, p.activity)} le ${short(next.date!)}` : ''}${late ? ` · ${late} en retard` : ''}` : 'Hors campagne : choisir une campagne'}
+      title={c ? `${c.name}${p.title ? ` › ${p.title}` : ''}${sub ? ` · ${sub}` : ''}${next ? ` · prochaine : ${targetLabel(next, p.activity)} le ${short(next.date!)}` : ''}${late ? ` · ${late} en retard` : ''}` : 'Hors campagne : choisir une campagne'}
     >
       <span className="cmp-date">
         {d ? (
@@ -356,9 +359,16 @@ export function CampaignChip(p: { campaign?: Campaign; operations: Operation[]; 
         )}
       </span>
       <span className="cmp-txt">
-        <b>{c ? c.name : 'Hors campagne'}</b>
+        <span className="cmp-path">
+          <b className="cmp-camp">{c ? c.name : 'Hors campagne'}</b>
+          <span className="cmp-sep" aria-hidden>
+            ›
+          </span>
+          <b className="cmp-compo">{p.title ?? 'Page non enregistrée'}</b>
+        </span>
         {sub && <small>{sub}</small>}
       </span>
+      {p.saving && <span className={`save-dot ${p.saving}`} title={SAVE_LABELS[p.saving]} />}
       {late > 0 && (
         <span className="cmp-late" aria-label={`${late} en retard`}>
           {late}

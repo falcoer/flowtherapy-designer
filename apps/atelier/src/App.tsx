@@ -4226,14 +4226,16 @@ export function App() {
                   operations={allOperations}
                   activity={activity}
                   on={bubble === 'projects'}
+                  title={project?.title}
+                  saving={project ? saving : undefined}
                   onClick={() => {
                     if (bubble !== 'projects') refreshProjects();
                     setBubble(bubble === 'projects' ? null : 'projects');
                   }}
                 />
               )}
-              <button
-                className={`chip project-chip ${bubble === 'projects' && !(online && me?.team) ? 'on' : ''}`}
+              {!(online && me?.team) && (<button
+                className={`chip project-chip ${bubble === 'projects' ? 'on' : ''}`}
                 onClick={() => {
                   if (bubble !== 'projects' && online) refreshProjects();
                   setBubble(bubble === 'projects' ? null : 'projects');
@@ -4242,7 +4244,7 @@ export function App() {
               >
                 <span className="brand">{project?.title ?? 'Atelier'}</span>
                 {online && project && <span className={`save-dot ${saving}`} title={{ saved: 'Enregistrée', dirty: 'Modifications en attente', saving: 'Enregistrement…', error: 'Non enregistrée' }[saving]} />}
-              </button>
+              </button>)}
               <button className={`btn ${bubble === 'anchor' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'anchor' ? null : 'anchor')} title="Aide au positionnement : repères, densité, marge">
                 <Icon name="layout" />
               </button>

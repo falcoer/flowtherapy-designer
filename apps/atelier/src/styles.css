@@ -1731,3 +1731,12 @@ button.cm-pub:not(:disabled):hover { background: var(--accent-soft); }
 button.cm-pub:disabled { opacity: 1; cursor: default; }
 /* la date est dans le sous-titre : la mini-date ne reste que sur téléphone, où le texte disparaît */
 @media (min-width: 721px) { .cmp-chip:not(.none) .cmp-date { display: none; } .cmp-chip:not(.none) { padding-left: 12px; } }
+/* fil d'Ariane campagne › composition */
+.cmp-chip { max-width: 420px; }
+.cmp-path { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.cmp-path b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-camp { flex: 0 1 auto; max-width: 170px; font-weight: 500 !important; opacity: 0.8; }
+.cmp-compo { flex: 0 1 auto; min-width: 40px; }
+.cmp-sep { flex: none; opacity: 0.55; }
+.cmp-chip .save-dot { flex: none; }
+@media (max-width: 720px) { .cmp-chip { gap: 6px; padding-right: 10px; } }
