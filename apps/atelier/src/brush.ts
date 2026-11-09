@@ -1251,10 +1251,16 @@ function spray(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Tar
       const a = r() * Math.PI * 2;
       const d = 0.3 + r() * Math.max(0.6, R * 0.025);
       dst.globalAlpha = s.opacity * (0.25 + 0.5 * r());
-      dst.beginPath();
       const [ox, oy] = stretch(Math.cos(a) * rad, Math.sin(a) * rad, q.K, q.d);
-      dst.arc(q.x + ox, q.y + oy, d, 0, Math.PI * 2);
-      dst.fill();
+      if (d < 1) {
+        // goutte plus petite qu'un pixel : un carré de même surface, bien moins coûteux qu'un disque
+        const w = d * 1.7725;
+        dst.fillRect(q.x + ox - w / 2, q.y + oy - w / 2, w, w);
+      } else {
+        dst.beginPath();
+        dst.arc(q.x + ox, q.y + oy, d, 0, Math.PI * 2);
+        dst.fill();
+      }
     }
   }
   dst.restore();
