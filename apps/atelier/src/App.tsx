@@ -1833,7 +1833,7 @@ export function App() {
     }
     // ancrages pendant un déplacement, et tant que le réglage d'ancrage est ouvert :
     // chaque point et chaque ligne a sa couleur caractéristique (marks.ts)
-    if (L.kind === 'move' || bubble === 'anchor' || guidesOn.on) {
+    if (L.kind === 'move' || L.kind === 'resize' || bubble === 'anchor' || guidesOn.on) {
       ctx.save();
       ctx.globalAlpha = 0.7;
       // la marge des repères : un cadre pointillé, dedans ou autour de la page
@@ -1856,7 +1856,7 @@ export function App() {
       }
       ctx.restore();
       // l'objet déplacé (ou choisi) : ses bords tenus prennent la couleur de leur ligne, son contour celle de son point
-      const held = L.kind === 'move' ? doc.layers.find((x) => x.id === L.layer) : sel && sel.kind !== 'surface' ? sel : undefined;
+      const held = L.kind === 'move' || L.kind === 'resize' ? doc.layers.find((x) => x.id === L.layer) : sel && sel.kind !== 'surface' ? sel : undefined;
       if (held?.pins) drawHeldEdges(ctx, held, held.pins, f, px);
       // pendant un déplacement : les points de l'objet qui peuvent s'accrocher (centre, sommets, milieux des côtés)
       if (held && L.kind === 'move') {
@@ -2857,6 +2857,8 @@ export function App() {
     } else if (L.kind === 'resize' && L.orig && L.start && L.opp) {
       // agrandir depuis un coin : le coin opposé reste en place
       const o = L.orig;
+      // bords posés sur la page ou la marge : tenus dès maintenant, pour les montrer pendant le geste
+      const heldNow = (n: Layer): Layer => ({ ...n, pins: pinsOf(n, f, 1.5 / scale) });
       const b = layerBox(o, f);
       // posé par son centre sur son ancrage : il grandit autour de ce centre, sinon le coin opposé reste en place
       const O = L.centered ? anchorPointOf(o, f) : localToPage(o, f, L.opp.u, L.opp.v);
@@ -2895,7 +2897,7 @@ export function App() {
         const cx = O.x + vx * c - vy * sn;
         const cy = O.y + vx * sn + vy * c;
         const a = anchorFor(doc.frame, f, cx, cy);
-        setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, w: o.w * kx, h: o.h * ky, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined } : x)) }));
+        setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? heldNow({ ...x, w: o.w * kx, h: o.h * ky, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined }) : x)) }));
         return;
       }
       const cx = O.x + (b.cx - O.x) * k;
@@ -2906,7 +2908,7 @@ export function App() {
       const keep = L.centered && o.grip;
       setDoc((d) => ({
         ...d,
-        layers: d.layers.map((x) => (x.id === o.id ? (keep ? { ...x, w: o.w * k, h: o.h * k } : { ...x, w: o.w * k, h: o.h * k, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined }) : (carried.get(x.id) ?? x))),
+        layers: d.layers.map((x) => (x.id === o.id ? heldNow(keep ? { ...x, w: o.w * k, h: o.h * k } : { ...x, w: o.w * k, h: o.h * k, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined }) : (carried.get(x.id) ?? x))),
       }));
     } else if (L.kind === 'pivot' && L.orig) {
       // le centre de rotation reste dans le cadre des poignées
@@ -3086,6 +3088,10 @@ export function App() {
       // après agrandissement ou rotation : bords de page touchés
       const ids = new Set([L.layer, ...(L.mates ?? []).map((x) => x.id)]);
       setDoc((d) => ({ ...d, layers: d.layers.map((x) => (ids.has(x.id) ? { ...x, pins: pinsOf(x, f, 1.5 / scale) } : x)) }));
+      const l = doc.layers.find((x) => x.id === L.layer);
+      const p = l ? pinsOf(l, f, 1.5 / scale) : undefined;
+      const sides = p ? (['top', 'left', 'right', 'bottom'] as const).filter((k) => p[k]).map((k) => ({ left: 'gauche', right: 'droite', top: 'haut', bottom: 'bas' })[k] + (p[k] === 'margin' ? ' (marge)' : '')) : [];
+      if (sides.length) setToast(`Tenu au bord ${sides.join(', ')}`);
     }
     live.current = { kind: null };
     redraw();
