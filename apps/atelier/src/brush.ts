@@ -1234,34 +1234,184 @@ function roller(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Ta
 }
 
 /** Pistolet : un nuage de fines gouttelettes, dense au centre, qui s'éclaircit vers les bords. */
+/**
+ * Bombe : des milliers de gouttelettes par trait. Elles sont tirées comme avant (même suite
+ * aléatoire, mêmes positions, tailles et opacités), puis posées directement dans des pixels, par
+ * carreaux de 256 px, avant d'être collées d'un bloc sur le canevas : un appel de dessin par
+ * gouttelette coûtait des secondes sur un ordinateur sans carte graphique.
+ */
+const TILE = 256;
+let sprayTile: HTMLCanvasElement | null = null;
+const sprayBuf = new Float32Array(TILE * TILE * 4);
+const sprayRgbCache = new Map<string, [number, number, number]>();
+function sprayRgb(c: string): [number, number, number] {
+  let v = sprayRgbCache.get(c);
+  if (!v) {
+    const n = parseInt(c.slice(1, 7), 16);
+    v = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    if (sprayRgbCache.size > 4096) sprayRgbCache.clear();
+    sprayRgbCache.set(c, v);
+  }
+  return v;
+}
 function spray(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
   const g = guides[s.guide];
   const st = stamps(s, t);
   const r = rng(s.seed ^ 0x77);
-  dst.save();
+  // gouttelettes : x, y, rayon, opacité, couleur (r, g, b)
+  let cap = 4096;
+  let D = new Float32Array(cap * 7);
+  let n = 0;
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
   for (let i = 0; i < st.length; i += 1) {
     const q = st[i]!;
     const R = q.r * 1.4;
-    const n = Math.round(10 + R * 0.9);
-    dst.fillStyle = guideColor(g, q.t);
-    for (let k = 0; k < n; k++) {
+    const m = Math.round(10 + R * 0.9);
+    const col = guideColor(g, q.t);
+    const [cr, cg, cb] = col.startsWith('#') && col.length >= 7 ? sprayRgb(col) : [128, 128, 128];
+    for (let k = 0; k < m; k++) {
       // répartition gaussienne autour de la buse
       const u = Math.max(1e-6, r());
       const rad = Math.sqrt(-2 * Math.log(u)) * R * 0.38;
       const a = r() * Math.PI * 2;
       const d = 0.3 + r() * Math.max(0.6, R * 0.025);
-      dst.globalAlpha = s.opacity * (0.25 + 0.5 * r());
+      const al = s.opacity * (0.25 + 0.5 * r());
       const [ox, oy] = stretch(Math.cos(a) * rad, Math.sin(a) * rad, q.K, q.d);
-      if (d < 1) {
-        // goutte plus petite qu'un pixel : un carré de même surface, bien moins coûteux qu'un disque
-        const w = d * 1.7725;
-        dst.fillRect(q.x + ox - w / 2, q.y + oy - w / 2, w, w);
-      } else {
-        dst.beginPath();
-        dst.arc(q.x + ox, q.y + oy, d, 0, Math.PI * 2);
-        dst.fill();
+      if (n === cap) {
+        const more = new Float32Array(cap * 2 * 7);
+        more.set(D);
+        D = more;
+        cap *= 2;
+      }
+      const x = q.x + ox;
+      const y = q.y + oy;
+      const o = n * 7;
+      D[o] = x;
+      D[o + 1] = y;
+      D[o + 2] = d;
+      D[o + 3] = al;
+      D[o + 4] = cr;
+      D[o + 5] = cg;
+      D[o + 6] = cb;
+      n++;
+      if (x - d < x0) x0 = x - d;
+      if (y - d < y0) y0 = y - d;
+      if (x + d > x1) x1 = x + d;
+      if (y + d > y1) y1 = y + d;
+    }
+  }
+  if (!n) return;
+  // carreaux touchés, en gardant l'ordre des gouttelettes dans chacun
+  const tx0 = Math.floor(Math.max(-TILE, x0) / TILE);
+  const ty0 = Math.floor(Math.max(-TILE, y0) / TILE);
+  const tx1 = Math.floor(Math.min(t.pw + TILE, x1) / TILE);
+  const ty1 = Math.floor(Math.min(t.ph + TILE, y1) / TILE);
+  const tw = tx1 - tx0 + 1;
+  const tiles = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) {
+    const o = i * 7;
+    const d = D[o + 2]!;
+    const a0 = Math.floor((D[o]! - d) / TILE);
+    const a1 = Math.floor((D[o]! + d) / TILE);
+    const b0 = Math.floor((D[o + 1]! - d) / TILE);
+    const b1 = Math.floor((D[o + 1]! + d) / TILE);
+    for (let ty = Math.max(b0, ty0); ty <= Math.min(b1, ty1); ty++)
+      for (let tx = Math.max(a0, tx0); tx <= Math.min(a1, tx1); tx++) {
+        const key = (ty - ty0) * tw + (tx - tx0);
+        let list = tiles.get(key);
+        if (!list) tiles.set(key, (list = []));
+        list.push(i);
+      }
+  }
+  const tile = (sprayTile ??= document.createElement('canvas'));
+  if (tile.width !== TILE) tile.width = tile.height = TILE;
+  const tctx = tile.getContext('2d')!;
+  const img = tctx.createImageData(TILE, TILE);
+  const px = img.data;
+  const B = sprayBuf;
+  dst.save();
+  dst.globalAlpha = 1;
+  // seule la zone salie par le carreau précédent est remise à zéro
+  let [c0, d0, c1, d1] = [0, 0, TILE - 1, TILE - 1];
+  for (const [key, list] of tiles) {
+    const bx = (tx0 + (key % tw)) * TILE;
+    const by = (ty0 + Math.floor(key / tw)) * TILE;
+    for (let py = d0; py <= d1; py++) B.fill(0, (py * TILE + c0) * 4, (py * TILE + c1 + 1) * 4);
+    let u0 = TILE;
+    let v0 = TILE;
+    let u1 = 0;
+    let v1 = 0;
+    for (const i of list) {
+      const o = i * 7;
+      const cx = D[o]! - bx;
+      const cy = D[o + 1]! - by;
+      const d = D[o + 2]!;
+      const al = D[o + 3]!;
+      const cr = D[o + 4]!;
+      const cg = D[o + 5]!;
+      const cb = D[o + 6]!;
+      // couverture de chaque pixel par le disque (bord adouci d'un pixel)
+      const pa = Math.max(0, Math.floor(cx - d - 0.5));
+      const pb = Math.min(TILE - 1, Math.floor(cx + d + 0.5));
+      const qa = Math.max(0, Math.floor(cy - d - 0.5));
+      const qb = Math.min(TILE - 1, Math.floor(cy + d + 0.5));
+      if (pa > pb || qa > qb) continue;
+      if (pa < u0) u0 = pa;
+      if (qa < v0) v0 = qa;
+      if (pb > u1) u1 = pb;
+      if (qb > v1) v1 = qb;
+      // goutte de moins d'un pixel : sa surface répartie sur les pixels qu'elle touche
+      const small = d < 0.75;
+      const w = d * 1.7725;
+      const wa = cx - w / 2;
+      const wb = cx + w / 2;
+      const ha = cy - w / 2;
+      const hb = cy + w / 2;
+      const d5 = d + 0.5;
+      for (let py = qa; py <= qb; py++) {
+        const oy = small ? Math.min(py + 1, hb) - Math.max(py, ha) : 0;
+        const dy = py + 0.5 - cy;
+        for (let ppx = pa; ppx <= pb; ppx++) {
+          let A: number;
+          if (small) {
+            const ox = Math.min(ppx + 1, wb) - Math.max(ppx, wa);
+            if (ox <= 0 || oy <= 0) continue;
+            A = al * ox * oy;
+          } else {
+            const dx = ppx + 0.5 - cx;
+            const cov = d5 - Math.sqrt(dx * dx + dy * dy);
+            if (cov <= 0) continue;
+            A = cov < 1 ? al * cov : al;
+          }
+          const j = (py * TILE + ppx) * 4;
+          const k = 1 - A;
+          // « source-over » en couleurs prémultipliées
+          B[j] = cr * A + B[j]! * k;
+          B[j + 1] = cg * A + B[j + 1]! * k;
+          B[j + 2] = cb * A + B[j + 2]! * k;
+          B[j + 3] = A + B[j + 3]! * k;
+        }
       }
     }
+    [c0, d0, c1, d1] = u0 > u1 ? [0, 0, -1, -1] : [u0, v0, u1, v1];
+    if (u0 > u1 || v0 > v1) continue;
+    for (let py = v0; py <= v1; py++)
+      for (let ppx = u0; ppx <= u1; ppx++) {
+        const j = (py * TILE + ppx) * 4;
+        const a = B[j + 3]!;
+        if (a <= 0) {
+          px[j + 3] = 0;
+          continue;
+        }
+        px[j] = B[j]! / a;
+        px[j + 1] = B[j + 1]! / a;
+        px[j + 2] = B[j + 2]! / a;
+        px[j + 3] = a * 255;
+      }
+    const W = u1 - u0 + 1;
+    const H = v1 - v0 + 1;
+    tctx.putImageData(img, 0, 0, u0, v0, W, H);
+    dst.drawImage(tile, u0, v0, W, H, bx + u0, by + v0, W, H);
   }
   dst.restore();
 }
