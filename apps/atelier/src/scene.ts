@@ -392,6 +392,14 @@ function runResumes() {
 }
 let lastProgress = 0;
 
+/** La peinture de la couche à cette résolution est-elle déjà entière dans le cache ? */
+export function paintReady(l: Layer, doc: Doc, f: Format, pxPerUnit: number): boolean {
+  if (!l.strokes.length) return true;
+  const t = paintTarget(l, f, pxPerUnit);
+  const key = `${t.pw}x${t.ph}:${l.molded?.frame.join(',') ?? ''}:${strokeGuides(l, doc)}`;
+  return !!paints.get(l.id)?.some((x) => x.key === key && x.done === l.strokes.length);
+}
+
 export function paintFor(l: Layer, doc: Doc, f: Format, pxPerUnit: number, live?: PaintLive): HTMLCanvasElement | null {
   if (!l.strokes.length) return null;
   const t = paintTarget(l, f, pxPerUnit);
@@ -585,6 +593,8 @@ export interface DrawOptions {
   onImage: () => void;
   /** Rendu de l'écran : la peinture lourde se fait par morceaux (voir paintFor), jamais pour un export. */
   progressive?: boolean;
+  /** Résolution de la peinture quand elle diffère de `scale` (celle du tampon d'effets en cours de calcul). */
+  paintAt?: number;
   /** Couche peinte en direct : aperçu dessiné par-dessus, dans sa découpe. */
   /** `win` : fenêtre du canevas dans la boîte (0..1) quand l'encre déborde de la découpe. */
   wet?: { id: string; canvas: HTMLCanvasElement; win?: [number, number, number, number] };
@@ -934,8 +944,9 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     }
     // matière et peinture, passées par les effets de matière s'il y en a
     const buf = hasPixelFx(pixelFx(l)) ? fxBuffer(l, doc, f, o) : null;
-    if (buf) ctx.drawImage(buf, x0, y0, b.w, b.h);
-    else drawMaterial(ctx, l, doc, f, o);
+    if (buf instanceof HTMLCanvasElement) ctx.drawImage(buf, x0, y0, b.w, b.h);
+    // effets pas encore prêts : la peinture se montre à mesure, sans eux
+    else drawMaterial(ctx, l, doc, f, typeof buf === 'number' ? { ...o, paintAt: buf } : o);
     if (o.wet?.id === l.id && !o.wet.win) ctx.drawImage(o.wet.canvas, x0, y0, b.w, b.h);
     if (l.bump) drawBump(ctx, l, doc, f, b, x0, y0);
     ctx.restore();
@@ -1335,7 +1346,7 @@ function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
     ctx.fillRect(x0, y0, b.w, b.h);
   }
   // peinture
-  const paint = paintFor(l, doc, f, o.scale, o.progressive ? { redraw: o.onImage, ms: 6 } : undefined);
+  const paint = paintFor(l, doc, f, o.paintAt ?? o.scale, o.progressive ? { redraw: o.onImage, ms: 6 } : undefined);
   if (paint) ctx.drawImage(paint, x0, y0, b.w, b.h);
 }
 
@@ -1344,10 +1355,15 @@ function pixelFx(l: Layer): Fx[] {
   return [...(l.kind === 'photo' && l.look?.draw ? [l.look.draw] : []), ...(l.material ? [l.material] : []), ...(l.fx ?? [])];
 }
 
-const fxBuffers = new Map<string, { key: string; canvas: HTMLCanvasElement }>();
+const fxBuffers = new Map<string, { key: string; canvas: HTMLCanvasElement; k: number }>();
 
 /** Matière passée par les effets de matière, mise en cache (au plus 1000 px de côté). */
-function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElement | null {
+/**
+ * Rendu de l'écran : un zoom arrière garde le tampon plus fin déjà fait, un zoom avant garde l'ancien
+ * le temps que la peinture se refasse par morceaux à la nouvelle taille. Sinon (export, vignette),
+ * tout se fait d'un coup. Renvoie la résolution de la peinture quand rien n'est encore prêt à montrer.
+ */
+function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElement | number | null {
   const b = layerBox(l, f);
   const k = Math.min(quarterOctave(o.scale), 1000 / Math.max(b.w, b.h));
   const pw = Math.max(1, Math.round(b.w * k));
@@ -1355,8 +1371,10 @@ function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElem
   const im = l.kind === 'photo' && l.src ? imageFor(l.src, o.onImage) : null;
   if (l.kind === 'photo' && !im) return null;
   const key = JSON.stringify([
-    pw,
-    ph,
+    b.w,
+    b.h,
+    l.molded?.frame,
+    cutId(l),
     l.kind,
     l.text,
     textEpoch(),
@@ -1372,15 +1390,21 @@ function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElem
     doc.guides,
   ]);
   const hit = fxBuffers.get(l.id);
-  if (hit?.key === key) return hit.canvas;
-  if (held && hit && hit.canvas.width === pw && hit.canvas.height === ph) return hit.canvas;
+  if (hit?.key === key && (o.progressive ? hit.k >= k * 0.999 : Math.abs(hit.k - k) <= k * 0.001)) return hit.canvas;
+  if (held && hit) return hit.canvas;
+  if (o.progressive && !paintReady(l, doc, f, k)) {
+    // la peinture se fait par morceaux ; le tampon sera calculé une fois qu'elle sera entière
+    // (elle peut aussi finir tout de suite : un trait ajouté, quelques traits courts)
+    paintFor(l, doc, f, k, { redraw: o.onImage, ms: 6 });
+    if (!paintReady(l, doc, f, k)) return hit?.canvas ?? k;
+  }
   const c = hit?.canvas ?? document.createElement('canvas');
   c.width = pw;
   c.height = ph;
   const bx = c.getContext('2d', { willReadFrequently: true })!;
   bx.setTransform(k, 0, 0, k, -(b.cx - b.w / 2) * k, -(b.cy - b.h / 2) * k);
   // mis en cache : la peinture doit y être entière, jamais par morceaux
-  drawMaterial(bx, l, doc, f, { ...o, progressive: false });
+  drawMaterial(bx, l, doc, f, { ...o, progressive: false, paintAt: k });
   bx.setTransform(1, 0, 0, 1, 0, 0);
   const img = bx.getImageData(0, 0, pw, ph);
   // la lumière, ramenée dans le repère de la couche (qui peut tourner)
@@ -1388,7 +1412,7 @@ function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElem
   applyPixelFx(img, pixelFx(l), doc.guides, Math.min(f.width, f.height) * k, Math.sin(a), -Math.cos(a));
   bx.putImageData(img, 0, 0);
   if (fxBuffers.size > 60) fxBuffers.clear();
-  fxBuffers.set(l.id, { key, canvas: c });
+  fxBuffers.set(l.id, { key, canvas: c, k });
   return c;
 }
 
@@ -1960,7 +1984,7 @@ function surfaceLight(l: Layer, doc: Doc, k: number): Omit<BumpLight, 'lx' | 'ly
 }
 
 /** Largeur du bord ajouté, vers l'extérieur de la découpe (unités de la page). */
-const borderOut = (l: Layer, f: Format) => (l.border && l.border.width > 0 ? l.border.width * Math.min(f.width, f.height) * (l.border.style === 'double' ? 2 : 1) : 0);
+export const borderOut = (l: Layer, f: Format) => (l.border && l.border.width > 0 ? l.border.width * Math.min(f.width, f.height) * (l.border.style === 'double' ? 2 : 1) : 0);
 
 const bevelCache = new Map<string, { key: string; c: HTMLCanvasElement; W: number; H: number; field: Float32Array; gw: number; gh: number; s: number }>();
 /**

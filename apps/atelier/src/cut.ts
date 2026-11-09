@@ -207,6 +207,24 @@ export function insideRings(rings: Ring[], x: number, y: number): boolean {
   return c;
 }
 
+/** Point à moins de `d` d'un des contours. */
+export function nearRings(rings: Ring[], x: number, y: number, d: number): boolean {
+  const d2 = d * d;
+  for (const pts of rings)
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const a = pts[j]!;
+      const b = pts[i]!;
+      if ((x < a.x - d && x < b.x - d) || (x > a.x + d && x > b.x + d) || (y < a.y - d && y < b.y - d) || (y > a.y + d && y > b.y + d)) continue;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+      const ex = a.x + t * dx - x;
+      const ey = a.y + t * dy - y;
+      if (ex * ex + ey * ey <= d2) return true;
+    }
+  return false;
+}
+
 /** Point le plus proche sur un ensemble de segments. */
 export function nearestOnSegments(segs: Array<[Pt, Pt]>, p: Pt): { p: Pt; d: number } | null {
   let best: { p: Pt; d: number } | null = null;

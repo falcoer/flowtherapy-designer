@@ -59,7 +59,7 @@ import {
   type ShapeKind,
   type Stroke,
 } from './model';
-import { type Ring, geomArea, insideRings, intersect, ringsOfGeom, ringsToPath, simplifyRing, splitByCut, subtract } from './cut';
+import { type Ring, geomArea, insideRings, intersect, nearRings, ringsOfGeom, ringsToPath, simplifyRing, splitByCut, subtract } from './cut';
 import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, isMaterial, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
@@ -69,6 +69,7 @@ import { MarkLegend } from './marks-ui';
 import type { MultiPolygon } from 'polygon-clipping';
 import { maskImage, segmentSubject, setSubjectImage, SUBJECT_SIZE, subjectGeom, type SubjectCrop, type SubjectMask, type SubjectStroke } from './subject';
 import {
+  borderOut,
   drawLampTint,
   lampOf,
   levelOf,
@@ -1888,7 +1889,11 @@ export function App() {
     const ord = renderOrder(doc.layers);
     for (let i = ord.length - 1; i >= 0; i--) {
       const l = ord[i]!;
-      if (l.visible && insideRings(maskRings(l, f), x, y)) return l;
+      if (!l.visible) continue;
+      const rings = maskRings(l, f);
+      // le bord ajouté (contour d'un titre…) fait partie de l'objet : le toucher le choisit
+      const out = l.kind === 'surface' ? 0 : borderOut(l, f);
+      if (insideRings(rings, x, y) || (out > 0 && nearRings(rings, x, y, out))) return l;
     }
     return null;
   };
@@ -2119,7 +2124,16 @@ export function App() {
     // Modeler : le contour de l'objet choisi (ou touché) suit la pointe
     if (t === 'mold' && !offBg) {
       const hit = layerAt(p.x, p.y);
-      const target = sel && sel.kind !== 'surface' ? sel : hit && hit.kind !== 'surface' ? hit : null;
+      // parti près de l'objet choisi (dedans, sur son bord ou à portée de l'outil), le geste le modèle ;
+      // parti sur un autre objet, loin du choisi, c'est cet autre objet qu'on modèle
+      const reach = swash.r * MOLD_UNIT * Math.min(f.width, f.height) + (sel ? borderOut(sel, f) : 0);
+      const nearSel = !!sel && sel.kind !== 'surface' && (insideRings(maskRings(sel, f), p.x, p.y) || nearRings(maskRings(sel, f), p.x, p.y, reach));
+      const other = hit && hit.kind !== 'surface' && hit.id !== sel?.id ? hit : null;
+      // un objet posé au-dessus du choisi, touché, passe devant (une image de fond choisie par mégarde
+      // ne garde pas les gestes suivants)
+      const ord = renderOrder(doc.layers);
+      const above = !!other && !!sel && ord.indexOf(other) > ord.indexOf(sel);
+      const target = other && (above || !nearSel) ? other : sel && sel.kind !== 'surface' ? sel : null;
       if (!target) return setToast('Choisis d’abord un objet à modeler');
       if (target.id !== selected) setSelected(target.id);
       const loc = toLocal(target, p.x, p.y);
