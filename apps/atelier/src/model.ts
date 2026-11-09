@@ -550,3 +550,12 @@ export const VOLUMES: Array<[VolumeKind, string]> = [
   ['cone', 'Cône'],
   ['cushion', 'Coussin'],
 ];
+
+/** Taille de l'image exportée : 300 dpi pour l'imprimé, la taille native pour les écrans. */
+export function exportSize(f: Format): { w: number; h: number } {
+  if (f.unit === 'mm') {
+    const dpi = f.dpi ?? 300;
+    return { w: Math.round((f.width / 25.4) * dpi), h: Math.round((f.height / 25.4) * dpi) };
+  }
+  return { w: Math.round(f.width), h: Math.round(f.height) };
+}

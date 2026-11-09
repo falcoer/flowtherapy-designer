@@ -1,15 +1,8 @@
 import type { Format } from '@ftd/core';
-import { formatOf, type Doc, type Layer } from './model';
+import { exportSize, formatOf, type Doc, type Layer } from './model';
 import { drawLampTint, drawLayers, forgetPaint, holdPins, linkShapes, pageBounds } from './scene';
 
-/** Taille de l'image exportée : 300 dpi pour l'imprimé, la taille native pour les écrans. */
-export function exportSize(f: Format): { w: number; h: number } {
-  if (f.unit === 'mm') {
-    const dpi = f.dpi ?? 300;
-    return { w: Math.round((f.width / 25.4) * dpi), h: Math.round((f.height / 25.4) * dpi) };
-  }
-  return { w: Math.round(f.width), h: Math.round(f.height) };
-}
+export { exportSize };
 
 /** Le document décliné dans un autre format : les ancrages et les bords tenus suivent. */
 export const docIn = (doc: Doc, f: Format): Doc => (doc.formatId === f.id ? doc : holdPins({ ...doc, formatId: f.id }, f, linkShapes(doc, formatOf(doc.formatId))));

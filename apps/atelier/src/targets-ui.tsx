@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { FORMATS, formatOf, type Target } from './model';
-import { exportSize } from './export';
+import { exportSize, FORMATS, formatOf, type Target } from './model';
 import { palettesOf, type ActivityProfile, type Channel, type Palette } from './server';
 import { channelsOf, formatsFor, paletteFor, paletteGuides, targetKey, targetLabel } from './targets';
 
