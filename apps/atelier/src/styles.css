@@ -1818,7 +1818,7 @@ button.cm-pub:disabled { opacity: 1; cursor: default; }
 .cm-item .cm-row { min-height: 52px; }
 .cm-item.sel .cm-row:hover { background: none; }
 .cm-row-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 0 8px 8px; }
-.cm-row-acts .cm-rename { flex: 1 1 140px; min-width: 0; }
+.cm-row .cm-rename { width: 100%; font-weight: 600; }
 .cm-row-acts .cm-del { margin-left: auto; }
 .cm-row-acts .cm-open { padding: 5px 14px; }
 .cm-history { gap: 0; overflow: auto; max-height: 52dvh; }

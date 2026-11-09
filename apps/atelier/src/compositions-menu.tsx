@@ -125,7 +125,12 @@ export function CompositionsMenu(p: {
   const [filtering, setFiltering] = useState(false);
   const [sel, setSel] = useState<string | undefined>(p.current?.id);
   const [armed, setArmed] = useState(false);
-  useEffect(() => setArmed(false), [sel]);
+  // le titre de la composition ouverte se renomme sur place, d'un double toucher
+  const [renaming, setRenaming] = useState(false);
+  useEffect(() => {
+    setArmed(false);
+    setRenaming(false);
+  }, [sel]);
   // double toucher (ou double clic) : ouvre la composition
   const lastTap = useRef<{ id: string; at: number } | null>(null);
 
@@ -174,7 +179,7 @@ export function CompositionsMenu(p: {
     const again = lastTap.current?.id === m.id && now - lastTap.current.at < 400;
     lastTap.current = again ? null : { id: m.id, at: now };
     setSel(m.id);
-    if (again && m.id !== p.current?.id) p.onOpen(m);
+    if (again) (m.id === p.current?.id ? setRenaming(true) : p.onOpen(m));
   };
 
   return (
@@ -296,7 +301,23 @@ export function CompositionsMenu(p: {
               const tpl = !!c?.templates?.includes(m.id);
               return (
                 <div key={m.id} className={`cm-item ${on ? 'sel' : ''}`}>
-                  <button className={`cm-row ${cur ? 'cur' : ''}`} onClick={() => tap(m)} title={cur ? 'Composition ouverte' : 'Toucher deux fois pour ouvrir'}>
+                  {cur && renaming ? (
+                    <div className="cm-row cur">
+                      <span className="cm-txt">
+                        <input
+                          className="pf-input cm-rename"
+                          autoFocus
+                          value={p.current!.title}
+                          onChange={(e) => p.onTitle(e.target.value)}
+                          onBlur={() => setRenaming(false)}
+                          onKeyDown={(e) => (e.key === 'Enter' || e.key === 'Escape') && setRenaming(false)}
+                          aria-label="Titre de la composition"
+                        />
+                      </span>
+                      <PubFan m={m} pubs={pubsOf(m, targetsOf(m), c, suggested)} activity={p.activity} />
+                    </div>
+                  ) : (
+                  <button className={`cm-row ${cur ? 'cur' : ''}`} onClick={() => tap(m)} title={cur ? 'Composition ouverte : toucher deux fois pour la renommer' : 'Toucher deux fois pour ouvrir'}>
                     <span className="cm-txt">
                       <b>{cur ? p.current!.title : m.title}</b>
                       <small>
@@ -313,9 +334,9 @@ export function CompositionsMenu(p: {
                     </span>
                     <PubFan m={m} pubs={pubsOf(m, targetsOf(m), c, suggested)} activity={p.activity} />
                   </button>
+                  )}
                   {on && (
                     <div className="cm-row-acts">
-                      {cur && <input className="pf-input cm-rename" value={p.current!.title} onChange={(e) => p.onTitle(e.target.value)} aria-label="Titre de la composition" />}
                       {p.canVote && <VoteButton votes={m.votes ?? []} voted={!!m.voted} onVote={() => p.onVote(m)} />}
                       {c && p.isAdmin && (
                         <button className={`cs-tpl ${tpl ? 'on' : ''}`} onClick={() => p.onTemplate(m, !tpl)} title="Modèle de la campagne : chacun peut en partir">
