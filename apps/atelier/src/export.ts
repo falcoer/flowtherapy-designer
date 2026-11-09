@@ -11,8 +11,8 @@ export const docIn = (doc: Doc, f: Format): Doc => (doc.formatId === f.id ? doc 
  * Rendu final d'un format, à sa taille d'export. Les photos se chargent en différé :
  * on redessine tant qu'il en arrive, jusqu'à ce que tout soit là.
  */
-export async function renderDoc(doc: Doc, f: Format, maxSide = 6000): Promise<HTMLCanvasElement> {
-  const { w, h } = exportSize(f);
+export async function renderDoc(doc: Doc, f: Format, maxSide = 6000, width?: number): Promise<HTMLCanvasElement> {
+  const { w, h } = exportSize(f, width);
   const k0 = Math.min(1, maxSide / Math.max(w, h));
   const c = document.createElement('canvas');
   c.width = Math.round(w * k0);

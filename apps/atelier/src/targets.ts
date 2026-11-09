@@ -1,4 +1,4 @@
-import { FORMATS, formatOf, type Doc, type Guide, type Target } from './model';
+import { FORMATS, formatOf, uniformMargins, type Doc, type Guide, type Target } from './model';
 import { palettesOf, type ActivityProfile, type Channel, type ColorRole, type Operation, type Palette, type PaletteColor } from './server';
 
 /**
@@ -142,10 +142,11 @@ export function recolor(guides: Guide[], pal: Palette | undefined): Guide[] {
   return [...out, ...ordered.filter((g) => g.role && !has(g.role))];
 }
 
-/** Le document vu pour une cible : son format, sa marge (celle du média) et sa variante. Le format est changé par l'appelant (holdPins). */
+/** Le document vu pour une cible : son format, ses marges (les siennes, sinon celle du média) et sa variante. Le format est changé par l'appelant (holdPins). */
 export function docForTarget(d: Doc, t: Target, p?: ActivityProfile | null): Doc {
   const ch = t.channel ? channelsOf(p).find((c) => c.id === t.channel) : undefined;
-  return { ...d, guides: recolor(d.guides, paletteFor(t, p)), ...(ch?.margin !== undefined ? { margin: ch.margin } : {}) };
+  const margins = t.margins ?? (ch?.margin !== undefined ? uniformMargins(ch.margin) : undefined);
+  return { ...d, guides: recolor(d.guides, paletteFor(t, p)), ...(margins ? { margins, margin: undefined } : {}) };
 }
 
 /** Clé d'une cible, pour éviter les doublons. */

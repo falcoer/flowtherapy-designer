@@ -239,6 +239,8 @@ export interface Target {
   channel?: string;
   format: string;
   palette?: string;
+  margins?: { top: number; right: number; bottom: number; left: number };
+  width?: number;
 }
 /** Occasion (concert, nouvelle musique…) et ses cibles. */
 export interface Operation {
