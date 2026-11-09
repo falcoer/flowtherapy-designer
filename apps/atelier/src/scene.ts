@@ -1984,7 +1984,7 @@ function surfaceLight(l: Layer, doc: Doc, k: number): Omit<BumpLight, 'lx' | 'ly
 }
 
 /** Largeur du bord ajouté, vers l'extérieur de la découpe (unités de la page). */
-const borderOut = (l: Layer, f: Format) => (l.border && l.border.width > 0 ? l.border.width * Math.min(f.width, f.height) * (l.border.style === 'double' ? 2 : 1) : 0);
+export const borderOut = (l: Layer, f: Format) => (l.border && l.border.width > 0 ? l.border.width * Math.min(f.width, f.height) * (l.border.style === 'double' ? 2 : 1) : 0);
 
 const bevelCache = new Map<string, { key: string; c: HTMLCanvasElement; W: number; H: number; field: Float32Array; gw: number; gh: number; s: number }>();
 /**
