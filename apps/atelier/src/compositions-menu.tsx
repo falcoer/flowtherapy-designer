@@ -346,14 +346,15 @@ export function CompositionsMenu(p: {
                       {p.canEdit && (
                         <button
                           className={`ld-del cm-del ${armed ? 'hot' : ''}`}
-                          title={armed ? 'Toucher encore pour supprimer' : 'Supprimer'}
+                          title={armed ? 'Toucher encore pour supprimer' : 'Supprimer la composition'}
+                          aria-label="Supprimer la composition"
                           onClick={() => {
                             if (!armed) return setArmed(true);
                             setArmed(false);
                             p.onDelete(m);
                           }}
                         >
-                          {armed ? 'Supprimer ?' : '×'}
+                          {armed ? 'Supprimer ?' : <Icon name="trash" />}
                         </button>
                       )}
                       {!cur && (
