@@ -407,8 +407,8 @@ export function CompositionsMenu(p: {
                     <div className="cm-row-acts">
                       {p.canVote && <VoteButton votes={m.votes ?? []} voted={!!m.voted} onVote={() => p.onVote(m)} />}
                       {c && p.isAdmin && (
-                        <button className={`cs-tpl ${tpl ? 'on' : ''}`} onClick={() => p.onTemplate(m, !tpl)} title="Modèle de la campagne : chacun peut en partir">
-                          {tpl ? '★ modèle' : '☆ modèle'}
+                        <button className={`cs-tpl cm-tpl ${tpl ? 'on' : ''}`} onClick={() => p.onTemplate(m, !tpl)} aria-pressed={tpl} title={tpl ? 'Modèle de la campagne : chacun peut partir de cette composition. Toucher pour retirer.' : 'Proposer cette composition comme modèle : chacun pourra en partir pour une nouvelle composition de la campagne'}>
+                          {tpl ? '★ Modèle de la campagne' : '☆ En faire un modèle'}
                         </button>
                       )}
                       {!cur && (
