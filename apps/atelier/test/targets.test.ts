@@ -76,6 +76,15 @@ describe('pastilles des variantes', () => {
     expect(slotColor(profile.branding!.palettes![0]!, 'principale')?.hex).toBe('#e9a7c3');
   });
 
+  it('un ancien document sans rôles prend le dégradé à sa place, sans doublon', () => {
+    const out = recolor(blankDoc().guides, SITE_VARIANTS[1]);
+    expect(out[0]).toMatchObject({ role: 'fond', color: '#07101d' });
+    const p = out.findIndex((g) => g.role === 'principale');
+    expect(p).toBeLessThan(blankDoc().guides.length);
+    expect(out[p]).toMatchObject({ type: 'gradient' });
+    expect(out.filter((g) => g.role === 'principale')).toHaveLength(1);
+  });
+
   it('une couleur éditée garde son premier arrêt dans hex', () => {
     const c = guidePaletteColor({ name: 'Flow', type: 'gradient', stops: ['#111111', '#222222'] }, 'principale');
     expect(c).toEqual({ hex: '#111111', stops: ['#111111', '#222222'], role: 'principale' });

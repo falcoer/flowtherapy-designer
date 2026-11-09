@@ -132,8 +132,9 @@ export function recolor(guides: Guide[], pal: Palette | undefined): Guide[] {
     const same = g.role ? (ordered.find((x) => x.role === g.role) ?? (g.role === 'accent' || g.role === 'principale' ? ordered.find((x) => x.role === 'principale' || x.role === 'accent') : undefined)) : undefined;
     if (same) return { ...same, name: g.name };
     if (g.role || g.type !== 'color') return g;
+    // ancien guide sans rôle : il prend, à sa place, la couleur ou le dégradé du même rang
     const by = ordered[i];
-    return by && by.type === 'color' ? { ...g, color: by.color, ...(by.role ? { role: by.role } : {}) } : g;
+    return by ? { ...by, name: g.name } : g;
   });
   // les pastilles de la variante encore absentes du document (bordure, sujets…) arrivent à la suite : les numéros des guides restent
   const roles = new Set(out.map((g) => g.role).filter(Boolean));
