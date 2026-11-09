@@ -1443,6 +1443,7 @@ export function App() {
       scale: scale * dpr,
       rot: view.rot,
       onImage: redraw,
+      progressive: true,
       wet: L.kind === 'paint' && L.wet && L.layer ? { id: L.layer, canvas: L.wet, win: L.win } : undefined,
       burning: L.kind === 'paint' && L.stroke?.brush === 'burn' && L.layer ? { id: L.layer, stroke: L.stroke } : undefined,
     });

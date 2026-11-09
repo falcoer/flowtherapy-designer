@@ -363,7 +363,36 @@ function strokeGuides(l: Layer, doc: Doc): string {
   return key;
 }
 
-export function paintFor(l: Layer, doc: Doc, f: Format, pxPerUnit: number): HTMLCanvasElement | null {
+/**
+ * Peinture faite par morceaux (écran seulement) : une couche lourde (des milliers de points de bombe)
+ * figeait la page des secondes entières à l'ouverture et à chaque palier de zoom sur un ordinateur
+ * sans carte graphique. Les traits se peignent alors par tranches de quelques millisecondes ; en
+ * attendant, la peinture déjà faite à une autre taille reste affichée, mise à l'échelle.
+ */
+export interface PaintLive {
+  redraw: () => void;
+  /** Temps accordé à cet appel (ms). */
+  ms: number;
+  /** Appel de reprise, hors rendu : redessiner une fois la peinture finie. */
+  resumed?: boolean;
+}
+const resumes = new Map<string, () => void>();
+let resumeTimer = 0;
+function resumeLater(id: string, fn: () => void) {
+  resumes.set(id, fn);
+  if (!resumeTimer) resumeTimer = window.setTimeout(runResumes, 0);
+}
+function runResumes() {
+  resumeTimer = 0;
+  const first = resumes.entries().next().value;
+  if (!first) return;
+  resumes.delete(first[0]);
+  first[1]();
+  if (resumes.size && !resumeTimer) resumeTimer = window.setTimeout(runResumes, 0);
+}
+let lastProgress = 0;
+
+export function paintFor(l: Layer, doc: Doc, f: Format, pxPerUnit: number, live?: PaintLive): HTMLCanvasElement | null {
   if (!l.strokes.length) return null;
   const t = paintTarget(l, f, pxPerUnit);
   // cadre du modelage : quand il change, les points de la peinture ont été repris dans la nouvelle boîte ;
@@ -403,9 +432,14 @@ export function paintFor(l: Layer, doc: Doc, f: Format, pxPerUnit: number): HTML
     release(moved.before);
     c = { canvas, key, done: moved.done, used: 0, before, from: before ? moved.from : undefined, k, guides, ox: moved.ox! - dx / k, oy: moved.oy! - dy / k, w0: o.w0, h0: o.h0 };
   }
+  // peinture complète à une autre taille (même cadre, mêmes couleurs) : montrée le temps de peindre celle-ci
+  const frame = key.slice(key.indexOf(':'));
+  const alt = live && !(c && c.done === l.strokes.length) ? list.find((x) => x !== c && x.done === l.strokes.length && x.key.slice(x.key.indexOf(':')) === frame) : undefined;
   if (!c || c.done > l.strokes.length) {
-    // nouvelle taille : on reprend le canevas de la plus ancienne quand il y en a assez
-    const canvas = c?.canvas ?? (list.length >= PAINT_SIZES ? list.pop()!.canvas : document.createElement('canvas'));
+    // nouvelle taille : on reprend le canevas de la plus ancienne quand il y en a assez (jamais celle montrée en attendant)
+    const spare = list.length >= PAINT_SIZES ? [...list].reverse().find((x) => x !== alt) : undefined;
+    if (spare) list.splice(list.indexOf(spare), 1);
+    const canvas = c?.canvas ?? spare?.canvas ?? document.createElement('canvas');
     canvas.width = t.pw;
     canvas.height = t.ph;
     release(c?.before);
@@ -415,7 +449,9 @@ export function paintFor(l: Layer, doc: Doc, f: Format, pxPerUnit: number): HTML
   list.unshift(c);
   const ctx = c.canvas.getContext('2d')!;
   const S = l.strokes;
+  const until = live ? performance.now() + live.ms : Infinity;
   while (c.done < S.length) {
+    if (performance.now() > until) break;
     let i = c.done;
     if (i > 0 && sameWash(S[i - 1], S[i]) && !c.before) {
       // la copie d'avant la passe a été lâchée (mémoire) : on repeint la couche depuis le début
@@ -446,6 +482,17 @@ export function paintFor(l: Layer, doc: Doc, f: Format, pxPerUnit: number): HTML
     c.done = j;
   }
   trimPaints(c);
+  if (live && c.done < S.length) {
+    // la suite au prochain tour, hors rendu ; la page est redessinée de temps en temps pour la montrer
+    if (alt) alt.used = performance.now();
+    if (live.resumed && !alt && performance.now() - lastProgress > 500) {
+      lastProgress = performance.now();
+      live.redraw();
+    }
+    resumeLater(l.id, () => paintFor(l, doc, f, pxPerUnit, { redraw: live.redraw, ms: 40, resumed: true }));
+    return alt?.canvas ?? c.canvas;
+  }
+  if (live?.resumed) live.redraw();
   return c.canvas;
 }
 
@@ -536,6 +583,8 @@ export interface DrawOptions {
   /** Rotation de la vue (radians) : les décalages d'ombre du canevas ne la suivent pas. */
   rot?: number;
   onImage: () => void;
+  /** Rendu de l'écran : la peinture lourde se fait par morceaux (voir paintFor), jamais pour un export. */
+  progressive?: boolean;
   /** Couche peinte en direct : aperçu dessiné par-dessus, dans sa découpe. */
   /** `win` : fenêtre du canevas dans la boîte (0..1) quand l'encre déborde de la découpe. */
   wet?: { id: string; canvas: HTMLCanvasElement; win?: [number, number, number, number] };
@@ -1286,7 +1335,7 @@ function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
     ctx.fillRect(x0, y0, b.w, b.h);
   }
   // peinture
-  const paint = paintFor(l, doc, f, o.scale);
+  const paint = paintFor(l, doc, f, o.scale, o.progressive ? { redraw: o.onImage, ms: 6 } : undefined);
   if (paint) ctx.drawImage(paint, x0, y0, b.w, b.h);
 }
 
