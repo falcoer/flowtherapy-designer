@@ -1762,6 +1762,8 @@ button.cm-pub:disabled { opacity: 1; cursor: default; }
 .user-btn .act-avatar { border-radius: 50%; }
 .user-menu { width: min(320px, calc(100vw - 20px)); gap: 4px; }
 .atelier .bubble.user-menu, .atelier .prefs-bubble { left: auto; right: max(10px, env(safe-area-inset-right, 0px)); }
+.user-menu .user-logout { margin-top: 4px; color: var(--danger); text-decoration: none; }
+.user-menu .user-logout:disabled { opacity: .5; }
 .act-menu .act-current:last-child { border-bottom: 0; padding-bottom: 4px; }
 @media (max-width: 430px) {
   .bar-right .btn, .bar-left > .btn { width: 32px; }

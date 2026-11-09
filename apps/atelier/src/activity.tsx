@@ -142,11 +142,18 @@ export function UserMenu(p: { me: Me | null; onPrefs: () => void }) {
         <span>Préférences</span>
         <small>affichage, système</small>
       </button>
-      {me?.mode === 'compte' && (
-        <a className="row" href="/auth/logout">
+      {/* toujours en bas du menu ; sans compte (accès local ou mot de passe), il n'y a pas de session à fermer */}
+      {me?.mode === 'compte' ? (
+        <a className="row user-logout" href="/auth/logout">
           <Icon name="logout" />
           <span>Se déconnecter</span>
         </a>
+      ) : (
+        <button className="row user-logout" disabled title="Pas de compte connecté sur cet accès">
+          <Icon name="logout" />
+          <span>Se déconnecter</span>
+          <small>sans compte ici</small>
+        </button>
       )}
     </div>
   );
