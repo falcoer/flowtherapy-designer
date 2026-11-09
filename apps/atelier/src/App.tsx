@@ -4223,6 +4223,7 @@ export function App() {
               {online && me?.team && (
                 <CampaignChip
                   campaign={followed}
+                  operations={allOperations}
                   activity={activity}
                   on={bubble === 'projects'}
                   onClick={() => {
