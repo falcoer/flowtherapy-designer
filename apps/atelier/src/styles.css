@@ -1877,8 +1877,8 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .comp-menu .cm-name { font-size: 16px; cursor: text; }
 .comp-menu .cm-head .cm-rename { font-size: 15px; font-weight: 600; width: 100%; }
 .comp-line { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
-.comp-fan { display: flex; align-items: flex-end; justify-content: center; min-height: 176px; padding: 26px 10px 8px 40px; overflow: hidden; }
-.pub-card.big { flex: none; margin-left: -34px; border-radius: 9px; border-width: 2px; padding: 0; cursor: pointer; transform-origin: 50% 130%; transition: transform 0.18s ease, box-shadow 0.18s ease; box-shadow: 0 3px 10px rgba(20, 16, 32, 0.22); }
+.comp-fan { display: flex; align-items: flex-end; justify-content: center; min-height: 160px; padding: 26px 16px 10px; overflow: hidden; }
+.pub-card.big { flex: none; border-radius: 9px; border-width: 2px; padding: 0; cursor: pointer; transform-origin: 50% 130%; transition: transform 0.18s ease, box-shadow 0.18s ease; box-shadow: 0 3px 10px rgba(20, 16, 32, 0.22); }
 .pub-card.big:hover { box-shadow: 0 6px 16px rgba(20, 16, 32, 0.3); }
 .pub-card.big.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), 0 8px 20px rgba(20, 16, 32, 0.3); }
 .pub-card.big .pub-media { right: 3px; bottom: 3px; border-radius: 6px; padding: 1px; }

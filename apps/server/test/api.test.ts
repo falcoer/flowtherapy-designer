@@ -55,6 +55,23 @@ describe('API', () => {
     expect((await app.inject('/api/ateliers/affiche-1')).statusCode).toBe(404);
   });
 
+  it('garde une vignette par publication, et les oublie quand elles ne viennent plus', async () => {
+    const { app } = await setup();
+    const doc = { formatId: 'a4', layers: [], targets: [{ format: 'a4' }, { channel: 'facebook', format: 'fb-square' }] };
+    const png = (s: string) => 'data:image/png;base64,' + Buffer.from(s).toString('base64');
+    const put = await app.inject({ method: 'PUT', url: '/api/ateliers/affiche-2', payload: { title: 'Affiche', doc, thumb: png('g'), thumbs: [png('a4'), png('carre')] } });
+    expect(put.json().meta.thumbs).toBe(2);
+    expect((await app.inject('/api/ateliers/affiche-2/thumb.png?t=1')).body).toBe('carre');
+    expect((await app.inject('/api/ateliers/affiche-2/thumb.png?t=0')).body).toBe('a4');
+    expect((await app.inject('/api/ateliers/affiche-2/thumb.png?t=2')).statusCode).toBe(404);
+    expect((await app.inject('/api/ateliers/affiche-2/thumb.png?t=-1')).statusCode).toBe(404);
+    // une vignette invalide : aucune n'est gardée, la vignette générale sert partout
+    const again = await app.inject({ method: 'PUT', url: '/api/ateliers/affiche-2', payload: { title: 'Affiche', doc, thumb: png('g'), thumbs: [png('a4'), 'x'] } });
+    expect(again.json().meta.thumbs).toBeUndefined();
+    expect((await app.inject('/api/ateliers/affiche-2/thumb.png?t=0')).statusCode).toBe(404);
+    expect((await app.inject('/api/ateliers/affiche-2/thumb.png')).body).toBe('g');
+  });
+
   it('range un objet préparé (ses pièces) dans la bibliothèque', async () => {
     const { app } = await setup();
     const doc = { layers: [{ id: 'a', kind: 'shape', link: 'k' }, { id: 'b', kind: 'shape', link: 'k' }] };

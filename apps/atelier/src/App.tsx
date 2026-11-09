@@ -345,6 +345,19 @@ function migrate(d: Doc): Doc {
   return d;
 }
 
+
+/** Le document affiché sur une de ses publications : format, marge du média, couleurs de la variante ; les bords tenus et les pièces solidaires suivent. */
+function docAtTarget(d: Doc, i: number, activity: ActivityProfile | null): Doc {
+  const t = d.targets?.[i];
+  if (!t) return d;
+  const next = docForTarget(d, t, activity);
+  if (d.formatId === t.format && JSON.stringify(docMargins(next)) === JSON.stringify(docMargins(d))) return { ...next, target: i };
+  setAnchorMargin(docMargins(d));
+  const links = linkShapes(d, formatOf(d.formatId));
+  setAnchorMargin(docMargins(next));
+  return { ...holdPins({ ...next, formatId: t.format }, formatOf(t.format), links), target: i };
+}
+
 export function App() {
   const [doc, setDoc] = useState<Doc>(load);
   const docRef = useRef(doc);
@@ -527,11 +540,20 @@ export function App() {
     drawLayers(ctx, d, ff, { scale: k, onImage: () => {} });
     return c.toDataURL('image/png');
   };
+  /** Une vignette par publication : le document tel qu'il s'affiche sur chacune (format, marges, couleurs). */
+  const makeThumbs = (d: Doc) => {
+    if (!d.targets?.length) return undefined;
+    try {
+      return d.targets.map((_, i) => makeThumb(docAtTarget(d, i, activity)));
+    } finally {
+      setAnchorMargin(docMargins(docRef.current));
+    }
+  };
   const saveNow = async (p = project, d = docRef.current) => {
     if (!p || !online) return;
     setSaving('saving');
     try {
-      await saveAtelier(p.id, p.title, d, makeThumb(d));
+      await saveAtelier(p.id, p.title, d, makeThumb(d), makeThumbs(d));
       setSaving(docRef.current === d ? 'saved' : 'dirty');
       if (docRef.current === d) setPending(null);
     } catch (err) {
@@ -670,17 +692,7 @@ export function App() {
   const [pubDraft, setPubDraft] = useState<{ project?: string; t: PubTarget } | null>(null);
   const showTarget = (i: number) => {
     setPubDraft(null);
-    setDoc((d) => {
-      const t = d.targets?.[i];
-      if (!t) return d;
-      const next = docForTarget(d, t, activity);
-      if (d.formatId === t.format && JSON.stringify(docMargins(next)) === JSON.stringify(docMargins(d))) return { ...next, target: i };
-      // autre format ou autres marges : les bords tenus suivent, les pièces solidaires aussi
-      setAnchorMargin(docMargins(d));
-      const links = linkShapes(d, formatOf(d.formatId));
-      setAnchorMargin(docMargins(next));
-      return { ...holdPins({ ...next, formatId: t.format }, formatOf(t.format), links), target: i };
-    });
+    setDoc((d) => docAtTarget(d, i, activity));
   };
   /** Applique au document les réglages d'une publication (format, marges, variante), sans la figer. */
   const applyPublication = (t: PubTarget) => {
@@ -869,6 +881,8 @@ export function App() {
   const [bubble, setBubble] = useState<Bubble>(null);
   // historique du menu de la campagne : demandé au serveur pour cette campagne seulement, à l'ouverture du menu
   const [campaignFeed, setCampaignFeed] = useState<ActivityEvent[] | null>(null);
+  // menu de la composition : ses publications rendues d'après le document ouvert, retouches comprises
+  const previews = useMemo(() => (bubble === 'composition' ? makeThumbs(doc) : undefined), [bubble, doc, activity]); // eslint-disable-line react-hooks/exhaustive-deps
   // menu de la composition : l'historique de sa campagne à elle
   const menuOpen = bubble === 'projects' || bubble === 'composition';
   const campaignScope = bubble === 'composition' && project ? (projects.find((x) => x.id === project.id)?.campaign ?? '') : (followed?.id ?? '');
@@ -4926,6 +4940,7 @@ export function App() {
               meta={project ? projects.find((x) => x.id === project.id) : undefined}
               current={project ?? undefined}
               targets={doc.targets ?? []}
+              previews={previews}
               active={doc.target ?? 0}
               campaign={followed}
               campaigns={me?.team ? campaigns : []}

@@ -60,7 +60,7 @@ function PubFan({ m, pubs, activity, size = 38 }: { m: AtelierMeta; pubs: Pub[];
             style={{ width: Math.round(size * 0.9 * ratio), ...(size !== 38 ? { height: size, marginLeft: -Math.round(size * 0.3) } : {}), transform: `rotate(${(i - mid) * 7}deg)`, zIndex: i }}
             title={`${targetLabel(p.target, activity)} · ${pubWhen(p)}`}
           >
-            <img src={thumbUrl(m)} alt="" loading="lazy" draggable={false} />
+            <img src={thumbUrl(m, i)} alt="" loading="lazy" draggable={false} />
             <span className="pub-media">
               <MediaIcon ch={channels.find((c) => c.id === p.target.channel)} size={13} />
             </span>
@@ -538,6 +538,8 @@ export function CompositionMenu(p: {
   meta?: AtelierMeta;
   current?: { id: string; title: string };
   targets: Target[];
+  /** aperçu de chaque publication, rendu d'après le document ouvert */
+  previews?: string[];
   /** publication affichée */
   active: number;
   campaign?: Campaign;
@@ -587,19 +589,21 @@ export function CompositionMenu(p: {
   const card = (pub: Pub, i: number): ReactNode => {
     const f = formatOf(pub.target.format);
     const ratio = Math.min(1.8, Math.max(0.5, f.width / f.height));
-    const h = 132;
+    // plus il y a de cartes, plus elles sont petites et se chevauchent : l'éventail tient dans la colonne
+    const h = n <= 2 ? 132 : n <= 4 ? 112 : 90;
+    const w = Math.round(h * ratio);
     const on = i === p.active;
     return (
       <button
         key={i}
         className={`pub-card big ps-${pubState(pub)} ${on ? 'on' : ''}`}
-        style={{ width: Math.round(h * ratio), height: h, transform: `rotate(${(i - mid) * spread}deg) translateY(${on ? -14 : 0}px)`, zIndex: on ? 50 : i }}
+        style={{ width: w, height: h, marginLeft: i ? -Math.round(w * (n > 4 ? 0.55 : 0.4)) : 0, transform: `rotate(${(i - mid) * spread}deg) translateY(${on ? -14 : 0}px)`, zIndex: on ? 50 : i }}
         onClick={() => p.onShow(i)}
         title={`${targetLabel(pub.target, p.activity)} · ${pubWhen(pub)}`}
         aria-label={`Afficher ${targetLabel(pub.target, p.activity)}`}
         aria-pressed={on}
       >
-        {m ? <img src={thumbUrl(m)} alt="" loading="lazy" draggable={false} /> : <span className="pub-blank" />}
+        {p.previews?.[i] || m ? <img src={p.previews?.[i] ?? thumbUrl(m!, i)} alt="" draggable={false} /> : <span className="pub-blank" />}
         <span className="pub-media">
           <MediaIcon ch={channels.find((x) => x.id === pub.target.channel)} size={18} />
         </span>

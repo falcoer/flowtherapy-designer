@@ -29,6 +29,8 @@ export interface AtelierMeta {
     reviewedAt?: string;
     reviewNote?: string;
   };
+  /** Vignettes par publication enregistrées (une par rendu, dans l'ordre). */
+  thumbs?: number;
 }
 
 export const REVIEW_LABELS = { proposed: 'Proposée', approved: 'Validée', changes: 'À revoir' } as const;
@@ -62,8 +64,8 @@ export async function serverOnline(): Promise<boolean> {
 
 export const listAteliers = () => call<AtelierMeta[]>('/api/ateliers');
 export const readAtelier = (id: string) => call<AtelierMeta & { doc: Doc }>(`/api/ateliers/${id}`);
-export const saveAtelier = (id: string, title: string, doc: Doc, thumb?: string) =>
-  call<{ meta: AtelierMeta }>(`/api/ateliers/${id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, doc, thumb }, compact) }).then((r) => r.meta);
+export const saveAtelier = (id: string, title: string, doc: Doc, thumb?: string, thumbs?: string[]) =>
+  call<{ meta: AtelierMeta }>(`/api/ateliers/${id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, doc, thumb, thumbs }, compact) }).then((r) => r.meta);
 /** Campagne : un temps de communication (souvent la promotion d'un évènement) où chacun propose des documents et vote. */
 export interface Campaign {
   id: string;
@@ -156,7 +158,8 @@ export const postMessage = (id: string, text: string, target?: Target) => call<M
 export const deleteMessage = (id: string, mid: number) => call<Msgs>(`/api/ateliers/${id}/messages/${mid}`, { method: 'DELETE' }).then((r) => r.messages);
 export const reactMessage = (id: string, mid: number, emoji: string, on: boolean) => call<Msgs>(`/api/ateliers/${id}/messages/${mid}/react`, json('POST', { emoji, on })).then((r) => r.messages);
 export const removeAtelier = (id: string) => call<{ ok: boolean }>(`/api/ateliers/${id}`, { method: 'DELETE' });
-export const thumbUrl = (m: AtelierMeta) => `/api/ateliers/${m.id}/thumb.png?v=${encodeURIComponent(m.updated)}`;
+/** Vignette de la composition ; avec t, celle de sa publication n° t quand elle a été enregistrée. */
+export const thumbUrl = (m: AtelierMeta, t?: number) => `/api/ateliers/${m.id}/thumb.png?${t !== undefined && t < (m.thumbs ?? 0) ? `t=${t}&` : ''}v=${encodeURIComponent(m.updated)}`;
 
 /** Identifiant tiré du titre, avec un suffixe pour ne pas écraser une autre composition. */
 export function newAtelierId(title: string) {
