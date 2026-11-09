@@ -127,7 +127,9 @@ export function CompositionsMenu(p: {
   // validation au global : la composition validée la mieux notée est retenue par défaut dans le plan
   const suggested = c ? p.projects.filter((m) => m.campaign === c.id).sort((a, b) => (b.votes?.length ?? 0) - (a.votes?.length ?? 0)).find((m) => m.review?.status === 'approved') : undefined;
   const targetsOf = (m: AtelierMeta): Target[] => (m.id === p.current?.id && p.currentTargets.length ? p.currentTargets : m.targets?.length ? m.targets : [{ format: m.formatId ?? 'a4' }]);
-  const chosen = p.projects.find((m) => m.id === sel) ?? (p.current ? p.projects.find((m) => m.id === p.current!.id) : undefined) ?? list[0];
+  // la composition montrée appartient toujours à la campagne affichée (sinon : la première de sa liste)
+  const inCampaign = (m: AtelierMeta) => (c ? m.campaign === c.id : !m.campaign);
+  const chosen = [sel, p.current?.id].map((id) => p.projects.find((m) => m.id === id && inCampaign(m))).find(Boolean) ?? list[0];
   const isCurrent = !!chosen && chosen.id === p.current?.id;
   const switchList = p.campaigns.filter((x) => !x.closed).sort((a, b) => (a.date && b.date ? a.date.localeCompare(b.date) : a.date ? -1 : b.date ? 1 : b.created.localeCompare(a.created)));
   const d = c?.date ? new Date(`${c.date}T12:00:00`) : null;

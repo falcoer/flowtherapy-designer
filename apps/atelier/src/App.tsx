@@ -664,7 +664,10 @@ export function App() {
     return { ...docForTarget(base, t, activity), formatId: t.format, targets: op.targets.map((x) => ({ ...x })), target: 0, operation: op.id };
   };
   /** Affiche une cible : format (les objets gardent leurs accroches), marge du média, couleurs de la variante. */
-  const showTarget = (i: number) =>
+  /** Publication courante pas encore figée : ses réglages (réseau, variante, résolution) ne se lisent pas dans le document. */
+  const [pubDraft, setPubDraft] = useState<{ project?: string; t: PubTarget } | null>(null);
+  const showTarget = (i: number) => {
+    setPubDraft(null);
     setDoc((d) => {
       const t = d.targets?.[i];
       if (!t) return d;
@@ -676,15 +679,20 @@ export function App() {
       setAnchorMargin(docMargins(next));
       return { ...holdPins({ ...next, formatId: t.format }, formatOf(t.format), links), target: i };
     });
+  };
   /** Applique au document les réglages d'une publication (format, marges, variante), sans la figer. */
-  const applyPublication = (t: PubTarget) =>
+  const applyPublication = (t: PubTarget) => {
+    // les couleurs ne changent que si la variante change : une marge ou une résolution garde les couleurs retouchées
+    const samePalette = paletteFor(currentPub, activity)?.id === paletteFor(t, activity)?.id;
+    setPubDraft({ project: project?.id, t });
     setDoc((d) => {
-      const next = docForTarget(d, t, activity);
+      const next = { ...docForTarget(d, t, activity), ...(samePalette ? { guides: d.guides } : {}) };
       setAnchorMargin(docMargins(d));
       const links = linkShapes(d, formatOf(d.formatId));
       setAnchorMargin(docMargins(next));
       return d.formatId === t.format ? holdPins(next, formatOf(t.format), links) : holdPins({ ...next, formatId: t.format }, formatOf(t.format), links);
     });
+  };
   const channels = channelsOf(activity);
   const allOperations = operationsOf(activity);
   const followed = campaigns.find((c) => c.id === campaign);
@@ -724,6 +732,17 @@ export function App() {
   };
   const palettes = palettesOf(activity);
   const activeTarget = doc.targets?.[doc.target ?? 0];
+  /** Réglages de la publication affichée : le brouillon en cours s'il porte sur ce document et ce format, sinon la publication figée ; marges et format viennent toujours du document. */
+  const draft = pubDraft && pubDraft.project === project?.id && pubDraft.t.format === doc.formatId ? pubDraft.t : null;
+  const currentPub: PubTarget = draft
+    ? { ...draft, format: doc.formatId, margins: docMargins(doc) }
+    : {
+        ...(activeTarget?.channel ? { channel: activeTarget.channel } : {}),
+        format: doc.formatId,
+        ...(activeTarget?.palette ? { palette: activeTarget.palette } : {}),
+        margins: docMargins(doc),
+        ...(activeTarget?.width && activeTarget.format === doc.formatId ? { width: activeTarget.width } : {}),
+      };
 
   // --- export ---
   const [exportFormats, setExportFormats] = useState<string[]>([]);
@@ -5093,13 +5112,7 @@ export function App() {
               <div className="b-title">Publications</div>
               <PublicationsPanel
                 targets={doc.targets ?? []}
-                current={{
-                  ...(activeTarget?.channel ? { channel: activeTarget.channel } : {}),
-                  format: doc.formatId,
-                  ...(activeTarget?.palette ? { palette: activeTarget.palette } : {}),
-                  margins: docMargins(doc),
-                  ...(activeTarget?.width && activeTarget.format === doc.formatId ? { width: activeTarget.width } : {}),
-                }}
+                current={currentPub}
                 activity={activity}
                 onApply={applyPublication}
                 onShow={showTarget}
