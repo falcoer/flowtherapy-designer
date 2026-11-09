@@ -17,7 +17,7 @@ import { KITS } from './kit-samples';
 import { blankBump, bumpHeights, dab, encodeBump, heightUnder, smoothBump } from './bump';
 import { currentPx, growPatch, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
 import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
-import { QuickText, TextBar, type SwashTool } from './textbar';
+import { type SwashTool } from './textbar';
 import { PaletteEditor } from './colorpicker';
 import { cssShaped } from './gradient';
 import { GradientOverlay, GradStyleRow } from './gradient-ui';
@@ -801,7 +801,6 @@ export function App() {
     };
   }, [coupeOpen]);
   // glisser-déposer dans la liste des objets
-  const [quickText, setQuickText] = useState<string | null>(null);
   const listPress = useRef<{ id: string; y: number; moved: boolean; grip: boolean } | null>(null);
   const [listDrag, setListDrag] = useState<{ id: string; over?: string; above?: boolean } | null>(null);
   const setTool = (t: Tool) => {
@@ -907,7 +906,6 @@ export function App() {
   const [selected, setSelected] = useState<string | null>('arche');
   const [guide, setGuide] = useState(2);
   /** Barre de texte ouverte sur le clavier (ou l'écriture au stylet). */
-  const [textEditing, setTextEditing] = useState(false);
   /** Outil Prolonger de la barre de texte. */
   const [swash, setSwash] = useState<SwashTool>({ on: false, mode: 'mold', r: 0.3, end: 'point', w: null });
   const [size, setSize] = useState(0.05);
@@ -2278,13 +2276,6 @@ export function App() {
         // le premier toucher a pu poser un point de peinture : on le retire
         if (now - dotAt.current < 400) undo();
         setSelected(hit.id);
-        // mode attributs : le texte se change dans une bulle, sans quitter le mode
-        if (hit.kind === 'text' && isEdit(tool)) {
-          setQuickText(hit.id);
-          requestAnimationFrame(() => zoomOn(hit));
-          redraw();
-          return;
-        }
         setTool(lastEdit.current);
         // la vue se recadre sur l'objet, dans la place laissée libre par l'éditeur
         requestAnimationFrame(() => requestAnimationFrame(() => zoomOn(hit)));
@@ -4367,20 +4358,6 @@ export function App() {
             </button>
           </aside>
 
-          {(tool === 'move' || isEdit(tool)) && sel?.kind === 'text' && sel.text && !sel.molded && !bubble && (
-            <TextBar
-              layer={sel}
-              editing={textEditing}
-              setEditing={setTextEditing}
-              onChange={(next, h) => patchText(sel, next, h)}
-              swash={swash}
-              setSwash={setSwash}
-              toolsOnly={isEdit(tool)}
-              onMold={() => setTool('mold')}
-              onStyle={() => setCoupeOpen((o) => ({ key: 'text', sec: 'image', n: (o?.n ?? 0) + 1 }))}
-            />
-          )}
-          {isEdit(tool) && quickText && sel?.id === quickText && sel.text && !sel.molded && <QuickText layer={sel} onChange={(next, h) => patchText(sel, next, h)} onClose={() => setQuickText(null)} />}
 
           {isEdit(tool) && !sel && (
             <aside className="coupe with-list" aria-label="Objets">
@@ -5542,13 +5519,17 @@ const KNOB_GLYPHS: Array<[RegExp, string, boolean?]> = [
   [/^biseau/i, 'M2.5 2.5h11v11h-11zM5.5 5.5h5v5h-5zM2.5 2.5l3 3M13.5 2.5l-3 3M2.5 13.5l3-3M13.5 13.5l-3-3'],
   [/^distance/i, 'M6 6h4v4H6zM2.5 2.5h3M10.5 2.5h3M2.5 13.5h3M10.5 13.5h3M2.5 2.5v3M2.5 10.5v3M13.5 2.5v3M13.5 10.5v3'],
   [/^largeur/i, 'M2 8h12M4 5.5 1.5 8 4 10.5M12 5.5 14.5 8 12 10.5M8 4v8'],
+  [/^graisse/i, 'M4 3h4.5a2.5 2.5 0 0 1 0 5H4zM4 8h5a2.5 2.5 0 0 1 0 5H4zM6 3v10'],
+  [/^courbure/i, 'M2 11Q8 3 14 11'],
+  [/^espacement/i, 'M5 3v10M11 3v10M1.5 8h2M12.5 8h2M7 8h2'],
+  [/^interligne/i, 'M3 4h10M3 12h10M8 6v4M6.5 7.2 8 5.8l1.5 1.4M6.5 8.8 8 10.2l1.5-1.4'],
 ];
 
 /** Potard : tourne d'un geste (glisser vers le haut ou vers la droite pour monter),
  *  le libellé et le niveau s'affichent en surbrillance à côté tant qu'on le tient.
  *  Sa jauge est celle de la roue du pinceau : des segments de 6 h à 3 h, par la gauche et le haut.
  *  Double appui : retour au neutre pour un réglage à deux sens. */
-function Knob({ label, value, onChange, center, fmt }: { label: string; value: number; onChange: (v: number) => void; center?: boolean; fmt?: (v: number) => string }) {
+export function Knob({ label, value, onChange, center, fmt }: { label: string; value: number; onChange: (v: number) => void; center?: boolean; fmt?: (v: number) => string }) {
   const drag = useRef<{ x: number; y: number; v: number; id: number } | null>(null);
   const lastTap = useRef(0);
   const [held, setHeld] = useState(false);

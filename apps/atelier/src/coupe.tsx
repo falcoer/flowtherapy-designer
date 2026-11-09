@@ -1,12 +1,12 @@
 import type { Format } from '@ftd/core';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { BORDER_TYPES, fxPreview, GLOW_TYPES, swatch } from './App';
+import { BORDER_TYPES, fxPreview, GLOW_TYPES, Knob, swatch } from './App';
 import { FX, fxGuides, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { GEN_DEFAULTS, VOLUMES, type Doc, type Layer } from './model';
 import { fontFamily, fontList, fontOf, leanOf, WARPS, withLean, type TextStyle, type WarpKind } from './text';
-import { TextContent, TextWarp, WarpGlyph } from './textbar';
+import { TextContent, WarpGlyph, weightName } from './textbar';
 import { TiltPad } from './tilt';
 
 /**
@@ -49,13 +49,6 @@ if (typeof window !== 'undefined')
   for (const t of ['pointerdown', 'pointermove', 'wheel', 'keydown'])
     window.addEventListener(t, () => (lastInput = performance.now()), { capture: true, passive: true });
 const busy = () => performance.now() - lastInput < 400;
-/** Un moment creux (requestIdleCallback quand il existe, sinon un court délai, comme sur Safari). */
-function idle(fn: () => void, wait = 120): number {
-  const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
-  if (w.requestIdleCallback) return window.setTimeout(() => w.requestIdleCallback!(fn, { timeout: 1500 }), wait);
-  return window.setTimeout(fn, wait);
-}
-
 /** Ce que fait chaque choix, en quelques mots, et sa famille dans la liste. */
 const HINTS: Record<string, [string, string]> = {
   trim: ['Rognage', 'bords flous, flottants, zigzag'],
@@ -151,7 +144,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
   } else out.push({ sec: 'image', key: 'paint', name: doc.guides[l.guide]?.name ?? 'Couleur', bg: g(l.guide), removable: false });
   if (l.kind === 'text' && l.text) {
     const w = l.text.warp?.kind ?? 'none';
-    out.push({ sec: 'image', key: 'warp', name: w === 'none' ? 'Déformation' : WARPS.find((x) => x.id === w)!.name, bg: '', removable: false, glyph: w });
+    out.push({ sec: 'image', key: 'warp', name: w === 'none' ? 'Disposition' : WARPS.find((x) => x.id === w)!.name, bg: '', removable: false, glyph: w });
   }
   for (const { x, i } of fxIn(l, 'effet')) out.push({ sec: 'transform', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'radial-gradient(circle,#1c1b3a 30%,#e3a83c 34%) 0 0/6px 6px', removable: true });
   if (l.material) out.push({ sec: 'support', key: 'material', name: fxOf(l.material.id)!.name, bg: 'repeating-linear-gradient(45deg,#c79a63 0 3px,#b0814d 3px 6px)', removable: true });
@@ -355,31 +348,25 @@ export function CoupePanel({
   const hintOf = (id: string) => HINTS[id] ?? HINTS[id.replace(/^[bg]-/, '')] ?? ['', ''];
   const edgeGroup = (id: string) => (id.startsWith('b-') ? 'Bord' : id === 'trim' ? 'Rognage' : 'Lueur');
   const depthGroup = (id: string) => (id.startsWith('v-') || id === 'extrude' ? 'Volume' : 'Relief');
-  // calculées une à une sans bloquer : la section ouverte d'abord, les autres ensuite dans les creux
+  // calculées une à une sans bloquer, seulement pour le catalogue ouvert : les précharger toutes en
+  // tâche de fond (une lueur coûte des centaines de ms sur iPad) ralentissait chaque ouverture des attributs
   const [, thumbDone] = useState(0);
   const cache = thumbsFor(l, [doc.guides, doc.light, doc.lamp, f, tick]);
   useEffect(() => {
-    const todo = (sec: Section) => choicesOf(l, sec).filter((c) => !c.font && !cache.urls.has(c.id));
-    const first = adding ? todo(adding) : [];
-    const later = sections.filter((x) => x.sec !== adding).flatMap((x) => todo(x.sec));
+    if (!adding) return;
+    const todo = choicesOf(l, adding).filter((c) => !c.font && !cache.urls.has(c.id));
     let stop = false;
     let timer = 0;
     const step = () => {
       if (stop) return;
-      // en tâche de fond, on attend que la main se pose
-      if (!first.length && busy()) {
-        timer = idle(step, 300);
-        return;
-      }
-      const now = first.shift();
-      const c = now ?? later.shift();
+      const c = todo.shift();
       if (!c) return;
       if (!cache.urls.has(c.id)) cache.urls.set(c.id, fxPreview(l, doc, f, l.fx, `add-${c.id}`, reload, c.patch));
-      if (now) thumbDone((n) => n + 1);
-      // la section ouverte se remplit d'affilée ; le reste attend des creux, un par un
-      timer = first.length ? window.setTimeout(step, 0) : idle(step);
+      thumbDone((n) => n + 1);
+      // une vignette par tâche : la main garde la priorité entre deux
+      timer = window.setTimeout(step, busy() ? 60 : 0);
     };
-    timer = first.length ? window.setTimeout(step, 30) : idle(step, 700);
+    timer = window.setTimeout(step, 30);
     return () => {
       stop = true;
       clearTimeout(timer);
@@ -669,16 +656,62 @@ function Dots({ label, value, doc, onPick }: { label: string; value: number; doc
   );
 }
 
+/**
+ * Réglage rotatif : un potard, et sous lui sa légende (nom et valeur) en texte simple.
+ * Les potards d'un formulaire s'alignent côte à côte, en bas, après les choix.
+ */
 function Range({ label, value, onChange, unit, min = 0, display }: { label: string; value: number; onChange: (v: number) => void; unit?: string; min?: number; display?: string }) {
+  const span = 1 - min;
   return (
-    <label className="cp-row">
-      <span>{label}</span>
-      <input type="range" min={min} max={1} step={0.01} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+    <div className="cp-dial" title={`${label} : glisser vers le haut ou la droite pour monter${min < 0 ? ', double toucher pour revenir au neutre' : ''}`}>
+      <Knob label={label} center={min === -1} value={(Math.max(min, Math.min(1, value)) - min) / span} onChange={(v) => onChange(Math.round((min + v * span) * 1000) / 1000)} />
+      <span className="cp-dial-l">{label}</span>
       <output>
         {display ?? Math.round(value * 100)}
         {unit && <small> {unit}</small>}
       </output>
-    </label>
+    </div>
+  );
+}
+
+/** Une seule étape d'annulation par réglage : la première retouche l'ouvre, les suivantes (le même potard, sans pause) la complètent. */
+function useStep(onChange: (next: Partial<TextStyle>, history: boolean) => void) {
+  const step = useRef<{ key: string; t: number } | null>(null);
+  return (key: string, next: Partial<TextStyle>) => {
+    const now = performance.now();
+    const fresh = !step.current || step.current.key !== key || now - step.current.t > 700;
+    step.current = { key, t: now };
+    onChange(next, fresh);
+  };
+}
+
+/** Disposition du texte : enveloppe et courbure, espacement des lettres, interligne. */
+function TextLayout({ text: t, onChange }: { text: TextStyle; onChange: (next: Partial<TextStyle>, history: boolean) => void }) {
+  const live = useStep(onChange);
+  const lines = t.content.split('\n').length;
+  const lead = t.leading ?? 1.1;
+  return (
+    <>
+      <div className="seg tb-warps">
+        {WARPS.map((w) => (
+          <button key={w.id} className={(t.warp?.kind ?? 'none') === w.id ? 'on' : ''} onClick={() => onChange({ warp: w.id === 'none' ? undefined : { kind: w.id, amount: t.warp?.amount || 0.5 } }, true)} title={w.name}>
+            <WarpGlyph k={w.id} />
+          </button>
+        ))}
+      </div>
+      {t.warp && <Range label="Courbure" min={-1} value={t.warp.amount} display={`${Math.round(t.warp.amount * 100)}`} onChange={(v) => live('warp', { warp: { ...t.warp!, amount: Math.round(v * 50) / 50 } })} />}
+      <Range
+        label="Espacement"
+        min={-0.2}
+        value={(t.tracking ?? 0) / 0.5}
+        display={`${Math.round((t.tracking ?? 0) * 100)}`}
+        onChange={(v) => live('tracking', { tracking: Math.round(v * 50) / 100 })}
+      />
+      {/* interligne : de 0,6 à 2 corps, 1,1 par défaut */}
+      <div className={lines > 1 ? 'cp-dial-wrap' : 'cp-dial-wrap off'} title={lines > 1 ? undefined : 'L’interligne agit sur un texte de plusieurs lignes'}>
+        <Range label="Interligne" value={(lead - 0.6) / 1.4} display={lead.toFixed(2).replace('.', ',')} onChange={(v) => live('leading', { leading: Math.round((0.6 + v * 1.4) * 100) / 100 })} />
+      </div>
+    </>
   );
 }
 
@@ -703,6 +736,7 @@ function Attrs({
   onMold?: () => void;
 }) {
   const live = (p: Partial<Layer>) => patch(p, false);
+  const liveText = useStep(patchText ?? (() => {}));
   let body: React.ReactNode = null;
   const fxRows = (x: Fx, set: (x: Fx, history?: boolean) => void, amountLabel = 'Intensité') => {
     const def = fxOf(x.id)!;
@@ -855,17 +889,21 @@ function Attrs({
       </div>
     );
   } else if (item.key === 'content' && l.text && patchText) body = <TextContent key={l.id} text={l.text} onChange={patchText} />;
-  else if (item.key === 'warp' && l.text && patchText) body = <TextWarp text={l.text} onChange={patchText} />;
+  else if (item.key === 'warp' && l.text && patchText) body = <TextLayout text={l.text} onChange={patchText} />;
   else if (item.key === 'text' && l.text && patchText) {
     const t = l.text;
+    const variable = fontOf(t.font).files.some((x) => x.weightMax);
     body = (
       <>
-        <Range label="Graisse" display={`${t.weight}`} value={(t.weight - 100) / 800} onChange={(v) => patchText({ weight: 100 + Math.round(v * 80) * 10 }, false)} />
-        <div className="cp-row tilt-row">
-          <span>Inclinaison</span>
-          <TiltPad label="Inclinaison" axis="x" size={52} x={leanOf(t) / 30} display={`${leanOf(t)}°${t.italic ? ' · italique' : ''}`} onChange={(x) => patchText(withLean(Math.round(x * 30)), false)} />
+        <Range label="Graisse" display={`${weightName(t.weight)}${variable ? '' : '*'}`} value={(t.weight - 100) / 800} onChange={(v) => liveText('weight', { weight: 100 + Math.round(v * 80) * 10 })} />
+        <div className="cp-dial" title="Inclinaison : glisser à droite ou à gauche ; dès 8° à droite le texte passe en italique">
+          <TiltPad label="Inclinaison" axis="x" size={46} x={leanOf(t) / 30} display="" onChange={(x) => liveText('lean', withLean(Math.round(x * 30)))} />
+          <span className="cp-dial-l">Inclinaison</span>
+          <output>
+            {leanOf(t)}°{t.italic ? ' it.' : ''}
+          </output>
         </div>
-        <Range label="Espacement" display={`${Math.round((t.tracking ?? 0) * 100)}`} min={-0.2} value={(t.tracking ?? 0) / 0.5} onChange={(v) => patchText({ tracking: Math.round(v * 50) / 100 }, false)} />
+        {!variable && <p className="cp-note cp-legend">* graisse simulée : cette police n’a qu’une épaisseur</p>}
       </>
     );
   } else if (item.key === 'shape') {
@@ -923,7 +961,7 @@ function Attrs({
                 : item.key === 'content'
                   ? 'Contenu'
                   : item.key === 'warp'
-                    ? 'Déformation'
+                    ? 'Disposition'
                     : item.name}
         </b>
         <small>{secName}</small>
