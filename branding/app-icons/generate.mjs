@@ -114,9 +114,12 @@ for (const app of APPS) {
 }
 
 // Rendu PNG avec le Chromium de Playwright.
+// `playwright` s'il est installé, sinon `playwright-core` du dépôt (navigateur : CHROMIUM_PATH ou celui de Playwright).
 const { createRequire } = await import('node:module');
-const { chromium } = createRequire(import.meta.url)('playwright');
-const browser = await chromium.launch();
+const req = createRequire(import.meta.url);
+let pw;
+try { pw = req('playwright'); } catch { pw = req('playwright-core'); }
+const browser = await pw.chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const page = await browser.newPage();
 for (const app of APPS) {
   for (const [file, size, variant] of PNG) {
