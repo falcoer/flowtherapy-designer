@@ -182,6 +182,10 @@ export interface AuthHooks {
   signedIn?: (email: string, name?: string, picture?: string) => void;
 }
 
+/** Icônes et manifeste : lus sans session (onglet, écran d'accueil, page de connexion). */
+export const isIconPath = (path: string) =>
+  /^(\/editeur)?\/(favicon\.svg|favicon-32\.png|apple-touch-icon\.png|manifest\.webmanifest|icons\/[\w-]+\.png)$/.test(path);
+
 export function registerAuth(app: FastifyInstance, cfg: AuthConfig, hooks: AuthHooks = {}) {
   const doFetch = cfg.fetch ?? fetch;
   const secure = cfg.publicUrl.startsWith('https://');
@@ -197,7 +201,7 @@ export function registerAuth(app: FastifyInstance, cfg: AuthConfig, hooks: AuthH
     const user = verify<SessionUser>(readCookie(req, SESSION), cfg.sessionSecret);
     if (user) req.user = { email: user.email, name: user.name };
     const path = req.url.split('?')[0]!;
-    if (req.user || path.startsWith('/auth/') || path === '/api/health') return;
+    if (req.user || path.startsWith('/auth/') || path === '/api/health' || isIconPath(path)) return;
     if (path.startsWith('/api/') || path.startsWith('/files/') || path.startsWith('/cache/')) {
       return reply.code(401).send({ error: 'Connexion requise', login: '/auth/login' });
     }
@@ -297,7 +301,7 @@ function escapeHtml(s: string) {
 }
 
 function page(content: string) {
-  return `<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FT Designer</title><body style="font:16px system-ui;display:grid;place-items:center;height:100vh;margin:0;background:#ecebe7;color:#1d1b22"><div style="max-width:28rem;text-align:center">${content}</div></body></html>`;
+  return `<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FT Designer</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><body style="font:16px system-ui;display:grid;place-items:center;height:100vh;margin:0;background:#ecebe7;color:#1d1b22"><div style="max-width:28rem;text-align:center">${content}</div></body></html>`;
 }
 
 /** Lit la configuration depuis l'environnement ; null si aucun fournisseur n'est configuré. */
