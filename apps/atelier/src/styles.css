@@ -1801,3 +1801,26 @@ button.cm-pub:disabled { opacity: 1; cursor: default; }
 .pub-guides .b-field-label { font-size: 11px; font-weight: 600; color: var(--muted); }
 .pub-guides .b-title { padding-top: 2px; }
 .pubs-bubble > * { flex-shrink: 0; }
+
+/* menu de la campagne : détail en tête sur toute la largeur, compositions à gauche, historique à droite */
+.cm-menu > .cm-head { margin-bottom: 4px; }
+.cm-menu > .cm-switch { margin-bottom: 8px; }
+.cm-tools .act-icon { flex: none; }
+.cm-filter.on { color: var(--accent); background: var(--accent-soft); }
+.cm-add:not(:disabled) { color: #fff; background: var(--accent); }
+.cm-filters { display: flex; flex-wrap: wrap; gap: 4px; }
+.cm-chip { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; color: inherit; background: none; }
+.cm-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cm-item { border-radius: 12px; }
+.cm-item.sel { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.cm-item .cm-row { min-height: 52px; }
+.cm-item.sel .cm-row:hover { background: none; }
+.cm-row-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 0 8px 8px; }
+.cm-row-acts .cm-rename { flex: 1 1 140px; min-width: 0; }
+.cm-row-acts .cm-del { margin-left: auto; }
+.cm-row-acts .cm-open { padding: 5px 14px; }
+.cm-history { gap: 0; overflow: auto; max-height: 52dvh; }
+.cm-history .feed-day { margin-top: 8px; }
+.cm-history .cm-hist { cursor: default; }
+.cm-history .cm-hist { font-size: 12.5px; padding: 5px 4px; }
+.cm-history .cm-hist:hover { background: none; }

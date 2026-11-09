@@ -1,9 +1,9 @@
 import type { ActivityProfile, ActivityEvent, Campaign, PlanItem } from './server';
 import { targetLabel } from './targets';
 
-const who = (e: { by: string; name?: string }, me: string) => (e.by === me ? 'Tu' : e.name?.split(' ')[0] || e.by.split('@')[0] || 'Quelqu’un');
-const time = (d: string) => new Date(d).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-const dayOf = (d: string) => {
+export const feedWho = (e: { by: string; name?: string }, me: string) => (e.by === me ? 'Tu' : e.name?.split(' ')[0] || e.by.split('@')[0] || 'Quelqu’un');
+export const feedTime = (d: string) => new Date(d).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+export const feedDay = (d: string) => {
   const x = new Date(d);
   const t = new Date();
   const y = new Date(t.getTime() - 864e5);
@@ -35,8 +35,9 @@ export function FeedButton({ count, on, onClick }: { count: number; on: boolean;
   );
 }
 
-function line(e: ActivityEvent, me: string, campaigns: Campaign[], activity: ActivityProfile | null) {
-  const w = who(e, me);
+/** Phrase d'un évènement du fil (qui a fait quoi, sur quelle composition). */
+export function feedLine(e: ActivityEvent, me: string, campaigns: Campaign[], activity: ActivityProfile | null) {
+  const w = feedWho(e, me);
   const t = e.title ? `« ${e.title} »` : '';
   const s = w === 'Tu' ? 'as' : 'a';
   switch (e.type) {
@@ -87,7 +88,7 @@ function line(e: ActivityEvent, me: string, campaigns: Campaign[], activity: Act
   }
 }
 
-const ICON: Record<ActivityEvent['type'], string> = { message: '💬', proposed: '📨', approved: '✅', changes: '✏️', vote: '❤️', composition: '🎨', campaign: '📣' };
+export const FEED_ICONS: Record<ActivityEvent['type'], string> = { message: '💬', proposed: '📨', approved: '✅', changes: '✏️', vote: '❤️', composition: '🎨', campaign: '📣' };
 
 /** Fil de l'activité : retards du plan, puis ce qui s'est passé, jour par jour ; un toucher ouvre ce dont il parle. */
 export function FeedDialog(p: {
@@ -129,16 +130,16 @@ export function FeedDialog(p: {
           {p.events === null && <p className="fx-hint">Chargement…</p>}
           {p.events?.length === 0 && <p className="fx-hint">Rien encore : les messages, votes et validations de l’équipe apparaîtront ici.</p>}
           {p.events?.map((e, i) => {
-            const d = dayOf(e.at);
+            const d = feedDay(e.at);
             const head = d !== lastDay;
             lastDay = d;
             return (
               <div key={`${e.type}-${e.at}-${i}`}>
                 {head && <div className="cp-sub feed-day">{d}</div>}
                 <button className={`feed-row ${e.at > p.seen && e.by !== p.me ? 'new' : ''}`} onClick={() => p.onEvent(e)}>
-                  <span className="feed-ic">{ICON[e.type]}</span>
-                  <span className="feed-txt">{line(e, p.me, p.campaigns, p.activity)}</span>
-                  <small>{time(e.at)}</small>
+                  <span className="feed-ic">{FEED_ICONS[e.type]}</span>
+                  <span className="feed-txt">{feedLine(e, p.me, p.campaigns, p.activity)}</span>
+                  <small>{feedTime(e.at)}</small>
                 </button>
               </div>
             );

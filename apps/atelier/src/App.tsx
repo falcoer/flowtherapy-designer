@@ -713,7 +713,7 @@ export function App() {
   const canEditTeam = !!me?.team && me.team.role !== 'viewer';
   const [campaignDialog, setCampaignDialog] = useState(false);
   const [newDialog, setNewDialog] = useState(false);
-  // le menu des compositions ouvert depuis la campagne du fil d'Ariane montre d'abord le changement de campagne
+  // quel bouton du fil d'Ariane a ouvert le menu de la campagne (campagne ou contenu), pour l'allumer
   const [menuSwitch, setMenuSwitch] = useState(false);
   const [msgDialog, setMsgDialog] = useState(false);
   const [sheet, setSheet] = useState<string | null>(null);
@@ -4896,7 +4896,8 @@ export function App() {
               projects={projects}
               current={project ?? undefined}
               currentTargets={doc.targets ?? []}
-              saving={saving}
+              events={feed}
+              me={me?.email ?? 'groupe'}
               canEdit={!me?.team || canEditTeam}
               isAdmin={!!me?.admin || me?.team?.role === 'owner'}
               canVote={!!me?.team}
@@ -4904,7 +4905,6 @@ export function App() {
               onAllCampaigns={() => setCampaignDialog(true)}
               onEditCampaign={() => followed && setSheet(followed.id)}
               onTitle={(t) => project && setProject({ ...project, title: t })}
-              onSave={() => void saveNow()}
               onSaveNew={() => void newProject('Sans titre', true)}
               onNew={() => setNewDialog(true)}
               onOpen={(m) => void openProject(m)}
@@ -4924,16 +4924,6 @@ export function App() {
                   (e: Error) => setToast(`Suppression impossible : ${e.message}`),
                 )
               }
-              onMessages={() => {
-                setBubble(null);
-                setMsgDialog(true);
-              }}
-              onPublish={() => setBubble('export')}
-              switchFirst={menuSwitch}
-              onShowTarget={(i) => {
-                setBubble(null);
-                showTarget(i);
-              }}
               onTemplate={(m, on) => {
                 if (!followed) return;
                 const templates = on ? [...(followed.templates ?? []), m.id] : (followed.templates ?? []).filter((t) => t !== m.id);
