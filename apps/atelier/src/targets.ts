@@ -71,7 +71,9 @@ export function paletteFor(t: Target | undefined, p?: ActivityProfile | null): P
   return pals.find((q) => q.id === t?.palette) ?? pals.find((q) => q.id === ch?.palette) ?? pals[0];
 }
 
-export const targetLabel = (t: Target, p?: ActivityProfile | null) => {
+/** Le titre de la publication : celui qu'on lui a donné, sinon son réseau et son format. */
+export const targetLabel = (t: Target, p?: ActivityProfile | null) => t.name?.trim() || defaultLabel(t, p);
+export const defaultLabel = (t: Target, p?: ActivityProfile | null) => {
   const ch = t.channel ? channelsOf(p).find((c) => c.id === t.channel) : undefined;
   return [ch?.name, formatOf(t.format).title].filter(Boolean).join(' · ');
 };

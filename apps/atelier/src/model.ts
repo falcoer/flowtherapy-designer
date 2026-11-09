@@ -228,6 +228,8 @@ export interface Target {
   margins?: Margins;
   /** Résolution d'export : largeur en pixels (la hauteur suit le format) ; sinon celle du format. */
   width?: number;
+  /** Titre donné à la publication ; sinon « réseau · format ». */
+  name?: string;
 }
 
 /** Marges côté par côté, en fraction du petit côté du format (positives vers l'intérieur). */

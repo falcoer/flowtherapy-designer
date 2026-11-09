@@ -60,7 +60,7 @@ function PubFan({ m, pubs, activity, size = 38 }: { m: AtelierMeta; pubs: Pub[];
             style={{ width: Math.round(size * 0.9 * ratio), ...(size !== 38 ? { height: size, marginLeft: -Math.round(size * 0.3) } : {}), transform: `rotate(${(i - mid) * 7}deg)`, zIndex: i }}
             title={`${targetLabel(p.target, activity)} · ${pubWhen(p)}`}
           >
-            <img src={thumbUrl(m)} alt="" loading="lazy" draggable={false} />
+            <img src={thumbUrl(m, i)} alt="" loading="lazy" draggable={false} />
             <span className="pub-media">
               <MediaIcon ch={channels.find((c) => c.id === p.target.channel)} size={13} />
             </span>
@@ -538,6 +538,8 @@ export function CompositionMenu(p: {
   meta?: AtelierMeta;
   current?: { id: string; title: string };
   targets: Target[];
+  /** aperçu de chaque publication, rendu d'après le document ouvert */
+  previews?: string[];
   /** publication affichée */
   active: number;
   campaign?: Campaign;
@@ -551,7 +553,8 @@ export function CompositionMenu(p: {
   canVote: boolean;
   onTitle: (t: string) => void;
   onShow: (i: number) => void;
-  onPublications: () => void;
+  onAdd: () => void;
+  onRemove: (i: number) => void;
   onCampaign: () => void;
   onSaveNew: () => void;
   onVote: (m: AtelierMeta) => void;
@@ -559,8 +562,7 @@ export function CompositionMenu(p: {
 }) {
   const m = p.meta;
   const c = p.campaign && m?.campaign === p.campaign.id ? p.campaign : undefined;
-  const [renaming, setRenaming] = useState(false);
-  const lastTap = useRef(0);
+  const nameRef = useRef<HTMLInputElement>(null);
   const fold = useHistoryFold();
   const channels = channelsOf(p.activity);
   const suggested = c ? p.projects.filter((x) => x.campaign === c.id).sort((a, b) => (b.votes?.length ?? 0) - (a.votes?.length ?? 0)).find((x) => x.review?.status === 'approved') : undefined;
@@ -578,28 +580,24 @@ export function CompositionMenu(p: {
         ...(c?.plan ?? []).filter((it) => it.published && it.composition === m.id).map((item) => ({ kind: 'published' as const, item, at: item.published! })),
       ].sort((a, b) => b.at.localeCompare(a.at))
     : [];
-  const tapTitle = () => {
-    if (!p.current || !p.canEdit) return;
-    const now = Date.now();
-    if (now - lastTap.current < 400) setRenaming(true);
-    lastTap.current = now;
-  };
   const card = (pub: Pub, i: number): ReactNode => {
     const f = formatOf(pub.target.format);
     const ratio = Math.min(1.8, Math.max(0.5, f.width / f.height));
-    const h = 132;
+    // plus il y a de cartes, plus elles sont petites et se chevauchent : l'éventail tient dans la colonne
+    const h = n <= 2 ? 132 : n <= 4 ? 112 : 90;
+    const w = Math.round(h * ratio);
     const on = i === p.active;
     return (
       <button
         key={i}
         className={`pub-card big ps-${pubState(pub)} ${on ? 'on' : ''}`}
-        style={{ width: Math.round(h * ratio), height: h, transform: `rotate(${(i - mid) * spread}deg) translateY(${on ? -14 : 0}px)`, zIndex: on ? 50 : i }}
+        style={{ width: w, height: h, marginLeft: i ? -Math.round(w * (n > 4 ? 0.55 : 0.4)) : 0, transform: `rotate(${(i - mid) * spread}deg) translateY(${on ? -14 : 0}px)`, zIndex: on ? 50 : i }}
         onClick={() => p.onShow(i)}
         title={`${targetLabel(pub.target, p.activity)} · ${pubWhen(pub)}`}
         aria-label={`Afficher ${targetLabel(pub.target, p.activity)}`}
         aria-pressed={on}
       >
-        {m ? <img src={thumbUrl(m)} alt="" loading="lazy" draggable={false} /> : <span className="pub-blank" />}
+        {p.previews?.[i] || m ? <img src={p.previews?.[i] ?? thumbUrl(m!, i)} alt="" draggable={false} /> : <span className="pub-blank" />}
         <span className="pub-media">
           <MediaIcon ch={channels.find((x) => x.id === pub.target.channel)} size={18} />
         </span>
@@ -610,20 +608,19 @@ export function CompositionMenu(p: {
     <div className={`bubble projects-bubble cm-menu comp-menu ${fold.on ? 'folded' : ''}`} onPointerDown={(e) => e.stopPropagation()}>
       <div className="act-row act-current cm-head">
         <span className="act-txt">
-          {renaming && p.current ? (
+          {/* le titre se change sur place */}
+          {p.current && p.canEdit ? (
             <input
-              className="pf-input cm-rename"
-              autoFocus
+              ref={nameRef}
+              className="cm-name-input"
               value={p.current.title}
               onChange={(e) => p.onTitle(e.target.value)}
-              onBlur={() => setRenaming(false)}
-              onKeyDown={(e) => (e.key === 'Enter' || e.key === 'Escape') && setRenaming(false)}
+              onKeyDown={(e) => (e.key === 'Enter' || e.key === 'Escape') && e.currentTarget.blur()}
               aria-label="Titre de la composition"
+              title="Titre de la composition : toucher pour le changer"
             />
           ) : (
-            <b className="cm-name" onClick={tapTitle} title={p.current && p.canEdit ? 'Toucher deux fois pour renommer' : undefined}>
-              {title}
-            </b>
+            <b className="cm-name">{title}</b>
           )}
           <small>
             {[m && who(m.author ?? m.by), m && when(m.updated), `${n} publication${n > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}
@@ -643,6 +640,19 @@ export function CompositionMenu(p: {
             </div>
           )}
         </span>
+        {p.current && p.canEdit && (
+          <button
+            className="act-icon"
+            onClick={() => {
+              nameRef.current?.focus();
+              nameRef.current?.select();
+            }}
+            title="Renommer la composition"
+            aria-label="Renommer la composition"
+          >
+            <Icon name="pen" />
+          </button>
+        )}
         <button className="act-icon" onClick={p.onCampaign} title={c ? `Revenir à la campagne « ${c.name} »` : 'Revenir aux compositions'} aria-label="Revenir à la campagne">
           <Icon name="up" />
         </button>
@@ -665,20 +675,29 @@ export function CompositionMenu(p: {
             {pubs.map((pub, i) => {
               const f = formatOf(pub.target.format);
               return (
-                <button key={i} className={`cm-pub ps-${pubState(pub)} ${i === p.active ? 'on' : ''}`} onClick={() => p.onShow(i)} aria-pressed={i === p.active}>
-                  <MediaIcon ch={channels.find((x) => x.id === pub.target.channel)} size={16} />
-                  <span>{targetLabel(pub.target, p.activity)}</span>
-                  <em className="tg-px">
-                    {pub.target.width ?? f.width}×{Math.round(((pub.target.width ?? f.width) * f.height) / f.width)}
-                  </em>
-                  <small>{pubWhen(pub)}</small>
-                </button>
+                <div key={i} className="cm-pub-line">
+                  <button className={`cm-pub ps-${pubState(pub)} ${i === p.active ? 'on' : ''}`} onClick={() => p.onShow(i)} aria-pressed={i === p.active}>
+                    <MediaIcon ch={channels.find((x) => x.id === pub.target.channel)} size={16} />
+                    <span>{targetLabel(pub.target, p.activity)}</span>
+                    <em className="tg-px">
+                      {pub.target.width ?? f.width}×{Math.round(((pub.target.width ?? f.width) * f.height) / f.width)}
+                    </em>
+                    <small>{pubWhen(pub)}</small>
+                  </button>
+                  {p.canEdit && n > 1 && (
+                    <button className="act-icon cm-pub-del" onClick={() => p.onRemove(i)} title="Retirer cette publication" aria-label={`Retirer ${targetLabel(pub.target, p.activity)}`}>
+                      <Icon name="trash" />
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
-          <button className="pf-btn comp-pubs-btn" onClick={p.onPublications}>
-            <Icon name="plus" /> Publications…
-          </button>
+          {p.canEdit && (
+            <button className="pf-btn comp-pubs-btn" onClick={p.onAdd} title="Ajouter une publication (copie de celle affichée), puis la régler">
+              <Icon name="plus" /> Ajouter une publication
+            </button>
+          )}
         </div>
         <HistoryPanel
           items={history}
@@ -688,7 +707,6 @@ export function CompositionMenu(p: {
           activity={p.activity}
           folded={fold.on}
           onFold={fold.toggle}
-          title="Historique de la composition"
           empty="Rien encore : les messages, votes, validations et publications de la composition s’inscriront ici."
         />
       </div>

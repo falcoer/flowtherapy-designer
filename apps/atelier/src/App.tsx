@@ -27,7 +27,8 @@ import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
 import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
-import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, ROLE_SHORT, targetKey, targetLabel } from './targets';
+import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
+import { Knob } from './knob';
 import { MediaIcon, PublicationsPanel, VariantBar } from './targets-ui';
 import { CampaignDialog } from './campaigns-ui';
 import { NewCompositionDialog } from './compositions-ui';
@@ -345,6 +346,19 @@ function migrate(d: Doc): Doc {
   return d;
 }
 
+
+/** Le document affiché sur une de ses publications : format, marge du média, couleurs de la variante ; les bords tenus et les pièces solidaires suivent. */
+function docAtTarget(d: Doc, i: number, activity: ActivityProfile | null): Doc {
+  const t = d.targets?.[i];
+  if (!t) return d;
+  const next = docForTarget(d, t, activity);
+  if (d.formatId === t.format && JSON.stringify(docMargins(next)) === JSON.stringify(docMargins(d))) return { ...next, target: i };
+  setAnchorMargin(docMargins(d));
+  const links = linkShapes(d, formatOf(d.formatId));
+  setAnchorMargin(docMargins(next));
+  return { ...holdPins({ ...next, formatId: t.format }, formatOf(t.format), links), target: i };
+}
+
 export function App() {
   const [doc, setDoc] = useState<Doc>(load);
   const docRef = useRef(doc);
@@ -527,11 +541,25 @@ export function App() {
     drawLayers(ctx, d, ff, { scale: k, onImage: () => {} });
     return c.toDataURL('image/png');
   };
+  /** Une vignette par publication : le document tel qu'il s'affiche sur chacune (format, marges, couleurs). */
+  const makeThumbs = (d: Doc) => {
+    if (!d.targets?.length) return undefined;
+    try {
+      return d.targets.map((_, i) => {
+        // les ancrages se résolvent avec les marges de cette publication
+        const x = docAtTarget(d, i, activity);
+        setAnchorMargin(docMargins(x));
+        return makeThumb(x);
+      });
+    } finally {
+      setAnchorMargin(docMargins(docRef.current));
+    }
+  };
   const saveNow = async (p = project, d = docRef.current) => {
     if (!p || !online) return;
     setSaving('saving');
     try {
-      await saveAtelier(p.id, p.title, d, makeThumb(d));
+      await saveAtelier(p.id, p.title, d, makeThumb(d), makeThumbs(d));
       setSaving(docRef.current === d ? 'saved' : 'dirty');
       if (docRef.current === d) setPending(null);
     } catch (err) {
@@ -666,35 +694,49 @@ export function App() {
     return { ...docForTarget(base, t, activity), formatId: t.format, targets: op.targets.map((x) => ({ ...x })), target: 0, operation: op.id };
   };
   /** Affiche une cible : format (les objets gardent leurs accroches), marge du média, couleurs de la variante. */
-  /** Publication courante pas encore figée : ses réglages (réseau, variante, résolution) ne se lisent pas dans le document. */
-  const [pubDraft, setPubDraft] = useState<{ project?: string; t: PubTarget } | null>(null);
-  const showTarget = (i: number) => {
-    setPubDraft(null);
-    setDoc((d) => {
-      const t = d.targets?.[i];
-      if (!t) return d;
-      const next = docForTarget(d, t, activity);
-      if (d.formatId === t.format && JSON.stringify(docMargins(next)) === JSON.stringify(docMargins(d))) return { ...next, target: i };
-      // autre format ou autres marges : les bords tenus suivent, les pièces solidaires aussi
-      setAnchorMargin(docMargins(d));
-      const links = linkShapes(d, formatOf(d.formatId));
-      setAnchorMargin(docMargins(next));
-      return { ...holdPins({ ...next, formatId: t.format }, formatOf(t.format), links), target: i };
-    });
-  };
-  /** Applique au document les réglages d'une publication (format, marges, variante), sans la figer. */
+  const showTarget = (i: number) => setDoc((d) => docAtTarget(d, i, activity));
+  /** Édite la publication affichée (réseau, format, résolution, variante, marges) : le document suit, la publication garde ses réglages. */
   const applyPublication = (t: PubTarget) => {
     // les couleurs ne changent que si la variante change : une marge ou une résolution garde les couleurs retouchées
     const samePalette = paletteFor(currentPub, activity)?.id === paletteFor(t, activity)?.id;
-    setPubDraft({ project: project?.id, t });
     setDoc((d) => {
       const next = { ...docForTarget(d, t, activity), ...(samePalette ? { guides: d.guides } : {}) };
       setAnchorMargin(docMargins(d));
       const links = linkShapes(d, formatOf(d.formatId));
       setAnchorMargin(docMargins(next));
-      return d.formatId === t.format ? holdPins(next, formatOf(t.format), links) : holdPins({ ...next, formatId: t.format }, formatOf(t.format), links);
+      const held = d.formatId === t.format ? holdPins(next, formatOf(t.format), links) : holdPins({ ...next, formatId: t.format }, formatOf(t.format), links);
+      const cur = d.targets?.length ? (d.target ?? 0) : 0;
+      const targets = d.targets?.length ? d.targets.map((x, j) => (j === cur ? { ...t } : x)) : [{ ...t }];
+      return { ...held, targets, target: cur };
     });
   };
+  /** Titre de la publication affichée (vide : réseau · format). */
+  const renamePublication = (name: string) =>
+    setDoc((d) => {
+      const cur = d.targets?.length ? (d.target ?? 0) : 0;
+      const base = d.targets?.length ? d.targets : [{ ...currentPub }];
+      const targets = base.map((x, j) => {
+        if (j !== cur) return x;
+        const { name: _old, ...rest } = x;
+        return name ? { ...rest, name } : rest;
+      });
+      return { ...d, targets, target: cur };
+    });
+  /** Nouvelle publication de la composition : une copie de celle affichée, à régler ensuite. */
+  const addPublication = () => {
+    const { name: _name, ...copy } = currentPub;
+    setDoc((d) => (d.targets?.length ? { ...d, targets: [...d.targets, copy], target: d.targets.length } : { ...d, targets: [{ ...currentPub }, copy], target: 1 }));
+    setBubble('format');
+  };
+  const removePublication = (i: number) =>
+    setDoc((d) => {
+      const targets = (d.targets ?? []).filter((_, j) => j !== i);
+      const cur = d.target ?? 0;
+      const target = Math.max(0, cur > i ? cur - 1 : Math.min(cur, targets.length - 1));
+      const next = { ...d, targets, target };
+      // la publication affichée disparaît : on montre celle qui prend sa place
+      return cur === i && targets.length ? docAtTarget(next, target, activity) : next;
+    });
   const channels = channelsOf(activity);
   const allOperations = operationsOf(activity);
   const followed = campaigns.find((c) => c.id === campaign);
@@ -751,17 +793,15 @@ export function App() {
   };
   const palettes = palettesOf(activity);
   const activeTarget = doc.targets?.[doc.target ?? 0];
-  /** Réglages de la publication affichée : le brouillon en cours s'il porte sur ce document et ce format, sinon la publication figée ; marges et format viennent toujours du document. */
-  const draft = pubDraft && pubDraft.project === project?.id && pubDraft.t.format === doc.formatId ? pubDraft.t : null;
-  const currentPub: PubTarget = draft
-    ? { ...draft, format: doc.formatId, margins: docMargins(doc) }
-    : {
-        ...(activeTarget?.channel ? { channel: activeTarget.channel } : {}),
-        format: doc.formatId,
-        ...(activeTarget?.palette ? { palette: activeTarget.palette } : {}),
-        margins: docMargins(doc),
-        ...(activeTarget?.width && activeTarget.format === doc.formatId ? { width: activeTarget.width } : {}),
-      };
+  /** Réglages de la publication affichée ; marges et format viennent toujours du document. */
+  const currentPub: PubTarget = {
+    ...(activeTarget?.channel ? { channel: activeTarget.channel } : {}),
+    format: doc.formatId,
+    ...(activeTarget?.palette ? { palette: activeTarget.palette } : {}),
+    margins: docMargins(doc),
+    ...(activeTarget?.width && activeTarget.format === doc.formatId ? { width: activeTarget.width } : {}),
+    ...(activeTarget?.name ? { name: activeTarget.name } : {}),
+  };
 
   // --- export ---
   const [exportFormats, setExportFormats] = useState<string[]>([]);
@@ -869,6 +909,8 @@ export function App() {
   const [bubble, setBubble] = useState<Bubble>(null);
   // historique du menu de la campagne : demandé au serveur pour cette campagne seulement, à l'ouverture du menu
   const [campaignFeed, setCampaignFeed] = useState<ActivityEvent[] | null>(null);
+  // menu de la composition : ses publications rendues d'après le document ouvert, retouches comprises
+  const previews = useMemo(() => (bubble === 'composition' ? makeThumbs(doc) : undefined), [bubble, doc, activity]); // eslint-disable-line react-hooks/exhaustive-deps
   // menu de la composition : l'historique de sa campagne à elle
   const menuOpen = bubble === 'projects' || bubble === 'composition';
   const campaignScope = bubble === 'composition' && project ? (projects.find((x) => x.id === project.id)?.campaign ?? '') : (followed?.id ?? '');
@@ -4304,6 +4346,20 @@ export function App() {
               />
             </div>
             <div className="bar-right">
+              {/* la publication affichée : son édition */}
+              <button
+                className={`btn pubs-btn ${bubble === 'format' ? 'on' : ''}`}
+                onClick={() => setBubble(bubble === 'format' ? null : 'format')}
+                title={`Édition de la publication : ${targetLabel(currentPub, activity)} (réseau, format, résolution, variante, marges, repères)`}
+                aria-label="Édition de la publication"
+              >
+                <FormatGlyph w={f.width} h={f.height} />
+                {activeTarget?.channel && (
+                  <span className="pubs-media">
+                    <MediaIcon ch={channels.find((c) => c.id === activeTarget.channel)} size={13} />
+                  </span>
+                )}
+              </button>
               <button className={`btn ${bubble === 'light' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'light' ? null : 'light')} title="Lumière">
                 <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
                   <circle cx="12" cy="12" r="4.5" style={{ fill: lampOf(doc).color }} />
@@ -4352,20 +4408,6 @@ export function App() {
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
               {online && project && me?.team && <MessagesButton count={projects.find((m) => m.id === project.id)?.messages ?? 0} on={msgDialog} onClick={() => setMsgDialog(true)} />}
-              <button
-                className={`btn pubs-btn ${bubble === 'format' ? 'on' : ''}`}
-                onClick={() => setBubble(bubble === 'format' ? null : 'format')}
-                title={`Publications : ${activeTarget ? targetLabel(activeTarget, activity) : f.title}${doc.targets && doc.targets.length > 1 ? ` (${(doc.target ?? 0) + 1} sur ${doc.targets.length})` : ''}`}
-                aria-label="Publications"
-              >
-                <FormatGlyph w={f.width} h={f.height} />
-                {activeTarget?.channel && (
-                  <span className="pubs-media">
-                    <MediaIcon ch={channels.find((c) => c.id === activeTarget.channel)} size={13} />
-                  </span>
-                )}
-                {(doc.targets?.length ?? 0) > 1 && <span className="pubs-count">{doc.targets!.length}</span>}
-              </button>
               <button
                 className={`btn ${bubble === 'export' ? 'on' : ''}`}
                 onClick={() => {
@@ -4926,6 +4968,7 @@ export function App() {
               meta={project ? projects.find((x) => x.id === project.id) : undefined}
               current={project ?? undefined}
               targets={doc.targets ?? []}
+              previews={previews}
               active={doc.target ?? 0}
               campaign={followed}
               campaigns={me?.team ? campaigns : []}
@@ -4938,7 +4981,8 @@ export function App() {
               canVote={!!me?.team}
               onTitle={(t) => project && setProject({ ...project, title: t })}
               onShow={showTarget}
-              onPublications={() => setBubble('format')}
+              onAdd={addPublication}
+              onRemove={removePublication}
               onCampaign={() => setBubble('projects')}
               onSaveNew={() => void newProject('Sans titre', true)}
               onVote={voteFor}
@@ -5145,26 +5189,54 @@ export function App() {
           )}
           {bubble === 'format' && (
             <div className="bubble format-bubble pubs-bubble">
-              <div className="b-title">Publications</div>
+              <div className="b-title pub-title">
+                {/* même pictogramme que le bouton de la barre : le format, le réseau en pastille */}
+                <span className="pub-ico">
+                  <FormatGlyph w={f.width} h={f.height} big />
+                  {currentPub.channel && (
+                    <span className="pubs-media">
+                      <MediaIcon ch={channels.find((c) => c.id === currentPub.channel)} size={14} />
+                    </span>
+                  )}
+                </span>
+                {/* le titre de la publication se change sur place */}
+                <input
+                  className="pub-name"
+                  value={currentPub.name ?? ''}
+                  placeholder={defaultLabel(currentPub, activity)}
+                  onChange={(e) => renamePublication(e.target.value)}
+                  aria-label="Titre de la publication"
+                  title="Titre de la publication : toucher pour le changer"
+                />
+                <button
+                  className="btn small pub-eye"
+                  onClick={(e) => {
+                    const input = (e.currentTarget.parentElement as HTMLElement).querySelector<HTMLInputElement>('.pub-name');
+                    input?.focus();
+                    input?.select();
+                  }}
+                  title="Renommer la publication"
+                  aria-label="Renommer la publication"
+                >
+                  <Icon name="pen" />
+                </button>
+                {/* repères affichés en permanence, ou seulement en déplaçant */}
+                <button
+                  className={`btn small pub-eye ${guidesOn.on ? 'on' : ''}`}
+                  onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}
+                  aria-pressed={guidesOn.on}
+                  title={guidesOn.on ? 'Repères affichés en permanence : toucher pour ne les voir qu’en déplaçant' : 'Repères visibles seulement en déplaçant : toucher pour les afficher en permanence'}
+                >
+                  <Icon name={guidesOn.on ? 'eye' : 'eyeoff'} />
+                </button>
+              </div>
               <PublicationsPanel
-                targets={doc.targets ?? []}
                 current={currentPub}
                 activity={activity}
                 onApply={applyPublication}
-                onShow={showTarget}
                 guides={
                   <div className="pub-guides">
-                    <div className="ab-head">
-                      <div className="b-field-label">Repères</div>
-                      <button
-                        className={`btn small ${guidesOn.on ? 'on' : ''}`}
-                        onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}
-                        aria-pressed={guidesOn.on}
-                        title={guidesOn.on ? 'Repères affichés en permanence : toucher pour ne les voir qu’en déplaçant' : 'Repères visibles seulement en déplaçant : toucher pour les afficher en permanence'}
-                      >
-                        <Icon name={guidesOn.on ? 'eye' : 'eyeoff'} />
-                      </button>
-                    </div>
+                    <div className="b-field-label">Repères</div>
                     <div className="seg">
                       {ANCHOR_FRAMES.filter((x) => x !== 'grid').map((x) => (
                         <button key={x} className={doc.frame === x ? 'on' : ''} onClick={() => setDoc((d) => ({ ...d, frame: x as AnchorFrame }))} title={FRAME_TITLES[x]}>
@@ -5213,14 +5285,6 @@ export function App() {
                     )}
                   </div>
                 }
-                onRemove={(i) =>
-                  setDoc((d) => {
-                    const targets = (d.targets ?? []).filter((_, j) => j !== i);
-                    const cur = d.target ?? 0;
-                    return { ...d, targets, target: Math.max(0, cur > i ? cur - 1 : Math.min(cur, targets.length - 1)) };
-                  })
-                }
-                onAdd={(t) => setDoc((d) => ({ ...d, targets: [...(d.targets ?? []), { ...t }], target: (d.targets ?? []).length }))}
               />
               <button
                 className="row danger"
@@ -5520,118 +5584,7 @@ function VSlider({ label, value, onChange, center, onActive }: { label: string; 
   );
 }
 
-/** Petits dessins des potards : ce que règle chacun (repère 16 × 16, centré sur 8,8). */
-const KNOB_GLYPHS: Array<[RegExp, string, boolean?]> = [
-  [/^seuil/i, 'M8 2.5a5.5 5.5 0 0 0 0 11z M8 2.5a5.5 5.5 0 0 1 0 11 5.5 5.5 0 0 1 0-11z', true],
-  [/^lissage/i, 'M2 11c2-1 2-5 4-5s2 3 4 3 3-4 4-5'],
-  [/^densit/i, 'M4 4h.01M8 4h.01M12 4h.01M4 8h.01M8 8h.01M12 8h.01M4 12h.01M8 12h.01M12 12h.01'],
-  [/^écart/i, 'M5.5 8h.01M10.5 8h.01M3 5.5 1.5 8 3 10.5M13 5.5 14.5 8 13 10.5'],
-  [/^ramification/i, 'M8 14V8M8 8 4.5 3.5M8 8l3.5-4.5M8 10.5 5 8.5M8 10l3-2.5'],
-  [/^chaos/i, 'M2 10l2.5-5 2 7 2.5-9 2 8 2-4 1 2'],
-  [/^taille noyau/i, 'M8 6.3a1.7 1.7 0 1 1 0 3.4 1.7 1.7 0 0 1 0-3.4zM8 2.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11z'],
-  [/^longueur/i, 'M4 13.5c1-3.5 1-7 0-11M8 13.5V2.5M12 13.5c-1-3.5-1-7 0-11'],
-  [/^frisure/i, 'M2 9c0-3 3-3 3 0s3 3 3 0 3-3 3 0 3 3 3 0'],
-  [/^roussi/i, 'M8 14c-2.6 0-4-1.8-4-3.9 0-1.9 1.2-3 1.9-4.5.4 1 1 1.6 1.6 1.8C7.3 5.3 8 3.6 9.5 2c.4 2.6 2.5 4.4 2.5 7.2 0 2.9-1.6 4.8-4 4.8zM8 14c-1 0-1.6-.8-1.6-1.7 0-1.1 1-1.7 1.6-2.8.6 1.1 1.6 1.7 1.6 2.8 0 .9-.6 1.7-1.6 1.7z'],
-  [/^mélange/i, 'M6 3.5a4 4 0 1 1 0 8 4 4 0 0 1 0-8zM10 4.5a4 4 0 1 1 0 8 4 4 0 0 1 0-8z'],
-  [/^dessin/i, 'M3 13l.8-3L10.5 3.3l2.2 2.2L6 12.2zM9.3 4.5l2.2 2.2'],
-  [/^intensit/i, 'M8 2.5c2.8 3.6 4 5.6 4 7.5a4 4 0 0 1-8 0c0-1.9 1.2-3.9 4-7.5z'],
-  [/^bord/i, 'M3 3h10v10H3zM5.5 5.5h5v5h-5z'],
-  [/^biseau/i, 'M2.5 2.5h11v11h-11zM5.5 5.5h5v5h-5zM2.5 2.5l3 3M13.5 2.5l-3 3M2.5 13.5l3-3M13.5 13.5l-3-3'],
-  [/^distance/i, 'M6 6h4v4H6zM2.5 2.5h3M10.5 2.5h3M2.5 13.5h3M10.5 13.5h3M2.5 2.5v3M2.5 10.5v3M13.5 2.5v3M13.5 10.5v3'],
-  [/^largeur/i, 'M2 8h12M4 5.5 1.5 8 4 10.5M12 5.5 14.5 8 12 10.5M8 4v8'],
-  [/^graisse/i, 'M4 3h4.5a2.5 2.5 0 0 1 0 5H4zM4 8h5a2.5 2.5 0 0 1 0 5H4zM6 3v10'],
-  [/^courbure/i, 'M2 11Q8 3 14 11'],
-  [/^espacement/i, 'M5 3v10M11 3v10M1.5 8h2M12.5 8h2M7 8h2'],
-  [/^interligne/i, 'M3 4h10M3 12h10M8 6v4M6.5 7.2 8 5.8l1.5 1.4M6.5 8.8 8 10.2l1.5-1.4'],
-];
-
-/** Potard : tourne d'un geste (glisser vers le haut ou vers la droite pour monter),
- *  le libellé et le niveau s'affichent en surbrillance à côté tant qu'on le tient.
- *  Sa jauge est celle de la roue du pinceau : des segments de 6 h à 3 h, par la gauche et le haut.
- *  Double appui : retour au neutre pour un réglage à deux sens. */
-export function Knob({ label, value, onChange, center, fmt }: { label: string; value: number; onChange: (v: number) => void; center?: boolean; fmt?: (v: number) => string }) {
-  const drag = useRef<{ x: number; y: number; v: number; id: number } | null>(null);
-  const lastTap = useRef(0);
-  const [held, setHeld] = useState(false);
-  const N = 12;
-  const A0 = Math.PI; // 6 h
-  const A1 = 2.5 * Math.PI; // 3 h
-  const [r0, r1] = [16, 21.5];
-  const at = (a: number, r: number) => [22 + Math.sin(a) * r, 22 - Math.cos(a) * r].map((n) => n.toFixed(2)).join(' ');
-  const seg = (a: number, b: number) => `M${at(a, r1)}A${r1} ${r1} 0 0 1 ${at(b, r1)}L${at(b, r0)}A${r0} ${r0} 0 0 0 ${at(a, r0)}Z`;
-  const lit = (i: number) => {
-    const [lo, hi] = [i / N, (i + 1) / N];
-    if (!center) return hi <= value + 1e-6 ? 'on' : (lo + hi) / 2 <= value ? 'half' : '';
-    // à deux sens : du milieu vers la valeur
-    const [a, b] = value >= 0.5 ? [0.5, value] : [value, 0.5];
-    return lo >= a - 1e-6 && hi <= b + 1e-6 ? 'on' : (lo + hi) / 2 > a && (lo + hi) / 2 < b ? 'half' : '';
-  };
-  const glyph = KNOB_GLYPHS.find(([re]) => re.test(label));
-  const shown = fmt ? fmt(value) : center ? `${value >= 0.5 ? '+' : '−'}${Math.round(Math.abs(value - 0.5) * 200)}` : `${Math.round(value * 100)} %`;
-  const end = () => {
-    drag.current = null;
-    setHeld(false);
-  };
-  return (
-    <div
-      className={`knob ${held ? 'held' : ''}`}
-      title={label}
-      role="slider"
-      tabIndex={0}
-      aria-label={label}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={Math.round(value * 100)}
-      aria-valuetext={shown}
-      onKeyDown={(e) => {
-        // au clavier : flèches (Maj pour aller plus vite), Début et Fin
-        const k = e.key;
-        const d = e.shiftKey ? 0.1 : 0.02;
-        const v = k === 'ArrowUp' || k === 'ArrowRight' ? value + d : k === 'ArrowDown' || k === 'ArrowLeft' ? value - d : k === 'Home' ? 0 : k === 'End' ? 1 : null;
-        if (v === null) return;
-        e.preventDefault();
-        e.stopPropagation();
-        onChange(Math.max(0, Math.min(1, v)));
-      }}
-      onPointerDown={(e) => {
-        (e.currentTarget as Element).setPointerCapture(e.pointerId);
-        const now = performance.now();
-        if (center && now - lastTap.current < 320) onChange(0.5);
-        lastTap.current = now;
-        drag.current = { x: e.clientX, y: e.clientY, v: value, id: e.pointerId };
-        setHeld(true);
-      }}
-      onPointerMove={(e) => {
-        const d = drag.current;
-        if (!d || d.id !== e.pointerId) return;
-        // 180 px de geste pour toute la course ; le crayon règle plus finement
-        const span = e.pointerType === 'pen' ? 320 : 180;
-        let v = Math.max(0, Math.min(1, d.v + (d.y - e.clientY + (e.clientX - d.x)) / span));
-        if (center && Math.abs(v - 0.5) < 0.03) v = 0.5;
-        if (v !== value) onChange(v);
-      }}
-      onPointerUp={end}
-      onPointerCancel={end}
-    >
-      <svg viewBox="0 0 44 44" aria-hidden>
-        {Array.from({ length: N }, (_, i) => {
-          const a = A0 + (i / N) * (A1 - A0);
-          const b = A0 + ((i + 1) / N) * (A1 - A0);
-          return <path key={i} className={`kn-seg ${lit(i)}`} d={seg(a + 0.035, b - 0.035)} />;
-        })}
-        {center && <path className="kn-zero" d={`M${at((A0 + A1) / 2, r0 - 1.5)}L${at((A0 + A1) / 2, r1 + 1.5)}`} />}
-        <circle className="kn-cap" cx="22" cy="22" r="13.5" />
-        {glyph && <path className={`kn-glyph ${glyph[2] ? 'filled' : ''}`} d={glyph[1]} transform="translate(11.6 11.6) scale(1.3)" />}
-      </svg>
-      {held && (
-        <span className="kn-tag">
-          <b>{label}</b>
-          <span>{shown}</span>
-        </span>
-      )}
-    </div>
-  );
-}
+export { Knob };
 
 function FormatGlyph({ w, h, big }: { w: number; h: number; big?: boolean }) {
   const s = big ? 26 : 16;
