@@ -553,7 +553,8 @@ export function CompositionMenu(p: {
   canVote: boolean;
   onTitle: (t: string) => void;
   onShow: (i: number) => void;
-  onPublications: () => void;
+  onAdd: () => void;
+  onRemove: (i: number) => void;
   onCampaign: () => void;
   onSaveNew: () => void;
   onVote: (m: AtelierMeta) => void;
@@ -669,20 +670,29 @@ export function CompositionMenu(p: {
             {pubs.map((pub, i) => {
               const f = formatOf(pub.target.format);
               return (
-                <button key={i} className={`cm-pub ps-${pubState(pub)} ${i === p.active ? 'on' : ''}`} onClick={() => p.onShow(i)} aria-pressed={i === p.active}>
-                  <MediaIcon ch={channels.find((x) => x.id === pub.target.channel)} size={16} />
-                  <span>{targetLabel(pub.target, p.activity)}</span>
-                  <em className="tg-px">
-                    {pub.target.width ?? f.width}×{Math.round(((pub.target.width ?? f.width) * f.height) / f.width)}
-                  </em>
-                  <small>{pubWhen(pub)}</small>
-                </button>
+                <div key={i} className="cm-pub-line">
+                  <button className={`cm-pub ps-${pubState(pub)} ${i === p.active ? 'on' : ''}`} onClick={() => p.onShow(i)} aria-pressed={i === p.active}>
+                    <MediaIcon ch={channels.find((x) => x.id === pub.target.channel)} size={16} />
+                    <span>{targetLabel(pub.target, p.activity)}</span>
+                    <em className="tg-px">
+                      {pub.target.width ?? f.width}×{Math.round(((pub.target.width ?? f.width) * f.height) / f.width)}
+                    </em>
+                    <small>{pubWhen(pub)}</small>
+                  </button>
+                  {p.canEdit && n > 1 && (
+                    <button className="act-icon cm-pub-del" onClick={() => p.onRemove(i)} title="Retirer cette publication" aria-label={`Retirer ${targetLabel(pub.target, p.activity)}`}>
+                      <Icon name="trash" />
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
-          <button className="pf-btn comp-pubs-btn" onClick={p.onPublications}>
-            <Icon name="plus" /> Publications…
-          </button>
+          {p.canEdit && (
+            <button className="pf-btn comp-pubs-btn" onClick={p.onAdd} title="Ajouter une publication (copie de celle affichée), puis la régler">
+              <Icon name="plus" /> Ajouter une publication
+            </button>
+          )}
         </div>
         <HistoryPanel
           items={history}

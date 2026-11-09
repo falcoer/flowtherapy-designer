@@ -688,25 +688,36 @@ export function App() {
     return { ...docForTarget(base, t, activity), formatId: t.format, targets: op.targets.map((x) => ({ ...x })), target: 0, operation: op.id };
   };
   /** Affiche une cible : format (les objets gardent leurs accroches), marge du média, couleurs de la variante. */
-  /** Publication courante pas encore figée : ses réglages (réseau, variante, résolution) ne se lisent pas dans le document. */
-  const [pubDraft, setPubDraft] = useState<{ project?: string; t: PubTarget } | null>(null);
-  const showTarget = (i: number) => {
-    setPubDraft(null);
-    setDoc((d) => docAtTarget(d, i, activity));
-  };
-  /** Applique au document les réglages d'une publication (format, marges, variante), sans la figer. */
+  const showTarget = (i: number) => setDoc((d) => docAtTarget(d, i, activity));
+  /** Édite la publication affichée (réseau, format, résolution, variante, marges) : le document suit, la publication garde ses réglages. */
   const applyPublication = (t: PubTarget) => {
     // les couleurs ne changent que si la variante change : une marge ou une résolution garde les couleurs retouchées
     const samePalette = paletteFor(currentPub, activity)?.id === paletteFor(t, activity)?.id;
-    setPubDraft({ project: project?.id, t });
     setDoc((d) => {
       const next = { ...docForTarget(d, t, activity), ...(samePalette ? { guides: d.guides } : {}) };
       setAnchorMargin(docMargins(d));
       const links = linkShapes(d, formatOf(d.formatId));
       setAnchorMargin(docMargins(next));
-      return d.formatId === t.format ? holdPins(next, formatOf(t.format), links) : holdPins({ ...next, formatId: t.format }, formatOf(t.format), links);
+      const held = d.formatId === t.format ? holdPins(next, formatOf(t.format), links) : holdPins({ ...next, formatId: t.format }, formatOf(t.format), links);
+      const cur = d.targets?.length ? (d.target ?? 0) : 0;
+      const targets = d.targets?.length ? d.targets.map((x, j) => (j === cur ? { ...t } : x)) : [{ ...t }];
+      return { ...held, targets, target: cur };
     });
   };
+  /** Nouvelle publication de la composition : une copie de celle affichée, à régler ensuite. */
+  const addPublication = () => {
+    setDoc((d) => (d.targets?.length ? { ...d, targets: [...d.targets, { ...currentPub }], target: d.targets.length } : { ...d, targets: [{ ...currentPub }], target: 0 }));
+    setBubble('format');
+  };
+  const removePublication = (i: number) =>
+    setDoc((d) => {
+      const targets = (d.targets ?? []).filter((_, j) => j !== i);
+      const cur = d.target ?? 0;
+      const target = Math.max(0, cur > i ? cur - 1 : Math.min(cur, targets.length - 1));
+      const next = { ...d, targets, target };
+      // la publication affichée disparaît : on montre celle qui prend sa place
+      return cur === i && targets.length ? docAtTarget(next, target, activity) : next;
+    });
   const channels = channelsOf(activity);
   const allOperations = operationsOf(activity);
   const followed = campaigns.find((c) => c.id === campaign);
@@ -763,17 +774,14 @@ export function App() {
   };
   const palettes = palettesOf(activity);
   const activeTarget = doc.targets?.[doc.target ?? 0];
-  /** Réglages de la publication affichée : le brouillon en cours s'il porte sur ce document et ce format, sinon la publication figée ; marges et format viennent toujours du document. */
-  const draft = pubDraft && pubDraft.project === project?.id && pubDraft.t.format === doc.formatId ? pubDraft.t : null;
-  const currentPub: PubTarget = draft
-    ? { ...draft, format: doc.formatId, margins: docMargins(doc) }
-    : {
-        ...(activeTarget?.channel ? { channel: activeTarget.channel } : {}),
-        format: doc.formatId,
-        ...(activeTarget?.palette ? { palette: activeTarget.palette } : {}),
-        margins: docMargins(doc),
-        ...(activeTarget?.width && activeTarget.format === doc.formatId ? { width: activeTarget.width } : {}),
-      };
+  /** Réglages de la publication affichée ; marges et format viennent toujours du document. */
+  const currentPub: PubTarget = {
+    ...(activeTarget?.channel ? { channel: activeTarget.channel } : {}),
+    format: doc.formatId,
+    ...(activeTarget?.palette ? { palette: activeTarget.palette } : {}),
+    margins: docMargins(doc),
+    ...(activeTarget?.width && activeTarget.format === doc.formatId ? { width: activeTarget.width } : {}),
+  };
 
   // --- export ---
   const [exportFormats, setExportFormats] = useState<string[]>([]);
@@ -4369,8 +4377,8 @@ export function App() {
               <button
                 className={`btn pubs-btn ${bubble === 'format' ? 'on' : ''}`}
                 onClick={() => setBubble(bubble === 'format' ? null : 'format')}
-                title={`Publications : ${activeTarget ? targetLabel(activeTarget, activity) : f.title}${doc.targets && doc.targets.length > 1 ? ` (${(doc.target ?? 0) + 1} sur ${doc.targets.length})` : ''}`}
-                aria-label="Publications"
+                title={`Édition de la publication : ${targetLabel(currentPub, activity)} (réseau, format, résolution, variante, marges, repères)`}
+                aria-label="Édition de la publication"
               >
                 <FormatGlyph w={f.width} h={f.height} />
                 {activeTarget?.channel && (
@@ -4378,7 +4386,6 @@ export function App() {
                     <MediaIcon ch={channels.find((c) => c.id === activeTarget.channel)} size={13} />
                   </span>
                 )}
-                {(doc.targets?.length ?? 0) > 1 && <span className="pubs-count">{doc.targets!.length}</span>}
               </button>
               <button
                 className={`btn ${bubble === 'export' ? 'on' : ''}`}
@@ -4953,7 +4960,8 @@ export function App() {
               canVote={!!me?.team}
               onTitle={(t) => project && setProject({ ...project, title: t })}
               onShow={showTarget}
-              onPublications={() => setBubble('format')}
+              onAdd={addPublication}
+              onRemove={removePublication}
               onCampaign={() => setBubble('projects')}
               onSaveNew={() => void newProject('Sans titre', true)}
               onVote={voteFor}
@@ -5160,13 +5168,15 @@ export function App() {
           )}
           {bubble === 'format' && (
             <div className="bubble format-bubble pubs-bubble">
-              <div className="b-title">Publications</div>
+              <div className="b-title pub-title">
+                <MediaIcon ch={channels.find((c) => c.id === currentPub.channel)} size={20} />
+                <span>{targetLabel(currentPub, activity)}</span>
+                {(doc.targets?.length ?? 0) > 1 && <small>{(doc.target ?? 0) + 1} sur {doc.targets!.length}</small>}
+              </div>
               <PublicationsPanel
-                targets={doc.targets ?? []}
                 current={currentPub}
                 activity={activity}
                 onApply={applyPublication}
-                onShow={showTarget}
                 guides={
                   <div className="pub-guides">
                     <div className="ab-head">
@@ -5228,14 +5238,6 @@ export function App() {
                     )}
                   </div>
                 }
-                onRemove={(i) =>
-                  setDoc((d) => {
-                    const targets = (d.targets ?? []).filter((_, j) => j !== i);
-                    const cur = d.target ?? 0;
-                    return { ...d, targets, target: Math.max(0, cur > i ? cur - 1 : Math.min(cur, targets.length - 1)) };
-                  })
-                }
-                onAdd={(t) => setDoc((d) => ({ ...d, targets: [...(d.targets ?? []), { ...t }], target: (d.targets ?? []).length }))}
               />
               <button
                 className="row danger"
