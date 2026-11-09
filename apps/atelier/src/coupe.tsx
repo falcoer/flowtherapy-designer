@@ -5,7 +5,7 @@ import { FX, fxGuides, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId 
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { GEN_DEFAULTS, VOLUMES, type Doc, type Layer } from './model';
-import { fontFamily, fontList, fontOf, leanOf, WARPS, withLean, type TextStyle, type WarpKind } from './text';
+import { ensureFont, fontFamily, fontList, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { TextContent, WarpGlyph, weightName } from './textbar';
 import { TiltPad } from './tilt';
 
@@ -374,6 +374,16 @@ export function CoupePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adding, cache]);
   const thumbs = cache.urls;
+  // catalogue des polices ouvert : chacune se charge pour que son aperçu soit dans sa forme
+  const isText = l.kind === 'text';
+  useEffect(() => {
+    if (adding !== 'image' || !isText) return;
+    let stop = false;
+    void loadFonts().then((all) => Promise.all(all.map((x) => ensureFont(x.id))).then(() => !stop && thumbDone((n) => n + 1)));
+    return () => {
+      stop = true;
+    };
+  }, [adding, isText]);
 
   // « Plus » : Transformations, Rognage et Lueur se montrent d'un toucher (ou quand l'objet en a déjà)
   const [moreOn, setMore] = useState(false);
