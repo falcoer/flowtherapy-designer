@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { FORMATS, formatOf, type Target } from './model';
+import { exportSize, FORMATS, formatOf, uniformMargins, type Margins, type Target } from './model';
 import { palettesOf, type ActivityProfile, type Channel, type Palette } from './server';
 import { channelsOf, formatsFor, paletteFor, paletteGuides, targetKey, targetLabel } from './targets';
 
@@ -99,7 +99,7 @@ interface Opt {
 }
 
 /** Liste déroulante à pictogrammes : le bouton montre le choix, la liste s'ouvre dessous. */
-function Combo({ value, options, onChange, label, grow }: { value: string; options: Opt[]; onChange: (id: string) => void; label: string; grow?: boolean }) {
+function Combo({ value, options, onChange, label, grow, text }: { value: string; options: Opt[]; onChange: (id: string) => void; label: string; grow?: boolean; text?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -113,6 +113,7 @@ function Combo({ value, options, onChange, label, grow }: { value: string; optio
     <div className={`cb ${grow ? 'grow' : ''}`} ref={ref}>
       <button className={`cb-btn ${open ? 'on' : ''}`} onClick={() => setOpen(!open)} title={`${label} : ${cur?.label ?? ''}`} aria-label={label} aria-expanded={open}>
         {cur?.icon}
+        {text && <span className="cb-label">{cur?.label}</span>}
         <span className="cb-caret">▾</span>
       </button>
       {open && (
@@ -138,61 +139,198 @@ function Combo({ value, options, onChange, label, grow }: { value: string; optio
   );
 }
 
-/** Cibles du document : une ligne par cible (média, format, variante), et l'ajout sur une ligne. */
-export function TargetsPanel(p: { targets: Target[]; active: number; activity: ActivityProfile | null; onShow: (i: number) => void; onRemove: (i: number) => void; onAdd: (t: Target) => void }) {
+const r3 = (v: number) => Math.round(v * 1000);
+const sameMargins = (a: Margins, b: Margins) => r3(a.top) === r3(b.top) && r3(a.right) === r3(b.right) && r3(a.bottom) === r3(b.bottom) && r3(a.left) === r3(b.left);
+/**
+ * Deux publications identiques : même média, format, variante, marges et résolution effectives
+ * (marges du média quand la publication n'a pas les siennes, résolution native quand elle n'en fixe pas).
+ */
+export const samePublication = (a: Target, b: Target, channels: Channel[] = []) => {
+  const m = (t: Target) => t.margins ?? uniformMargins(channels.find((c) => c.id === t.channel)?.margin ?? 0);
+  const w = (t: Target) => t.width ?? exportSize(formatOf(t.format)).w;
+  return targetKey(a) === targetKey(b) && sameMargins(m(a), m(b)) && w(a) === w(b);
+};
+const pct = (v: number) => Math.round(v * 1000) / 10;
+const SIDES: Array<[keyof Margins, string]> = [
+  ['top', 'Haut'],
+  ['left', 'Gauche'],
+  ['right', 'Droite'],
+  ['bottom', 'Bas'],
+];
+
+/**
+ * Publications de la composition : la liste des publications prêtes (figées), et le formulaire de la
+ * publication courante (configuration préétablie, réseau, format, résolution, variante, marges côté par
+ * côté), appliqué au document à chaque réglage ; « Figer » l'ajoute à la liste.
+ */
+export function PublicationsPanel(p: {
+  targets: Target[];
+  /** réglages de la publication affichée */
+  current: Target;
+  activity: ActivityProfile | null;
+  onApply: (t: Target) => void;
+  onShow: (i: number) => void;
+  onRemove: (i: number) => void;
+  onAdd: (t: Target) => void;
+  /** repères de positionnement de la publication courante (type, densité, points d'accroche) */
+  guides?: ReactNode;
+}) {
   const channels = channelsOf(p.activity);
   const palettes = palettesOf(p.activity);
-  const [chId, setChId] = useState(channels[0]?.id ?? '');
-  const [fmt, setFmt] = useState('');
-  const [pal, setPal] = useState('');
-  const ch = channels.find((c) => c.id === chId);
-  const fs = formatsFor(ch);
-  const format = fs.some((f) => f.id === fmt) ? fmt : fs[0]!.id;
-  const t: Target = { ...(ch ? { channel: ch.id } : {}), format, ...(pal ? { palette: pal } : {}) };
-  const dup = p.targets.some((x) => targetKey(x) === targetKey(t));
-  const mediaPal = paletteFor(ch ? { channel: ch.id, format } : undefined, p.activity);
+  const [cfg, setCfg] = useState<Target>(p.current);
+  // une publication choisie dans la liste remplace le formulaire
+  const curKey = JSON.stringify(p.current);
+  useEffect(() => setCfg(p.current), [curKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const ch = channels.find((c) => c.id === cfg.channel);
+  const f = formatOf(cfg.format);
+  const native = exportSize(f);
+  const size = exportSize(f, cfg.width);
+  const margins = cfg.margins ?? uniformMargins(ch?.margin ?? 0);
+  const set = (x: Partial<Target>) => {
+    const next = { ...cfg, ...x };
+    for (const k of Object.keys(next) as (keyof Target)[]) if (next[k] === undefined) delete next[k];
+    setCfg(next);
+    p.onApply(next);
+  };
+  const presets = [...channels.flatMap((c) => formatsFor(c).map((x) => ({ key: `${c.id}/${x.id}`, t: { channel: c.id, format: x.id } as Target }))), ...FORMATS.map((x) => ({ key: `/${x.id}`, t: { format: x.id } as Target }))];
+  const mediaPal = paletteFor(ch ? { channel: ch.id, format: cfg.format } : undefined, p.activity);
+  const dup = p.targets.some((x) => samePublication(x, cfg, channels));
 
   return (
     <>
+      <div className="b-sub">Prêtes</div>
       {p.targets.map((x, i) => {
         const c = channels.find((y) => y.id === x.channel);
         const v = paletteFor(x, p.activity);
+        const sz = exportSize(formatOf(x.format), x.width);
         return (
-          <div key={i} className={`tg-line ${i === p.active ? 'on' : ''}`}>
+          <div key={i} className={`tg-line ${samePublication(x, cfg, channels) ? 'on' : ''}`}>
             <button className="tg-show" onClick={() => p.onShow(i)} title={`${targetLabel(x, p.activity)}${v ? ` · ${v.name}` : ''}`}>
               <MediaIcon ch={c} />
               <FmtGlyph id={x.format} />
               <span className="tg-name">{targetLabel(x, p.activity)}</span>
+              <small className="tg-px">
+                {sz.w} × {sz.h}
+              </small>
               <VariantBar pal={v} />
             </button>
-            <button className="tm-remove" title="Retirer cette cible" onClick={() => p.onRemove(i)}>
+            <button className="tm-remove" title="Supprimer cette publication" onClick={() => p.onRemove(i)}>
               ×
             </button>
           </div>
         );
       })}
-      <div className="tg-line tg-new">
-        <Combo
-          label="Média"
-          value={chId}
-          onChange={setChId}
-          options={[...channels.map((c) => ({ id: c.id, icon: <MediaIcon ch={c} />, label: c.name })), { id: '', icon: <MediaIcon />, label: 'Libre (tous formats)' }]}
-        />
-        <Combo label="Format" value={format} onChange={setFmt} options={(ch ? fs : FORMATS).map((f) => ({ id: f.id, icon: <FmtGlyph id={f.id} />, label: f.title }))} />
-        <Combo
-          grow
-          label="Variante"
-          value={pal}
-          onChange={setPal}
-          options={[
-            { id: '', icon: <VariantBar pal={mediaPal} wide />, label: `Celle du média${mediaPal ? ` (${mediaPal.name})` : ''}` },
-            ...palettes.map((q) => ({ id: q.id, icon: <VariantBar pal={q} wide />, label: q.name })),
-          ]}
-        />
-        <button className="tg-plus" disabled={dup} onClick={() => p.onAdd(t)} title={dup ? 'Cette cible est déjà dans la liste' : 'Ajouter cette cible'} aria-label="Ajouter la cible">
-          +
-        </button>
+      {!p.targets.length && <p className="b-note">Aucune publication figée : règle la publication courante ci-dessous, puis fige-la.</p>}
+
+      <div className="b-sub">Publication courante</div>
+      <div className="pub-form">
+        <label className="pub-field wide">
+          <span>Configuration</span>
+          <select
+            className="pf-input"
+            value=""
+            onChange={(e) => {
+              const x = presets.find((y) => y.key === e.target.value);
+              if (!x) return;
+              const c = channels.find((y) => y.id === x.t.channel);
+              set({ channel: x.t.channel, format: x.t.format, palette: undefined, width: undefined, margins: uniformMargins(c?.margin ?? 0) });
+            }}
+          >
+            <option value="">Partir d’une configuration…</option>
+            {presets.map((x) => (
+              <option key={x.key} value={x.key}>
+                {x.t.channel ? targetLabel(x.t, p.activity) : `Libre · ${formatOf(x.t.format).title}`}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="pub-field">
+          <span>Réseau</span>
+          <Combo
+            text
+            label="Réseau"
+            value={cfg.channel ?? ''}
+            onChange={(id) => {
+              const c = channels.find((y) => y.id === id);
+              const fs = formatsFor(c);
+              set({ channel: id || undefined, format: fs.some((x) => x.id === cfg.format) ? cfg.format : fs[0]!.id, margins: uniformMargins(c?.margin ?? 0) });
+            }}
+            options={[...channels.map((c) => ({ id: c.id, icon: <MediaIcon ch={c} />, label: c.name })), { id: '', icon: <MediaIcon />, label: 'Libre' }]}
+          />
+        </div>
+        <div className="pub-field">
+          <span>Format</span>
+          <Combo text label="Format" value={cfg.format} onChange={(id) => set({ format: id, width: undefined })} options={(ch ? formatsFor(ch) : FORMATS).map((x) => ({ id: x.id, icon: <FmtGlyph id={x.id} />, label: x.title }))} />
+        </div>
+        <label className="pub-field">
+          <span>Résolution</span>
+          <span className="pub-res">
+            <input
+              className="pf-input"
+              type="number"
+              min={100}
+              max={8000}
+              step={10}
+              value={size.w}
+              onChange={(e) => {
+                const w = Number(e.target.value);
+                if (w >= 100 && w <= 8000) set({ width: w === native.w ? undefined : w });
+              }}
+              aria-label="Largeur en pixels"
+            />
+            <small>× {size.h} px</small>
+          </span>
+        </label>
+        <div className="pub-field">
+          <span>Variante</span>
+          <Combo
+            text
+            grow
+            label="Variante"
+            value={cfg.palette ?? ''}
+            onChange={(id) => set({ palette: id || undefined })}
+            options={[{ id: '', icon: <VariantBar pal={mediaPal} wide />, label: mediaPal ? mediaPal.name : 'Du réseau' }, ...palettes.map((q) => ({ id: q.id, icon: <VariantBar pal={q} wide />, label: q.name }))]}
+          />
+        </div>
+        <div className="pub-field wide">
+          <span>Marges (zones mortes comprises), en % du petit côté</span>
+          <div className="pub-margins" style={{ ['--ratio' as string]: `${f.width} / ${f.height}` }}>
+            {SIDES.map(([k, l]) => (
+              <label key={k} className={`pm-${k}`}>
+                <small>{l}</small>
+                <input
+                  className="pf-input"
+                  type="number"
+                  min={-25}
+                  max={25}
+                  step={0.5}
+                  value={pct(margins[k])}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    if (Number.isFinite(v)) set({ margins: { ...margins, [k]: Math.max(-0.25, Math.min(0.25, v / 100)) } });
+                  }}
+                  aria-label={`Marge ${l.toLowerCase()}`}
+                />
+              </label>
+            ))}
+            <span className="pm-page" aria-hidden>
+              <span
+                className="pm-zone"
+                style={{
+                  top: `${((margins.top * Math.min(f.width, f.height)) / f.height) * 100}%`,
+                  bottom: `${((margins.bottom * Math.min(f.width, f.height)) / f.height) * 100}%`,
+                  left: `${((margins.left * Math.min(f.width, f.height)) / f.width) * 100}%`,
+                  right: `${((margins.right * Math.min(f.width, f.height)) / f.width) * 100}%`,
+                }}
+              />
+            </span>
+          </div>
+        </div>
       </div>
+      {p.guides}
+      <button className="btn-primary pub-freeze" disabled={dup} onClick={() => p.onAdd(cfg)} title={dup ? 'Cette publication est déjà dans la liste' : 'Figer ces réglages et les ajouter aux publications prêtes'}>
+        {dup ? 'Déjà dans la liste' : 'Figer et ajouter à la liste'}
+      </button>
     </>
   );
 }

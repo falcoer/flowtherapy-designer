@@ -224,7 +224,23 @@ export interface Target {
   channel?: string;
   format: string;
   palette?: string;
+  /** Marges de la publication, côté par côté (zones mortes de certains réseaux) ; sinon celle du média. */
+  margins?: Margins;
+  /** Résolution d'export : largeur en pixels (la hauteur suit le format) ; sinon celle du format. */
+  width?: number;
 }
+
+/** Marges côté par côté, en fraction du petit côté du format (positives vers l'intérieur). */
+export interface Margins {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+export const uniformMargins = (m = 0): Margins => ({ top: m, right: m, bottom: m, left: m });
+export const hasMargins = (m: Margins) => !!(m.top || m.right || m.bottom || m.left);
+/** Marges du document : côté par côté si réglées, sinon la marge unique d'avant. */
+export const docMargins = (d: { margin?: number; margins?: Margins }): Margins => d.margins ?? uniformMargins(d.margin ?? 0);
 
 export interface Doc {
   formatId: string;
@@ -233,6 +249,8 @@ export interface Doc {
   density?: number;
   /** Marge des repères autour du bord du format, en fraction du petit côté (-0.25..0.25) : positive vers l'intérieur. */
   margin?: number;
+  /** Marges côté par côté (remplacent `margin` quand elles sont là). */
+  margins?: Margins;
   /** Points d'ancrage ajoutables (cases à cocher), tous présents par défaut : sommets et milieux des côtés de la page et de la marge, points des bords en répartition. */
   points?: AnchorExtras;
   guides: Guide[];
@@ -302,20 +320,24 @@ let density = DEFAULT_DENSITY;
 export const setAnchorDensity = (d: number | undefined) => (density = Math.max(1, Math.min(DENSITY_STEPS.length, d ?? DEFAULT_DENSITY)));
 /** Marge des repères d'une page neuve : 5 % du petit côté. */
 export const DEFAULT_MARGIN = 0.05;
-// marge des repères du document ouvert : les points se répartissent dans le format rentré (ou agrandi) de cette marge
-let margin = 0;
-export const setAnchorMargin = (m: number | undefined) => (margin = Math.max(-0.25, Math.min(0.25, m ?? 0)));
-/** Marge en fraction de la largeur et de la hauteur du format. */
+// marges des repères du document ouvert : les points se répartissent dans le format rentré (ou agrandi) de ces marges
+let margins: Margins = uniformMargins(0);
+const clampM = (v: number) => Math.max(-0.25, Math.min(0.25, v || 0));
+export const setAnchorMargin = (m: number | Margins | undefined) => {
+  const x = typeof m === 'object' ? m : uniformMargins(m ?? 0);
+  margins = { top: clampM(x.top), right: clampM(x.right), bottom: clampM(x.bottom), left: clampM(x.left) };
+};
+/** Marges en fraction de la largeur (gauche, droite) et de la hauteur (haut, bas) du format. */
 export function marginOf(f: Format) {
-  const m = Math.min(f.width, f.height) * margin;
-  return { mx: m / f.width, my: m / f.height };
+  const m = Math.min(f.width, f.height);
+  return { l: (margins.left * m) / f.width, r: (margins.right * m) / f.width, t: (margins.top * m) / f.height, b: (margins.bottom * m) / f.height };
 }
 /** Lignes où un bord d'objet peut se tenir, en unités du format : la page, puis la marge si elle existe. */
 export function edgeLines(f: Format) {
-  const { mx, my } = marginOf(f);
+  const { l, r, t, b } = marginOf(f);
   const page = { left: 0, right: f.width, top: 0, bottom: f.height };
-  const marg = { left: mx * f.width, right: f.width - mx * f.width, top: my * f.height, bottom: f.height - my * f.height };
-  return { page, margin: margin ? marg : null };
+  const marg = { left: l * f.width, right: f.width - r * f.width, top: t * f.height, bottom: f.height - b * f.height };
+  return { page, margin: hasMargins(margins) ? marg : null };
 }
 /** Coordonnée de la ligne tenue par un bord. */
 export const pinLine = (f: Format, side: 'left' | 'right' | 'top' | 'bottom', p: Pin | undefined) => {
@@ -324,9 +346,9 @@ export const pinLine = (f: Format, side: 'left' | 'right' | 'top' | 'bottom', p:
 };
 /** Point du référentiel (0..1) ramené dans la zone des repères. */
 function inset<T extends { x: number; y: number }>(a: T, f: Format): T {
-  if (!margin) return a;
-  const { mx, my } = marginOf(f);
-  return { ...a, x: mx + a.x * (1 - 2 * mx), y: my + a.y * (1 - 2 * my) };
+  if (!hasMargins(margins)) return a;
+  const { l, r, t, b } = marginOf(f);
+  return { ...a, x: l + a.x * (1 - l - r), y: t + a.y * (1 - t - b) };
 }
 
 /** Familles de points qu'on coche en plus de ceux du référentiel. */
@@ -387,7 +409,7 @@ export function anchorsOf(frame: AnchorFrame, f: Format) {
     if (extraOn(extras, 'edges'))
       for (const t of fr) for (const e of [0, 1]) pts.push(inset({ id: id(t, e), frame, x: t, y: e }, f), inset({ id: id(e, t), frame, x: e, y: t }, f));
   }
-  const frames: Array<'page' | 'marge'> = margin ? ['marge', 'page'] : ['page'];
+  const frames: Array<'page' | 'marge'> = hasMargins(margins) ? ['marge', 'page'] : ['page'];
   const add = (u: number[][]) => {
     for (const box of frames)
       for (const [x, y] of u) {
@@ -550,3 +572,13 @@ export const VOLUMES: Array<[VolumeKind, string]> = [
   ['cone', 'Cône'],
   ['cushion', 'Coussin'],
 ];
+
+/** Taille de l'image exportée : 300 dpi pour l'imprimé, la taille native pour les écrans. */
+export function exportSize(f: Format, width?: number): { w: number; h: number } {
+  if (width) return { w: Math.round(width), h: Math.round((width * f.height) / f.width) };
+  if (f.unit === 'mm') {
+    const dpi = f.dpi ?? 300;
+    return { w: Math.round((f.width / 25.4) * dpi), h: Math.round((f.height / 25.4) * dpi) };
+  }
+  return { w: Math.round(f.width), h: Math.round(f.height) };
+}
