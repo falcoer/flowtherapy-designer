@@ -1,10 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Icon } from './icons';
-import { FORMATS } from './model';
+import { FORMATS, type Guide } from './model';
 import { createTeam, fetchProfile, palettesOf, ROLE_LABELS, saveProfile, switchTeam, type ActivityProfile, type Channel, type ChannelKind, type ColorRole, type LogoVariant, type Me, type Operation, type Palette, type PaletteColor, type ServiceLink, type TeamRef } from './server';
 import { fontList, loadFonts } from './text';
 import { MembersSection } from './team-ui';
-import { DEFAULT_CHANNELS, DEFAULT_OPERATIONS, formatsFor } from './targets';
+import { BRAND_SLOTS, colorGuide, DEFAULT_CHANNELS, DEFAULT_OPERATIONS, formatsFor, guidePaletteColor, ROLE_NAMES, slotColor } from './targets';
+import { SITE_VARIANTS } from './brand-presets';
+import { ColorDialog, swatch } from './color-dialog';
 import { MediaIcon, VariantBar } from './targets-ui';
 
 /**
@@ -134,7 +136,6 @@ export function ActivityMenu(p: { me: Me | null; online: boolean | null; onEdit:
 
 type FormTab = 'identity' | 'branding' | 'channels' | 'operations' | 'services' | 'members';
 
-export const ROLE_COLOR_LABELS: Record<ColorRole, string> = { fond: 'Fond', texte: 'Texte', accent: 'Accent', secondaire: 'Secondaire' };
 export const CHANNEL_KINDS: Record<ChannelKind, string> = { social: 'Réseau social', affichage: 'Affichage', impression: 'Impression', email: 'E-mail', site: 'Site' };
 const LOGO_LABELS: Record<LogoVariant, string> = { main: 'Principal', light: 'Clair (fond sombre)', dark: 'Sombre (fond clair)', icon: 'Icône seule' };
 type Variant = Exclude<LogoVariant, 'main'>;
@@ -220,11 +221,61 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => (
   </label>
 );
 
-/** Une palette nommée : couleurs et rôles. */
+type Editing = { slot: ColorRole } | { other: number };
+
+/**
+ * Une variante : une pastille par élément prévu (principale, texte, bordure, fond, sujets), comme dans la palette de l'atelier.
+ * Toucher une pastille ouvre le même éditeur que l'atelier : couleur unie ou dégradé.
+ */
 function PaletteEditor(p: { pal: Palette; first: boolean; edit: boolean; set: (q: Palette) => void; remove: () => void; makeFirst: () => void }) {
   const { pal, edit } = p;
   const colors = pal.colors;
+  const [editing, setEditing] = useState<Editing | null>(null);
   const setColors = (v: PaletteColor[]) => p.set({ ...pal, colors: v });
+  const slotRoles = new Set<string>(BRAND_SLOTS.map((x) => x.role));
+  const held = new Set(BRAND_SLOTS.map((x) => slotColor(pal, x.role)).filter(Boolean));
+  // les couleurs qui ne tiennent aucune pastille (sans rôle, secondaire…)
+  const others = colors.map((c, i) => ({ c, i })).filter(({ c }) => !held.has(c) && !(c.role && slotRoles.has(c.role)));
+
+  const chip = (key: string, c: PaletteColor | undefined, label: string, open: () => void) => (
+    <button key={key} className={`guide act-slot ${c ? '' : 'add'}`} disabled={!edit && !c} onClick={() => edit && open()} title={c ? `${label} : ${c.name || (c.stops ? c.stops.join(' → ') : c.hex)}` : `${label} : à définir`}>
+      {c ? <span className="sw" style={{ background: swatch(colorGuide(c)) }} /> : <span className="sw plus">＋</span>}
+      <span className="act-slot-label">{label}</span>
+    </button>
+  );
+
+  // le guide ouvert dans l'éditeur, et où ranger ce qui en sort
+  let dialog: ReactNode = null;
+  if (editing && edit) {
+    const slot = 'slot' in editing ? BRAND_SLOTS.find((x) => x.role === editing.slot)! : undefined;
+    const cur = slot ? slotColor(pal, slot.role) : colors[(editing as { other: number }).other];
+    const idx = cur ? colors.indexOf(cur) : -1;
+    const label = slot?.label ?? 'Autre couleur';
+    const guide = cur ? colorGuide(cur, cur.name || label) : ({ name: label, type: 'color', color: '#888888' } as Guide);
+    const put = (g: Guide) => {
+      const name = g.name.trim() && g.name !== label ? g.name : undefined;
+      const next = guidePaletteColor(g, slot?.role ?? cur?.role, name);
+      setColors(idx < 0 ? [...colors, next] : colors.map((x, j) => (j === idx ? next : x)));
+    };
+    dialog = (
+      <ColorDialog
+        className="act-cd"
+        kind={label}
+        guide={guide}
+        onClose={() => setEditing(null)}
+        onChange={(g) => put(g)}
+        onRemove={
+          idx < 0
+            ? undefined
+            : () => {
+                setColors(colors.filter((_, j) => j !== idx));
+                setEditing(null);
+              }
+        }
+      />
+    );
+  }
+
   return (
     <div className="act-pal">
       <div className="act-pal-head">
@@ -245,36 +296,26 @@ function PaletteEditor(p: { pal: Palette; first: boolean; edit: boolean; set: (q
           </button>
         )}
       </div>
-      <div className="act-palette">
-        {colors.map((c, i) => (
-          <div key={i} className="act-swatch">
-            <label className="act-chip" style={{ background: c.hex }} title={c.hex}>
-              {edit && <input type="color" value={c.hex} onChange={(e) => setColors(colors.map((x, j) => (j === i ? { ...x, hex: e.target.value } : x)))} />}
-            </label>
-            <span className="act-swatch-txt">
-              <input className="act-cname" value={c.name ?? ''} placeholder={c.hex} disabled={!edit} onChange={(e) => setColors(colors.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} aria-label="Nom de la couleur" />
-              <select className="act-role" value={c.role ?? ''} disabled={!edit} onChange={(e) => setColors(colors.map((x, j) => (j === i ? { ...x, role: (e.target.value || undefined) as ColorRole | undefined } : x)))} aria-label="Rôle">
-                <option value="">sans rôle</option>
-                {Object.entries(ROLE_COLOR_LABELS).map(([k, v]) => (
-                  <option key={k} value={k}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </span>
-            {edit && (
-              <button className="tm-remove" onClick={() => setColors(colors.filter((_, j) => j !== i))} title="Retirer">
-                ×
-              </button>
-            )}
-          </div>
-        ))}
-        {edit && (
-          <button className="act-chip act-chip-add" onClick={() => setColors([...colors, { hex: '#888888' }])} title="Ajouter une couleur">
-            +
-          </button>
-        )}
-      </div>
+      <div className="act-slots">{BRAND_SLOTS.map((x) => chip(x.role, slotColor(pal, x.role), x.label, () => setEditing({ slot: x.role })))}</div>
+      {(others.length > 0 || edit) && (
+        <div className="act-slots act-others">
+          {others.map(({ c, i }) => chip(`o${i}`, c, c.name || (c.role ? ROLE_NAMES[c.role] : 'Autre'), () => setEditing({ other: i })))}
+          {edit && (
+            <button
+              className="guide act-slot add"
+              onClick={() => {
+                setColors([...colors, { hex: '#888888' }]);
+                setEditing({ other: colors.length });
+              }}
+              title="Ajouter une autre couleur à la variante"
+            >
+              <span className="sw plus">＋</span>
+              <span className="act-slot-label">Autre</span>
+            </button>
+          )}
+        </div>
+      )}
+      {dialog}
     </div>
   );
 }
@@ -400,7 +441,14 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
   useEffect(() => {
     fetchProfile(team.id).then(
       // médias et occasions proposés tant que l'activité n'a pas les siens
-      (x) => setProf({ ...x, channels: x.channels?.length ? x.channels : DEFAULT_CHANNELS, operations: x.operations ?? DEFAULT_OPERATIONS }),
+      (x) =>
+        setProf({
+          ...x,
+          channels: x.channels?.length ? x.channels : DEFAULT_CHANNELS,
+          operations: x.operations ?? DEFAULT_OPERATIONS,
+          // Flow Therapy sans variante : on propose celles du site, gardées à l'enregistrement
+          ...(!palettesOf(x).length && /flow/i.test(x.name || team.name) ? { branding: { ...x.branding, palettes: SITE_VARIANTS.map((q) => ({ ...q, colors: q.colors.map((c) => ({ ...c })) })) } } : {}),
+        }),
       (e: Error) => setErr(e.message),
     );
     void loadFonts().then(setFonts);
@@ -416,8 +464,12 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
   const setPalettes = (v: Palette[]) => setBranding({ palettes: v, palette: undefined });
   const addPalette = () => {
     const id = `palette-${Date.now().toString(36)}`;
-    setPalettes([...palettes, { id, name: palettes.length ? `Palette ${palettes.length + 1}` : 'Principale', colors: [{ hex: '#1d1b22', role: 'fond' }, { hex: '#ffffff', role: 'texte' }] }]);
+    // la nouvelle variante part de la première (toutes ses pastilles), sinon des couleurs claires du site
+    const base = palettes[0]?.colors ?? SITE_VARIANTS[0]!.colors;
+    setPalettes([...palettes, { id, name: palettes.length ? `Variante ${palettes.length + 1}` : 'Principale', colors: base.map((c) => ({ ...c, ...(c.stops ? { stops: [...c.stops] } : {}) })) }]);
   };
+  /** Les deux variantes du site (claire, sombre) : ajoutées, ou remises à jour si elles sont déjà là. */
+  const takeSite = () => setPalettes([...palettes.filter((q) => !SITE_VARIANTS.some((x) => x.id === q.id)), ...SITE_VARIANTS.map((q) => ({ ...q, colors: q.colors.map((c) => ({ ...c })) }))]);
   const keywords = branding.keywords ?? [];
   const mentions = branding.mentions ?? [];
   const addKeywords = (text: string) => {
@@ -526,7 +578,7 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
       {prof && tab === 'branding' && (
         <div className="pf-body">
           <div className="pf-group">Variantes de couleurs</div>
-          <p className="pf-note">Chaque variante (jour, nuit, saison…) est une base de palette. Les compositions colorent avec ces rôles : changer de variante recolore tout, sur tous les supports. La première sert par défaut.</p>
+          <p className="pf-note">Chaque variante (jour, nuit, saison…) donne une pastille à chaque élément : couleur principale, texte, bordure de texte, fond d’écran et les trois sujets. Touche une pastille pour choisir une couleur ou un dégradé. Les compositions suivent ces rôles : changer de variante recolore tout, sur tous les supports. La première sert par défaut.</p>
           {palettes.map((pal, pi) => (
             <PaletteEditor
               key={pal.id}
@@ -539,9 +591,14 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
             />
           ))}
           {edit && (
-            <button className="pf-btn act-add" onClick={addPalette}>
-              + Nouvelle variante
-            </button>
+            <div className="act-pal-actions">
+              <button className="pf-btn act-add" onClick={addPalette}>
+                + Nouvelle variante
+              </button>
+              <button className="pf-btn act-add" onClick={takeSite} title="Ajoute (ou remet à jour) les variantes « Site clair » et « Site sombre » reprises du site flowtherapymusic.com">
+                Reprendre les couleurs du site
+              </button>
+            </div>
           )}
           {!palettes.length && !edit && <p className="pf-note">Aucune variante pour l’instant.</p>}
           <div className="pf-group">Polices</div>

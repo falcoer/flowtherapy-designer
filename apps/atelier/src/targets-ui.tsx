@@ -85,7 +85,7 @@ export function FmtGlyph({ id, size = 22 }: { id: string; size?: number }) {
 
 /** Une variante en un seul dégradé, le fond à gauche. */
 export const variantGradient = (pal?: Palette) => {
-  const cs = pal ? paletteGuides(pal).map((g) => (g.type === 'color' ? g.color : '#888')) : [];
+  const cs = pal ? paletteGuides(pal).flatMap((g) => (g.type === 'color' ? [g.color] : g.stops)) : [];
   if (!cs.length) return 'repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px)';
   if (cs.length === 1) return cs[0]!;
   return `linear-gradient(90deg, ${cs.map((c, i) => `${c} ${Math.round((i / (cs.length - 1)) * 100)}%`).join(', ')})`;
