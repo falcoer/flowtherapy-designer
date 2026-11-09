@@ -71,6 +71,21 @@ function PubFan({ m, pubs, activity }: { m: AtelierMeta; pubs: Pub[]; activity: 
   );
 }
 
+const dmy = (d: string) => new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+/** Où en est une composition : publiée (d'après le plan de la campagne), sinon son étape de validation, et sa date. */
+function statusOf(m: AtelierMeta, c: Campaign | undefined): { kind: string; label: string; at: string } | null {
+  const pub = (c?.plan ?? [])
+    .filter((it) => it.composition === m.id && it.published)
+    .map((it) => it.published!)
+    .sort()
+    .pop();
+  if (pub) return { kind: 'published', label: 'Publiée', at: pub };
+  const r = m.review;
+  if (!r) return null;
+  if (r.status === 'proposed') return { kind: r.status, label: REVIEW_LABELS.proposed, at: r.proposedAt };
+  return { kind: r.status, label: REVIEW_LABELS[r.status], at: r.reviewedAt ?? r.proposedAt };
+}
+
 /** Largeur de la corbeille découverte en glissant une ligne vers la gauche. */
 const SWIPE = 84;
 
@@ -352,6 +367,7 @@ export function CompositionsMenu(p: {
               const on = m.id === sel;
               const cur = m.id === p.current?.id;
               const tpl = !!c?.templates?.includes(m.id);
+              const st = statusOf(m, c);
               return (
                 <div key={m.id} className={`cm-swipe ${swiped === m.id ? 'open' : ''}`}>
                   {p.canEdit && (
@@ -390,34 +406,37 @@ export function CompositionsMenu(p: {
                       <b>{cur ? p.current!.title : m.title}</b>
                       <small>
                         {[who(m.author ?? m.by), when(m.updated)].filter(Boolean).join(' · ')}
-                        {m.votes?.length ? ` · ♥ ${m.votes.length}` : ''}
                         {m.messages ? ` · ${m.messages} msg` : ''}
                       </small>
-                      {(m.review || tpl) && (
-                        <span className="cm-badges">
-                          {m.review && <span className={`proj-badge st-${m.review.status}`}>{REVIEW_LABELS[m.review.status]}</span>}
-                          {tpl && <span className="proj-badge">★ modèle</span>}
-                        </span>
-                      )}
                     </span>
                     <PubFan m={m} pubs={pubsOf(m, targetsOf(m), c, suggested)} activity={p.activity} />
                   </button>
                   )}
-                  {on && (
-                    <div className="cm-row-acts">
-                      {p.canVote && <VoteButton votes={m.votes ?? []} voted={!!m.voted} onVote={() => p.onVote(m)} />}
-                      {c && p.isAdmin && (
-                        <button className={`cs-tpl cm-tpl ${tpl ? 'on' : ''}`} onClick={() => p.onTemplate(m, !tpl)} aria-pressed={tpl} title={tpl ? 'Modèle de la campagne : chacun peut partir de cette composition. Toucher pour retirer.' : 'Proposer cette composition comme modèle : chacun pourra en partir pour une nouvelle composition de la campagne'}>
-                          {tpl ? '★ Modèle de la campagne' : '☆ En faire un modèle'}
-                        </button>
-                      )}
-                      {!cur && (
-                        <button className="pf-btn act-primary cm-open" onClick={() => p.onOpen(m)}>
-                          Ouvrir
-                        </button>
-                      )}
-                    </div>
-                  )}
+                  {/* une ligne alignée : où en est la composition, ses voix, modèle, corbeille */}
+                  <div className="cm-line">
+                    {st && <span className={`proj-badge st-${st.kind}`}>{st.label} le {dmy(st.at)}</span>}
+                    {p.canVote ? (
+                      <VoteButton votes={m.votes ?? []} voted={!!m.voted} onVote={() => p.onVote(m)} />
+                    ) : (
+                      !!m.votes?.length && <span className="vote">♥ {m.votes.length}</span>
+                    )}
+                    {c && p.isAdmin ? (
+                      <button className={`cm-star ${tpl ? 'on' : ''}`} onClick={() => p.onTemplate(m, !tpl)} aria-pressed={tpl} title={tpl ? 'Modèle de la campagne : chacun peut en partir. Toucher pour retirer.' : 'En faire un modèle de la campagne : chacun pourra en partir'}>
+                        {tpl ? '★' : '☆'}
+                      </button>
+                    ) : (
+                      tpl && (
+                        <span className="cm-star on" title="Modèle de la campagne">
+                          ★
+                        </span>
+                      )
+                    )}
+                    {p.canEdit && (
+                      <button className="cm-trash" onClick={() => setSwiped(swiped === m.id ? null : m.id)} title="Supprimer…" aria-label={`Supprimer « ${m.title} »`}>
+                        <Icon name="trash" />
+                      </button>
+                    )}
+                  </div>
                 </div>
                 </div>
               );

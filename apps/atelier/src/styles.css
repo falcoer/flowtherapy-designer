@@ -1835,3 +1835,16 @@ button.cm-pub:disabled { opacity: 1; cursor: default; }
 .cm-swipe .cm-item.dragging { transition: none; }
 .cm-row-acts .cm-tpl { align-self: center; height: 32px; display: inline-flex; align-items: center; padding: 0 10px; font-size: 12.5px; font-weight: 600; border: 1px solid var(--line); }
 .cm-row-acts .cm-tpl.on { border-color: transparent; }
+/* ligne d'état d'une composition : étape datée, voix, modèle, corbeille */
+.cm-line { display: flex; align-items: center; gap: 6px; padding: 0 8px 6px; min-height: 34px; }
+.cm-line .proj-badge { white-space: nowrap; }
+.proj-badge.st-published { color: #2e8b57; background: rgba(46, 139, 87, 0.12); }
+.cm-star { flex: none; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; font-size: 17px; color: var(--muted); background: none; border: 0; }
+.cm-star.on { color: #e3a008; }
+button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
+.cm-trash { flex: none; margin-left: auto; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); background: none; border: 0; }
+.cm-swipe.open .cm-trash { color: #d64541; }
+.cm-line > * { align-self: center; margin-top: 0; margin-bottom: 0; }
+.cm-line .vote { height: 32px; }
+.cm-item .cm-row { min-height: 0; padding-bottom: 0; }
+.cm-line { padding-left: 4px; }
