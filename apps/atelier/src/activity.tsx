@@ -37,7 +37,7 @@ function Avatar({ me, size = 36 }: { me: Me; size?: number }) {
 }
 
 /** Menu de l'activité : l'activité courante, le profil connecté, les préférences, la déconnexion. */
-export function ActivityMenu(p: { me: Me | null; online: boolean | null; onEdit: () => void; onPrefs: () => void }) {
+export function ActivityMenu(p: { me: Me | null; online: boolean | null; onEdit: () => void }) {
   const { me } = p;
   const team = me?.team;
   const [switching, setSwitching] = useState(false);
@@ -99,6 +99,24 @@ export function ActivityMenu(p: { me: Me | null; online: boolean | null; onEdit:
       )}
       {err && <p className="pf-note pf-err">{err}</p>}
 
+    </div>
+  );
+}
+
+/** Bouton de l'utilisateur, à droite de la barre : sa photo ou son initiale. */
+export function UserButton({ me, on, onClick }: { me: Me | null; on: boolean; onClick: () => void }) {
+  return (
+    <button className={`btn user-btn ${on ? 'on' : ''}`} onClick={onClick} title={me ? `${me.name ?? me.email ?? 'Profil'} : profil, préférences, déconnexion` : 'Profil, préférences'} aria-label="Utilisateur">
+      {me ? <Avatar me={me} size={28} /> : <Icon name="settings" />}
+    </button>
+  );
+}
+
+/** Menu de l'utilisateur : son profil, ses préférences, puis la déconnexion tout en bas. */
+export function UserMenu(p: { me: Me | null; onPrefs: () => void }) {
+  const { me } = p;
+  return (
+    <div className="bubble user-menu" onPointerDown={(e) => e.stopPropagation()}>
       {me?.mode === 'compte' && (
         <div className="act-row act-user">
           <Avatar me={me} />

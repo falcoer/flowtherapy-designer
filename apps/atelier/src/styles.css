@@ -1757,3 +1757,17 @@ button.cm-pub:disabled { opacity: 1; cursor: default; }
 .crumb .crumb-thumb { box-shadow: none; }
 .crumb-icon:has(.crumb-alert) { padding-right: 10px; }
 .crumb-alert { right: -2px; bottom: -3px; width: 13px; height: 13px; font-size: 9.5px; }
+/* utilisateur : à droite de la barre, son menu et ses préférences s'ouvrent dessous */
+.user-btn { padding: 4px; }
+.user-btn .act-avatar { border-radius: 50%; }
+.user-menu { width: min(320px, calc(100vw - 20px)); gap: 4px; }
+.atelier .bubble.user-menu, .atelier .prefs-bubble { left: auto; right: max(10px, env(safe-area-inset-right, 0px)); }
+.act-menu .act-current:last-child { border-bottom: 0; padding-bottom: 4px; }
+@media (max-width: 430px) {
+  .bar-right .btn, .bar-left > .btn { width: 32px; }
+  .user-btn .act-avatar { width: 26px !important; height: 26px !important; }
+  .crumb { padding: 0 10px 0 13px; }
+  .crumb.first { padding-left: 2px; }
+  .crumb .act-mark { width: 22px !important; height: 22px !important; }
+  .crumb .crumb-thumb { width: 24px; height: 24px; }
+}

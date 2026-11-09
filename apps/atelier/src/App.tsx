@@ -25,7 +25,7 @@ import { blankDoc } from './blank';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
-import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
+import { ActivityForm, ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
 import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
 import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, ROLE_SHORT, targetKey, targetLabel } from './targets';
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
@@ -108,7 +108,7 @@ const EDIT_SECTIONS: Array<[EditTool, string, string]> = [
   ['edge', 'Bords', 'frame'],
 ];
 const isEdit = (t: Tool): t is EditTool => EDIT_SECTIONS.some(([k]) => k === t);
-type Bubble = 'activity' | 'activity-edit' | 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'anchor' | 'projects' | 'export' | null;
+type Bubble = 'activity' | 'activity-edit' | 'user' | 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'anchor' | 'projects' | 'export' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc-v2';
@@ -4291,6 +4291,7 @@ export function App() {
               >
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
+              {online && project && me?.team && <MessagesButton count={projects.find((m) => m.id === project.id)?.messages ?? 0} on={msgDialog} onClick={() => setMsgDialog(true)} />}
               <button
                 className={`btn pubs-btn ${bubble === 'format' ? 'on' : ''}`}
                 onClick={() => setBubble(bubble === 'format' ? null : 'format')}
@@ -4305,15 +4306,6 @@ export function App() {
                 )}
                 {(doc.targets?.length ?? 0) > 1 && <span className="pubs-count">{doc.targets!.length}</span>}
               </button>
-              {online && me?.team && (
-                <FeedButton
-                  count={feed ? unreadCount(feed, feedSeen, (me.email ?? 'groupe').toLowerCase(), overdueOf(campaigns).length) : 0}
-                  on={feedOpen}
-                  onClick={openFeed}
-                />
-              )}
-              {online && project && me?.team && <MessagesButton count={projects.find((m) => m.id === project.id)?.messages ?? 0} on={msgDialog} onClick={() => setMsgDialog(true)} />}
-              <span className="sep" />
               <button
                 className={`btn ${bubble === 'export' ? 'on' : ''}`}
                 onClick={() => {
@@ -4327,6 +4319,22 @@ export function App() {
               >
                 <Icon name="export" />
               </button>
+              <span className="sep" />
+              {online && me?.team && (
+                <FeedButton
+                  count={feed ? unreadCount(feed, feedSeen, (me.email ?? 'groupe').toLowerCase(), overdueOf(campaigns).length) : 0}
+                  on={feedOpen}
+                  onClick={openFeed}
+                />
+              )}
+              <UserButton
+                me={me}
+                on={bubble === 'user' || bubble === 'prefs'}
+                onClick={() => {
+                  if (bubble !== 'user' && online) fetchMe().then(setMe, () => {});
+                  setBubble(bubble === 'user' ? null : 'user');
+                }}
+              />
             </div>
           </header>
           {/* Maj : gros bouton en tête de la colonne de gauche (de droite pour un gaucher) */}
@@ -5036,7 +5044,8 @@ export function App() {
             </div>
           )}
 
-          {bubble === 'activity' && <ActivityMenu me={me} online={online} onEdit={() => setBubble('activity-edit')} onPrefs={() => setBubble('prefs')} />}
+          {bubble === 'activity' && <ActivityMenu me={me} online={online} onEdit={() => setBubble('activity-edit')} />}
+          {bubble === 'user' && <UserMenu me={me} onPrefs={() => setBubble('prefs')} />}
           {bubble === 'activity-edit' && me?.team && (
             <ActivityForm me={me} onClose={() => setBubble(null)} onSaved={() => {
               void fetchMe().then(setMe, () => {});
