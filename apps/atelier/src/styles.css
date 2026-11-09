@@ -1730,7 +1730,6 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 button.cm-pub:not(:disabled):hover { background: var(--accent-soft); }
 button.cm-pub:disabled { opacity: 1; cursor: default; }
 /* la date est dans le sous-titre : la mini-date ne reste que sur téléphone, où le texte disparaît */
-@media (min-width: 721px) { .cmp-chip:not(.none) .cmp-date { display: none; } .cmp-chip:not(.none) { padding-left: 12px; } }
 /* fil d'Ariane campagne › composition */
 .cmp-chip { max-width: 420px; }
 .cmp-path { display: flex; align-items: baseline; gap: 5px; min-width: 0; }

@@ -4862,6 +4862,7 @@ export function App() {
           {bubble === 'projects' && (online ? (
             <CompositionsMenu
               campaigns={me?.team ? campaigns : []}
+              operations={allOperations}
               campaign={followed}
               counts={campaignCounts}
               activity={activity}

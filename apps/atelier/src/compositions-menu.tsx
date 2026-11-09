@@ -76,6 +76,7 @@ function PubFan({ m, pubs, activity }: { m: AtelierMeta; pubs: Pub[]; activity: 
  */
 export function CompositionsMenu(p: {
   campaigns: Campaign[];
+  operations: Operation[];
   campaign?: Campaign;
   counts: Record<string, number>;
   activity: ActivityProfile | null;
@@ -145,7 +146,7 @@ export function CompositionsMenu(p: {
             </span>
             <span className="act-txt">
               <b>{c ? c.name : 'Hors campagne'}</b>
-              <small>{c ? [c.date && day(c.date), c.place].filter(Boolean).join(' · ') || 'pas encore de date' : 'les compositions sans campagne'}</small>
+              <small>{c ? [p.operations.find((o) => o.id === c.operation)?.name ?? c.kind, c.time && `accueil ${c.time.replace(':', 'h')}`, c.place].filter(Boolean).join(' · ') || (c.date ? '' : 'pas encore de date') : 'les compositions sans campagne'}</small>
             </span>
             {c && p.isAdmin && (
               <button className="act-icon" onClick={p.onEditCampaign} title="Compléter la campagne : type, date, plan de publication" aria-label="Modifier la campagne">
@@ -340,13 +341,13 @@ export function CampaignChip(p: { campaign?: Campaign; operations: Operation[]; 
   const late = todo.filter((it) => it.date && it.date < t).length;
   const next = todo.filter((it) => it.date && it.date >= t).sort((a, b) => a.date!.localeCompare(b.date!))[0];
   const d = c?.date ? new Date(`${c.date}T12:00:00`) : null;
-  // sous-titre : le type de campagne (son occasion) et sa date cible
-  const sub = c ? [p.operations.find((o) => o.id === c.operation)?.name, c.date && new Date(`${c.date}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })].filter(Boolean).join(' · ') : '';
+  // la date est dans l'icône : le sous-titre ne dit que le type de campagne
+  const sub = c ? p.operations.find((o) => o.id === c.operation)?.name ?? c.kind ?? '' : '';
   return (
     <button
       className={`chip cmp-chip ${c ? '' : 'none'} ${p.on ? 'on' : ''}`}
       onClick={p.onClick}
-      title={c ? `${c.name}${p.title ? ` › ${p.title}` : ''}${sub ? ` · ${sub}` : ''}${next ? ` · prochaine : ${targetLabel(next, p.activity)} le ${short(next.date!)}` : ''}${late ? ` · ${late} en retard` : ''}` : 'Hors campagne : choisir une campagne'}
+      title={c ? `${c.name}${p.title ? ` › ${p.title}` : ''}${sub ? ` · ${sub}` : ''}${c.date ? ` · ${day(c.date)}` : ''}${next ? ` · prochaine : ${targetLabel(next, p.activity)} le ${short(next.date!)}` : ''}${late ? ` · ${late} en retard` : ''}` : 'Hors campagne : choisir une campagne'}
     >
       <span className="cmp-date">
         {d ? (
