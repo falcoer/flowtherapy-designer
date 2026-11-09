@@ -1379,7 +1379,8 @@ function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElem
   c.height = ph;
   const bx = c.getContext('2d', { willReadFrequently: true })!;
   bx.setTransform(k, 0, 0, k, -(b.cx - b.w / 2) * k, -(b.cy - b.h / 2) * k);
-  drawMaterial(bx, l, doc, f, o);
+  // mis en cache : la peinture doit y être entière, jamais par morceaux
+  drawMaterial(bx, l, doc, f, { ...o, progressive: false });
   bx.setTransform(1, 0, 0, 1, 0, 0);
   const img = bx.getImageData(0, 0, pw, ph);
   // la lumière, ramenée dans le repère de la couche (qui peut tourner)
