@@ -8,7 +8,7 @@ import { GEN_DEFAULTS, VOLUMES, type Doc, type Layer } from './model';
 import { ensureFont, fontFamily, fontList, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { TextContent, WarpGlyph, weightName } from './textbar';
 import { TiltPad } from './tilt';
-import { roleIndex } from './targets';
+import { borderDefaults } from './targets';
 
 /**
  * Coupe de l'objet : ses couches lues comme l'objet posé, du dessus au dessous.
@@ -189,7 +189,7 @@ function choicesOf(l: Layer, sec: Section, doc?: Doc): Array<{ id: string; name:
       ...BORDER_TYPES.filter((x) => x[0] && x[0] !== l.border?.style).map(([st, name]) => ({
         id: `b-${st}`,
         name,
-        patch: { border: { style: st!, guide: l.border?.guide ?? (doc ? roleIndex(doc.guides, 'bordure') : undefined) ?? 0, guide2: l.border?.guide2 ?? (doc ? roleIndex(doc.guides, 'principale') : undefined) ?? 1, width: l.border?.width ?? 0.012 } },
+        patch: { border: { style: st!, ...borderDefaults(st!, l.border, doc?.guides ?? []), width: l.border?.width ?? 0.012 } },
         focus: 'border',
       })),
       ...(l.trim ? [] : [{ id: 'trim', name: 'Rognage', patch: { trim: { blur: 0.25, float: 0.3, zigzag: 0 } }, focus: 'trim' }]),

@@ -102,6 +102,17 @@ export function roleIndex(guides: Guide[], role: ColorRole): number | undefined 
   return i < 0 ? undefined : i;
 }
 
+/**
+ * Couleurs d'un bord posé sans couleur : la bordure de texte au bord extérieur (seul bord, ou l'extérieur du double,
+ * guide2), la couleur principale à l'intérieur du double. Les couleurs déjà choisies restent.
+ */
+export function borderDefaults(style: string, prev: { guide: number; guide2?: number } | undefined, guides: Guide[]): { guide: number; guide2: number } {
+  const edge = roleIndex(guides, 'bordure');
+  const main = roleIndex(guides, 'principale');
+  if (style === 'double') return { guide: prev?.guide ?? main ?? 0, guide2: prev?.guide2 ?? edge ?? 1 };
+  return { guide: prev?.guide ?? edge ?? 0, guide2: prev?.guide2 ?? main ?? 1 };
+}
+
 // le fond d'abord : la surface de fond prend le premier guide
 const ROLE_ORDER: string[] = ['fond', 'texte', 'bordure', 'principale', 'accent', 'sujet1', 'sujet2', 'sujet3', 'secondaire'];
 const rank = (r?: string) => {

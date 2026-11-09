@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { blankDoc } from '../src/blank';
 import type { ActivityProfile } from '../src/server';
-import { colorGuide, DEFAULT_OPERATIONS, docForTarget, formatsFor, guidePaletteColor, operationsOf, paletteFor, paletteGuides, recolor, roleIndex, slotColor, targetLabel } from '../src/targets';
+import { colorGuide, DEFAULT_OPERATIONS, docForTarget, formatsFor, guidePaletteColor, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, slotColor, targetLabel } from '../src/targets';
 import { SITE_VARIANTS } from '../src/brand-presets';
 
 const profile: ActivityProfile = {
@@ -92,6 +92,12 @@ describe('pastilles des variantes', () => {
     const old = paletteGuides(profile.branding!.palettes![0]!);
     expect(old[roleIndex(old, 'principale')!]).toMatchObject({ role: 'accent' });
     expect(roleIndex(blankDoc().guides, 'bordure')).toBeUndefined();
+    const b = roleIndex(g, 'bordure')!;
+    const m = roleIndex(g, 'principale')!;
+    expect(borderDefaults('round', undefined, g).guide).toBe(b);
+    // double : guide2 peint l'extérieur
+    expect(borderDefaults('double', undefined, g)).toEqual({ guide: m, guide2: b });
+    expect(borderDefaults('double', { guide: 5, guide2: 6 }, g)).toEqual({ guide: 5, guide2: 6 });
   });
 
   it('une couleur éditée garde son premier arrêt dans hex', () => {

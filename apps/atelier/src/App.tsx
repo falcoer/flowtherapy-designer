@@ -27,7 +27,7 @@ import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
 import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
-import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, roleIndex, ROLE_SHORT, targetKey, targetLabel } from './targets';
+import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, targetKey, targetLabel } from './targets';
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
 import { CampaignDialog, CampaignSummary, VoteButton } from './campaigns-ui';
 import { LoadDialog, NewCompositionDialog } from './compositions-ui';
@@ -6502,7 +6502,7 @@ function EdgeControls({ layer: l, guides, pop, setPop, patch }: { layer: Layer; 
               key={t}
               className={`row ${(bd?.style ?? null) === st ? 'on' : ''}`}
               onClick={() => {
-                patch({ border: st ? { style: st, guide: bd?.guide ?? roleIndex(guides, 'bordure') ?? 0, guide2: bd?.guide2 ?? roleIndex(guides, 'principale') ?? 1, width: bd?.width ?? 0.012 } : undefined });
+                patch({ border: st ? { style: st, ...borderDefaults(st, bd, guides), width: bd?.width ?? 0.012 } : undefined });
                 setPop(null);
               }}
             >
