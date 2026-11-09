@@ -12,6 +12,7 @@ export const DEFAULT_CHANNELS: Channel[] = [
   { id: 'affiche', name: 'Affiche', kind: 'affichage', formats: ['a4'], margin: 0.06, logo: 'main', mentions: [] },
   { id: 'facebook', name: 'Facebook', kind: 'social', formats: ['carre', 'banniere'], margin: 0.05, logo: 'main', mentions: [] },
   { id: 'instagram', name: 'Instagram', kind: 'social', formats: ['carre', 'story'], margin: 0.05, logo: 'icon', mentions: [] },
+  { id: 'applemusic', name: 'Apple Music', kind: 'site', formats: ['pochette'], margin: 0.04, logo: 'main', mentions: [] },
 ];
 
 /** Occasions proposées tant que l'activité n'a pas décrit les siennes. */
@@ -29,6 +30,7 @@ export const DEFAULT_OPERATIONS: Operation[] = [
     id: 'musique',
     name: 'Nouvelle musique',
     targets: [
+      { channel: 'applemusic', format: 'pochette' },
       { channel: 'instagram', format: 'carre' },
       { channel: 'instagram', format: 'story' },
       { channel: 'facebook', format: 'carre' },
