@@ -1742,3 +1742,7 @@ button.cm-pub:disabled { opacity: 1; cursor: default; }
   .crumb.first { padding-left: 5px; }
   .crumb.last { padding-right: 10px; }
 }
+.crumb-alert.inline { position: static; flex: none; box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85); }
+.crumb-thumb { display: none; width: 26px; height: 26px; border-radius: 7px; object-fit: cover; box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85); }
+@media (max-width: 720px) { .crumb-thumb { display: block; } }
+@media (max-width: 720px) { .crumb { padding: 0 12px 0 14px; margin-left: -6px; } .crumb.first { padding-left: 4px; margin-left: 0; } .crumb.last { padding-right: 6px; } }

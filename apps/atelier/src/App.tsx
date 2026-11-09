@@ -26,7 +26,7 @@ import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers }
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
-import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
+import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
 import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, ROLE_SHORT, targetKey, targetLabel } from './targets';
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
 import { CampaignDialog } from './campaigns-ui';
@@ -4218,7 +4218,8 @@ export function App() {
                 occasion={allOperations.find((o) => o.id === doc.operation)}
                 showCampaign={!!(online && me?.team)}
                 title={project?.title}
-                kind={activeTarget ? targetLabel(activeTarget, activity) : f.title}
+                thumb={project ? thumbUrl(projects.find((x) => x.id === project.id) ?? { id: project.id, title: project.title, updated: '' }) : undefined}
+                kind={doc.targets?.length ? `${doc.targets.length} publication${doc.targets.length > 1 ? 's' : ''}` : f.title}
                 saving={online && project ? saving : undefined}
                 open={bubble === 'activity' || bubble === 'activity-edit' ? 'activity' : bubble === 'projects' ? (menuSwitch ? 'campaign' : 'content') : null}
                 onActivity={() => {

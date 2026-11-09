@@ -349,7 +349,11 @@ export function TopCrumbs(p: {
   occasion?: Operation;
   showCampaign: boolean;
   title?: string;
+  /** ce que couvre la composition : le nombre de ses publications */
   kind: string;
+  /** vignette de la composition (sur téléphone, à la place du nom) */
+  thumb?: string;
+  /** seul l'échec d'enregistrement se signale (point d'exclamation) */
   saving?: keyof typeof SAVE_LABELS;
   open: 'activity' | 'campaign' | 'content' | null;
   onActivity: () => void;
@@ -391,11 +395,16 @@ export function TopCrumbs(p: {
         </button>
       )}
       <button className={`crumb last current ${p.open === 'content' ? 'on' : ''}`} onClick={p.onContent} title={`${p.title ?? 'Page non enregistrée'} · ${p.kind}`}>
+        {p.thumb && <img className="crumb-thumb" src={p.thumb} alt="" />}
         <span className="crumb-txt crumb-two">
           <b>{p.title ?? 'Page non enregistrée'}</b>
           <small>{p.kind}</small>
         </span>
-        {p.saving && <span className={`save-dot ${p.saving}`} title={SAVE_LABELS[p.saving]} />}
+        {p.saving === 'error' && (
+          <span className="crumb-alert inline" title={SAVE_LABELS.error} aria-label={SAVE_LABELS.error}>
+            !
+          </span>
+        )}
       </button>
     </nav>
   );
