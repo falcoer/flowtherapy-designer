@@ -1393,8 +1393,9 @@ function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElem
   if (held && hit) return hit.canvas;
   if (o.progressive && !paintReady(l, doc, f, k)) {
     // la peinture se fait par morceaux ; le tampon sera calculé une fois qu'elle sera entière
+    // (elle peut aussi finir tout de suite : un trait ajouté, quelques traits courts)
     paintFor(l, doc, f, k, { redraw: o.onImage, ms: 6 });
-    return hit?.canvas ?? k;
+    if (!paintReady(l, doc, f, k)) return hit?.canvas ?? k;
   }
   const c = hit?.canvas ?? document.createElement('canvas');
   c.width = pw;
