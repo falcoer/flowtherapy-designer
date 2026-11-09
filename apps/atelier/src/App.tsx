@@ -37,6 +37,7 @@ import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
+import { BRUSH_TIPS, TIP_NAMES, isComposite, tipHoverSvg, type BrushTip } from './tips';
 import {
   anchorFor,
   FORMATS,
@@ -1111,7 +1112,7 @@ export function App() {
     return () => window.removeEventListener('resize', fit);
   });
   /** Forme de la brosse et son angle (radians), auquel s'ajoute la rotation du crayon. */
-  const [brushTip, setBrushTip] = useState<'round' | 'flat' | 'triangle'>('round');
+  const [brushTip, setBrushTip] = useState<BrushTip>('round');
   const [brushRot, setBrushRot] = useState(0);
   /** Inclinaison réglée à la main sur la roue du pinceau : la touche s'allonge dans cette direction, comme un crayon couché. */
   const [brushTilt, setBrushTilt] = useState<[number, number]>([0, 0]);
@@ -2485,17 +2486,14 @@ export function App() {
 
   /** Repère de survol : un rond de la taille du pinceau, ou l'empreinte du tampon. */
   /** Sélecteur de pointe de la roue : ronde, plate, triangle. */
-  const tipPick = (cur: 'round' | 'flat' | 'triangle', set: (t: 'round' | 'flat' | 'triangle') => void) => {
-    const all = ['round', 'flat', 'triangle'] as const;
-    const names = { round: 'Ronde', flat: 'Plate', triangle: 'Triangle' };
-    return {
-      face: <Icon name={`tip-${cur}`} />,
-      title: `Pointe : ${names[cur].toLowerCase()}`,
-      next: () => set(all[(all.indexOf(cur) + 1) % all.length]!),
-      options: all.map((t) => ({ key: t, icon: <Icon name={`tip-${t}`} />, label: names[t], on: cur === t })),
-      onOption: (k: string) => set(k as 'round' | 'flat' | 'triangle'),
-    };
-  };
+  /** Le pinceau a toutes les pointes (croix, râteaux, épis) ; Modeler, Plume et Relief : ronde, plate, triangle. */
+  const tipPick = <T extends BrushTip>(cur: T, set: (t: T) => void, all: readonly T[] = ['round', 'flat', 'triangle'] as T[]) => ({
+    face: <Icon name={`tip-${cur}`} />,
+    title: `Pointe : ${TIP_NAMES[cur].toLowerCase()}`,
+    next: () => set(all[(all.indexOf(cur) + 1) % all.length]!),
+    options: all.map((t) => ({ key: t, icon: <Icon name={`tip-${t}`} />, label: TIP_NAMES[t], on: cur === t })),
+    onOption: (k: string) => set(k as T),
+  });
   /** Aperçu d'un tampon tel qu'il s'imprime : couleur ou dégradé du guide, rempli si l'option est prise. */
   const stampLook = (def: StampDef) => {
     const g = doc.guides[guide];
@@ -2526,7 +2524,7 @@ export function App() {
     const tip = tool === 'paint' && tipOn(brushKind) ? brushTip : tool === 'mold' ? moldTip(swash).tip : 'round';
     const H = tip === 'flat' ? Math.max(3, D * 0.3) : D;
     const ang = tool === 'stamp' ? stampRot : tool === 'mold' ? moldTip(swash).rot : tip !== 'round' ? brushRot : 0;
-    el.dataset.tip = tip;
+    tipLook(el, tip);
     el.style.display = 'block';
     el.style.width = `${D}px`;
     el.style.height = `${H}px`;
@@ -2539,6 +2537,12 @@ export function App() {
     const persp = k > 0.02 ? ` rotate(${dir}rad) scaleX(${1 - k * 0.35}) rotate(${-dir}rad)` : kb > 0.02 ? ` rotate(${db}rad) scaleX(${1 + kb * LEAN}) rotate(${-db}rad)` : '';
     el.style.transform = `translate(${at.x - D / 2}px, ${at.y - H / 2}px)${persp} rotate(${ang}rad)`;
   });
+  /** Repère de survol : forme de la pointe ; une pointe composée se dessine en image (dents, lames). */
+  const tipLook = (el: HTMLDivElement, tip: BrushTip) => {
+    el.dataset.tip = isComposite(tip) ? 'parts' : tip;
+    if (tool === 'stamp') return;
+    el.style.backgroundImage = isComposite(tip) ? `url("data:image/svg+xml,${encodeURIComponent(tipHoverSvg(tip))}")` : '';
+  };
   const showHover = (e: React.PointerEvent) => {
     const el = hoverRef.current;
     if (!el) return;
@@ -2565,7 +2569,7 @@ export function App() {
     const D = Math.max(6, d);
     // brosse plate ou triangle : la silhouette de la touche, tournée comme elle peindra
     const tip = molding ? moldTip(swash).tip : shaping && swash.mode === 'orn' ? moldTip(swash).tip : !shaping && tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
-    el.dataset.tip = tip;
+    tipLook(el, tip);
     el.style.width = `${D}px`;
     el.style.height = `${tip === 'flat' ? Math.max(3, D * 0.3) : D}px`;
     const ang = tool === 'stamp' ? stampScreenAngle(e) : (molding || shaping) && tip !== 'round' ? moldTip(swash).rot : tip !== 'round' ? brushRot + penTwist(e) : view.rot;
@@ -4635,9 +4639,9 @@ export function App() {
                     intensity={opacity}
                     onIntensity={(v) => setOpacity(Math.max(0.05, v))}
                     onSizing={(on) => setSizing(on ? 'on' : 'after')}
-                    {...(tipOn(brushKind) ? { tip: brushTip, ...(brushTip !== 'round' ? { rotation: brushRot, onRotation: setBrushRot } : {}) } : {})}
+                    {...(tipOn(brushKind) ? { tip: brushTip, ...(brushTip !== 'round' && brushTip !== 'ears' ? { rotation: brushRot, onRotation: setBrushRot } : {}) } : {})}
                     {...(leanOn(brushKind) ? { tilt: brushTilt, onTilt: (x: number, y: number) => setBrushTilt([x, y]) } : {})}
-                    pick={tipOn(brushKind) ? tipPick(brushTip, setBrushTip) : { face: <Icon name="tip-round" />, title: 'Pointe ronde (seule possible pour ce pinceau)' }}
+                    pick={tipOn(brushKind) ? tipPick(brushTip, setBrushTip, BRUSH_TIPS) : { face: <Icon name="tip-round" />, title: 'Pointe ronde (seule possible pour ce pinceau)' }}
                   />
                 ),
                 tool === 'stamp' && (

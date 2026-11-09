@@ -1,5 +1,6 @@
 import { guideColor, type Guide, type Pt, type Stroke } from './model';
 import { stampOf, stampPaths, type StampDef } from './stamps';
+import { earPrints, isComposite, partLanes, partPolygon, tipParts, type TipPart } from './tips';
 
 /**
  * Pinceau aquarelle. Un trait se rend en trois passes :
@@ -220,13 +221,15 @@ function stamps(s: Stroke, t: Target) {
     Object.assign(pts[pts.length - 1]!, { x: last.x, y: last.y });
   }
   const wob = wash ? 0.25 : 1;
+  const fine = isComposite(s.tip);
   let phase = r() * 10;
   for (let i = 0; i < pts.length; i++) {
     const a = pts[i]!;
     const b = pts[i + 1] ?? a;
     const d = Math.hypot(b.x - a.x, b.y - a.y);
     const rad0 = base * (0.35 + 0.65 * a.p);
-    const step = Math.max(1, rad0 * 0.22);
+    // pointes composées : leurs pièces sont fines, les touches se serrent pour ne pas laisser de pointillés
+    const step = Math.max(1, rad0 * (fine ? 0.1 : 0.22));
     const n = Math.max(1, Math.ceil(d / step));
     for (let k = 0; k < n; k++) {
       const f = k / n;
@@ -249,8 +252,8 @@ function stamps(s: Stroke, t: Target) {
   return out;
 }
 
-/** Empreinte de la brosse : ronde, plate (lame fine) ou triangle, tournée de `a` ; penchée, elle s'allonge vers `d`. */
-function tipShape(ctx: CanvasRenderingContext2D, tip: Stroke['tip'], x: number, y: number, r: number, a: number, K = 0, d = 0) {
+/** Empreinte de la brosse : ronde, plate (lame fine), triangle ou pointe composée (croix, râteau, épis), tournée de `a` ; penchée, elle s'allonge vers `d`. */
+function tipShape(ctx: CanvasRenderingContext2D, tip: Stroke['tip'], x: number, y: number, r: number, a: number, K = 0, d = 0, own?: TipPart[]) {
   ctx.beginPath();
   if (!tip || tip === 'round') {
     if (K) ctx.ellipse(x, y, r * (1 + K), r, d, 0, Math.PI * 2);
@@ -259,6 +262,17 @@ function tipShape(ctx: CanvasRenderingContext2D, tip: Stroke['tip'], x: number, 
   }
   const c = Math.cos(a);
   const s = Math.sin(a);
+  const parts = own ?? tipParts(tip);
+  if (parts.length) {
+    // pointe composée : chaque pièce est un sous-tracé, remplies ensemble (même sens, pas de trou aux croisements)
+    for (const part of parts)
+      partPolygon(part).forEach(([px, py], i) => {
+        const [ox, oy] = stretch((px * c - py * s) * r, (px * s + py * c) * r, K, d);
+        if (i) ctx.lineTo(x + ox, y + oy);
+        else ctx.moveTo(x + ox, y + oy);
+      });
+    return;
+  }
   const pts =
     tip === 'flat'
       ? [
@@ -319,11 +333,21 @@ export function paintWash(dst: CanvasRenderingContext2D, list: Stroke[], guides:
     const g = guides[w.guide];
     // chaque trait dans sa propre eau, puis versé dans la tache commune
     const one = wet ? buffer('d', t.pw, t.ph) : { c: sil, ctx: sx };
-    for (const st of stamps(w, t)) {
-      one.ctx.fillStyle = guideColor(g, st.t);
-      tipShape(one.ctx, w.tip, st.x, st.y, Math.max(0.5, st.r), st.a, st.K, st.d);
-      one.ctx.fill();
-    }
+    const all = stamps(w, t);
+    if (w.tip === 'ears')
+      // épis : des empreintes espacées, chacune ses trois traits
+      for (const e of earPrints(all, w.seed)) {
+        const st = all[e.i]!;
+        one.ctx.fillStyle = guideColor(g, st.t);
+        tipShape(one.ctx, w.tip, e.x, e.y, Math.max(0.5, e.r), e.ang, st.K, st.d, e.parts);
+        one.ctx.fill();
+      }
+    else
+      for (const st of all) {
+        one.ctx.fillStyle = guideColor(g, st.t);
+        tipShape(one.ctx, w.tip, st.x, st.y, Math.max(0.5, st.r), st.a, st.K, st.d);
+        one.ctx.fill();
+      }
     if (!wet) return;
     if (i === 0) {
       sx.drawImage(one.c, 0, 0);
@@ -984,12 +1008,22 @@ export function previewStamps(ctx: CanvasRenderingContext2D, s: Stroke, guides: 
   const water = s.brush === 'aquarelle' || !s.brush;
   ctx.globalCompositeOperation = water ? 'multiply' : 'source-over';
   ctx.globalAlpha = (water ? 0.05 : s.brush === 'spray' || s.brush === 'glitter' ? 0.03 : 0.12) * s.opacity;
-  for (let i = from; i < all.length; i++) {
-    const st = all[i]!;
-    ctx.fillStyle = guideColor(g, st.t);
-    tipShape(ctx, s.brush === 'aquarelle' || !s.brush || s.brush === 'acrylic' || s.brush === 'roller' ? s.tip : 'round', st.x, st.y, Math.max(0.5, st.r), st.a, st.K, st.d);
-    ctx.fill();
-  }
+  const tip = s.brush === 'aquarelle' || !s.brush || s.brush === 'acrylic' || s.brush === 'roller' ? s.tip : 'round';
+  if (tip === 'ears')
+    for (const e of earPrints(all, s.seed)) {
+      if (e.i < from) continue;
+      const st = all[e.i]!;
+      ctx.fillStyle = guideColor(g, st.t);
+      tipShape(ctx, tip, e.x, e.y, Math.max(0.5, e.r), e.ang, st.K, st.d, e.parts);
+      ctx.fill();
+    }
+  else
+    for (let i = from; i < all.length; i++) {
+      const st = all[i]!;
+      ctx.fillStyle = guideColor(g, st.t);
+      tipShape(ctx, tip, st.x, st.y, Math.max(0.5, st.r), st.a, st.K, st.d);
+      ctx.fill();
+    }
   ctx.restore();
   return all.length;
 }
@@ -1118,52 +1152,98 @@ function streaks(
     // bouts carrés : les tronçons se recouvrent, pas de jour entre eux
     c.lineCap = 'square';
   }
-  for (let k = 0; k < o.lanes; k++) {
-    const off = (k / Math.max(1, o.lanes - 1)) * 2 - 1;
-    let prev: { x: number; y: number } | null = null;
-    for (const q of pts) {
-      let h = o.half(q.p);
-      // brosse plate : les poils sont alignés sur la lame, le trait s'affine quand on la glisse dans son sens ;
-      // triangle : la largeur suit l'ombre portée du triangle sur la normale du geste
-      let ax = q.nx;
-      let ay = q.ny;
-      if (s.tip === 'flat') {
-        ax = Math.cos(q.a);
-        ay = Math.sin(q.a);
-      } else if (s.tip === 'triangle') {
-        let lo = Infinity;
-        let hi = -Infinity;
-        for (let v = 0; v < 3; v++) {
-          const va = q.a - Math.PI / 2 + (v * 2 * Math.PI) / 3;
-          const dd = Math.cos(va) * q.nx + Math.sin(va) * q.ny;
-          lo = Math.min(lo, dd);
-          hi = Math.max(hi, dd);
+  /** Un tronçon de piste : la teinte, et sa couverture dans le second tampon. */
+  const drawLane = (k: number, off: number, along: number, x: number, y: number, prev: { x: number; y: number }) => {
+    const c = Math.min(1, o.cover(k, off, along, length ? along / length : 0));
+    if (c <= 0.02) return;
+    cx.strokeStyle = o.color(k, off, along);
+    cx.lineWidth = o.width * 1.8;
+    cx.beginPath();
+    cx.moveTo(prev.x, prev.y);
+    cx.lineTo(x, y);
+    cx.stroke();
+    const v = Math.round(c * 255);
+    mx.strokeStyle = `rgb(${v},${v},${v})`;
+    mx.lineWidth = o.width;
+    mx.beginPath();
+    mx.moveTo(prev.x, prev.y);
+    mx.lineTo(x, y);
+    mx.stroke();
+  };
+  if (s.tip === 'ears') {
+    // épis : chaque empreinte pose ses trois traits, chacun fait de quelques poils côte à côte
+    const prints = earPrints(
+      pts.map((q) => ({ x: q.x, y: q.y, r: o.half(q.p) })),
+      s.seed,
+    );
+    for (const e of prints) {
+      const q = pts[e.i]!;
+      const [c, sn] = [Math.cos(e.ang), Math.sin(e.ang)];
+      const at = (u: number, v: number) => {
+        const [ox, oy] = stretch((u * c - v * sn) * e.r, (u * sn + v * c) * e.r, q.K, q.d);
+        return { x: q.x + ox, y: q.y + oy };
+      };
+      e.parts.forEach((p, j) => {
+        if (p.kind !== 'blade') return;
+        const L = Math.hypot(p.bx - p.ax, p.by - p.ay) || 1;
+        const [nx, ny] = [-(p.by - p.ay) / L, (p.bx - p.ax) / L];
+        const hairs = Math.max(2, Math.round((p.ha * 2 * e.r) / Math.max(1, o.width)));
+        for (let m = 0; m < hairs; m++) {
+          const off = (m / (hairs - 1)) * 2 - 1;
+          const k = (e.i * 3 + j * 7 + m) % o.lanes;
+          // le trait s'affine vers son bout
+          const from = at(p.ax + nx * off * p.ha, p.ay + ny * off * p.ha);
+          const to = at(p.bx + nx * off * p.hb, p.by + ny * off * p.hb);
+          drawLane(k, off, q.s, to.x, to.y, from);
         }
-        h *= (hi - lo) / 2;
-      }
-      // pinceau penché : la touche s'allonge dans le sens où il penche
-      const [ox, oy] = stretch(ax * off * h, ay * off * h, q.K, q.d);
-      const x = q.x + ox;
-      const y = q.y + oy;
-      if (prev) {
-        const c = Math.min(1, o.cover(k, off, q.s, length ? q.s / length : 0));
-        if (c > 0.02) {
-          cx.strokeStyle = o.color(k, off, q.s);
-          cx.lineWidth = o.width * 1.8;
-          cx.beginPath();
-          cx.moveTo(prev.x, prev.y);
-          cx.lineTo(x, y);
-          cx.stroke();
-          const v = Math.round(c * 255);
-          mx.strokeStyle = `rgb(${v},${v},${v})`;
-          mx.lineWidth = o.width;
-          mx.beginPath();
-          mx.moveTo(prev.x, prev.y);
-          mx.lineTo(x, y);
-          mx.stroke();
+      });
+    }
+  } else {
+    // pointe composée : les pistes partent des pièces de la pointe (dents, lames), tournées avec elle
+    const parts = tipParts(s.tip);
+    const laneAt = parts.length ? partLanes(parts, o.lanes) : null;
+    const count = laneAt ? laneAt.length : o.lanes;
+    for (let n = 0; n < count; n++) {
+      const k = n % o.lanes;
+      const L = laneAt?.[n];
+      const off = L ? L.o : (k / Math.max(1, o.lanes - 1)) * 2 - 1;
+      let prev: { x: number; y: number } | null = null;
+      for (const q of pts) {
+        let h = o.half(q.p);
+        if (L) {
+          const [c, sn] = [Math.cos(q.a), Math.sin(q.a)];
+          const [ox, oy] = stretch((L.u * c - L.v * sn) * h, (L.u * sn + L.v * c) * h, q.K, q.d);
+          const x = q.x + ox;
+          const y = q.y + oy;
+          if (prev) drawLane(k, off, q.s, x, y, prev);
+          prev = { x, y };
+          continue;
         }
+        // brosse plate : les poils sont alignés sur la lame, le trait s'affine quand on la glisse dans son sens ;
+        // triangle : la largeur suit l'ombre portée du triangle sur la normale du geste
+        let ax = q.nx;
+        let ay = q.ny;
+        if (s.tip === 'flat') {
+          ax = Math.cos(q.a);
+          ay = Math.sin(q.a);
+        } else if (s.tip === 'triangle') {
+          let lo = Infinity;
+          let hi = -Infinity;
+          for (let v = 0; v < 3; v++) {
+            const va = q.a - Math.PI / 2 + (v * 2 * Math.PI) / 3;
+            const dd = Math.cos(va) * q.nx + Math.sin(va) * q.ny;
+            lo = Math.min(lo, dd);
+            hi = Math.max(hi, dd);
+          }
+          h *= (hi - lo) / 2;
+        }
+        // pinceau penché : la touche s'allonge dans le sens où il penche
+        const [ox, oy] = stretch(ax * off * h, ay * off * h, q.K, q.d);
+        const x = q.x + ox;
+        const y = q.y + oy;
+        if (prev) drawLane(k, off, q.s, x, y, prev);
+        prev = { x, y };
       }
-      prev = { x, y };
     }
   }
   const ci = cx.getImageData(0, 0, W, H);
