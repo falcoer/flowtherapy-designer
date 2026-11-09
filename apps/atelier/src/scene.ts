@@ -1374,6 +1374,7 @@ function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElem
     b.w,
     b.h,
     l.molded?.frame,
+    cutId(l),
     l.kind,
     l.text,
     textEpoch(),
