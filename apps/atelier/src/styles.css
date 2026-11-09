@@ -1746,3 +1746,14 @@ button.cm-pub:disabled { opacity: 1; cursor: default; }
 .crumb-thumb { display: none; width: 26px; height: 26px; border-radius: 7px; object-fit: cover; box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85); }
 @media (max-width: 720px) { .crumb-thumb { display: block; } }
 @media (max-width: 720px) { .crumb { padding: 0 12px 0 14px; margin-left: -6px; } .crumb.first { padding-left: 4px; margin-left: 0; } .crumb.last { padding-right: 6px; } }
+/* moins d'encadrés : ni cadre autour du fil, ni pavé sous le logo ni sous la date */
+.crumbs { padding: 0; border: 0; background: none; height: 36px; border-radius: 18px; overflow: hidden; }
+.crumb { height: 36px; }
+.crumb .act-mark { background: none; }
+.crumb .cmp-date, .crumb .cmp-date.none { background: none; border: 0; width: auto; height: auto; color: inherit; }
+.crumb .cmp-date b { font-size: 14px; }
+.crumb .cmp-date small { font-size: 8.5px; }
+.crumb-alert { right: -9px; bottom: -4px; box-shadow: none; }
+.crumb .crumb-thumb { box-shadow: none; }
+.crumb-icon:has(.crumb-alert) { padding-right: 10px; }
+.crumb-alert { right: -2px; bottom: -3px; width: 13px; height: 13px; font-size: 9.5px; }
