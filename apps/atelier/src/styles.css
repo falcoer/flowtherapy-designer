@@ -734,6 +734,62 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
   .cp-view > .cp-tags .cp-tag { margin-right: 4px; gap: 5px; padding: 6px 4px; }
   .cp-tag .slab { width: 14px; height: 10px; flex: none; }
 }
+/* téléphone, aucun objet choisi : liste serrée sur une ligne (vignette, nom, actions), la page reste visible au-dessus */
+@media (max-width: 540px) {
+  .coupe > .cp-split > .cp-layers { max-height: min(228px, 30dvh); padding-right: 26px; }
+  .coupe > .cp-split .layer-list { gap: 2px; }
+  .coupe > .cp-split .layer { justify-content: flex-start; gap: 10px; padding: 3px 4px; }
+  .coupe > .cp-split .thumb { width: 40px; height: 40px; flex: none; }
+  .coupe > .cp-split .layer-main { display: flex; flex-direction: row; align-items: center; gap: 4px; }
+  .coupe > .cp-split .layer-name { flex: 1; min-width: 0; font-size: 14px; }
+  .coupe > .cp-split .layer-actions button { width: 34px; height: 36px; }
+}
+/* téléphone, objet choisi : tout tient sans défiler (pastilles, segments et potards resserrés, trois potards par ligne) */
+@media (max-width: 540px) {
+  .cp-view, .cp-view.open { grid-template-columns: 54px 84px minmax(0, 1fr); }
+  .cp-layers .thumb { width: 44px; height: 44px; }
+  .cp-view > .cp-tags { gap: 2px; padding: 4px 0 4px 3px; }
+  .cp-view > .cp-tags .cp-tag { gap: 4px; padding: 5px 3px; }
+  .cp-tag b { font-size: 9.5px; }
+  .cp-view > .cp-tags .cp-tag .slab { width: 12px; }
+  .cp-pane .tb-warps { align-self: stretch; }
+  .cp-view > .cp-pane { padding: 5px 5px 5px 5px; gap: 5px; }
+  .cp-pane > .cp-card:first-child .cp-h { padding-right: 20px; }
+  .cp-pane .cp-card { padding: 5px 6px; gap: 4px; }
+  .cp-pane .cp-items { gap: 3px; }
+  .cp-pane .cp-item { font-size: 12px; padding: 2px 3px 2px 2px; }
+  .cp-pane .cp-nm { gap: 4px; }
+  .cp-pane .cp-item .sw { width: 18px; height: 18px; }
+  .cp-pane .cp-attrs { padding: 6px; gap: 6px; column-gap: 0; row-gap: 6px; }
+  .cp-pane .seg { gap: 2px; padding: 2px; border-radius: 10px; }
+  .cp-pane .seg button { height: 28px; min-width: 0; padding: 0 2px; border-radius: 8px; font-size: 11px; }
+  .cp-pane .seg button svg { max-width: 22px; max-height: 18px; }
+  .cp-pane .cp-dial { width: 33.33%; min-width: 0; gap: 0; padding-top: 0; }
+  .cp-pane .cp-dial-wrap { width: 33.33%; min-width: 0; }
+  .cp-pane .cp-dial-wrap > .cp-dial { width: 100%; }
+  .cp-pane .cp-dial .knob { width: 38px; height: 38px; margin-bottom: 1px; }
+  .cp-pane .cp-dial-l { font-size: 8px; letter-spacing: 0.02em; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .cp-pane .cp-dial output { font-size: 11px; }
+  .cp-pane .cp-h { flex-wrap: wrap; }
+  .cp-pane .cp-row { grid-template-columns: 62px 1fr 30px; gap: 6px; }
+  .cp-pane .cp-row.colors, .cp-pane .cp-row.tilt-row { grid-template-columns: 1fr; gap: 4px; }
+}
+/* téléphone en paysage (écran bas) : pas d'aperçu, objets en vignettes, toute la largeur aux attributs, panneau plus haut */
+@media (max-height: 500px) and (min-width: 541px) {
+  .cp-view, .cp-view.open { grid-template-columns: 58px 132px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: min(330px, calc(100dvh - 150px)); }
+  .cp-view > .plies, .cp-view > .cp-leaders { display: none; }
+  .cp-view > .cp-pane, .cp-view:not(.open) > .cp-pane { padding: 6px 30px 6px 6px; opacity: 1; pointer-events: auto; box-shadow: 0 0 0 1px var(--line); }
+  .cp-layers .layer { padding: 4px; justify-content: center; }
+  .cp-layers .layer-main { display: none; }
+  .cp-layers .thumb { width: 46px; height: 46px; }
+  .cp-view > .cp-tags { padding: 4px 0 4px 4px; gap: 2px; justify-content: flex-start; }
+  .cp-view > .cp-tags .cp-tag { padding: 4px 6px; }
+  .cp-tag small { display: none; }
+  .cp-view > .cp-pane { flex-direction: row; align-items: flex-start; }
+  .cp-pane > .cp-card { flex: 0 1 40%; }
+  .cp-pane > .cp-attrs { flex: 1 1 0; min-width: 0; padding: 6px 8px; row-gap: 6px; }
+  .cp-pane .cp-dial .knob { width: 40px; height: 40px; }
+}
 /* bulles : jamais plus larges que l'écran moins la barre d'outils */
 .atelier .bubble:not(.format-bubble):not(.anchor-bubble):not(.projects-bubble) { width: min(340px, calc(100vw - 78px)); max-height: min(70dvh, calc(100dvh - 140px)); }
 /* téléphone : annuler, rétablir, dupliquer et corbeille dans une pastille sous la barre */
