@@ -135,8 +135,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
     });
   }
   if (l.kind === 'text' && l.text) {
-    const first = l.text.content.split('\n')[0].trim();
-    out.push({ sec: 'image', key: 'content', name: first.length > 14 ? `${first.slice(0, 13)}…` : first || 'Contenu', bg: '', removable: false, glyph: 'content' });
+    out.push({ sec: 'image', key: 'content', name: 'Contenu', bg: '', removable: false, glyph: 'content' });
   }
   if (l.kind === 'text' && l.text) out.push({ sec: 'image', key: 'text', name: fontOf(l.text.font).family, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: false, font: l.text.font });
   if (l.kind === 'photo') {
@@ -144,7 +143,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
   } else out.push({ sec: 'image', key: 'paint', name: doc.guides[l.guide]?.name ?? 'Couleur', bg: g(l.guide), removable: false });
   if (l.kind === 'text' && l.text) {
     const w = l.text.warp?.kind ?? 'none';
-    out.push({ sec: 'image', key: 'warp', name: w === 'none' ? 'Disposition' : WARPS.find((x) => x.id === w)!.name, bg: '', removable: false, glyph: w });
+    out.push({ sec: 'image', key: 'warp', name: 'Disposition', bg: '', removable: false, glyph: w });
   }
   for (const { x, i } of fxIn(l, 'effet')) out.push({ sec: 'transform', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'radial-gradient(circle,#1c1b3a 30%,#e3a83c 34%) 0 0/6px 6px', removable: true });
   if (l.material) out.push({ sec: 'support', key: 'material', name: fxOf(l.material.id)!.name, bg: 'repeating-linear-gradient(45deg,#c79a63 0 3px,#b0814d 3px 6px)', removable: true });
@@ -717,9 +716,15 @@ function TextLayout({ text: t, onChange }: { text: TextStyle; onChange: (next: P
         display={`${Math.round((t.tracking ?? 0) * 100)}`}
         onChange={(v) => live('tracking', { tracking: Math.round(v * 50) / 100 })}
       />
-      {/* interligne : de 0,6 à 2 corps, 1,1 par défaut */}
+      {/* interligne : l'écart entre les lignes, en % du corps ; négatif, les lignes se recouvrent (pas de 0,3 à 1,7 corps) */}
       <div className={lines > 1 ? 'cp-dial-wrap' : 'cp-dial-wrap off'} title={lines > 1 ? undefined : 'L’interligne agit sur un texte de plusieurs lignes'}>
-        <Range label="Interligne" value={(lead - 0.6) / 1.4} display={lead.toFixed(2).replace('.', ',')} onChange={(v) => live('leading', { leading: Math.round((0.6 + v * 1.4) * 100) / 100 })} />
+        <Range
+          label="Interligne"
+          min={-1}
+          value={(lead - 1) / 0.7}
+          display={`${lead >= 1 ? '+' : '−'}${Math.round(Math.abs(lead - 1) * 100)}`}
+          onChange={(v) => live('leading', { leading: Math.round((1 + v * 0.7) * 100) / 100 })}
+        />
       </div>
     </>
   );
@@ -957,25 +962,26 @@ function Attrs({
     const x = l.fx?.[i];
     if (x) body = fxRows(x, (y, h) => patch({ fx: l.fx!.map((z, j) => (j === i ? y : z)) }, h));
   }
-  const secName = secLabel(item.sec, l);
+  // le titre de la section est déjà au-dessus (carte) : pas de rappel à droite ; la Disposition se nomme dans sa pastille
+  const head =
+    item.key === 'molded' || item.locked
+      ? 'Modelé'
+      : item.key === 'shape'
+        ? 'Paramètres de la forme'
+        : item.key === 'text'
+          ? 'Style'
+          : item.key === 'content'
+            ? 'Contenu'
+            : item.key === 'warp'
+              ? null
+              : item.name;
   return (
     <section className="cp-attrs">
-      <div className="cp-attrs-h">
-        <b>
-          {item.key === 'molded' || item.locked
-            ? 'Modelé'
-            : item.key === 'shape'
-              ? 'Paramètres de la forme'
-              : item.key === 'text'
-                ? 'Style'
-                : item.key === 'content'
-                  ? 'Contenu'
-                  : item.key === 'warp'
-                    ? 'Disposition'
-                    : item.name}
-        </b>
-        <small>{secName}</small>
-      </div>
+      {head && (
+        <div className="cp-attrs-h">
+          <b>{head}</b>
+        </div>
+      )}
       {body}
     </section>
   );
