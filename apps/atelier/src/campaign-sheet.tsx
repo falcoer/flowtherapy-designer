@@ -63,7 +63,8 @@ export function CampaignSheet(p: {
   onClose: () => void;
 }) {
   const c = p.campaign;
-  const [editing, setEditing] = useState(false);
+  // le stylo ouvre la fiche pour la compléter : le formulaire d'abord
+  const [editing, setEditing] = useState(p.canEdit);
   const [err, setErr] = useState('');
   const [adding, setAdding] = useState('');
   const op = p.operations.find((o) => o.id === c.operation);
@@ -227,36 +228,6 @@ export function CampaignSheet(p: {
         )}
         {err && <p className="pf-err">{err}</p>}
 
-        <div className="cp-sub">Contributions ({mine.length})</div>
-        <div className="cs-contribs">
-          {mine.map((m) => {
-            const tpl = !!c.templates?.includes(m.id);
-            return (
-              <div key={m.id} className={`cs-card ${m.id === p.current ? 'on' : ''}`}>
-                <button className="cs-open" onClick={() => p.onOpen(m)} title={`Ouvrir « ${m.title} »`}>
-                  <img src={thumbUrl(m)} alt="" loading="lazy" />
-                  <b>{m.title}</b>
-                  <small>
-                    {who(m.author ?? m.by)} · ♥ {m.votes?.length ?? 0}
-                    {m.messages ? ` · ${m.messages} msg` : ''}
-                  </small>
-                  {m.review && <span className={`proj-badge st-${m.review.status}`}>{REVIEW_LABELS[m.review.status]}</span>}
-                </button>
-                {(p.canEdit || tpl) && (
-                  <button
-                    className={`cs-tpl ${tpl ? 'on' : ''}`}
-                    disabled={!p.canEdit}
-                    onClick={() => void save({ templates: tpl ? (c.templates ?? []).filter((t) => t !== m.id) : [...(c.templates ?? []), m.id] })}
-                    title={tpl ? 'Modèle de la campagne : chacun peut en partir' : 'En faire un modèle de la campagne'}
-                  >
-                    {tpl ? '★ modèle' : '☆ modèle'}
-                  </button>
-                )}
-              </div>
-            );
-          })}
-          {!mine.length && <p className="fx-hint">Aucune composition dans cette campagne pour l’instant.</p>}
-        </div>
       </div>
     </div>
   );

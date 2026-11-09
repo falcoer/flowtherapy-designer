@@ -26,11 +26,12 @@ import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers }
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
-import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
+import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
 import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, ROLE_SHORT, targetKey, targetLabel } from './targets';
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
-import { CampaignDialog, CampaignSummary, VoteButton } from './campaigns-ui';
-import { LoadDialog, NewCompositionDialog } from './compositions-ui';
+import { CampaignDialog } from './campaigns-ui';
+import { NewCompositionDialog } from './compositions-ui';
+import { CompositionsMenu } from './compositions-menu';
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
@@ -695,7 +696,6 @@ export function App() {
   const canEditTeam = !!me?.team && me.team.role !== 'viewer';
   const [campaignDialog, setCampaignDialog] = useState(false);
   const [newDialog, setNewDialog] = useState(false);
-  const [loadDialog, setLoadDialog] = useState(false);
   const [msgDialog, setMsgDialog] = useState(false);
   const [sheet, setSheet] = useState<string | null>(null);
   const followedTemplates = (followed?.templates ?? []).map((id) => projects.find((m) => m.id === id)).filter((m): m is AtelierMeta => !!m);
@@ -4834,19 +4834,27 @@ export function App() {
               onClose={() => setMsgDialog(false)}
             />
           )}
-          {loadDialog && (
-            <LoadDialog
+          {bubble === 'projects' && (online ? (
+            <CompositionsMenu
+              campaigns={me?.team ? campaigns : []}
               campaign={followed}
-              campaigns={campaigns}
+              counts={campaignCounts}
+              activity={activity}
               projects={projects}
-              current={project?.id}
-              canDelete={!me?.team || canEditTeam}
+              current={project ?? undefined}
+              currentTargets={doc.targets ?? []}
+              saving={saving}
+              canEdit={!me?.team || canEditTeam}
+              isAdmin={!!me?.admin || me?.team?.role === 'owner'}
               canVote={!!me?.team}
-              onClose={() => setLoadDialog(false)}
-              onOpen={(m) => {
-                setLoadDialog(false);
-                void openProject(m);
-              }}
+              onPickCampaign={setCampaign}
+              onAllCampaigns={() => setCampaignDialog(true)}
+              onEditCampaign={() => followed && setSheet(followed.id)}
+              onTitle={(t) => project && setProject({ ...project, title: t })}
+              onSave={() => void saveNow()}
+              onSaveNew={() => void newProject('Sans titre', true)}
+              onNew={() => setNewDialog(true)}
+              onOpen={(m) => void openProject(m)}
               onVote={(m) =>
                 void voteAtelier(m.id, !m.voted).then(
                   (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
@@ -4863,68 +4871,25 @@ export function App() {
                   (e: Error) => setToast(`Suppression impossible : ${e.message}`),
                 )
               }
+              onMessages={() => {
+                setBubble(null);
+                setMsgDialog(true);
+              }}
+              onPublish={() => setBubble('export')}
+              onTemplate={(m, on) => {
+                if (!followed) return;
+                const templates = on ? [...(followed.templates ?? []), m.id] : (followed.templates ?? []).filter((t) => t !== m.id);
+                void updateCampaign(followed.id, { templates }).then(
+                  (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
+                  (e: Error) => setToast(`Impossible : ${e.message}`),
+                );
+              }}
             />
-          )}
-          {bubble === 'projects' && (
+          ) : (
             <div className="bubble projects-bubble">
-              {online ? (
-                <>
-                  {me?.team && <CampaignSummary campaign={followed} onOpen={() => setCampaignDialog(true)} onSheet={() => followed && setSheet(followed.id)} />}
-                  {(() => {
-                    const m = project ? projects.find((x) => x.id === project.id) : undefined;
-                    const votes = m?.votes ?? [];
-                    return (
-                      <div className="cur-card">
-                        {m ? <img className="cur-thumb" src={thumbUrl(m)} alt="" /> : <span className="cur-thumb empty" />}
-                        <div className="cur-txt">
-                          <input className="proj-title" value={project?.title ?? ''} placeholder="Composition non enregistrée" onChange={(e) => project && setProject({ ...project, title: e.target.value })} disabled={!project} />
-                          <small>
-                            {project
-                              ? [(m?.author ?? m?.by)?.split('@')[0], m?.updated && new Date(m.updated).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })].filter(Boolean).join(' · ') || 'nouvelle'
-                              : 'Cette page n’est pas encore enregistrée'}
-                          </small>
-                          <div className="cur-acts">
-                            {project ? (
-                              <button className="fx-clear" onClick={() => void saveNow()} disabled={saving === 'saving'}>
-                                {saving === 'saving' ? 'Enregistrement…' : saving === 'saved' ? 'Enregistrée' : 'Enregistrer'}
-                              </button>
-                            ) : (
-                              <button className="fx-clear" onClick={() => void newProject('Sans titre', true)}>
-                                Enregistrer cette page
-                              </button>
-                            )}
-                            {m?.review && <span className={`proj-badge st-${m.review.status}`}>{REVIEW_LABELS[m.review.status]}</span>}
-                            {m && me?.team && (
-                              <VoteButton
-                                votes={votes}
-                                voted={!!m.voted}
-                                onVote={() =>
-                                  void voteAtelier(m.id, !m.voted).then(
-                                    (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
-                                    (e: Error) => setToast(`Vote impossible : ${e.message}`),
-                                  )
-                                }
-                              />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                  <div className="cur-main">
-                    <button className="pf-btn" onClick={() => setNewDialog(true)} disabled={!!me?.team && !canEditTeam}>
-                      <Icon name="plus" /> Nouvelle
-                    </button>
-                    <button className="pf-btn" onClick={() => setLoadDialog(true)}>
-                      Charger…
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <p className="fx-hint">{online === null ? 'Connexion au serveur…' : 'Hors ligne : la page reste dans ce navigateur. Sur designer.flowtherapymusic.com, elle s’enregistre pour tout le groupe.'}</p>
-              )}
+              <p className="fx-hint">{online === null ? 'Connexion au serveur…' : 'Hors ligne : la page reste dans ce navigateur. Sur designer.flowtherapymusic.com, elle s’enregistre pour tout le groupe.'}</p>
             </div>
-          )}
+          ))}
 
           {bubble === 'export' && (
             <div className="bubble export-bubble">

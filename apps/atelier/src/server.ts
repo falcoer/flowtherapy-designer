@@ -7,6 +7,8 @@ export interface AtelierMeta {
   updated: string;
   by?: string;
   formatId?: string;
+  /** Rendus du document (média, format, variante), pour l'éventail des publications. */
+  targets?: Target[];
   /** Campagne à laquelle elle contribue. */
   campaign?: string;
   /** Adresses des membres qui ont voté pour elle, et si l'on en fait partie. */

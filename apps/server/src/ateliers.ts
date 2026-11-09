@@ -15,6 +15,8 @@ export interface AtelierMeta {
   created?: string;
   author?: string;
   formatId?: string;
+  /** Rendus du document (média, format, variante), repris pour la liste. */
+  targets?: Array<{ channel?: string; format: string; palette?: string }>;
   /** Campagne à laquelle la composition contribue. */
   campaign?: string;
   /** Circuit de validation : proposée aux responsables, validée, ou à revoir. */
@@ -32,6 +34,18 @@ export interface Review {
 }
 
 const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+/** Les rendus du document, réduits à leurs repères (média, format, variante). */
+function targetsOf(v: unknown): Pick<AtelierMeta, 'targets'> {
+  if (!Array.isArray(v)) return {};
+  const str = (x: unknown) => (typeof x === 'string' && x.length <= 64 ? x : undefined);
+  const out = v
+    .slice(0, 16)
+    .map((t) => (t && typeof t === 'object' ? (t as Record<string, unknown>) : {}))
+    .filter((t) => str(t.format))
+    .map((t) => ({ ...(str(t.channel) ? { channel: str(t.channel) } : {}), format: str(t.format)!, ...(str(t.palette) ? { palette: str(t.palette) } : {}) }));
+  return out.length ? { targets: out } : {};
+}
 
 export class Ateliers {
   constructor(readonly root: string) {}
@@ -61,7 +75,7 @@ export class Ateliers {
   }
 
   async write(id: string, input: { title?: string; doc?: unknown; thumb?: string }, by?: string): Promise<AtelierMeta> {
-    const doc = input.doc as { formatId?: unknown; layers?: unknown; campaign?: unknown } | undefined;
+    const doc = input.doc as { formatId?: unknown; layers?: unknown; campaign?: unknown; targets?: unknown } | undefined;
     if (!doc || typeof doc !== 'object' || !Array.isArray(doc.layers)) throw new Error('Document d’atelier attendu (couches manquantes)');
     await mkdir(this.root, { recursive: true });
     // l'état de validation suit la composition d'un enregistrement à l'autre
@@ -75,6 +89,7 @@ export class Ateliers {
       ...(previous ? (previous.author ? { author: previous.author } : {}) : by ? { author: by } : {}),
       ...(typeof doc.formatId === 'string' ? { formatId: doc.formatId } : {}),
       ...(typeof doc.campaign === 'string' && ID.test(doc.campaign) ? { campaign: doc.campaign } : {}),
+      ...targetsOf(doc.targets),
       ...(previous?.review ? { review: previous.review } : {}),
     };
     // écriture atomique : un fichier temporaire puis renommage

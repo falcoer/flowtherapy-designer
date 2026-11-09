@@ -235,35 +235,6 @@ export function CampaignDialog(p: {
   );
 }
 
-/** Présentation de la campagne suivie, dans le menu des compositions. */
-export function CampaignSummary({ campaign, onOpen, onSheet }: { campaign?: Campaign; onOpen: () => void; onSheet: () => void }) {
-  if (!campaign)
-    return (
-      <div className="cp-summary empty">
-        <span>Aucune campagne choisie : toutes les compositions.</span>
-        <button className="pf-btn" onClick={onOpen}>
-          Choisir une campagne
-        </button>
-      </div>
-    );
-  const c = campaign;
-  return (
-    <div className={`cp-summary ${c.closed ? 'closed' : ''}`}>
-      <button className="cp-lines cp-open-sheet" onClick={onSheet} title="Ouvrir la fiche de la campagne">
-        <b className="cp-name">
-          {c.name}
-          {c.closed && <em> · close</em>}
-        </b>
-        {(c.date || c.place) && <span>{[c.date && day(c.date), c.place].filter(Boolean).join(' · ')}</span>}
-        <span className="cp-sheet-link">Fiche et plan de publication ›</span>
-      </button>
-      <button className="pf-btn" onClick={onOpen} title="Choisir, créer ou clore une campagne">
-        Changer
-      </button>
-    </div>
-  );
-}
-
 /** Vote d'un membre pour une composition : un cœur et le nombre de voix. */
 export function VoteButton({ votes, voted, onVote }: { votes: string[]; voted: boolean; onVote: () => void }) {
   const who = votes.map((v) => v.split('@')[0]).join(', ');
