@@ -1901,3 +1901,10 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .cm-pub-del { flex: none; width: 32px; height: 32px; color: var(--muted); }
 .cm-pub-del:hover { color: #d64541; }
 .pub-title .pub-eye { flex: none; text-transform: none; }
+.pub-title .pub-ico { position: relative; flex: none; width: 32px; height: 30px; display: grid; place-items: center; color: var(--ink); }
+.pub-title .pub-ico .pubs-media { right: -1px; bottom: -1px; }
+.pub-title .pub-name { flex: 1; min-width: 0; padding: 4px 6px; margin-left: -6px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--ink); font: inherit; font-size: 15px; font-weight: 650; letter-spacing: 0; text-transform: none; }
+.pub-title .pub-name::placeholder { color: var(--ink); opacity: 1; }
+.pub-title .pub-name:hover { border-color: var(--line); }
+.pub-title .pub-name:focus { outline: none; border-color: var(--accent); background: var(--chrome-solid); }
+.pub-title .pub-name:focus::placeholder { color: var(--muted); }

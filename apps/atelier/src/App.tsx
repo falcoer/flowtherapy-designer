@@ -27,7 +27,7 @@ import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
 import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
-import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, ROLE_SHORT, targetKey, targetLabel } from './targets';
+import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
 import { Knob } from './knob';
 import { MediaIcon, PublicationsPanel, VariantBar } from './targets-ui';
 import { CampaignDialog } from './campaigns-ui';
@@ -710,9 +710,22 @@ export function App() {
       return { ...held, targets, target: cur };
     });
   };
+  /** Titre de la publication affichée (vide : réseau · format). */
+  const renamePublication = (name: string) =>
+    setDoc((d) => {
+      const cur = d.targets?.length ? (d.target ?? 0) : 0;
+      const base = d.targets?.length ? d.targets : [{ ...currentPub }];
+      const targets = base.map((x, j) => {
+        if (j !== cur) return x;
+        const { name: _old, ...rest } = x;
+        return name ? { ...rest, name } : rest;
+      });
+      return { ...d, targets, target: cur };
+    });
   /** Nouvelle publication de la composition : une copie de celle affichée, à régler ensuite. */
   const addPublication = () => {
-    setDoc((d) => (d.targets?.length ? { ...d, targets: [...d.targets, { ...currentPub }], target: d.targets.length } : { ...d, targets: [{ ...currentPub }], target: 0 }));
+    const { name: _name, ...copy } = currentPub;
+    setDoc((d) => (d.targets?.length ? { ...d, targets: [...d.targets, copy], target: d.targets.length } : { ...d, targets: [{ ...currentPub }, copy], target: 1 }));
     setBubble('format');
   };
   const removePublication = (i: number) =>
@@ -787,6 +800,7 @@ export function App() {
     ...(activeTarget?.palette ? { palette: activeTarget.palette } : {}),
     margins: docMargins(doc),
     ...(activeTarget?.width && activeTarget.format === doc.formatId ? { width: activeTarget.width } : {}),
+    ...(activeTarget?.name ? { name: activeTarget.name } : {}),
   };
 
   // --- export ---
@@ -5176,8 +5190,24 @@ export function App() {
           {bubble === 'format' && (
             <div className="bubble format-bubble pubs-bubble">
               <div className="b-title pub-title">
-                <MediaIcon ch={channels.find((c) => c.id === currentPub.channel)} size={20} />
-                <span>{targetLabel(currentPub, activity)}</span>
+                {/* même pictogramme que le bouton de la barre : le format, le réseau en pastille */}
+                <span className="pub-ico">
+                  <FormatGlyph w={f.width} h={f.height} big />
+                  {currentPub.channel && (
+                    <span className="pubs-media">
+                      <MediaIcon ch={channels.find((c) => c.id === currentPub.channel)} size={14} />
+                    </span>
+                  )}
+                </span>
+                {/* le titre de la publication se change sur place */}
+                <input
+                  className="pub-name"
+                  value={currentPub.name ?? ''}
+                  placeholder={defaultLabel(currentPub, activity)}
+                  onChange={(e) => renamePublication(e.target.value)}
+                  aria-label="Titre de la publication"
+                  title="Titre de la publication : toucher pour le changer"
+                />
                 {/* repères affichés en permanence, ou seulement en déplaçant */}
                 <button
                   className={`btn small pub-eye ${guidesOn.on ? 'on' : ''}`}
