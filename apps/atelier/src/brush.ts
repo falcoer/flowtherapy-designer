@@ -1124,10 +1124,11 @@ function streaks(
 ) {
   const { pts, length } = track(s, t, o.step);
   if (!pts.length) return;
-  // zone touchée par le trait
+  // zone touchée par le trait (les épis débordent du rayon : traits jusqu'à 1,3 rayon du point)
+  const reach = s.tip === 'ears' ? 1.35 : 1;
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
   for (const q of pts) {
-    const h = o.half(q.p) * (1 + q.K) + 4;
+    const h = o.half(q.p) * (1 + q.K) * reach + o.width * 2 + 4;
     x0 = Math.min(x0, q.x - h);
     y0 = Math.min(y0, q.y - h);
     x1 = Math.max(x1, q.x + h);
