@@ -1826,3 +1826,10 @@ button.cm-pub:disabled { opacity: 1; cursor: default; }
 .cm-history .cm-hist { cursor: default; }
 .cm-history .cm-hist { font-size: 12.5px; padding: 5px 4px; }
 .cm-history .cm-hist:hover { background: none; }
+/* glisser une ligne vers la gauche découvre la corbeille */
+.cm-swipe { position: relative; border-radius: 12px; overflow: hidden; flex: none; }
+.cm-swipe-del { position: absolute; top: 0; right: 0; bottom: 0; width: 84px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border: 0; border-radius: 0 12px 12px 0; background: #d64541; color: #fff; font-size: 11px; font-weight: 600; visibility: hidden; }
+.cm-swipe.open .cm-swipe-del, .cm-swipe:has(.cm-item.dragging) .cm-swipe-del { visibility: visible; }
+.cm-swipe .cm-item { position: relative; background: var(--chrome-solid); transition: margin-right 0.18s ease; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.cm-swipe .cm-item.sel { background: color-mix(in srgb, var(--accent) 12%, var(--chrome-solid)); }
+.cm-swipe .cm-item.dragging { transition: none; }

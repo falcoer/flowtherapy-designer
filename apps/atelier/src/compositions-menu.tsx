@@ -71,6 +71,9 @@ function PubFan({ m, pubs, activity }: { m: AtelierMeta; pubs: Pub[]; activity: 
   );
 }
 
+/** Largeur de la corbeille découverte en glissant une ligne vers la gauche. */
+const SWIPE = 84;
+
 /** Filtres de la liste des compositions. */
 const FILTERS = [
   { id: 'all', label: 'Toutes' },
@@ -124,13 +127,61 @@ export function CompositionsMenu(p: {
   const [filter, setFilter] = useState<FilterId>('all');
   const [filtering, setFiltering] = useState(false);
   const [sel, setSel] = useState<string | undefined>(p.current?.id);
-  const [armed, setArmed] = useState(false);
   // le titre de la composition ouverte se renomme sur place, d'un double toucher
   const [renaming, setRenaming] = useState(false);
-  useEffect(() => {
-    setArmed(false);
-    setRenaming(false);
-  }, [sel]);
+  useEffect(() => setRenaming(false), [sel]);
+  // glisser une ligne vers la gauche (doigt, ou deux doigts sur le trackpad) découvre la corbeille, comme sur Mac et iPhone ;
+  // la ligne se resserre (le titre s'abrège) plutôt que de sortir du cadre
+  const [swiped, setSwiped] = useState<string | null>(null);
+  const [drag, setDrag] = useState<{ id: string; dx: number } | null>(null);
+  const gesture = useRef<{ id: string; x: number; y: number; base: number; on: boolean } | null>(null);
+  const swipedNow = useRef(false);
+  const wheel = useRef<{ id: string; sum: number; t: number } | null>(null);
+  const offsetOf = (id: string) => (drag?.id === id ? drag.dx : swiped === id ? -SWIPE : 0);
+  const swipeHandlers = (id: string) =>
+    p.canEdit
+      ? {
+          onPointerDown: (e: React.PointerEvent) => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            gesture.current = { id, x: e.clientX, y: e.clientY, base: swiped === id ? -SWIPE : 0, on: false };
+          },
+          onPointerMove: (e: React.PointerEvent) => {
+            const g = gesture.current;
+            if (!g || g.id !== id) return;
+            const dx = e.clientX - g.x;
+            if (!g.on) {
+              if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(e.clientY - g.y)) return;
+              g.on = true;
+              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+              if (swiped && swiped !== id) setSwiped(null);
+            }
+            setDrag({ id, dx: Math.max(-SWIPE - 24, Math.min(0, g.base + dx)) });
+          },
+          onPointerUp: () => {
+            const g = gesture.current;
+            gesture.current = null;
+            if (!g?.on) return;
+            swipedNow.current = true;
+            setTimeout(() => (swipedNow.current = false), 0);
+            setSwiped((drag?.dx ?? 0) < -SWIPE / 2 ? id : null);
+            setDrag(null);
+          },
+          onPointerCancel: () => {
+            gesture.current = null;
+            setDrag(null);
+          },
+          onWheel: (e: React.WheelEvent) => {
+            if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+            const now = Date.now();
+            const w = wheel.current && wheel.current.id === id && now - wheel.current.t < 250 ? wheel.current : { id, sum: 0, t: now };
+            w.sum += e.deltaX;
+            w.t = now;
+            wheel.current = w;
+            if (w.sum > 40) setSwiped(id);
+            else if (w.sum < -40) setSwiped((x) => (x === id ? null : x));
+          },
+        }
+      : {};
   // double toucher (ou double clic) : ouvre la composition
   const lastTap = useRef<{ id: string; at: number } | null>(null);
 
@@ -175,6 +226,8 @@ export function CompositionsMenu(p: {
   let lastDay = '';
 
   const tap = (m: AtelierMeta) => {
+    if (swipedNow.current) return;
+    if (swiped) return setSwiped(null);
     const now = Date.now();
     const again = lastTap.current?.id === m.id && now - lastTap.current.at < 400;
     lastTap.current = again ? null : { id: m.id, at: now };
@@ -300,7 +353,22 @@ export function CompositionsMenu(p: {
               const cur = m.id === p.current?.id;
               const tpl = !!c?.templates?.includes(m.id);
               return (
-                <div key={m.id} className={`cm-item ${on ? 'sel' : ''}`}>
+                <div key={m.id} className={`cm-swipe ${swiped === m.id ? 'open' : ''}`}>
+                  {p.canEdit && (
+                    <button
+                      className="cm-swipe-del"
+                      tabIndex={swiped === m.id ? 0 : -1}
+                      onClick={() => {
+                        setSwiped(null);
+                        p.onDelete(m);
+                      }}
+                      aria-label={`Supprimer « ${m.title} »`}
+                    >
+                      <Icon name="trash" />
+                      <span>Supprimer</span>
+                    </button>
+                  )}
+                <div className={`cm-item ${on ? 'sel' : ''} ${drag?.id === m.id ? 'dragging' : ''}`} style={{ marginRight: offsetOf(m.id) ? -offsetOf(m.id) : undefined }} {...swipeHandlers(m.id)}>
                   {cur && renaming ? (
                     <div className="cm-row cur">
                       <span className="cm-txt">
@@ -343,20 +411,6 @@ export function CompositionsMenu(p: {
                           {tpl ? '★ modèle' : '☆ modèle'}
                         </button>
                       )}
-                      {p.canEdit && (
-                        <button
-                          className={`ld-del cm-del ${armed ? 'hot' : ''}`}
-                          title={armed ? 'Toucher encore pour supprimer' : 'Supprimer la composition'}
-                          aria-label="Supprimer la composition"
-                          onClick={() => {
-                            if (!armed) return setArmed(true);
-                            setArmed(false);
-                            p.onDelete(m);
-                          }}
-                        >
-                          {armed ? 'Supprimer ?' : <Icon name="trash" />}
-                        </button>
-                      )}
                       {!cur && (
                         <button className="pf-btn act-primary cm-open" onClick={() => p.onOpen(m)}>
                           Ouvrir
@@ -364,6 +418,7 @@ export function CompositionsMenu(p: {
                       )}
                     </div>
                   )}
+                </div>
                 </div>
               );
             })}
