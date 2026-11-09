@@ -309,6 +309,8 @@ export function PaletteEditor({
           if (!d) return;
           setLine(null);
           if (d.moved) {
+            // le tracé fini entre dans l'historique
+            onChange(lineStops(d.start, local(e)), true);
             setSel(0);
             lastTap.current = null;
             return;

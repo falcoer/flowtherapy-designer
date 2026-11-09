@@ -337,14 +337,41 @@ export function paintTarget(l: Layer, f: Format, pxPerUnit: number): Target {
   return { pw: Math.max(1, Math.round(b.w * k)), ph: Math.max(1, Math.round(b.h * k)), pxPerMin: Math.min(f.width, f.height) * k };
 }
 
+/**
+ * Réglage en direct d'une couleur de la palette (curseur, tracé) : la peinture et les effets déjà
+ * calculés restent affichés tels quels, ils se refont une fois le geste fini.
+ */
+let held = false;
+export function holdPaint(on: boolean) {
+  held = on;
+}
+
+/** Couleurs de la palette qu'emploient les traits d'une couche, en texte (clé de cache). */
+const strokeGuideKeys = new WeakMap<Layer['strokes'], { guides: Doc['guides']; key: string }>();
+function strokeGuides(l: Layer, doc: Doc): string {
+  const hit = strokeGuideKeys.get(l.strokes);
+  if (hit && hit.guides === doc.guides) return hit.key;
+  const used = new Set<number>([0]);
+  for (const s of l.strokes) used.add(s.guide);
+  const key = JSON.stringify([...used].sort((a, b) => a - b).map((i) => [i, doc.guides[i] ?? null]));
+  strokeGuideKeys.set(l.strokes, { guides: doc.guides, key });
+  return key;
+}
+
 export function paintFor(l: Layer, doc: Doc, f: Format, pxPerUnit: number): HTMLCanvasElement | null {
   if (!l.strokes.length) return null;
   const t = paintTarget(l, f, pxPerUnit);
-  // cadre du modelage : quand il change, les points de la peinture ont été repris dans la nouvelle boîte
-  const guides = JSON.stringify(doc.guides);
+  // cadre du modelage : quand il change, les points de la peinture ont été repris dans la nouvelle boîte ;
+  // seules les couleurs que ses traits emploient (et la première, couleur par défaut) font repeindre la couche
+  const guides = strokeGuides(l, doc);
   const key = `${t.pw}x${t.ph}:${l.molded?.frame.join(',') ?? ''}:${guides}`;
   const k = t.pxPerMin / Math.min(f.width, f.height);
   const o = boxOrigin(l, f);
+  if (held) {
+    const size = `${t.pw}x${t.ph}:${l.molded?.frame.join(',') ?? ''}:`;
+    const kept = paints.get(l.id)?.find((x) => x.key.startsWith(size) && x.done === l.strokes.length);
+    if (kept) return kept.canvas;
+  }
   const list = paints.get(l.id) ?? [];
   paints.set(l.id, list);
   const at = list.findIndex((x) => x.key === key);
@@ -1159,6 +1186,7 @@ function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElem
   ]);
   const hit = fxBuffers.get(l.id);
   if (hit?.key === key) return hit.canvas;
+  if (held && hit && hit.canvas.width === pw && hit.canvas.height === ph) return hit.canvas;
   const c = hit?.canvas ?? document.createElement('canvas');
   c.width = pw;
   c.height = ph;
