@@ -1848,3 +1848,10 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .cm-line .vote { height: 32px; }
 .cm-item .cm-row { min-height: 0; padding-bottom: 0; }
 .cm-line { padding-left: 4px; }
+/* ligne de composition : texte et ligne d'état à gauche, éventail sur toute la hauteur à droite */
+.cm-swipe .cm-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; }
+.cm-item > .cm-row { grid-column: 1; grid-row: 1; }
+.cm-item > .cm-line { grid-column: 1; grid-row: 2; }
+.cm-item > .cm-fan { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; padding: 6px 14px 6px 0; cursor: pointer; }
+.cm-del-sel:not(:disabled):hover { color: #d64541; }
+.pub-card img { -webkit-user-drag: none; }

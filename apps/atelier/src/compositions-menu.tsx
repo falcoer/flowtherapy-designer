@@ -44,11 +44,11 @@ function pubsOf(m: AtelierMeta, targets: Target[], campaign: Campaign | undefine
 }
 
 /** L'éventail des publications : une carte par rendu, à sa proportion, l'aperçu dedans, le média en pastille. */
-function PubFan({ m, pubs, activity }: { m: AtelierMeta; pubs: Pub[]; activity: ActivityProfile | null }) {
+function PubFan({ m, pubs, activity, size = 38 }: { m: AtelierMeta; pubs: Pub[]; activity: ActivityProfile | null; /** hauteur d'une carte */ size?: number }) {
   const channels = channelsOf(activity);
   const n = pubs.length;
   return (
-    <span className="pub-fan" aria-label={`${n} publication${n > 1 ? 's' : ''}`}>
+    <span className="pub-fan" style={size !== 38 ? { height: size + 8, paddingLeft: Math.round(size * 0.4) } : undefined} aria-label={`${n} publication${n > 1 ? 's' : ''}`}>
       {pubs.slice(0, 6).map((p, i) => {
         const f = formatOf(p.target.format);
         const ratio = Math.min(1.8, Math.max(0.5, f.width / f.height));
@@ -57,10 +57,10 @@ function PubFan({ m, pubs, activity }: { m: AtelierMeta; pubs: Pub[]; activity: 
           <span
             key={i}
             className={`pub-card ps-${pubState(p)}`}
-            style={{ width: Math.round(34 * ratio), transform: `rotate(${(i - mid) * 7}deg)`, zIndex: i }}
+            style={{ width: Math.round(size * 0.9 * ratio), ...(size !== 38 ? { height: size, marginLeft: -Math.round(size * 0.3) } : {}), transform: `rotate(${(i - mid) * 7}deg)`, zIndex: i }}
             title={`${targetLabel(p.target, activity)} · ${pubWhen(p)}`}
           >
-            <img src={thumbUrl(m)} alt="" loading="lazy" />
+            <img src={thumbUrl(m)} alt="" loading="lazy" draggable={false} />
             <span className="pub-media">
               <MediaIcon ch={channels.find((c) => c.id === p.target.channel)} size={13} />
             </span>
@@ -339,6 +339,17 @@ export function CompositionsMenu(p: {
               <Icon name="funnel" />
             </button>
             <input className="pf-input" type="search" placeholder="Chercher…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Chercher une composition" />
+            {p.canEdit && (
+              <button
+                className="act-icon cm-del-sel"
+                disabled={!list.some((m) => m.id === sel)}
+                onClick={() => sel && setSwiped(swiped === sel ? null : sel)}
+                title="Supprimer la composition choisie"
+                aria-label="Supprimer la composition choisie"
+              >
+                <Icon name="trash" />
+              </button>
+            )}
             <button className="act-icon cm-add" onClick={p.onNew} disabled={!p.canEdit} title="Nouvelle composition" aria-label="Nouvelle composition">
               <Icon name="plus" />
             </button>
@@ -384,7 +395,15 @@ export function CompositionsMenu(p: {
                       <span>Supprimer</span>
                     </button>
                   )}
-                <div className={`cm-item ${on ? 'sel' : ''} ${drag?.id === m.id ? 'dragging' : ''}`} style={{ marginRight: offsetOf(m.id) ? -offsetOf(m.id) : undefined }} {...swipeHandlers(m.id)}>
+                <div className={`cm-item ${on ? 'sel' : ''} ${drag?.id === m.id ? 'dragging' : ''}`} style={{ marginRight: offsetOf(m.id) ? -offsetOf(m.id) : undefined }}
+                  {...swipeHandlers(m.id)}
+                  onClickCapture={(e) => {
+                    // fin d'un glissé, ou corbeille découverte : le toucher referme seulement
+                    if (!swipedNow.current && !swiped) return;
+                    e.stopPropagation();
+                    if (!swipedNow.current) setSwiped(null);
+                  }}
+                >
                   {cur && renaming ? (
                     <div className="cm-row cur">
                       <span className="cm-txt">
@@ -398,7 +417,6 @@ export function CompositionsMenu(p: {
                           aria-label="Titre de la composition"
                         />
                       </span>
-                      <PubFan m={m} pubs={pubsOf(m, targetsOf(m), c, suggested)} activity={p.activity} />
                     </div>
                   ) : (
                   <button className={`cm-row ${cur ? 'cur' : ''}`} onClick={() => tap(m)} title={cur ? 'Composition ouverte : toucher deux fois pour la renommer' : 'Toucher deux fois pour ouvrir'}>
@@ -409,10 +427,13 @@ export function CompositionsMenu(p: {
                         {m.messages ? ` · ${m.messages} msg` : ''}
                       </small>
                     </span>
-                    <PubFan m={m} pubs={pubsOf(m, targetsOf(m), c, suggested)} activity={p.activity} />
                   </button>
                   )}
-                  {/* une ligne alignée : où en est la composition, ses voix, modèle, corbeille */}
+                  {/* l'éventail prend toute la hauteur de la ligne, à droite */}
+                  <span className="cm-fan" onClick={() => tap(m)}>
+                    <PubFan m={m} pubs={pubsOf(m, targetsOf(m), c, suggested)} activity={p.activity} size={64} />
+                  </span>
+                  {/* une ligne alignée : où en est la composition, ses voix, modèle */}
                   <div className="cm-line">
                     {st && <span className={`proj-badge st-${st.kind}`}>{st.label} le {dmy(st.at)}</span>}
                     {p.canVote ? (
@@ -430,11 +451,6 @@ export function CompositionsMenu(p: {
                           ★
                         </span>
                       )
-                    )}
-                    {p.canEdit && (
-                      <button className="cm-trash" onClick={() => setSwiped(swiped === m.id ? null : m.id)} title="Supprimer…" aria-label={`Supprimer « ${m.title} »`}>
-                        <Icon name="trash" />
-                      </button>
                     )}
                   </div>
                 </div>
