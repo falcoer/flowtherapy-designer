@@ -95,6 +95,13 @@ export function slotColor(pal: Palette, role: ColorRole): PaletteColor | undefin
   return pal.colors.find((c) => c.role === role) ?? (role === 'principale' ? pal.colors.find((c) => c.role === 'accent') : undefined);
 }
 
+/** Numéro du guide qui tient un rôle de la variante (l'ancien accent vaut la couleur principale), sinon undefined. */
+export function roleIndex(guides: Guide[], role: ColorRole): number | undefined {
+  let i = guides.findIndex((g) => g.role === role);
+  if (i < 0 && role === 'principale') i = guides.findIndex((g) => g.role === 'accent');
+  return i < 0 ? undefined : i;
+}
+
 // le fond d'abord : la surface de fond prend le premier guide
 const ROLE_ORDER: string[] = ['fond', 'texte', 'bordure', 'principale', 'accent', 'sujet1', 'sujet2', 'sujet3', 'secondaire'];
 const rank = (r?: string) => {

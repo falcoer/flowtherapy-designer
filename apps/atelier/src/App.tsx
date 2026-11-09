@@ -27,7 +27,7 @@ import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
 import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
-import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, ROLE_SHORT, targetKey, targetLabel } from './targets';
+import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, roleIndex, ROLE_SHORT, targetKey, targetLabel } from './targets';
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
 import { CampaignDialog, CampaignSummary, VoteButton } from './campaigns-ui';
 import { LoadDialog, NewCompositionDialog } from './compositions-ui';
@@ -3566,7 +3566,11 @@ export function App() {
     // corps de départ : une ligne haute d'un dixième du petit côté
     const h = p.size ?? 0.1;
     const n = doc.guides.length || 1;
-    const accent = (guide + 1) % n;
+    // couleurs de la variante quand le document les a : texte pour les lettres, bordure de texte pour le contour,
+    // couleur principale pour la lueur du néon (sa couleur tient à l'effet, les lettres gardent la couleur choisie)
+    const text = p.extra === 'neon' ? guide : (roleIndex(doc.guides, 'texte') ?? guide);
+    const outline = roleIndex(doc.guides, 'bordure') ?? (guide + 1) % n;
+    const accent = roleIndex(doc.guides, 'principale') ?? (guide + 1) % n;
     const layer: Layer = {
       id: uid(),
       name: `Texte ${p.name.toLowerCase()}`,
@@ -3577,11 +3581,11 @@ export function App() {
       dy: 0,
       w: h * c.ratio,
       h,
-      guide,
+      guide: text,
       height: p.extra === 'shadow' ? 0.25 : p.extra === 'sticker' ? 0.12 : 0,
       ...(p.extra === 'neon' ? { glow: { style: 'neon' as const, guide: accent, distance: 0, width: 0.2 } } : {}),
-      ...(p.extra === 'sticker' ? { border: { style: 'round' as const, guide: accent, width: 0.025 } } : {}),
-      ...(p.extra === 'stamp' ? { border: { style: 'stamp' as const, guide: accent, width: 0.012 } } : {}),
+      ...(p.extra === 'sticker' ? { border: { style: 'round' as const, guide: outline, width: 0.025 } } : {}),
+      ...(p.extra === 'stamp' ? { border: { style: 'stamp' as const, guide: outline, width: 0.012 } } : {}),
       visible: true,
       strokes: [],
     };
@@ -6498,7 +6502,7 @@ function EdgeControls({ layer: l, guides, pop, setPop, patch }: { layer: Layer; 
               key={t}
               className={`row ${(bd?.style ?? null) === st ? 'on' : ''}`}
               onClick={() => {
-                patch({ border: st ? { style: st, guide: bd?.guide ?? 0, guide2: bd?.guide2 ?? 1, width: bd?.width ?? 0.012 } : undefined });
+                patch({ border: st ? { style: st, guide: bd?.guide ?? roleIndex(guides, 'bordure') ?? 0, guide2: bd?.guide2 ?? roleIndex(guides, 'principale') ?? 1, width: bd?.width ?? 0.012 } : undefined });
                 setPop(null);
               }}
             >
