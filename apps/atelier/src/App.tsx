@@ -31,7 +31,7 @@ import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, reco
 import { MediaIcon, PublicationsPanel, VariantBar } from './targets-ui';
 import { CampaignDialog } from './campaigns-ui';
 import { NewCompositionDialog } from './compositions-ui';
-import { CompositionsMenu, TopCrumbs } from './compositions-menu';
+import { CompositionMenu, CompositionsMenu, TopCrumbs } from './compositions-menu';
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
@@ -108,7 +108,7 @@ const EDIT_SECTIONS: Array<[EditTool, string, string]> = [
   ['edge', 'Bords', 'frame'],
 ];
 const isEdit = (t: Tool): t is EditTool => EDIT_SECTIONS.some(([k]) => k === t);
-type Bubble = 'activity' | 'activity-edit' | 'user' | 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'projects' | 'export' | null;
+type Bubble = 'activity' | 'activity-edit' | 'user' | 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'projects' | 'composition' | 'export' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc-v2';
@@ -581,8 +581,10 @@ export function App() {
       setSaving('saved');
       setBubble(null);
       setToast(`« ${r.title} » ouverte`);
+      return true;
     } catch (err) {
       setToast(`Ouverture impossible : ${(err as Error).message}`);
+      return false;
     }
   };
   // lien reçu par e-mail : ?equipe=…&composition=… ouvre la composition (le serveur a déjà choisi l'équipe)
@@ -713,8 +715,6 @@ export function App() {
   const canEditTeam = !!me?.team && me.team.role !== 'viewer';
   const [campaignDialog, setCampaignDialog] = useState(false);
   const [newDialog, setNewDialog] = useState(false);
-  // quel bouton du fil d'Ariane a ouvert le menu de la campagne (campagne ou contenu), pour l'allumer
-  const [menuSwitch, setMenuSwitch] = useState(false);
   const [msgDialog, setMsgDialog] = useState(false);
   const [sheet, setSheet] = useState<string | null>(null);
   const followedTemplates = (followed?.templates ?? []).map((id) => projects.find((m) => m.id === id)).filter((m): m is AtelierMeta => !!m);
@@ -729,6 +729,25 @@ export function App() {
     } catch (err) {
       setToast(`Copie impossible : ${(err as Error).message}`);
     }
+  };
+  /** Double toucher dans le menu de la campagne : la composition s'ouvre sur sa première publication, avec son menu. */
+  const openComposition = async (m: AtelierMeta) => {
+    if (m.id !== project?.id && !(await openProject(m))) return;
+    showTarget(0);
+    setBubble('composition');
+  };
+  const voteFor = (m: AtelierMeta) =>
+    void voteAtelier(m.id, !m.voted).then(
+      (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
+      (e: Error) => setToast(`Vote impossible : ${e.message}`),
+    );
+  const templateFor = (m: AtelierMeta, on: boolean) => {
+    if (!followed) return;
+    const templates = on ? [...(followed.templates ?? []), m.id] : (followed.templates ?? []).filter((t) => t !== m.id);
+    void updateCampaign(followed.id, { templates }).then(
+      (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
+      (e: Error) => setToast(`Impossible : ${e.message}`),
+    );
   };
   const palettes = palettesOf(activity);
   const activeTarget = doc.targets?.[doc.target ?? 0];
@@ -850,8 +869,9 @@ export function App() {
   const [bubble, setBubble] = useState<Bubble>(null);
   // historique du menu de la campagne : demandé au serveur pour cette campagne seulement, à l'ouverture du menu
   const [campaignFeed, setCampaignFeed] = useState<ActivityEvent[] | null>(null);
-  const menuOpen = bubble === 'projects';
-  const campaignScope = followed?.id ?? '';
+  // menu de la composition : l'historique de sa campagne à elle
+  const menuOpen = bubble === 'projects' || bubble === 'composition';
+  const campaignScope = bubble === 'composition' && project ? (projects.find((x) => x.id === project.id)?.campaign ?? '') : (followed?.id ?? '');
   useEffect(() => {
     if (!menuOpen || !online || !me?.team) return;
     let live = true;
@@ -1358,7 +1378,7 @@ export function App() {
   /** Bord gauche des bulles posées à gauche (format, composition, aide au positionnement) : juste après les barres de gauche (réglages, hauteur, outils), pour ne jamais passer dessous. */
   const [bubbleLeft, setBubbleLeft] = useState(0);
   useLayoutEffect(() => {
-    if (bubble !== 'format' && bubble !== 'projects') return;
+    if (bubble !== 'format' && bubble !== 'projects' && bubble !== 'composition') return;
     let x = 0;
     for (const el of document.querySelectorAll('.side, .height-bar')) {
       const r = el.getBoundingClientRect();
@@ -4266,22 +4286,20 @@ export function App() {
                 thumb={project ? thumbUrl(projects.find((x) => x.id === project.id) ?? { id: project.id, title: project.title, updated: '' }) : undefined}
                 kind={doc.targets?.length ? `${doc.targets.length} publication${doc.targets.length > 1 ? 's' : ''}` : f.title}
                 saving={online && project ? saving : undefined}
-                open={bubble === 'activity' || bubble === 'activity-edit' ? 'activity' : bubble === 'projects' ? (menuSwitch ? 'campaign' : 'content') : null}
+                open={bubble === 'activity' || bubble === 'activity-edit' ? 'activity' : bubble === 'projects' ? 'campaign' : bubble === 'composition' ? 'content' : null}
                 onActivity={() => {
                   if (bubble !== 'activity' && online) fetchMe().then(setMe, () => {});
                   setBubble(bubble === 'activity' ? null : 'activity');
                 }}
                 onCampaign={() => {
-                  if (bubble === 'projects' && menuSwitch) return setBubble(null);
-                  if (bubble !== 'projects' && online) refreshProjects();
-                  setMenuSwitch(true);
+                  if (bubble === 'projects') return setBubble(null);
+                  if (online) refreshProjects();
                   setBubble('projects');
                 }}
                 onContent={() => {
-                  if (bubble === 'projects' && !menuSwitch) return setBubble(null);
+                  if (bubble === 'composition') return setBubble(null);
                   if (bubble !== 'projects' && online) refreshProjects();
-                  setMenuSwitch(false);
-                  setBubble('projects');
+                  setBubble('composition');
                 }}
               />
             </div>
@@ -4903,7 +4921,31 @@ export function App() {
               onClose={() => setMsgDialog(false)}
             />
           )}
-          {bubble === 'projects' && (online ? (
+          {bubble === 'composition' && online && (
+            <CompositionMenu
+              meta={project ? projects.find((x) => x.id === project.id) : undefined}
+              current={project ?? undefined}
+              targets={doc.targets ?? []}
+              active={doc.target ?? 0}
+              campaign={followed}
+              campaigns={me?.team ? campaigns : []}
+              projects={projects}
+              activity={activity}
+              events={me?.team ? campaignFeed : null}
+              me={me?.email ?? 'groupe'}
+              canEdit={!me?.team || canEditTeam}
+              isAdmin={!!me?.admin || me?.team?.role === 'owner'}
+              canVote={!!me?.team}
+              onTitle={(t) => project && setProject({ ...project, title: t })}
+              onShow={showTarget}
+              onPublications={() => setBubble('format')}
+              onCampaign={() => setBubble('projects')}
+              onSaveNew={() => void newProject('Sans titre', true)}
+              onVote={voteFor}
+              onTemplate={templateFor}
+            />
+          )}
+          {(bubble === 'projects' || (bubble === 'composition' && !online)) && (online ? (
             <CompositionsMenu
               campaigns={me?.team ? campaigns : []}
               operations={allOperations}
@@ -4921,16 +4963,10 @@ export function App() {
               onPickCampaign={setCampaign}
               onAllCampaigns={() => setCampaignDialog(true)}
               onEditCampaign={() => followed && setSheet(followed.id)}
-              onTitle={(t) => project && setProject({ ...project, title: t })}
               onSaveNew={() => void newProject('Sans titre', true)}
               onNew={() => setNewDialog(true)}
-              onOpen={(m) => void openProject(m)}
-              onVote={(m) =>
-                void voteAtelier(m.id, !m.voted).then(
-                  (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
-                  (e: Error) => setToast(`Vote impossible : ${e.message}`),
-                )
-              }
+              onOpen={(m) => void openComposition(m)}
+              onVote={voteFor}
               onDelete={(m) =>
                 void removeAtelier(m.id).then(
                   () => {
@@ -4941,14 +4977,7 @@ export function App() {
                   (e: Error) => setToast(`Suppression impossible : ${e.message}`),
                 )
               }
-              onTemplate={(m, on) => {
-                if (!followed) return;
-                const templates = on ? [...(followed.templates ?? []), m.id] : (followed.templates ?? []).filter((t) => t !== m.id);
-                void updateCampaign(followed.id, { templates }).then(
-                  (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
-                  (e: Error) => setToast(`Impossible : ${e.message}`),
-                );
-              }}
+              onTemplate={templateFor}
             />
           ) : (
             <div className="bubble projects-bubble">

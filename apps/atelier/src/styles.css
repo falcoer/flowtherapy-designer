@@ -1855,3 +1855,34 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .cm-item > .cm-fan { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; padding: 6px 14px 6px 0; cursor: pointer; }
 .cm-del-sel:not(:disabled):hover { color: #d64541; }
 .pub-card img { -webkit-user-drag: none; }
+
+/* historique escamotable : une poignée sur la séparation le replie, une languette le rouvre */
+.cm-hist-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 6px; background: var(--chrome-solid); }
+.cm-hist-head .b-sub { flex: 1; }
+.cm-fold { flex: none; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); background: var(--chrome-solid); color: var(--muted); font-size: 16px; line-height: 1; display: grid; place-items: center; padding: 0 0 2px 1px; z-index: 1; }
+.cm-fold:hover, .cm-hist-tab:hover { color: var(--accent); border-color: var(--accent); }
+.cm-cols.folded { grid-template-columns: minmax(0, 1fr) auto; }
+.atelier .projects-bubble.cm-menu.folded { width: min(480px, calc(100vw - max(10px, var(--bubble-left, 0px)) - 10px)); }
+.cm-hist-tab { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 30px; padding: 8px 0; border-radius: 12px; border: 1px solid var(--line); background: none; color: var(--muted); font-size: 12px; align-self: start; }
+.cm-hist-tab > span[aria-hidden] { font-size: 16px; line-height: 1; }
+.cm-hist-tab-txt { writing-mode: vertical-rl; transform: rotate(180deg); font-weight: 600; white-space: nowrap; }
+.cm-hist-tab small { min-width: 18px; height: 18px; padding: 0 4px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 10.5px; font-weight: 700; display: grid; place-items: center; }
+@media (max-width: 640px) {
+  .cm-cols.folded { grid-template-columns: 1fr; }
+  .cm-hist-tab { flex-direction: row; width: auto; padding: 6px 10px; }
+  .cm-hist-tab-txt { writing-mode: horizontal-tb; transform: none; }
+}
+
+/* menu de la composition : son titre, où elle en est, ses publications en grand éventail */
+.comp-menu .cm-name { font-size: 16px; cursor: text; }
+.comp-menu .cm-head .cm-rename { font-size: 15px; font-weight: 600; width: 100%; }
+.comp-line { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.comp-fan { display: flex; align-items: flex-end; justify-content: center; min-height: 176px; padding: 26px 10px 8px 40px; overflow: hidden; }
+.pub-card.big { flex: none; margin-left: -34px; border-radius: 9px; border-width: 2px; padding: 0; cursor: pointer; transform-origin: 50% 130%; transition: transform 0.18s ease, box-shadow 0.18s ease; box-shadow: 0 3px 10px rgba(20, 16, 32, 0.22); }
+.pub-card.big:hover { box-shadow: 0 6px 16px rgba(20, 16, 32, 0.3); }
+.pub-card.big.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), 0 8px 20px rgba(20, 16, 32, 0.3); }
+.pub-card.big .pub-media { right: 3px; bottom: 3px; border-radius: 6px; padding: 1px; }
+.pub-blank { display: block; width: 100%; height: 100%; background: var(--accent-soft); }
+.cm-pub.on { border-color: var(--accent); background: var(--accent-soft); }
+.cm-pub em.tg-px { font-style: normal; }
+.comp-pubs-btn { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; }
