@@ -1199,7 +1199,9 @@ export function App() {
     c.style.transform = `matrix(${t.a},${t.b},${t.c},${t.d},${t.e},${t.f})`;
   };
   const toPage = (cx: number, cy: number) => {
-    const p = matrix.inverse().transformPoint(new DOMPoint(cx, cy));
+    // vue montrée : celle de l'aperçu de molette s'il y en a un, pas encore repeinte
+    const shown = wheelView.current ?? flushedView.current;
+    const p = (shown ? viewMatrix(shown) : matrix).inverse().transformPoint(new DOMPoint(cx, cy));
     return { x: p.x, y: p.y };
   };
   const scale = fit * view.zoom;
@@ -1411,6 +1413,7 @@ export function App() {
     const c = canvasRef.current;
     if (!c) return;
     // repeinte pendant un geste de vue : l'aperçu reste aligné sur la vue en cours
+    flushedView.current = null;
     const pending = gesture.current?.next ?? wheelView.current;
     previewView(pending ?? null);
     // durée d'une image : le dessin, puis la peinture du canevas, faite à l'image suivante (elle la retarde)
@@ -2045,10 +2048,13 @@ export function App() {
   // --- pointeurs ---
   const onDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     hideHover();
+    // aperçu de molette en cours : la vue montrée est appliquée avant de toucher la page
+    const flushed = flushWheel();
     (e.target as Element).setPointerCapture(e.pointerId);
     if (e.pointerType === 'mouse' && e.button === 1) {
       e.preventDefault();
-      midPan.current = { id: e.pointerId, x: e.clientX, y: e.clientY, px: view.px, py: view.py };
+      const v0 = flushed ?? view;
+      midPan.current = { id: e.pointerId, x: e.clientX, y: e.clientY, px: v0.px, py: v0.py };
       return;
     }
     // stylet posé : la paume et les doigts qui frôlent l'écran sont ignorés
@@ -3758,7 +3764,18 @@ export function App() {
    * et la page n'est repeinte qu'une fois le geste arrêté ; sinon elle est repeinte à chaque pas.
    */
   const wheelView = useRef<View | null>(null);
+  /** Vue d'aperçu appliquée au toucher, en attendant que la page soit repeinte avec elle. */
+  const flushedView = useRef<View | null>(null);
   const wheelTimer = useRef(0);
+  const flushWheel = () => {
+    const v = wheelView.current;
+    if (!v) return null;
+    clearTimeout(wheelTimer.current);
+    wheelView.current = null;
+    flushedView.current = v;
+    setView(v);
+    return v;
+  };
   const drawCost = useRef(0);
   const viewStep = (step: (v: View) => View) => {
     fitted.current = false;
@@ -3776,6 +3793,9 @@ export function App() {
       if (v) setView(v);
     }, 180);
   };
+  // les écouteurs natifs (posés une fois) passent par là : l'aperçu part toujours de la vue peinte
+  const viewStepRef = useRef(viewStep);
+  viewStepRef.current = viewStep;
   // molette et trackpad (ordinateur) : écouteur natif, pour empêcher le zoom de la page entière
   const wheelDev = useRef<{ mouse: boolean; t: number } | null>(null);
   const onWheel = useRef<(e: WheelEvent) => void>(() => {});
@@ -3811,7 +3831,7 @@ export function App() {
       const z0 = pinchAt.current;
       const k = (e as Event & { scale?: number }).scale;
       if (z0 === null || !k) return;
-      viewStep((v) => ({ ...v, zoom: Math.max(0.3, Math.min(6, z0 * k)) }));
+      viewStepRef.current((v) => ({ ...v, zoom: Math.max(0.3, Math.min(6, z0 * k)) }));
     };
     const ge = (e: Event) => {
       e.preventDefault();
