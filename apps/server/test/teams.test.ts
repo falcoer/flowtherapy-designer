@@ -375,6 +375,12 @@ describe('équipes', () => {
     const feed = (await max.get('/api/activity')).json() as Array<{ type: string; title?: string; by: string }>;
     expect(feed.map((e) => e.type)).toEqual(['approved', 'proposed', 'message', 'message', 'composition']);
     expect(feed[0]).toMatchObject({ title: 'Affiche', by: 'lauris@example.org' });
+    // l'historique d'une campagne : seulement ses compositions, filtré avant la coupe
+    await lauris.send('PUT', '/api/ateliers/story', { title: 'Story', doc: { ...doc, campaign: 'concert' } });
+    const scoped = async (c: string) => ((await max.get(`/api/activity?campaign=${c}`)).json() as Array<{ type: string; title?: string }>).map((e) => `${e.type}:${e.title}`);
+    expect(await scoped('concert')).toEqual(['composition:Story']);
+    expect(await scoped('')).toEqual(['approved:Affiche', 'proposed:Affiche', 'message:Affiche', 'message:Affiche', 'composition:Affiche']);
+    await lauris.send('DELETE', '/api/ateliers/story');
 
     // l'auteur retire le sien ; un responsable peut tout retirer
     expect((await max.send('DELETE', `/api/ateliers/affiche/messages/${b!.id}`)).statusCode).toBe(403);

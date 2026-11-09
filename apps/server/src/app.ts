@@ -511,12 +511,19 @@ export async function buildApp(opts: AppOptions) {
   });
 
   // --- fil de l'activité : messages, étapes, votes, campagnes et compositions créées, avec le titre des compositions ---
-  app.get('/api/activity', { preHandler: needs('viewer') }, async (req) => {
+  // ?campaign=<id> : seulement ce qui touche la campagne (?campaign= : les compositions hors campagne), trié avant la coupe
+  app.get<{ Querystring: { campaign?: string } }>('/api/activity', { preHandler: needs('viewer') }, async (req) => {
     const team = req.team!.id;
     const list = await storesOf(team).ateliers.list();
     const titles = new Map(list.map((m) => [m.id, m]));
     const made = list.filter((m) => m.created).map((m) => ({ type: 'composition' as const, atelier: m.id, by: m.author ?? m.by ?? '', at: m.created! }));
-    return [...accounts.activity(team), ...made]
+    const scope = req.query.campaign;
+    const keep =
+      scope === undefined
+        ? () => true
+        : (e: { atelier?: string; campaign?: string }) => (e.atelier ? (titles.get(e.atelier)?.campaign ?? '') === scope : !!scope && e.campaign === scope);
+    return [...accounts.activity(team, scope === undefined ? 80 : 2000), ...made]
+      .filter(keep)
       .sort((a, b) => b.at.localeCompare(a.at))
       .slice(0, 80)
       .map((e) => (e.atelier ? { ...e, title: titles.get(e.atelier)?.title ?? 'composition supprimée', ...(titles.get(e.atelier)?.campaign ? { inCampaign: titles.get(e.atelier)!.campaign } : {}) } : e))
