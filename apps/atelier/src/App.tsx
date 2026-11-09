@@ -5556,6 +5556,23 @@ export function Knob({ label, value, onChange, center, fmt }: { label: string; v
     <div
       className={`knob ${held ? 'held' : ''}`}
       title={label}
+      role="slider"
+      tabIndex={0}
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(value * 100)}
+      aria-valuetext={shown}
+      onKeyDown={(e) => {
+        // au clavier : flèches (Maj pour aller plus vite), Début et Fin
+        const k = e.key;
+        const d = e.shiftKey ? 0.1 : 0.02;
+        const v = k === 'ArrowUp' || k === 'ArrowRight' ? value + d : k === 'ArrowDown' || k === 'ArrowLeft' ? value - d : k === 'Home' ? 0 : k === 'End' ? 1 : null;
+        if (v === null) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onChange(Math.max(0, Math.min(1, v)));
+      }}
       onPointerDown={(e) => {
         (e.currentTarget as Element).setPointerCapture(e.pointerId);
         const now = performance.now();
