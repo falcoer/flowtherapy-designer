@@ -545,7 +545,12 @@ export function App() {
   const makeThumbs = (d: Doc) => {
     if (!d.targets?.length) return undefined;
     try {
-      return d.targets.map((_, i) => makeThumb(docAtTarget(d, i, activity)));
+      return d.targets.map((_, i) => {
+        // les ancrages se résolvent avec les marges de cette publication
+        const x = docAtTarget(d, i, activity);
+        setAnchorMargin(docMargins(x));
+        return makeThumb(x);
+      });
     } finally {
       setAnchorMargin(docMargins(docRef.current));
     }
