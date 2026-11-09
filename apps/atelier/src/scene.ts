@@ -328,12 +328,17 @@ function trimPaints(keep: PaintCache) {
   }
 }
 
+/**
+ * Résolution arrondie au quart d'octave au-dessus : pendant un zoom, les images mises en cache
+ * (peinture, bords, lueurs, effets de matière) ne se refont qu'en passant un palier, pas à chaque pas.
+ */
+export const quarterOctave = (x: number) => 2 ** (Math.ceil(Math.log2(Math.max(1e-6, x)) * 4) / 4);
+
 export function paintTarget(l: Layer, f: Format, pxPerUnit: number): Target {
   const b = layerBox(l, f);
   // résolution arrondie au quart d'octave au-dessus : pendant un zoom, la peinture ne se refait
   // qu'en passant un palier (et non à chaque image) ; au plus 2048 px de côté
-  const step = 2 ** (Math.ceil(Math.log2(Math.max(1e-6, pxPerUnit)) * 4) / 4);
-  const k = Math.min(step, 2048 / Math.max(b.w, b.h));
+  const k = Math.min(quarterOctave(pxPerUnit), 2048 / Math.max(b.w, b.h));
   return { pw: Math.max(1, Math.round(b.w * k)), ph: Math.max(1, Math.round(b.h * k)), pxPerMin: Math.min(f.width, f.height) * k };
 }
 
@@ -542,7 +547,64 @@ const layerBuffers: HTMLCanvasElement[] = [];
 let depth = 0;
 // couches en train d'être rendues à part pour leur brûlure (pas de seconde passe)
 const flattening = new Set<string>();
-let featherBuf: HTMLCanvasElement | null = null;
+const featherMasks = new Map<string, { key: string; canvas: HTMLCanvasElement; w: number; h: number }>();
+/**
+ * Masque du rognage flou, dans le repère de la boîte de la couche (centré, non tourné) : déplacer,
+ * tourner l'objet ou zoomer le garde tel quel (au plus 1536 px de côté). Le fondu s'y dessine en traits de plus en plus fins, puis un seul flou adoucit
+ * les marches de la rampe (un flou par trait, sur tout l'écran, coûtait des secondes sans carte graphique).
+ */
+function featherMask(l: Layer, f: Format, path: Path2D) {
+  const b = layerBox(l, f);
+  const fw = l.trim!.blur * 0.12 * Math.min(f.width, f.height);
+  const pad = fw + 0.05 * Math.max(b.w, b.h);
+  const [W, H] = [b.w + 2 * pad, b.h + 2 * pad];
+  // le fondu n'a pas de détail fin : une trentaine de pixels pour la rampe suffisent, à tous les zooms
+  const k = Math.min(32 / Math.max(1e-6, fw), 1536 / Math.max(W, H));
+  const key = `${cutId(l)}|${JSON.stringify(l.trim)}|${b.w}|${b.h}|${f.width}x${f.height}|${k}`;
+  const hit = featherMasks.get(l.id);
+  if (hit?.key === key) return hit;
+  const c = hit?.canvas ?? document.createElement('canvas');
+  c.width = Math.max(1, Math.ceil(W * k));
+  c.height = Math.max(1, Math.ceil(H * k));
+  const mx = c.getContext('2d')!;
+  // page → masque : repère de la boîte, centré au milieu du masque
+  mx.setTransform(new DOMMatrix().translate(c.width / 2, c.height / 2).scale(k).rotate((-(l.rot ?? 0) * 180) / Math.PI).translate(-b.cx, -b.cy));
+  mx.fillStyle = '#000';
+  mx.fill(path, 'evenodd');
+  // fondu vers l'intérieur : des traits de plus en plus fins effacent le bord en rampe régulière
+  const N = 32;
+  mx.globalCompositeOperation = 'destination-out';
+  mx.lineJoin = 'round';
+  for (let j = 1; j <= N; j++) {
+    mx.globalAlpha = 1 / (N - j + 1);
+    mx.lineWidth = 2 * fw * (1 - (j - 1) / N);
+    mx.stroke(path);
+  }
+  mx.globalAlpha = 1;
+  mx.globalCompositeOperation = 'source-over';
+  mx.setTransform(1, 0, 0, 1, 0, 0);
+  // là où le navigateur sait flouter, les marches de la rampe disparaissent
+  if (typeof (mx as { filter?: unknown }).filter === 'string') {
+    const tmp = (featherTmp ??= document.createElement('canvas'));
+    tmp.width = c.width;
+    tmp.height = c.height;
+    tmp.getContext('2d')!.drawImage(c, 0, 0);
+    mx.clearRect(0, 0, c.width, c.height);
+    mx.filter = `blur(${Math.max(0.5, (fw / N) * 1.5 * k)}px)`;
+    mx.drawImage(tmp, 0, 0);
+    mx.filter = 'none';
+    tmp.width = tmp.height = 0;
+  }
+  if (!hit && featherMasks.size >= 12) {
+    const [id, old] = featherMasks.entries().next().value!;
+    old.canvas.width = old.canvas.height = 0;
+    featherMasks.delete(id);
+  }
+  const out = { key, canvas: c, w: c.width / k, h: c.height / k };
+  featherMasks.set(l.id, out);
+  return out;
+}
+let featherTmp: HTMLCanvasElement | null = null;
 const burnsOf = (l: Layer, o: DrawOptions) => [...l.strokes.filter((s) => s.brush === 'burn'), ...(o.burning?.id === l.id ? [o.burning.stroke] : [])];
 const burnCache = new Map<string, { key: string; hole: HTMLCanvasElement; edge: HTMLCanvasElement }>();
 function burnFor(l: Layer, f: Format, o: DrawOptions) {
@@ -578,9 +640,84 @@ export function renderOrder(layers: Layer[]): Layer[] {
  * Ombre portée d'une couche, tombant d'une hauteur relative `h`.
  * La forme est dessinée hors champ et seule son ombre est ramenée : rien de noir ne reste sous l'objet.
  */
+const shadowSprites = new Map<string, { key: string; c: HTMLCanvasElement; w: number; h: number }>();
+let canFilter: boolean | null = null;
+/**
+ * Ombre portée mise en image : la silhouette floutée une fois, dans le repère de la boîte de la couche
+ * (déplacer, tourner, zoomer la garde), puis simplement posée. Le flou d'ombre du canevas, refait à
+ * chaque image et pour chaque couche touchée, coûte très cher sans carte graphique.
+ */
+function shadowSprite(l: Layer, doc: Doc, f: Format, path: Path2D, blur: number) {
+  const b = layerBox(l, f);
+  const minSide = Math.min(f.width, f.height);
+  // flou arrondi à 4 % près : les hauteurs voisines partagent la même image
+  const bl = 2 ** (Math.round(Math.log2(Math.max(1e-6, blur)) * 16) / 16);
+  const bpad = l.border && l.border.width > 0 ? l.border.width * minSide * 7 + minSide * 0.01 : 0;
+  const pad = 1.6 * bl + bpad + 0.03 * minSide;
+  const [W, H] = [b.w + 2 * pad, b.h + 2 * pad];
+  // le flou n'a pas de détail fin : une dizaine de pixels pour le flou suffit, au plus 1024 px de côté
+  const k = Math.min(12 / bl, 1024 / Math.max(W, H));
+  const g = (i?: number) => (i === undefined ? '' : JSON.stringify(doc.guides[i] ?? null));
+  const key = [cutId(l), b.w, b.h, f.width, f.height, JSON.stringify(l.trim ?? 0), JSON.stringify(l.border ?? 0), l.border ? g(l.border.guide) : '', bl, k].join('|');
+  const id = `${l.id}|${bl}`;
+  const hit = shadowSprites.get(id);
+  if (hit?.key === key) return hit;
+  const c = hit?.c ?? document.createElement('canvas');
+  c.width = Math.max(1, Math.ceil(W * k));
+  c.height = Math.max(1, Math.ceil(H * k));
+  const sx = c.getContext('2d')!;
+  const tmp = document.createElement('canvas');
+  tmp.width = c.width;
+  tmp.height = c.height;
+  const tx = tmp.getContext('2d')!;
+  // page → image : repère de la boîte, centré au milieu de l'image
+  tx.setTransform(new DOMMatrix().translate(c.width / 2, c.height / 2).scale(k).rotate((-(l.rot ?? 0) * 180) / Math.PI).translate(-b.cx, -b.cy));
+  tx.fillStyle = '#000';
+  tx.fill(path, 'evenodd');
+  // le bord déborde de l'objet : il porte ombre lui aussi
+  if (bpad) {
+    const bb = pageBounds(l, f);
+    const outside = new Path2D();
+    outside.rect(bb.x0 - bpad, bb.y0 - bpad, bb.x1 - bb.x0 + 2 * bpad, bb.y1 - bb.y0 + 2 * bpad);
+    outside.addPath(path);
+    tx.save();
+    tx.clip(outside, 'evenodd');
+    drawBorder(tx, l, doc, f, path);
+    tx.restore();
+  }
+  tx.setTransform(1, 0, 0, 1, 0, 0);
+  tx.globalCompositeOperation = 'source-in';
+  tx.fillStyle = 'rgb(20, 16, 30)';
+  tx.fillRect(0, 0, c.width, c.height);
+  sx.clearRect(0, 0, c.width, c.height);
+  // flou d'ombre du canevas (shadowBlur) = écart type de moitié
+  sx.filter = `blur(${(bl * k) / 2}px)`;
+  sx.drawImage(tmp, 0, 0);
+  sx.filter = 'none';
+  tmp.width = tmp.height = 0;
+  if (!hit && shadowSprites.size >= 48) {
+    const [first, old] = shadowSprites.entries().next().value!;
+    old.c.width = old.c.height = 0;
+    shadowSprites.delete(first);
+  }
+  const out = { key, c, w: c.width / k, h: c.height / k };
+  shadowSprites.set(id, out);
+  return out;
+}
+
 function castShadow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, path: Path2D, h: number) {
   const b = layerBox(l, f);
   const s = shadowVector(doc, f, b.cx, b.cy, h);
+  if ((canFilter ??= typeof (ctx as { filter?: unknown }).filter === 'string')) {
+    const sp = shadowSprite(l, doc, f, path, s.blur);
+    ctx.save();
+    ctx.globalAlpha *= Math.min(0.62, 0.3 + 0.3 * h);
+    ctx.translate(b.cx + s.dx, b.cy + s.dy);
+    ctx.rotate(l.rot ?? 0);
+    ctx.drawImage(sp.c, -sp.w / 2, -sp.h / 2, sp.w, sp.h);
+    ctx.restore();
+    return;
+  }
   const far = 4 * Math.max(f.width, f.height);
   ctx.save();
   ctx.translate(-far, 0);
@@ -629,7 +766,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
   ctx.clip();
   const order = renderOrder(doc.layers).filter((l) => l.visible && opacityOf(l) > 0);
   // couches déjà posées (hors fond) : les suivantes y projettent leur ombre, raccourcie de leur hauteur
-  const below: Array<{ l: Layer; path: Path2D }> = [];
+  const below: Array<{ l: Layer; path: Path2D; box: Box }> = [];
   let pageShadows = false;
   const big = new Path2D();
   big.rect(-f.width, -f.height, 3 * f.width, 3 * f.height);
@@ -672,34 +809,14 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       }
       const fpath = feather ? maskPath2D(l, f) : null;
       if (fpath) {
-        // rognage flou : la couche s'efface vers son bord
-        const m = (featherBuf ??= document.createElement('canvas'));
-        m.width = c.width;
-        m.height = c.height;
-        const mx = m.getContext('2d')!;
+        // rognage flou : la couche s'efface vers son bord (masque calculé une fois, puis gardé)
         const T = ctx.getTransform();
-        mx.setTransform(T);
-        mx.fillStyle = '#000';
-        mx.fill(fpath, 'evenodd');
-        // fondu vers l'intérieur : des traits de plus en plus fins effacent le bord en rampe régulière
-        const fw = l.trim!.blur * 0.12 * minSide;
-        const N = 32;
-        mx.globalCompositeOperation = 'destination-out';
-        // là où le navigateur sait flouter, les marches de la rampe disparaissent
-        mx.filter = `blur(${Math.max(0.5, (fw / N) * 1.5 * Math.hypot(T.a, T.b))}px)`;
-        mx.lineJoin = 'round';
-        for (let j = 1; j <= N; j++) {
-          mx.globalAlpha = 1 / (N - j + 1);
-          mx.lineWidth = 2 * fw * (1 - (j - 1) / N);
-          mx.stroke(fpath);
-        }
-        mx.globalAlpha = 1;
-        mx.filter = 'none';
-        mx.globalCompositeOperation = 'source-over';
+        const fm = featherMask(l, f, fpath);
+        const b = layerBox(l, f);
         bx.save();
-        bx.setTransform(1, 0, 0, 1, 0, 0);
+        bx.setTransform(T.translate(b.cx, b.cy).rotate(((l.rot ?? 0) * 180) / Math.PI));
         bx.globalCompositeOperation = 'destination-in';
-        bx.drawImage(m, 0, 0);
+        bx.drawImage(fm.canvas, -fm.w / 2, -fm.h / 2, fm.w, fm.h);
         bx.restore();
         drawGlow(ctx, l, doc, f, o, true);
         if (l.border && l.border.width > 0) {
@@ -728,13 +845,20 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
 
     // ombre sur les couches plus basses : seulement la différence de hauteur,
     // et seulement sur la partie visible de chacune (les couches posées après la cachent)
+    // seules les couches que l'ombre peut toucher sont visitées : chaque découpe est un masque
+    // à rastériser, très coûteux sans carte graphique quand il y en a des dizaines par image
+    const box = boxOf(l, f, minSide);
     if (l.kind !== 'surface' && shadowLevel(l) > 0.001) {
       below.forEach((B, i) => {
         const dh = shadowLevel(l) - Math.max(0, levelOf(B.l));
         if (dh <= 0.001) return;
+        const sv = shadowVector(doc, f, b.cx, b.cy, dh);
+        const reach = meet(B.box, grow({ x0: box.x0 + sv.dx, y0: box.y0 + sv.dy, x1: box.x1 + sv.dx, y1: box.y1 + sv.dy }, 1.5 * sv.blur));
+        if (!reach) return;
         ctx.save();
         ctx.clip(B.path, 'evenodd');
         for (const C of below.slice(i + 1)) {
+          if (!meet(C.box, reach)) continue;
           const ex = new Path2D(big);
           ex.addPath(C.path);
           ctx.clip(ex, 'evenodd');
@@ -743,7 +867,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
         ctx.restore();
       });
     }
-    if (l.kind !== 'surface') below.push({ l, path });
+    if (l.kind !== 'surface') below.push({ l, path, box });
 
     drawGlow(ctx, l, doc, f, o, true);
     drawExtrude(ctx, l, doc, f, o, path);
@@ -789,6 +913,18 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
   ctx.restore();
 }
 
+type Box = { x0: number; y0: number; x1: number; y1: number };
+/** Boîte de la découpe sur la page, bord ajouté et ondulation du rognage compris (large). */
+function boxOf(l: Layer, f: Format, minSide: number): Box {
+  return grow(pageBounds(l, f), 2 * borderOut(l, f) + 0.03 * minSide);
+}
+const grow = (b: Box, d: number): Box => ({ x0: b.x0 - d, y0: b.y0 - d, x1: b.x1 + d, y1: b.y1 + d });
+/** Partie commune de deux boîtes, ou null si elles ne se touchent pas. */
+function meet(a: Box, b: Box): Box | null {
+  const r = { x0: Math.max(a.x0, b.x0), y0: Math.max(a.y0, b.y0), x1: Math.min(a.x1, b.x1), y1: Math.min(a.y1, b.y1) };
+  return r.x0 < r.x1 && r.y0 < r.y1 ? r : null;
+}
+
 /** Numéro court d'une découpe : les clés de cache restent petites même pour un texte modelé. */
 const cutIds = new Map<string, number>();
 export function cutId(l: Layer): number {
@@ -815,16 +951,18 @@ function borderSprite(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
   const pad = bd.width * minSide * 7 + minSide * 0.01;
   const bw = bb.x1 - bb.x0 + 2 * pad;
   const bh = bb.y1 - bb.y0 + 2 * pad;
-  const S = Math.min(o.scale, 4096 / bw, 4096 / bh);
+  // résolution au quart d'octave au-dessus : pendant un zoom, l'image ne se refait qu'en passant un palier
+  const S = Math.min(quarterOctave(o.scale), 4096 / bw, 4096 / bh);
   const g = (i?: number) => (i === undefined ? '' : JSON.stringify(doc.guides[i] ?? null));
-  const key = [f.id, Math.round(S * 100), l.w, l.h, l.rot ?? 0, cutId(l), JSON.stringify(l.trim ?? 0), JSON.stringify(bd), g(bd.guide), g(bd.guide2 ?? 1)].join('|');
+  const shape = [f.id, l.w, l.h, l.rot ?? 0, cutId(l), JSON.stringify(l.trim ?? 0), JSON.stringify(bd), g(bd.guide), g(bd.guide2 ?? 1)].join('|');
+  const key = `${Math.round(S * 100)}|${shape}`;
   let hit = borderCache.get(l.id);
   // la découpe change à chaque image (texte modelé, tapé) : on dessine directement, sans mettre en image
   const seen = borderSeen.get(l.id);
   const now = performance.now();
-  if (seen?.key !== key) borderSeen.set(l.id, { key, t: now });
-  // image faite seulement quand la découpe n'a pas bougé depuis un instant
-  if (hit?.key !== key && (seen?.key !== key || now - seen.t < 200)) {
+  if (seen?.key !== shape) borderSeen.set(l.id, { key: shape, t: now });
+  // image faite seulement quand la découpe n'a pas bougé depuis un instant (un zoom seul la refait tout de suite)
+  if (hit?.key !== key && (seen?.key !== shape || now - seen.t < 200)) {
     ctx.save();
     const outside = new Path2D();
     outside.rect(bb.x0 - pad, bb.y0 - pad, bw, bh);
@@ -1162,7 +1300,7 @@ const fxBuffers = new Map<string, { key: string; canvas: HTMLCanvasElement }>();
 /** Matière passée par les effets de matière, mise en cache (au plus 1000 px de côté). */
 function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElement | null {
   const b = layerBox(l, f);
-  const k = Math.min(o.scale, 1000 / Math.max(b.w, b.h));
+  const k = Math.min(quarterOctave(o.scale), 1000 / Math.max(b.w, b.h));
   const pw = Math.max(1, Math.round(b.w * k));
   const ph = Math.max(1, Math.round(b.h * k));
   const im = l.kind === 'photo' && l.src ? imageFor(l.src, o.onImage) : null;
@@ -1326,7 +1464,7 @@ function drawGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, 
   const pad = Math.abs(dist) + w * 18 + minSide * 0.06;
   const bw = bb.x1 - bb.x0 + 2 * pad;
   const bh = bb.y1 - bb.y0 + 2 * pad;
-  const S = Math.min(o.scale, 4096 / bw, 4096 / bh);
+  const S = Math.min(quarterOctave(o.scale), 4096 / bw, 4096 / bh);
   const key = JSON.stringify([l.id, behind, f.id, Math.round(S * 100), l.w, l.h, l.rot, cutId(l), l.trim, l.border?.width, l.border?.style, gl, guideColor(doc.guides[gl.guide], 0.5)]);
   let hit = glowCache.get(key);
   if (!hit) {

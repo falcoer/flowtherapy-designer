@@ -1411,8 +1411,15 @@ export function App() {
     const c = canvasRef.current;
     if (!c) return;
     // repeinte pendant un geste de vue : l'aperçu reste aligné sur la vue en cours
-    if (gesture.current?.next) previewView(gesture.current.next);
-    else previewView(null);
+    const pending = gesture.current?.next ?? wheelView.current;
+    previewView(pending ?? null);
+    // durée d'une image : le dessin, puis la peinture du canevas, faite à l'image suivante (elle la retarde)
+    const t0 = performance.now();
+    let js = 0;
+    queueMicrotask(() => (js = performance.now() - t0));
+    requestAnimationFrame((t1) =>
+      requestAnimationFrame((t2) => (drawCost.current = 0.6 * drawCost.current + 0.4 * (js + Math.max(0, t2 - t1 - 17)))),
+    );
     c.width = Math.round(vp.w * dpr);
     c.height = Math.round(vp.h * dpr);
     const ctx = c.getContext('2d')!;
@@ -3745,6 +3752,30 @@ export function App() {
       return { ...d, layers: d.layers.map((x) => (ids.has(x.id) ? { ...x, ...heightPatch(Math.round((levelOf(x) + dv) * 1000) / 1000) } : x)) };
     });
 
+  /**
+   * Molette, trackpad : quand repeindre la page prend du temps (ordinateur sans carte graphique, page
+   * chargée), la vue suit d'abord par la transformation CSS de l'image déjà peinte, comme au pincement,
+   * et la page n'est repeinte qu'une fois le geste arrêté ; sinon elle est repeinte à chaque pas.
+   */
+  const wheelView = useRef<View | null>(null);
+  const wheelTimer = useRef(0);
+  const drawCost = useRef(0);
+  const viewStep = (step: (v: View) => View) => {
+    fitted.current = false;
+    if (drawCost.current < 30 && !wheelView.current) {
+      setView(step);
+      return;
+    }
+    const next = step(wheelView.current ?? viewRef.current);
+    wheelView.current = next;
+    previewView(next);
+    clearTimeout(wheelTimer.current);
+    wheelTimer.current = window.setTimeout(() => {
+      const v = wheelView.current;
+      wheelView.current = null;
+      if (v) setView(v);
+    }, 180);
+  };
   // molette et trackpad (ordinateur) : écouteur natif, pour empêcher le zoom de la page entière
   const wheelDev = useRef<{ mouse: boolean; t: number } | null>(null);
   const onWheel = useRef<(e: WheelEvent) => void>(() => {});
@@ -3759,10 +3790,9 @@ export function App() {
       if (Math.hypot(x, y) > 0.3) setView3d({ start: [Math.max(-40, Math.min(40, x)), Math.max(-40, Math.min(40, y))] });
       return;
     }
-    fitted.current = false;
-    if (act === 'rotate') setView((v) => ({ ...v, rot: v.rot + e.deltaY * 0.002 }));
-    else if (act === 'pan') setView((v) => ({ ...v, px: v.px - e.deltaX, py: v.py - e.deltaY }));
-    else setView((v) => ({ ...v, zoom: Math.max(0.3, Math.min(6, v.zoom * zoomFactor(e))) }));
+    if (act === 'rotate') viewStep((v) => ({ ...v, rot: v.rot + e.deltaY * 0.002 }));
+    else if (act === 'pan') viewStep((v) => ({ ...v, px: v.px - e.deltaX, py: v.py - e.deltaY }));
+    else viewStep((v) => ({ ...v, zoom: Math.max(0.3, Math.min(6, v.zoom * zoomFactor(e))) }));
   };
   /** Pincement du trackpad dans Safari (évènements « gesture ») : le zoom de départ. */
   const pinchAt = useRef<number | null>(null);
@@ -3781,8 +3811,7 @@ export function App() {
       const z0 = pinchAt.current;
       const k = (e as Event & { scale?: number }).scale;
       if (z0 === null || !k) return;
-      fitted.current = false;
-      setView((v) => ({ ...v, zoom: Math.max(0.3, Math.min(6, z0 * k)) }));
+      viewStep((v) => ({ ...v, zoom: Math.max(0.3, Math.min(6, z0 * k)) }));
     };
     const ge = (e: Event) => {
       e.preventDefault();
