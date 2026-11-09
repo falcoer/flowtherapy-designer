@@ -172,6 +172,8 @@ export function PublicationsPanel(p: {
   onShow: (i: number) => void;
   onRemove: (i: number) => void;
   onAdd: (t: Target) => void;
+  /** repères de positionnement de la publication courante (type, densité, points d'accroche) */
+  guides?: ReactNode;
 }) {
   const channels = channelsOf(p.activity);
   const palettes = palettesOf(p.activity);
@@ -325,6 +327,7 @@ export function PublicationsPanel(p: {
           </div>
         </div>
       </div>
+      {p.guides}
       <button className="btn-primary pub-freeze" disabled={dup} onClick={() => p.onAdd(cfg)} title={dup ? 'Cette publication est déjà dans la liste' : 'Figer ces réglages et les ajouter aux publications prêtes'}>
         {dup ? 'Déjà dans la liste' : 'Figer et ajouter à la liste'}
       </button>

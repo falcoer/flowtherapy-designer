@@ -1129,8 +1129,8 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 /* Aide au positionnement : l'essentiel d'abord, les points d'accroche sur « + » */
 .ab-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .ab-head .b-title { padding-top: 0; }
-.anchor-bubble .mark-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin: 2px 0; padding: 8px 10px; border-radius: 12px; background: var(--line); }
-.anchor-bubble .mark-legend .mark { gap: 8px; font-size: 12px; }
+.anchor-bubble .mark-legend, .pub-guides .mark-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin: 2px 0; padding: 8px 10px; border-radius: 12px; background: var(--line); }
+.anchor-bubble .mark-legend .mark, .pub-guides .mark-legend .mark { gap: 8px; font-size: 12px; }
 .ab-more { display: flex; align-items: center; justify-content: space-between; padding: 8px 6px 6px; border-top: 1px solid var(--line); margin-top: 2px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .ab-chev { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--line); color: var(--ink); font-size: 15px; letter-spacing: 0; }
 .ab-more.on .ab-chev { background: var(--accent-soft); color: var(--accent); }
@@ -1796,3 +1796,8 @@ button.cm-pub:disabled { opacity: 1; cursor: default; }
 .pm-page { grid-column: 2; grid-row: 2; position: relative; height: 84px; aspect-ratio: var(--ratio); max-width: 150px; border: 1.5px solid var(--ink); border-radius: 4px; background: var(--chrome-solid); }
 .pm-zone { position: absolute; border: 1.5px dashed #00a6c8; border-radius: 2px; }
 .pub-freeze { width: 100%; margin-top: 6px; }
+/* repères de la publication courante (ancien bouton de positionnement) */
+.pub-guides { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.pub-guides .b-field-label { font-size: 11px; font-weight: 600; color: var(--muted); }
+.pub-guides .b-title { padding-top: 2px; }
+.pubs-bubble > * { flex-shrink: 0; }

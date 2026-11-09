@@ -108,7 +108,7 @@ const EDIT_SECTIONS: Array<[EditTool, string, string]> = [
   ['edge', 'Bords', 'frame'],
 ];
 const isEdit = (t: Tool): t is EditTool => EDIT_SECTIONS.some(([k]) => k === t);
-type Bubble = 'activity' | 'activity-edit' | 'user' | 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'anchor' | 'projects' | 'export' | null;
+type Bubble = 'activity' | 'activity-edit' | 'user' | 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'projects' | 'export' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc-v2';
@@ -1322,7 +1322,7 @@ export function App() {
   /** Bord gauche des bulles posées à gauche (format, composition, aide au positionnement) : juste après les barres de gauche (réglages, hauteur, outils), pour ne jamais passer dessous. */
   const [bubbleLeft, setBubbleLeft] = useState(0);
   useLayoutEffect(() => {
-    if (bubble !== 'anchor' && bubble !== 'format' && bubble !== 'projects') return;
+    if (bubble !== 'format' && bubble !== 'projects') return;
     let x = 0;
     for (const el of document.querySelectorAll('.side, .height-bar')) {
       const r = el.getBoundingClientRect();
@@ -1842,7 +1842,7 @@ export function App() {
     }
     // ancrages pendant un déplacement, et tant que le réglage d'ancrage est ouvert :
     // chaque point et chaque ligne a sa couleur caractéristique (marks.ts)
-    if (L.kind === 'move' || bubble === 'anchor' || guidesOn.on) {
+    if (L.kind === 'move' || bubble === 'format' || guidesOn.on) {
       ctx.save();
       ctx.globalAlpha = 0.7;
       // la marge des repères : un cadre pointillé, dedans ou autour de la page
@@ -4248,9 +4248,6 @@ export function App() {
                   setBubble('projects');
                 }}
               />
-              <button className={`btn ${bubble === 'anchor' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'anchor' ? null : 'anchor')} title="Aide au positionnement : repères, densité, marge">
-                <Icon name="layout" />
-              </button>
             </div>
             <div className="bar-right">
               <button className={`btn ${bubble === 'light' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'light' ? null : 'light')} title="Lumière">
@@ -5106,6 +5103,67 @@ export function App() {
                 activity={activity}
                 onApply={applyPublication}
                 onShow={showTarget}
+                guides={
+                  <div className="pub-guides">
+                    <div className="ab-head">
+                      <div className="b-field-label">Repères</div>
+                      <button
+                        className={`btn small ${guidesOn.on ? 'on' : ''}`}
+                        onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}
+                        aria-pressed={guidesOn.on}
+                        title={guidesOn.on ? 'Repères affichés en permanence : toucher pour ne les voir qu’en déplaçant' : 'Repères visibles seulement en déplaçant : toucher pour les afficher en permanence'}
+                      >
+                        <Icon name={guidesOn.on ? 'eye' : 'eyeoff'} />
+                      </button>
+                    </div>
+                    <div className="seg">
+                      {ANCHOR_FRAMES.filter((x) => x !== 'grid').map((x) => (
+                        <button key={x} className={doc.frame === x ? 'on' : ''} onClick={() => setDoc((d) => ({ ...d, frame: x as AnchorFrame }))} title={FRAME_TITLES[x]}>
+                          {x === 'repartition' ? '½ ⅓' : x === 'or' ? 'φ' : '✕'}
+                        </button>
+                      ))}
+                    </div>
+                    {doc.frame === 'repartition' && (
+                      <>
+                        <div className="b-title">
+                          Densité <span className="b-count">{['Demis', 'Tiers', 'Quarts', 'Sixièmes', 'Douzièmes', '24es'][(doc.density ?? DEFAULT_DENSITY) - 1]}</span>
+                        </div>
+                        <label className="density">
+                          <span>−</span>
+                          <input
+                            type="range"
+                            min={1}
+                            max={DENSITY_STEPS.length}
+                            step={1}
+                            value={doc.density ?? DEFAULT_DENSITY}
+                            onChange={(e) => setDoc((d) => ({ ...d, density: Number(e.target.value) }))}
+                          />
+                          <span>+</span>
+                        </label>
+                      </>
+                    )}
+                    {/* légende : seulement ce qui est sur la page en ce moment */}
+                    <MarkLegend
+                      kinds={(() => {
+                        const seen = new Set(anchorsOf(doc.frame, f).map((a) => anchorKind(doc.frame, a.id)));
+                        return marksOfFrame(doc.frame).filter((k) => (k === 'margin' ? hasMargins(docMargins(doc)) : k === 'page' || seen.has(k)));
+                      })()}
+                      colors={markColors}
+                    />
+                    <button className={`ab-more ${anchorMore ? 'on' : ''}`} onClick={() => setAnchorMore(!anchorMore)} aria-expanded={anchorMore}>
+                      <span>Points d’accroche</span>
+                      <span className="ab-chev">{anchorMore ? '−' : '+'}</span>
+                    </button>
+                    {anchorMore && (
+                      <>
+                        <PointGrids points={points} frame={doc.frame} onChange={(k, v) => setDoc((d) => ({ ...d, points: { ...(d.points ?? defaultPoints), [k]: v } }))} />
+                        <button className="ab-link" onClick={() => setBubble('prefs')}>
+                          Réglages par défaut dans Préférences
+                        </button>
+                      </>
+                    )}
+                  </div>
+                }
                 onRemove={(i) =>
                   setDoc((d) => {
                     const targets = (d.targets ?? []).filter((_, j) => j !== i);
@@ -5242,68 +5300,6 @@ export function App() {
                     )}
                   </div>
                 </RailScroll>
-              )}
-            </div>
-          )}
-
-          {bubble === 'anchor' && (
-            <div className="bubble anchor-bubble">
-              <div className="ab-head">
-                <div className="b-title">Aide au positionnement</div>
-                <button
-                  className={`btn small ${guidesOn.on ? 'on' : ''}`}
-                  onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}
-                  aria-pressed={guidesOn.on}
-                  title={guidesOn.on ? 'Repères affichés en permanence : toucher pour ne les voir qu’en déplaçant' : 'Repères visibles seulement en déplaçant : toucher pour les afficher en permanence'}
-                >
-                  <Icon name={guidesOn.on ? 'eye' : 'eyeoff'} />
-                </button>
-              </div>
-              <div className="seg">
-                {ANCHOR_FRAMES.filter((x) => x !== 'grid').map((x) => (
-                  <button key={x} className={doc.frame === x ? 'on' : ''} onClick={() => setDoc((d) => ({ ...d, frame: x as AnchorFrame }))} title={FRAME_TITLES[x]}>
-                    {x === 'repartition' ? '½ ⅓' : x === 'or' ? 'φ' : '✕'}
-                  </button>
-                ))}
-              </div>
-              {doc.frame === 'repartition' && (
-                <>
-                  <div className="b-title">
-                    Densité <span className="b-count">{['Demis', 'Tiers', 'Quarts', 'Sixièmes', 'Douzièmes', '24es'][(doc.density ?? DEFAULT_DENSITY) - 1]}</span>
-                  </div>
-                  <label className="density">
-                    <span>−</span>
-                    <input
-                      type="range"
-                      min={1}
-                      max={DENSITY_STEPS.length}
-                      step={1}
-                      value={doc.density ?? DEFAULT_DENSITY}
-                      onChange={(e) => setDoc((d) => ({ ...d, density: Number(e.target.value) }))}
-                    />
-                    <span>+</span>
-                  </label>
-                </>
-              )}
-              {/* légende : seulement ce qui est sur la page en ce moment */}
-              <MarkLegend
-                kinds={(() => {
-                  const seen = new Set(anchorsOf(doc.frame, f).map((a) => anchorKind(doc.frame, a.id)));
-                  return marksOfFrame(doc.frame).filter((k) => (k === 'margin' ? hasMargins(docMargins(doc)) : k === 'page' || seen.has(k)));
-                })()}
-                colors={markColors}
-              />
-              <button className={`ab-more ${anchorMore ? 'on' : ''}`} onClick={() => setAnchorMore(!anchorMore)} aria-expanded={anchorMore}>
-                <span>Points d’accroche</span>
-                <span className="ab-chev">{anchorMore ? '−' : '+'}</span>
-              </button>
-              {anchorMore && (
-                <>
-                  <PointGrids points={points} frame={doc.frame} onChange={(k, v) => setDoc((d) => ({ ...d, points: { ...(d.points ?? defaultPoints), [k]: v } }))} />
-                  <button className="ab-link" onClick={() => setBubble('prefs')}>
-                    Réglages par défaut dans Préférences
-                  </button>
-                </>
               )}
             </div>
           )}
