@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
-import { appleClientSecret, appleProvider, googleProvider, type AuthConfig } from '../src/auth.js';
+import { appleClientSecret, appleProvider, googleProvider, isIconPath, type AuthConfig } from '../src/auth.js';
 
 const repoLibrary = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'fixtures/library');
 const jwt = (claims: object) => `e30.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.sig`;
@@ -49,6 +49,14 @@ describe('connexion externe', () => {
     const login = await app.inject('/auth/login');
     expect(login.body).toContain('Continuer avec Google');
     expect(login.body).toContain('Continuer avec Apple');
+  });
+
+  it('laisse lire les icônes et le manifeste sans session', async () => {
+    expect(isIconPath('/favicon.svg')).toBe(true);
+    expect(isIconPath('/editeur/icons/icon-192.png')).toBe(true);
+    expect(isIconPath('/icons/../app.js')).toBe(false);
+    const { app } = await setup({});
+    expect((await app.inject('/manifest.webmanifest')).statusCode).not.toBe(302);
   });
 
   it('connecte un membre autorisé via Google (PKCE) et note l’auteur des modifications', async () => {
