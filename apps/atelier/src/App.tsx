@@ -31,7 +31,7 @@ import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, reco
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
 import { CampaignDialog } from './campaigns-ui';
 import { NewCompositionDialog } from './compositions-ui';
-import { CompositionsMenu } from './compositions-menu';
+import { CampaignChip, CompositionsMenu } from './compositions-menu';
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
@@ -4220,8 +4220,19 @@ export function App() {
               >
                 <ActivityMark team={me?.team} size={30} />
               </button>
+              {online && me?.team && (
+                <CampaignChip
+                  campaign={followed}
+                  activity={activity}
+                  on={bubble === 'projects'}
+                  onClick={() => {
+                    if (bubble !== 'projects') refreshProjects();
+                    setBubble(bubble === 'projects' ? null : 'projects');
+                  }}
+                />
+              )}
               <button
-                className={`chip project-chip ${bubble === 'projects' ? 'on' : ''}`}
+                className={`chip project-chip ${bubble === 'projects' && !(online && me?.team) ? 'on' : ''}`}
                 onClick={() => {
                   if (bubble !== 'projects' && online) refreshProjects();
                   setBubble(bubble === 'projects' ? null : 'projects');

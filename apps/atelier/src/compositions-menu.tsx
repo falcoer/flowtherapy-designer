@@ -326,3 +326,41 @@ export function CompositionsMenu(p: {
     </div>
   );
 }
+
+/** La campagne dans la barre du haut : sa date, son nom, la prochaine échéance du plan et les retards. */
+export function CampaignChip(p: { campaign?: Campaign; activity: ActivityProfile | null; on: boolean; onClick: () => void }) {
+  const c = p.campaign;
+  const t = today();
+  const todo = (c?.plan ?? []).filter((it) => !it.published);
+  const late = todo.filter((it) => it.date && it.date < t).length;
+  const next = todo.filter((it) => it.date && it.date >= t).sort((a, b) => a.date!.localeCompare(b.date!))[0];
+  const d = c?.date ? new Date(`${c.date}T12:00:00`) : null;
+  const nextTxt = next ? `${channelsOf(p.activity).find((x) => x.id === next.channel)?.name ?? formatOf(next.format).title}${next.label ? ` ${next.label}` : ''} · ${short(next.date!)}` : todo.length ? `${todo.length} à dater` : c?.plan?.length ? 'tout est publié' : '';
+  return (
+    <button
+      className={`chip cmp-chip ${c ? '' : 'none'} ${p.on ? 'on' : ''}`}
+      onClick={p.onClick}
+      title={c ? `${c.name}${next ? ` · prochaine : ${targetLabel(next, p.activity)} le ${short(next.date!)}` : ''}${late ? ` · ${late} en retard` : ''}` : 'Hors campagne : choisir une campagne'}
+    >
+      <span className="cmp-date">
+        {d ? (
+          <>
+            <b>{d.getDate()}</b>
+            <small>{d.toLocaleDateString('fr-FR', { month: 'short' }).replace('.', '')}</small>
+          </>
+        ) : (
+          '—'
+        )}
+      </span>
+      <span className="cmp-txt">
+        <b>{c ? c.name : 'Hors campagne'}</b>
+        {nextTxt && <small>{nextTxt}</small>}
+      </span>
+      {late > 0 && (
+        <span className="cmp-late" aria-label={`${late} en retard`}>
+          {late}
+        </span>
+      )}
+    </button>
+  );
+}
