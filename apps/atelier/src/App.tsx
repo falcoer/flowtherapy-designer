@@ -1058,6 +1058,15 @@ export function App() {
   const growTimer = useRef(0);
   /** Couleur glissée depuis la palette (position écran). */
   const [dragGuide, setDragGuide] = useState<{ i: number; x: number; y: number } | null>(null);
+  /** La couleur de la barre d'outils tenue : départ du doigt, glisser commencé. */
+  const guideDrag = useRef<{ x: number; y: number; on: boolean } | null>(null);
+  // le doigt qui glisse depuis la couleur ne fait ni défiler ni rebondir la page (et n'avale pas le toucher suivant)
+  const guideBtn = useCallback((el: HTMLButtonElement | null) => {
+    if (!el) return;
+    const stop = (e: TouchEvent) => e.preventDefault();
+    el.addEventListener('touchmove', stop, { passive: false });
+    return () => el.removeEventListener('touchmove', stop);
+  }, []);
   /** Bulle ouverte de l'outil Transformer : style, guide du style, effets, guide d'effet. */
   const [tpop, setTpop] = useState<string | null>(null);
   const [fxFocus, setFxFocus] = useState<number | null>(null);
@@ -1890,6 +1899,41 @@ export function App() {
     setSelected(ids.get(me.id)!);
     setToast(`« ${me.name} » dupliqué`);
   };
+  /** Une couleur lâchée en (x, y) : l'objet visé sur la page ou dans le volet des attributs la prend comme fond. */
+  const dropGuide = (i: number, x: number, y: number) => {
+    setDragGuide(null);
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    if (!el) return;
+    let l: Layer | null | undefined;
+    if (el.closest('aside.coupe')) {
+      // posée sur le volet des attributs : la ligne visée de la liste, sinon l'objet ouvert
+      const row = el.closest('[data-layer]') as HTMLElement | null;
+      l = doc.layers.find((x) => x.id === (row?.dataset.layer ?? selected));
+    } else if (el.tagName === 'CANVAS') {
+      const q = toPage(x, y);
+      l = layerAt(q.x, q.y);
+    } else return;
+    if (!l) return;
+    if (l.kind === 'photo') return setToast('Une photo n’a pas de couleur de fond : peins-la ou donne-lui un style');
+    patchLayer(l.id, { guide: i });
+    setSelected(l.id);
+    setToast(`« ${l.name} » prend la couleur « ${doc.guides[i]?.name} »`);
+  };
+  /**
+   * Met à la corbeille les éléments choisis (aujourd'hui un seul, demain une sélection multiple) avec leurs
+   * objets solidaires, sauf si Maj est tenu. Le fond n'est jamais supprimé. Annulable.
+   */
+  const removeSelection = (ids: string[] = selected ? [selected] : []) => {
+    const picked = doc.layers.filter((x) => ids.includes(x.id) && x.kind !== 'surface');
+    if (!picked.length) return;
+    const gone = new Set(picked.flatMap((l) => [l.id, ...(shift ? [] : matesOf(doc, l).map((m) => m.id))]));
+    update((d) => ({ ...d, layers: d.layers.filter((x) => !gone.has(x.id) || x.kind === 'surface') }));
+    if (selected && gone.has(selected)) setSelected(null);
+    const first = picked[0]!;
+    setToast(picked.length > 1 ? `${gone.size} éléments à la corbeille` : gone.size > 1 ? `« ${first.name} » et ses objets solidaires à la corbeille` : `« ${first.name} » à la corbeille`);
+  };
+  const removeRef = useRef(removeSelection);
+  removeRef.current = removeSelection;
   /**
    * Poignées : un triangle à chacun des quatre coins du rectangle serré de la découpe, la rotation
    * au-dessus du bord haut. Le centre de rotation est par défaut le point d'ancrage (ramené dans le cadre).
@@ -3759,7 +3803,8 @@ export function App() {
   // raccourcis clavier (ordinateur)
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+      const t = e.target as HTMLElement;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.isContentEditable) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -3771,7 +3816,10 @@ export function App() {
       else if (e.key === 'e') setTool('edge');
       else if (e.key === 'm') setTool('material');
       else if (e.key === 'g') setTool('mold');
-      else if (e.key === 'Escape') {
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        removeRef.current();
+      } else if (e.key === 'Escape') {
         setBubble(null);
         setRendu(false);
       }
@@ -4027,8 +4075,9 @@ export function App() {
               <button
                 ref={trashRef}
                 className={`btn trash ${trashHot ? 'hot' : ''} ${live.current.kind === 'move' ? 'armed' : ''}`}
-                onClick={() => setToast('Glisse un élément sur la corbeille pour le supprimer')}
-                title="Corbeille : glisse un élément dessus pour le supprimer"
+                onClick={() => removeSelection()}
+                disabled={(!sel || sel.kind === 'surface') && live.current.kind !== 'move'}
+                title={sel && sel.kind !== 'surface' ? `Corbeille : touche pour supprimer « ${sel.name} », ou glisse un élément dessus` : 'Corbeille : choisis un élément, ou glisse-le dessus'}
               >
                 <Icon name="trash" />
               </button>
@@ -4070,7 +4119,45 @@ export function App() {
                   <path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
                 </svg>
               </button>
-              <button className={`btn guide-btn ${bubble === 'palette' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'palette' ? null : 'palette')} title="Palette de guides">
+              <button
+                ref={guideBtn}
+                className={`btn guide-btn ${bubble === 'palette' ? 'on' : ''}`}
+                onClick={() => {
+                  // un glisser vient de poser la couleur : pas d'ouverture de la palette
+                  if (guideDrag.current?.on) return void (guideDrag.current = null);
+                  setBubble(bubble === 'palette' ? null : 'palette');
+                }}
+                title={`Palette : touche pour l’ouvrir, glisse « ${g?.name ?? 'la couleur'} » sur un objet pour la lui donner`}
+                onPointerDown={(e) => {
+                  if (e.button !== 0 || !g) return;
+                  // suivi sur la fenêtre plutôt que par capture : une capture posée sur ce bouton faisait perdre le toucher suivant sur iPad
+                  const id = e.pointerId;
+                  const d = { x: e.clientX, y: e.clientY, on: false };
+                  guideDrag.current = d;
+                  const move = (ev: PointerEvent) => {
+                    if (ev.pointerId !== id) return;
+                    if (!d.on && Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 8) d.on = true;
+                    if (d.on) setDragGuide({ i: guide, x: ev.clientX, y: ev.clientY });
+                  };
+                  const end = (ev: PointerEvent) => {
+                    if (ev.pointerId !== id) return;
+                    window.removeEventListener('pointermove', move);
+                    window.removeEventListener('pointerup', end);
+                    window.removeEventListener('pointercancel', end);
+                    if (!d.on || ev.type === 'pointercancel') {
+                      setDragGuide(null);
+                      if (guideDrag.current === d) guideDrag.current = null;
+                      return;
+                    }
+                    dropGuide(guide, ev.clientX, ev.clientY);
+                    // le clic qui suit éventuellement est absorbé ; sans clic, l'état est oublié peu après
+                    window.setTimeout(() => guideDrag.current === d && (guideDrag.current = null), 300);
+                  };
+                  window.addEventListener('pointermove', move);
+                  window.addEventListener('pointerup', end);
+                  window.addEventListener('pointercancel', end);
+                }}
+              >
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
               {online && me?.team && (
@@ -5148,25 +5235,7 @@ export function App() {
                 (commit ? update : setDoc)((d) => ({ ...d, guides }));
               }}
               onDrag={(i, x, y) => setDragGuide(i === null ? null : { i, x, y })}
-              onDrop={(i, x, y) => {
-                setDragGuide(null);
-                const el = document.elementFromPoint(x, y) as HTMLElement | null;
-                if (!el) return;
-                let l: Layer | null | undefined;
-                if (el.closest('aside.coupe')) {
-                  // posée sur le volet des attributs : la ligne visée de la liste, sinon l'objet ouvert
-                  const row = el.closest('[data-layer]') as HTMLElement | null;
-                  l = doc.layers.find((x) => x.id === (row?.dataset.layer ?? selected));
-                } else if (el.tagName === 'CANVAS') {
-                  const q = toPage(x, y);
-                  l = layerAt(q.x, q.y);
-                } else return;
-                if (!l) return;
-                if (l.kind === 'photo') return setToast('Une photo n’a pas de couleur de fond : peins-la ou donne-lui un style');
-                patchLayer(l.id, { guide: i });
-                setSelected(l.id);
-                setToast(`« ${l.name} » prend la couleur « ${doc.guides[i]?.name} »`);
-              }}
+              onDrop={dropGuide}
             />
           )}
 
