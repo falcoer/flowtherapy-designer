@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Knob } from './App';
+import { Knob } from './knob';
 import { exportSize, FORMATS, formatOf, uniformMargins, type Margins, type Target } from './model';
 import { palettesOf, type ActivityProfile, type Channel, type Palette } from './server';
 import { channelsOf, formatsFor, paletteFor, paletteGuides, targetKey, targetLabel } from './targets';
