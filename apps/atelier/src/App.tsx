@@ -18,9 +18,8 @@ import { blankBump, bumpHeights, dab, encodeBump, heightUnder, smoothBump } from
 import { currentPx, growPatch, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
 import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
 import { type SwashTool } from './textbar';
-import { PaletteEditor } from './colorpicker';
-import { cssShaped } from './gradient';
-import { GradientOverlay, GradStyleRow } from './gradient-ui';
+import { ColorDialog, swatch } from './color-dialog';
+import { GradientOverlay } from './gradient-ui';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
@@ -28,14 +27,14 @@ import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
 import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
-import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, targetKey, targetLabel } from './targets';
+import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, ROLE_SHORT, targetKey, targetLabel } from './targets';
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
 import { CampaignDialog, CampaignSummary, VoteButton } from './campaigns-ui';
 import { LoadDialog, NewCompositionDialog } from './compositions-ui';
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
-import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, type GradStyle, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Blend, type Pin, type AnchorExtras } from './model';
+import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Pin, type AnchorExtras } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import {
@@ -286,7 +285,7 @@ export const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
   ['aura', 'Énergie', 'aura de flammes'],
   ['fire', 'Flammes', 'langues de feu qui montent'],
 ];
-export const swatch = (g: Guide | undefined) => (g?.type === 'gradient' ? cssShaped(g.stops, g.blend, shapeOf(g)) : guideColor(g));
+export { swatch };
 const EDGE_MODES: Array<[EdgeMode, string, string]> = [
   ['contrast', 'Contraste', 'bords de lumière'],
   ['color', 'Couleur', 'bords de teinte'],
@@ -5775,7 +5774,6 @@ function LampPanel({ doc, f, onChange, onClose }: { doc: Doc; f: Format; onChang
 }
 
 const SAVED = 'ftd-atelier-palettes';
-const ROLE_SHORT: Record<string, string> = { fond: 'fond', texte: 'texte', accent: 'accent', secondaire: 'second.' };
 /** Toute la palette en un seul dégradé, comme les variantes : chaque guide au milieu de sa part, les dégradés étalés dans la leur. */
 function railGradient(guides: Guide[]): string {
   const n = guides.length;
@@ -6023,54 +6021,6 @@ function PaletteBubble({
           }
         />
       )}
-    </div>
-  );
-}
-
-/** Boîte de dialogue d'une couleur : son nom, son éditeur (plan, teintes, harmonies, transition, forme du dégradé). */
-function ColorDialog({ guide, onChange, onClose, onRemove }: { guide: Guide; onChange: (g: Guide, commit: boolean) => void; onClose: () => void; onRemove?: () => void }) {
-  const stops = guide.type === 'gradient' ? guide.stops : [guide.color];
-  const keep = { ...(guide.from ? { from: guide.from } : {}) };
-  return (
-    <div className="color-dialog" role="dialog" aria-label={`Couleur ${guide.name}`}>
-      <button className="lamp-close cd-close" onClick={onClose} aria-label="Fermer">
-        ×
-      </button>
-      <PaletteEditor
-        stops={stops}
-        blend={guide.type === 'gradient' ? (guide.blend ?? 'smooth') : 'smooth'}
-        head={
-          <div className="cd-head">
-            <span className="cd-sw" style={{ background: swatch(guide) }} />
-            <input
-              className="gname-input"
-              value={guide.name}
-              aria-label="Nom de la couleur"
-              onChange={(e) => onChange({ ...guide, name: e.target.value }, false)}
-              onBlur={() => onChange(guide, true)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur();
-                e.stopPropagation();
-              }}
-            />
-            {onRemove && (
-              <button className="cd-remove" onClick={onRemove} title="Retirer cette couleur">
-                Retirer
-              </button>
-            )}
-          </div>
-        }
-        extra={guide.type === 'gradient' ? <GradStyleRow style={guide.shape} onChange={(shape: GradStyle) => onChange({ ...guide, shape }, true)} /> : undefined}
-        onBlend={(blend: Blend) => guide.type === 'gradient' && onChange({ ...guide, blend }, true)}
-        onChange={(next, commit) =>
-          onChange(
-            next.length > 1
-              ? { name: guide.name, type: 'gradient', stops: next, ...(guide.type === 'gradient' && guide.blend ? { blend: guide.blend } : {}), ...(guide.type === 'gradient' && guide.shape ? { shape: guide.shape } : {}), ...keep }
-              : { name: guide.name, type: 'color', color: next[0]!, ...keep },
-            commit,
-          )
-        }
-      />
     </div>
   );
 }

@@ -236,6 +236,30 @@ describe('équipes', () => {
     expect(prof.channels[1].palette).toBeUndefined();
     expect(prof.operations).toBeUndefined();
 
+    // pastilles prévues : couleurs unies ou dégradés (arrêts, transition, style)
+    const grads = await lauris.send('PUT', '/api/teams/flowtherapy/profile', {
+      branding: {
+        palettes: [
+          {
+            id: 'site-clair',
+            name: 'Site clair',
+            colors: [
+              { hex: '#168AD5', role: 'principale', stops: ['#168AD5', '#7130c8', '#ffc425', 'jaune'], blend: 'smooth', shape: { mode: 'conic', repeat: 40, mirror: true, x: 1 } },
+              { hex: '#ffffff', role: 'bordure', stops: ['#ffffff'] },
+              { hex: '#f9b353', role: 'sujet1', stops: ['#f9b353', '#c73047'], blend: 'flou' },
+              { hex: '#000000', role: 'inconnu' },
+            ],
+          },
+        ],
+      },
+    });
+    expect(grads.json().profile.branding.palettes[0].colors).toEqual([
+      { hex: '#168ad5', role: 'principale', stops: ['#168ad5', '#7130c8', '#ffc425'], blend: 'smooth', shape: { mode: 'conic', repeat: 12, mirror: true } },
+      { hex: '#ffffff', role: 'bordure' },
+      { hex: '#f9b353', role: 'sujet1', stops: ['#f9b353', '#c73047'] },
+      { hex: '#000000' },
+    ]);
+
     // occasions : cibles présélectionnées (média, format, variante)
     const ops = await lauris.send('PUT', '/api/teams/flowtherapy/profile', {
       operations: [

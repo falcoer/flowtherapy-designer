@@ -1145,6 +1145,18 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .act-pal { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 14px; }
 .act-pal-head { display: flex; align-items: center; gap: 6px; }
 .act-pal-name { flex: 1; min-width: 0; font-weight: 600; }
+/* pastilles d'une variante : les mêmes que dans la palette de l'atelier, une par élément prévu */
+.act-slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(66px, 1fr)); gap: 2px; }
+.act-slots .guide { padding: 4px 2px; border-radius: 12px; }
+.act-slots .guide:hover:not(:disabled) { background: var(--accent-soft); }
+.act-slots .guide:disabled { opacity: 0.5; }
+.act-slots .guide .sw { width: 40px; height: 40px; }
+.act-slots .guide.add .sw.plus { font-size: 15px; color: var(--muted); }
+.act-others { padding-top: 4px; border-top: 1px dashed var(--line); }
+.act-slot-label { max-width: 100%; font-size: 11px; line-height: 1.2; text-align: center; color: var(--muted); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.act-pal-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.cd-kind { flex: none; font: var(--tool-label, 600 10px ui-monospace, monospace); text-transform: uppercase; color: var(--muted); }
+@media (min-width: 1000px) { .color-dialog.act-cd { left: 580px; right: auto; transform: none; } }
 .act-channel { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
 .act-channel.open { border-color: var(--accent); }
 .act-channel-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; text-align: left; }

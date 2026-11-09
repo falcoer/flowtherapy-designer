@@ -1,4 +1,4 @@
-import { compact, type Doc } from './model';
+import { compact, type Blend, type Doc, type GradStyle } from './model';
 
 /** Compositions enregistrées sur le serveur du groupe (designer.flowtherapymusic.com). */
 export interface AtelierMeta {
@@ -195,13 +195,19 @@ export interface ServiceLink {
   name: string;
   url?: string;
 }
-export type ColorRole = 'fond' | 'texte' | 'accent' | 'secondaire';
+/** Rôle d'une couleur de variante : les pastilles prévues de la fiche (principale, texte, bordure, fond, sujets), plus les anciens accent et secondaire. */
+export type ColorRole = 'principale' | 'texte' | 'bordure' | 'fond' | 'sujet1' | 'sujet2' | 'sujet3' | 'accent' | 'secondaire';
 export type LogoVariant = 'main' | 'light' | 'dark' | 'icon';
 export type ChannelKind = 'social' | 'affichage' | 'impression' | 'email' | 'site';
 export interface PaletteColor {
+  /** Couleur unie, ou premier arrêt d'un dégradé (lu par les anciennes versions). */
   hex: string;
   name?: string;
   role?: ColorRole;
+  /** Dégradé : ses arrêts (au moins deux), sa transition et son style. */
+  stops?: string[];
+  blend?: Blend;
+  shape?: GradStyle;
 }
 export interface Palette {
   id: string;

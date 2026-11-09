@@ -1,5 +1,5 @@
 import { FORMATS, formatOf, type Doc, type Guide, type Target } from './model';
-import { palettesOf, type ActivityProfile, type Channel, type Operation, type Palette } from './server';
+import { palettesOf, type ActivityProfile, type Channel, type ColorRole, type Operation, type Palette, type PaletteColor } from './server';
 
 /**
  * Cibles d'un document : un média (canal de l'activité), un format compatible, une variante de couleurs.
@@ -76,30 +76,69 @@ export const targetLabel = (t: Target, p?: ActivityProfile | null) => {
   return [ch?.name, formatOf(t.format).title].filter(Boolean).join(' · ');
 };
 
-const ROLE_ORDER = ['fond', 'texte', 'accent', 'secondaire'];
+/** Pastilles prévues dans chaque variante, dans l'ordre de la fiche. */
+export const BRAND_SLOTS: Array<{ role: ColorRole; label: string; short: string }> = [
+  { role: 'principale', label: 'Couleur principale', short: 'princ.' },
+  { role: 'texte', label: 'Texte', short: 'texte' },
+  { role: 'bordure', label: 'Bordure de texte', short: 'bord.' },
+  { role: 'fond', label: 'Fond d’écran', short: 'fond' },
+  { role: 'sujet1', label: 'Sujet 1', short: 'sujet 1' },
+  { role: 'sujet2', label: 'Sujet 2', short: 'sujet 2' },
+  { role: 'sujet3', label: 'Sujet 3', short: 'sujet 3' },
+];
+/** Nom d'un rôle, les anciens compris. */
+export const ROLE_NAMES: Record<ColorRole, string> = { ...(Object.fromEntries(BRAND_SLOTS.map((x) => [x.role, x.label])) as Record<ColorRole, string>), accent: 'Accent', secondaire: 'Secondaire' };
+export const ROLE_SHORT: Record<string, string> = { ...Object.fromEntries(BRAND_SLOTS.map((x) => [x.role, x.short])), accent: 'accent', secondaire: 'second.' };
+
+/** La couleur d'une variante qui tient une pastille (l'ancien « accent » tient la couleur principale). */
+export function slotColor(pal: Palette, role: ColorRole): PaletteColor | undefined {
+  return pal.colors.find((c) => c.role === role) ?? (role === 'principale' ? pal.colors.find((c) => c.role === 'accent') : undefined);
+}
+
+// le fond d'abord : la surface de fond prend le premier guide
+const ROLE_ORDER: string[] = ['fond', 'texte', 'bordure', 'principale', 'accent', 'sujet1', 'sujet2', 'sujet3', 'secondaire'];
 const rank = (r?: string) => {
   const i = r ? ROLE_ORDER.indexOf(r) : -1;
   return i < 0 ? ROLE_ORDER.length : i;
 };
 
+/** Le guide d'une couleur de variante : unie, ou dégradé avec ses arrêts et son style. */
+export function colorGuide(c: PaletteColor, name?: string): Guide {
+  const n = name ?? (c.name || (c.role ? ROLE_NAMES[c.role] : '') || c.hex);
+  const role = c.role ? { role: c.role } : {};
+  if (c.stops && c.stops.length > 1) return { name: n, type: 'gradient', stops: [...c.stops], ...(c.blend ? { blend: c.blend } : {}), ...(c.shape ? { shape: c.shape } : {}), ...role };
+  return { name: n, type: 'color', color: c.hex, ...role };
+}
+/** Une couleur de variante depuis le guide édité ; le premier arrêt reste dans hex pour les anciennes lectures. */
+export function guidePaletteColor(g: Guide, role?: ColorRole, name?: string): PaletteColor {
+  const base = { ...(name ? { name } : {}), ...(role ? { role } : {}) };
+  if (g.type === 'gradient') return { hex: g.stops[0] ?? '#888888', stops: [...g.stops], ...(g.blend ? { blend: g.blend } : {}), ...(g.shape ? { shape: g.shape } : {}), ...base };
+  return { hex: g.color, ...base };
+}
+
 /** Guides d'une variante : le fond d'abord (la surface de fond prend le premier guide). */
 export function paletteGuides(pal: Palette): Guide[] {
-  return [...pal.colors].sort((a, b) => rank(a.role) - rank(b.role)).map((c) => ({ name: c.name || c.role || c.hex, type: 'color', color: c.hex, ...(c.role ? { role: c.role } : {}) }));
+  return [...pal.colors].sort((a, b) => rank(a.role) - rank(b.role)).map((c) => colorGuide(c));
 }
 
 /**
- * Recolore les guides avec une variante : même rôle d'abord, sinon même rang parmi les couleurs de la variante.
- * Les dégradés gardent leurs arrêts ; un guide qui n'a pas d'équivalent garde sa couleur.
+ * Recolore les guides avec une variante : même rôle d'abord (couleur ou dégradé, comme dans la variante),
+ * sinon même rang parmi les couleurs de la variante. Un guide qui n'a pas d'équivalent garde sa couleur.
  */
 export function recolor(guides: Guide[], pal: Palette | undefined): Guide[] {
   if (!pal?.colors.length) return guides;
   const ordered = paletteGuides(pal);
-  return guides.map((g, i) => {
-    if (g.type !== 'color') return g;
-    const same = g.role ? ordered.find((x) => x.role === g.role) : undefined;
-    const by = same ?? (g.role ? undefined : ordered[i]);
+  const out = guides.map((g, i) => {
+    const same = g.role ? (ordered.find((x) => x.role === g.role) ?? (g.role === 'accent' || g.role === 'principale' ? ordered.find((x) => x.role === 'principale' || x.role === 'accent') : undefined)) : undefined;
+    if (same) return { ...same, name: g.name };
+    if (g.role || g.type !== 'color') return g;
+    const by = ordered[i];
     return by && by.type === 'color' ? { ...g, color: by.color, ...(by.role ? { role: by.role } : {}) } : g;
   });
+  // les pastilles de la variante encore absentes du document (bordure, sujets…) arrivent à la suite : les numéros des guides restent
+  const roles = new Set(out.map((g) => g.role).filter(Boolean));
+  const has = (r?: string) => !!r && (roles.has(r) || ((r === 'principale' || r === 'accent') && (roles.has('principale') || roles.has('accent'))));
+  return [...out, ...ordered.filter((g) => g.role && !has(g.role))];
 }
 
 /** Le document vu pour une cible : son format, sa marge (celle du média) et sa variante. Le format est changé par l'appelant (holdPins). */

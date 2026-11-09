@@ -105,6 +105,10 @@ export interface PaletteColor {
   hex: string;
   name?: string;
   role?: ColorRole;
+  /** Dégradé : arrêts, transition, style (mode, répétitions, miroir, ellipse). */
+  stops?: string[];
+  blend?: string;
+  shape?: { mode: string; repeat: number; mirror?: boolean; ellipse?: boolean };
 }
 /** Couleurs, chacune avec son rôle (fond, texte, accent, secondaire). */
 export interface Palette {
@@ -113,7 +117,7 @@ export interface Palette {
   colors: PaletteColor[];
 }
 
-export const COLOR_ROLES = ['fond', 'texte', 'accent', 'secondaire'] as const;
+export const COLOR_ROLES = ['principale', 'texte', 'bordure', 'fond', 'sujet1', 'sujet2', 'sujet3', 'accent', 'secondaire'] as const;
 export type ColorRole = (typeof COLOR_ROLES)[number];
 export const CHANNEL_KINDS = ['social', 'affichage', 'impression', 'email', 'site'] as const;
 export const LOGO_VARIANTS = ['main', 'light', 'dark', 'icon'] as const;
@@ -175,16 +179,31 @@ function cleanChannel(c: Partial<Channel>, i: number): Channel | null {
   };
 }
 
+const HEX = /^#[0-9a-fA-F]{6}$/;
+/** Dégradé d'une couleur de variante : 2 à 8 arrêts, transition et style connus. */
+function gradientOf(c: PaletteColor): Pick<PaletteColor, 'stops' | 'blend' | 'shape'> {
+  const stops = Array.isArray(c.stops) ? c.stops.filter((x) => typeof x === 'string' && HEX.test(x)).slice(0, 8).map((x) => x.toLowerCase()) : [];
+  if (stops.length < 2) return {};
+  const sh = c.shape;
+  const num = (v: unknown, lo: number, hi: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : undefined);
+  const shape =
+    sh && ['linear', 'radial', 'conic', 'diamond'].includes(sh.mode)
+      ? { mode: sh.mode, repeat: num(sh.repeat, 1, 12) ?? 1, ...(sh.mirror ? { mirror: true } : {}), ...(sh.ellipse ? { ellipse: true } : {}) }
+      : undefined;
+  return { stops, ...(['smooth', 'soft', 'hard'].includes(c.blend as string) ? { blend: c.blend } : {}), ...(shape ? { shape } : {}) };
+}
+
 /** Garde ce qui est attendu, à des tailles raisonnables. */
 export function cleanProfile(p: ActivityProfile): ActivityProfile {
   const colorsOf = (v: unknown): PaletteColor[] =>
     arr<PaletteColor>(v)
       .slice(0, 24)
-      .filter((c) => typeof c?.hex === 'string' && /^#[0-9a-fA-F]{6}$/.test(c.hex))
+      .filter((c) => typeof c?.hex === 'string' && HEX.test(c.hex))
       .map((c) => ({
         hex: c.hex.toLowerCase(),
         ...(str(c.name, 40) ? { name: str(c.name, 40) } : {}),
         ...((COLOR_ROLES as readonly string[]).includes(c.role as string) ? { role: c.role } : {}),
+        ...gradientOf(c),
       }));
   const rawPalettes = Array.isArray(p.branding?.palettes)
     ? p.branding!.palettes
