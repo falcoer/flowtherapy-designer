@@ -111,6 +111,23 @@ type Bubble = 'activity' | 'activity-edit' | 'prefs' | 'add' | 'layers' | 'palet
 type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc-v2';
+/** Composition dont la copie locale (entière) porte des retouches pas encore enregistrées sur le serveur. */
+const PENDING = 'ftd-atelier-pending';
+const setPending = (id: string | null) => {
+  try {
+    if (id) localStorage.setItem(PENDING, id);
+    else localStorage.removeItem(PENDING);
+  } catch {
+    /* stockage indisponible */
+  }
+};
+const pendingId = () => {
+  try {
+    return localStorage.getItem(PENDING);
+  } catch {
+    return null;
+  }
+};
 
 const TOP = 52;
 /** Rayon d'attraction des ancrages, en pixels écran. */
@@ -391,13 +408,19 @@ export function App() {
     setToast('Rétabli');
   }, []);
 
+  // copie locale : elle ne sert de référence au rechargement que si elle a pu être écrite en entier
+  const localOk = useRef(true);
   useEffect(() => {
     try {
       localStorage.setItem(STORE, JSON.stringify(doc, compact));
+      localOk.current = true;
     } catch {
       /* photo trop lourde pour le stockage local : on garde en mémoire */
+      localOk.current = false;
     }
   }, [doc]);
+  /** Document montré au démarrage (copie locale) : tant qu'on n'y a pas touché, le serveur peut le remplacer. */
+  const startDoc = useRef(doc);
 
   // --- compositions du groupe, enregistrées sur le serveur ---
   const [online, setOnline] = useState<boolean | null>(null);
@@ -509,6 +532,7 @@ export function App() {
     try {
       await saveAtelier(p.id, p.title, d, makeThumb(d));
       setSaving(docRef.current === d ? 'saved' : 'dirty');
+      if (docRef.current === d) setPending(null);
     } catch (err) {
       setSaving('error');
       setToast(`Enregistrement impossible : ${(err as Error).message}`);
@@ -516,15 +540,29 @@ export function App() {
   };
   // enregistrement automatique, quelques secondes après la dernière retouche
   const firstDoc = useRef(true);
+  // ce qui a déjà été vu : l'arrivée de la réponse du serveur (en ligne) n'est pas une retouche
+  const seen = useRef({ doc, title: project?.title });
+  const unsaved = useRef(false);
   useEffect(() => {
     // au chargement, ou juste après avoir ouvert une composition : rien de neuf à enregistrer
     if (firstDoc.current) {
       firstDoc.current = false;
+      seen.current = { doc, title: project?.title };
+      unsaved.current = false;
       return;
     }
-    if (!online || !project) return;
+    if (seen.current.doc !== doc || seen.current.title !== project?.title) {
+      seen.current = { doc, title: project?.title };
+      unsaved.current = true;
+    }
+    if (!online || !project || !unsaved.current) return;
     setSaving('dirty');
-    const t = setTimeout(() => void saveNow(), 2500);
+    // la copie locale tient les retouches : au rechargement, elle passera avant celle du serveur
+    setPending(localOk.current ? project.id : null);
+    const t = setTimeout(() => {
+      unsaved.current = false;
+      void saveNow();
+    }, 2500);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc, online, project?.id, project?.title]);
@@ -536,6 +574,7 @@ export function App() {
       future.current = [];
       firstDoc.current = true;
       setDoc(migrate(r.doc));
+      setPending(null);
       setSelected(null);
       setProject({ id: m.id, title: r.title });
       setSaving('saved');
@@ -556,8 +595,32 @@ export function App() {
       history.replaceState(null, '', url.pathname + url.search + url.hash);
     }
     if (id) void openProject({ id, title: '', updated: '' });
+    else if (project) void resync(project);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online]);
+  /**
+   * Au rechargement, la composition ouverte est relue sur le serveur : la copie locale peut être
+   * ancienne (trop lourde pour le stockage du navigateur, ou retouchée depuis un autre appareil),
+   * et la montrer ferait enregistrer cette vieille version par-dessus la bonne à la première retouche.
+   * Seule exception : des retouches pas encore enregistrées, dont la copie locale est entière.
+   */
+  const resync = async (p: { id: string; title: string }) => {
+    if (pendingId() === p.id) return void saveNow(p, docRef.current);
+    try {
+      const r = await readAtelier(p.id);
+      // déjà retouchée (ou une autre composition ouverte) pendant la lecture : on ne remplace rien
+      if (docRef.current !== startDoc.current) return;
+      forgetPaint();
+      past.current = [];
+      future.current = [];
+      firstDoc.current = true;
+      setDoc(migrate(r.doc));
+      setProject({ id: p.id, title: r.title || p.title });
+      setSaving('saved');
+    } catch {
+      /* composition introuvable (supprimée, autre équipe) : la copie locale reste affichée */
+    }
+  };
   /** Propose la composition aux responsables, ou (responsable) la valide / demande une retouche. */
   const sendReview = async (action: 'propose' | 'approve' | 'changes') => {
     if (!project) return;
@@ -604,8 +667,13 @@ export function App() {
     setDoc((d) => {
       const t = d.targets?.[i];
       if (!t) return d;
-      const moved = d.formatId === t.format ? d : holdPins({ ...d, formatId: t.format }, formatOf(t.format), linkShapes(d, formatOf(d.formatId)));
-      return { ...docForTarget(moved, t, activity), target: i };
+      const next = docForTarget(d, t, activity);
+      if (d.formatId === t.format && (next.margin ?? 0) === (d.margin ?? 0)) return { ...next, target: i };
+      // autre format ou autre marge du média : les bords tenus suivent, les pièces solidaires aussi
+      setAnchorMargin(d.margin);
+      const links = linkShapes(d, formatOf(d.formatId));
+      setAnchorMargin(next.margin);
+      return { ...holdPins({ ...next, formatId: t.format }, formatOf(t.format), links), target: i };
     });
   const channels = channelsOf(activity);
   const allOperations = operationsOf(activity);
