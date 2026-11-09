@@ -4332,6 +4332,20 @@ export function App() {
               />
             </div>
             <div className="bar-right">
+              {/* la publication affichée : son édition */}
+              <button
+                className={`btn pubs-btn ${bubble === 'format' ? 'on' : ''}`}
+                onClick={() => setBubble(bubble === 'format' ? null : 'format')}
+                title={`Édition de la publication : ${targetLabel(currentPub, activity)} (réseau, format, résolution, variante, marges, repères)`}
+                aria-label="Édition de la publication"
+              >
+                <FormatGlyph w={f.width} h={f.height} />
+                {activeTarget?.channel && (
+                  <span className="pubs-media">
+                    <MediaIcon ch={channels.find((c) => c.id === activeTarget.channel)} size={13} />
+                  </span>
+                )}
+              </button>
               <button className={`btn ${bubble === 'light' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'light' ? null : 'light')} title="Lumière">
                 <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
                   <circle cx="12" cy="12" r="4.5" style={{ fill: lampOf(doc).color }} />
@@ -4380,19 +4394,6 @@ export function App() {
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
               {online && project && me?.team && <MessagesButton count={projects.find((m) => m.id === project.id)?.messages ?? 0} on={msgDialog} onClick={() => setMsgDialog(true)} />}
-              <button
-                className={`btn pubs-btn ${bubble === 'format' ? 'on' : ''}`}
-                onClick={() => setBubble(bubble === 'format' ? null : 'format')}
-                title={`Édition de la publication : ${targetLabel(currentPub, activity)} (réseau, format, résolution, variante, marges, repères)`}
-                aria-label="Édition de la publication"
-              >
-                <FormatGlyph w={f.width} h={f.height} />
-                {activeTarget?.channel && (
-                  <span className="pubs-media">
-                    <MediaIcon ch={channels.find((c) => c.id === activeTarget.channel)} size={13} />
-                  </span>
-                )}
-              </button>
               <button
                 className={`btn ${bubble === 'export' ? 'on' : ''}`}
                 onClick={() => {
