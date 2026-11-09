@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { FORMATS, formatOf, type Target } from './model';
+import { exportSize } from './export';
 import { palettesOf, type ActivityProfile, type Channel, type Palette } from './server';
 import { channelsOf, formatsFor, paletteFor, paletteGuides, targetKey, targetLabel } from './targets';
 
@@ -163,6 +164,7 @@ export function TargetsPanel(p: { targets: Target[]; active: number; activity: A
               <MediaIcon ch={c} />
               <FmtGlyph id={x.format} />
               <span className="tg-name">{targetLabel(x, p.activity)}</span>
+              <small className="tg-px">{(({ w, h }) => `${w} × ${h}`)(exportSize(formatOf(x.format)))}</small>
               <VariantBar pal={v} />
             </button>
             <button className="tm-remove" title="Retirer cette cible" onClick={() => p.onRemove(i)}>

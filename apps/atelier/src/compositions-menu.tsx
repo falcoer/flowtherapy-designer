@@ -100,6 +100,8 @@ export function CompositionsMenu(p: {
   onMessages: () => void;
   onPublish: () => void;
   onTemplate: (m: AtelierMeta, on: boolean) => void;
+  /** montre une publication de la composition ouverte */
+  onShowTarget: (i: number) => void;
 }) {
   const c = p.campaign;
   const [switching, setSwitching] = useState(false);
@@ -290,11 +292,11 @@ export function CompositionsMenu(p: {
               <div className="b-sub">Publications</div>
               <div className="cm-pubs">
                 {pubsOf(chosen, targetsOf(chosen), c, suggested).map((x, i) => (
-                  <div key={i} className={`cm-pub ps-${pubState(x)}`}>
+                  <button key={i} className={`cm-pub ps-${pubState(x)}`} disabled={!isCurrent || !p.currentTargets.length} onClick={() => p.onShowTarget(i)} title={isCurrent ? 'Voir cette publication' : ''}>
                     <MediaIcon ch={channels.find((ch) => ch.id === x.target.channel)} size={18} />
                     <span>{targetLabel(x.target, p.activity)}</span>
                     <small>{pubWhen(x)}</small>
-                  </div>
+                  </button>
                 ))}
               </div>
 

@@ -1719,4 +1719,13 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
   .cmp-late { position: absolute; top: -4px; right: -6px; }
 }
 /* avec la campagne dans la barre, le format se réduit à son glyphe tant que la place manque */
-@media (max-width: 1400px) { .bar-left:has(.cmp-chip) .chip-label { display: none; } .bar-left:has(.cmp-chip) .project-chip .brand { max-width: 110px; } }
+@media (max-width: 1400px) { .bar-left:has(.cmp-chip) .project-chip .brand { max-width: 150px; } }
+/* publications : à droite, après la palette */
+.atelier .format-bubble.pubs-bubble { left: auto; right: max(10px, env(safe-area-inset-right, 0px)); width: min(380px, calc(100vw - 20px)); }
+.pubs-btn { position: relative; }
+.pubs-media { position: absolute; right: 2px; bottom: 3px; line-height: 0; border-radius: 4px; background: var(--chrome-solid); }
+.pubs-count { position: absolute; top: 1px; right: 0; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 9.5px; font-weight: 700; display: grid; place-items: center; }
+.tg-px { flex: none; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cm-pub { width: 100%; text-align: left; color: inherit; background: none; }
+button.cm-pub:not(:disabled):hover { background: var(--accent-soft); }
+button.cm-pub:disabled { opacity: 1; cursor: default; }

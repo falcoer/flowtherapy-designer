@@ -4242,9 +4242,6 @@ export function App() {
                 <span className="brand">{project?.title ?? 'Atelier'}</span>
                 {online && project && <span className={`save-dot ${saving}`} title={{ saved: 'Enregistrée', dirty: 'Modifications en attente', saving: 'Enregistrement…', error: 'Non enregistrée' }[saving]} />}
               </button>
-              <button className={`chip ${bubble === 'format' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'format' ? null : 'format')}>
-                <FormatGlyph w={f.width} h={f.height} /> <span className="chip-label">{activeTarget ? targetLabel(activeTarget, activity) : f.title}</span>
-              </button>
               <button className={`btn ${bubble === 'anchor' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'anchor' ? null : 'anchor')} title="Aide au positionnement : repères, densité, marge">
                 <Icon name="layout" />
               </button>
@@ -4296,6 +4293,20 @@ export function App() {
                 }}
               >
                 <span className="dot" style={{ background: swatch(g) }} />
+              </button>
+              <button
+                className={`btn pubs-btn ${bubble === 'format' ? 'on' : ''}`}
+                onClick={() => setBubble(bubble === 'format' ? null : 'format')}
+                title={`Publications : ${activeTarget ? targetLabel(activeTarget, activity) : f.title}${doc.targets && doc.targets.length > 1 ? ` (${(doc.target ?? 0) + 1} sur ${doc.targets.length})` : ''}`}
+                aria-label="Publications"
+              >
+                <FormatGlyph w={f.width} h={f.height} />
+                {activeTarget?.channel && (
+                  <span className="pubs-media">
+                    <MediaIcon ch={channels.find((c) => c.id === activeTarget.channel)} size={13} />
+                  </span>
+                )}
+                {(doc.targets?.length ?? 0) > 1 && <span className="pubs-count">{doc.targets!.length}</span>}
               </button>
               {online && me?.team && (
                 <FeedButton
@@ -4887,6 +4898,10 @@ export function App() {
                 setMsgDialog(true);
               }}
               onPublish={() => setBubble('export')}
+              onShowTarget={(i) => {
+                setBubble(null);
+                showTarget(i);
+              }}
               onTemplate={(m, on) => {
                 if (!followed) return;
                 const templates = on ? [...(followed.templates ?? []), m.id] : (followed.templates ?? []).filter((t) => t !== m.id);
@@ -5060,9 +5075,9 @@ export function App() {
             />
           )}
           {bubble === 'format' && (
-            <div className="bubble format-bubble">
-              <div className="b-title">Cibles du document</div>
-              {!doc.targets?.length && <p className="b-note">Choisis où partira ce document : un média, un format, une variante de couleurs.</p>}
+            <div className="bubble format-bubble pubs-bubble">
+              <div className="b-title">Publications</div>
+              <p className="b-note">{doc.targets?.length ? 'Chaque publication est un aperçu de la composition : son format, sa marge, sa résolution et sa variante de couleurs. Touche-en une pour la voir.' : 'Choisis où partira cette composition : un média, un format, une variante de couleurs.'}</p>
               <TargetsPanel
                 targets={doc.targets ?? []}
                 active={doc.target ?? 0}
