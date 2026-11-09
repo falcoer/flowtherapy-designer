@@ -203,8 +203,9 @@ export function CompositionsMenu(p: {
           <Icon name="switch" />
         </button>
       </div>
+      {switching && <div className="cm-switch-back" onPointerDown={() => setSwitching(false)} />}
       {switching && (
-        <div className="act-switch cm-switch">
+        <div className="act-switch cm-switch" role="dialog" aria-label="Changer de campagne">
           <button
             className={`act-row act-pick ${!c ? 'on' : ''}`}
             onClick={() => {

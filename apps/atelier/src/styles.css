@@ -1804,7 +1804,9 @@ button.cm-pub:disabled { opacity: 1; cursor: default; }
 
 /* menu de la campagne : détail en tête sur toute la largeur, compositions à gauche, historique à droite */
 .cm-menu > .cm-head { margin-bottom: 4px; }
-.cm-menu > .cm-switch { margin-bottom: 8px; }
+/* boîte de changement de campagne : posée par-dessus le menu, sous les deux flèches */
+.cm-switch-back { position: absolute; inset: 0; z-index: 4; border-radius: inherit; background: rgba(20, 16, 32, 0.08); }
+.cm-menu > .cm-switch { position: absolute; z-index: 5; top: 64px; right: 12px; width: min(340px, calc(100% - 24px)); max-height: min(60dvh, calc(100% - 76px)); overflow: auto; padding: 6px; border: 1px solid var(--line); border-radius: 16px; background: var(--chrome-solid); box-shadow: 0 12px 32px rgba(20, 16, 32, 0.18); }
 .cm-tools .act-icon { flex: none; }
 .cm-filter.on { color: var(--accent); background: var(--accent-soft); }
 .cm-add:not(:disabled) { color: #fff; background: var(--accent); }
