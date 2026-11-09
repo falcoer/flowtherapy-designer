@@ -848,6 +848,23 @@ export function App() {
   const bgTap = useRef<{ id: number; x: number; y: number; t: number } | null>(null);
   const bgLeave = useRef(0);
   const [bubble, setBubble] = useState<Bubble>(null);
+  // historique du menu de la campagne : demandé au serveur pour cette campagne seulement, à l'ouverture du menu
+  const [campaignFeed, setCampaignFeed] = useState<ActivityEvent[] | null>(null);
+  const menuOpen = bubble === 'projects';
+  const campaignScope = followed?.id ?? '';
+  useEffect(() => {
+    if (!menuOpen || !online || !me?.team) return;
+    let live = true;
+    setCampaignFeed(null);
+    fetchActivity(campaignScope).then(
+      (l) => live && setCampaignFeed(l),
+      () => live && setCampaignFeed([]),
+    );
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuOpen, campaignScope, online, me?.team?.id]);
   // astuces (textes d'aide, sous-titres des menus, bandeau d'état) : masquables pour gagner de la place
   const [tips, setTipsState] = useState(() => {
     try {
@@ -4801,7 +4818,7 @@ export function App() {
           )}
           {feedOpen && me?.team && (
             <FeedDialog
-              events={feed}
+              events={online && me?.team ? campaignFeed : null}
               seen={feedSeen}
               me={(me.email ?? 'groupe').toLowerCase()}
               campaigns={campaigns}
@@ -4896,7 +4913,7 @@ export function App() {
               projects={projects}
               current={project ?? undefined}
               currentTargets={doc.targets ?? []}
-              events={feed}
+              events={online && me?.team ? campaignFeed : null}
               me={me?.email ?? 'groupe'}
               canEdit={!me?.team || canEditTeam}
               isAdmin={!!me?.admin || me?.team?.role === 'owner'}

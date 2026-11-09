@@ -149,7 +149,8 @@ export interface ActivityEvent {
   target?: Target;
   at: string;
 }
-export const fetchActivity = () => call<ActivityEvent[]>('/api/activity');
+/** Fil de l'activité ; avec une campagne (ou '' : hors campagne), seulement ce qui la touche. */
+export const fetchActivity = (campaign?: string) => call<ActivityEvent[]>(campaign === undefined ? '/api/activity' : `/api/activity?campaign=${encodeURIComponent(campaign)}`);
 export const listMessages = (id: string) => call<AtelierMessage[]>(`/api/ateliers/${id}/messages`);
 export const postMessage = (id: string, text: string, target?: Target) => call<Msgs>(`/api/ateliers/${id}/messages`, json('POST', { text, target })).then((r) => r.messages);
 export const deleteMessage = (id: string, mid: number) => call<Msgs>(`/api/ateliers/${id}/messages/${mid}`, { method: 'DELETE' }).then((r) => r.messages);
