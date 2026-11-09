@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { VoteButton, day } from './campaigns-ui';
+import { ActivityMark } from './activity';
 import { Icon } from './icons';
 import { formatOf } from './model';
 import { REVIEW_LABELS, thumbUrl, type ActivityProfile, type AtelierMeta, type Campaign, type Operation, type PlanItem, type Target } from './server';
@@ -103,9 +104,12 @@ export function CompositionsMenu(p: {
   onTemplate: (m: AtelierMeta, on: boolean) => void;
   /** montre une publication de la composition ouverte */
   onShowTarget: (i: number) => void;
+  /** ouvre directement le changement de campagne */
+  switchFirst?: boolean;
 }) {
   const c = p.campaign;
-  const [switching, setSwitching] = useState(false);
+  const [switching, setSwitching] = useState(!!p.switchFirst);
+  useEffect(() => setSwitching(!!p.switchFirst), [p.switchFirst]);
   const [q, setQ] = useState('');
   const [sel, setSel] = useState<string | undefined>(p.current?.id);
   const [armed, setArmed] = useState(false);
@@ -333,48 +337,66 @@ export function CompositionsMenu(p: {
 /** La campagne dans la barre du haut : sa date, son nom, la prochaine échéance du plan et les retards. */
 const SAVE_LABELS = { saved: 'Enregistrée', dirty: 'Modifications en attente', saving: 'Enregistrement…', error: 'Non enregistrée' } as const;
 
-/** Fil d'Ariane de la barre : la campagne › la composition ouverte, et son état d'enregistrement. */
-export function CampaignChip(p: { campaign?: Campaign; operations: Operation[]; activity: ActivityProfile | null; on: boolean; title?: string; saving?: keyof typeof SAVE_LABELS; onClick: () => void }) {
+/**
+ * Fil d'Ariane de la barre, en trois boutons : l'activité › la campagne (ou l'occasion hors campagne)
+ * › le contenu ouvert, son nom et son type. Un point d'exclamation en indice de l'icône de la campagne
+ * signale un problème (rendus en retard).
+ */
+export function TopCrumbs(p: {
+  team?: { name: string; logo?: string } | null;
+  campaign?: Campaign;
+  /** occasion du document, montrée hors campagne (Logo, Bannières…) */
+  occasion?: Operation;
+  showCampaign: boolean;
+  title?: string;
+  kind: string;
+  saving?: keyof typeof SAVE_LABELS;
+  open: 'activity' | 'campaign' | 'content' | null;
+  onActivity: () => void;
+  onCampaign: () => void;
+  onContent: () => void;
+}) {
   const c = p.campaign;
   const t = today();
-  const todo = (c?.plan ?? []).filter((it) => !it.published);
-  const late = todo.filter((it) => it.date && it.date < t).length;
-  const next = todo.filter((it) => it.date && it.date >= t).sort((a, b) => a.date!.localeCompare(b.date!))[0];
+  const late = (c?.plan ?? []).filter((it) => !it.published && it.date && it.date < t).length;
   const d = c?.date ? new Date(`${c.date}T12:00:00`) : null;
-  // la date est dans l'icône : le sous-titre ne dit que le type de campagne
-  const sub = c ? p.operations.find((o) => o.id === c.operation)?.name ?? c.kind ?? '' : '';
+  const mid = c ? c.name : (p.occasion?.name ?? 'Hors campagne');
+  const alert = late ? `${late} rendu${late > 1 ? 's' : ''} en retard` : '';
   return (
-    <button
-      className={`chip cmp-chip ${c ? '' : 'none'} ${p.on ? 'on' : ''}`}
-      onClick={p.onClick}
-      title={c ? `${c.name}${p.title ? ` › ${p.title}` : ''}${sub ? ` · ${sub}` : ''}${c.date ? ` · ${day(c.date)}` : ''}${next ? ` · prochaine : ${targetLabel(next, p.activity)} le ${short(next.date!)}` : ''}${late ? ` · ${late} en retard` : ''}` : 'Hors campagne : choisir une campagne'}
-    >
-      <span className="cmp-date">
-        {d ? (
-          <>
-            <b>{d.getDate()}</b>
-            <small>{d.toLocaleDateString('fr-FR', { month: 'short' }).replace('.', '')}</small>
-          </>
-        ) : (
-          '—'
-        )}
-      </span>
-      <span className="cmp-txt">
-        <span className="cmp-path">
-          <b className="cmp-camp">{c ? c.name : 'Hors campagne'}</b>
-          <span className="cmp-sep" aria-hidden>
-            ›
+    <nav className="crumbs" aria-label="Activité, campagne, contenu">
+      <button className={`crumb first ${p.open === 'activity' ? 'on' : ''}`} onClick={p.onActivity} title={p.team ? `${p.team.name} : activité, profil, préférences` : 'Activité, profil, préférences'}>
+        <ActivityMark team={p.team} size={24} />
+        <span className="crumb-txt crumb-act">{p.team?.name ?? 'Atelier'}</span>
+      </button>
+      {p.showCampaign && (
+        <button className={`crumb ${c ? '' : 'none'} ${p.open === 'campaign' ? 'on' : ''}`} onClick={p.onCampaign} title={c ? `${c.name}${c.date ? ` · ${day(c.date)}` : ''}${alert ? ` · ${alert}` : ''}` : `${mid} : choisir une campagne`}>
+          <span className="crumb-icon">
+            <span className={`cmp-date ${d ? '' : 'none'}`}>
+              {d ? (
+                <>
+                  <b>{d.getDate()}</b>
+                  <small>{d.toLocaleDateString('fr-FR', { month: 'short' }).replace('.', '')}</small>
+                </>
+              ) : (
+                '—'
+              )}
+            </span>
+            {alert && (
+              <span className="crumb-alert" aria-label={alert}>
+                !
+              </span>
+            )}
           </span>
-          <b className="cmp-compo">{p.title ?? 'Page non enregistrée'}</b>
-        </span>
-        {sub && <small>{sub}</small>}
-      </span>
-      {p.saving && <span className={`save-dot ${p.saving}`} title={SAVE_LABELS[p.saving]} />}
-      {late > 0 && (
-        <span className="cmp-late" aria-label={`${late} en retard`}>
-          {late}
-        </span>
+          <span className="crumb-txt">{mid}</span>
+        </button>
       )}
-    </button>
+      <button className={`crumb last current ${p.open === 'content' ? 'on' : ''}`} onClick={p.onContent} title={`${p.title ?? 'Page non enregistrée'} · ${p.kind}`}>
+        <span className="crumb-txt crumb-two">
+          <b>{p.title ?? 'Page non enregistrée'}</b>
+          <small>{p.kind}</small>
+        </span>
+        {p.saving && <span className={`save-dot ${p.saving}`} title={SAVE_LABELS[p.saving]} />}
+      </button>
+    </nav>
   );
 }

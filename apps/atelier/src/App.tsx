@@ -31,7 +31,7 @@ import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, reco
 import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
 import { CampaignDialog } from './campaigns-ui';
 import { NewCompositionDialog } from './compositions-ui';
-import { CampaignChip, CompositionsMenu } from './compositions-menu';
+import { CompositionsMenu, TopCrumbs } from './compositions-menu';
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
@@ -696,6 +696,8 @@ export function App() {
   const canEditTeam = !!me?.team && me.team.role !== 'viewer';
   const [campaignDialog, setCampaignDialog] = useState(false);
   const [newDialog, setNewDialog] = useState(false);
+  // le menu des compositions ouvert depuis la campagne du fil d'Ariane montre d'abord le changement de campagne
+  const [menuSwitch, setMenuSwitch] = useState(false);
   const [msgDialog, setMsgDialog] = useState(false);
   const [sheet, setSheet] = useState<string | null>(null);
   const followedTemplates = (followed?.templates ?? []).map((id) => projects.find((m) => m.id === id)).filter((m): m is AtelierMeta => !!m);
@@ -4209,42 +4211,33 @@ export function App() {
               </button>
             </div>
             <div className="bar-left">
-              {/* l'activité pour laquelle l'outil existe : son menu (fiche, profil, préférences, déconnexion) */}
-              <button
-                className={`btn act-btn ${bubble === 'activity' || bubble === 'activity-edit' ? 'on' : ''}`}
-                onClick={() => {
+              {/* fil d'Ariane : l'activité › la campagne (ou l'occasion) › le contenu ouvert */}
+              <TopCrumbs
+                team={me?.team}
+                campaign={followed}
+                occasion={allOperations.find((o) => o.id === doc.operation)}
+                showCampaign={!!(online && me?.team)}
+                title={project?.title}
+                kind={activeTarget ? targetLabel(activeTarget, activity) : f.title}
+                saving={online && project ? saving : undefined}
+                open={bubble === 'activity' || bubble === 'activity-edit' ? 'activity' : bubble === 'projects' ? (menuSwitch ? 'campaign' : 'content') : null}
+                onActivity={() => {
                   if (bubble !== 'activity' && online) fetchMe().then(setMe, () => {});
                   setBubble(bubble === 'activity' ? null : 'activity');
                 }}
-                title={me?.team ? `${me.team.name} : activité, profil, préférences` : 'Activité, profil, préférences'}
-              >
-                <ActivityMark team={me?.team} size={30} />
-              </button>
-              {online && me?.team && (
-                <CampaignChip
-                  campaign={followed}
-                  operations={allOperations}
-                  activity={activity}
-                  on={bubble === 'projects'}
-                  title={project?.title}
-                  saving={project ? saving : undefined}
-                  onClick={() => {
-                    if (bubble !== 'projects') refreshProjects();
-                    setBubble(bubble === 'projects' ? null : 'projects');
-                  }}
-                />
-              )}
-              {!(online && me?.team) && (<button
-                className={`chip project-chip ${bubble === 'projects' ? 'on' : ''}`}
-                onClick={() => {
+                onCampaign={() => {
+                  if (bubble === 'projects' && menuSwitch) return setBubble(null);
                   if (bubble !== 'projects' && online) refreshProjects();
-                  setBubble(bubble === 'projects' ? null : 'projects');
+                  setMenuSwitch(true);
+                  setBubble('projects');
                 }}
-                title="Compositions : enregistrer, ouvrir, en commencer une"
-              >
-                <span className="brand">{project?.title ?? 'Atelier'}</span>
-                {online && project && <span className={`save-dot ${saving}`} title={{ saved: 'Enregistrée', dirty: 'Modifications en attente', saving: 'Enregistrement…', error: 'Non enregistrée' }[saving]} />}
-              </button>)}
+                onContent={() => {
+                  if (bubble === 'projects' && !menuSwitch) return setBubble(null);
+                  if (bubble !== 'projects' && online) refreshProjects();
+                  setMenuSwitch(false);
+                  setBubble('projects');
+                }}
+              />
               <button className={`btn ${bubble === 'anchor' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'anchor' ? null : 'anchor')} title="Aide au positionnement : repères, densité, marge">
                 <Icon name="layout" />
               </button>
@@ -4902,6 +4895,7 @@ export function App() {
                 setMsgDialog(true);
               }}
               onPublish={() => setBubble('export')}
+              switchFirst={menuSwitch}
               onShowTarget={(i) => {
                 setBubble(null);
                 showTarget(i);
