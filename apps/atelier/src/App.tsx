@@ -5177,7 +5177,15 @@ export function App() {
               <div className="b-title pub-title">
                 <MediaIcon ch={channels.find((c) => c.id === currentPub.channel)} size={20} />
                 <span>{targetLabel(currentPub, activity)}</span>
-                {(doc.targets?.length ?? 0) > 1 && <small>{(doc.target ?? 0) + 1} sur {doc.targets!.length}</small>}
+                {/* repères affichés en permanence, ou seulement en déplaçant */}
+                <button
+                  className={`btn small pub-eye ${guidesOn.on ? 'on' : ''}`}
+                  onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}
+                  aria-pressed={guidesOn.on}
+                  title={guidesOn.on ? 'Repères affichés en permanence : toucher pour ne les voir qu’en déplaçant' : 'Repères visibles seulement en déplaçant : toucher pour les afficher en permanence'}
+                >
+                  <Icon name={guidesOn.on ? 'eye' : 'eyeoff'} />
+                </button>
               </div>
               <PublicationsPanel
                 current={currentPub}
@@ -5185,17 +5193,7 @@ export function App() {
                 onApply={applyPublication}
                 guides={
                   <div className="pub-guides">
-                    <div className="ab-head">
-                      <div className="b-field-label">Repères</div>
-                      <button
-                        className={`btn small ${guidesOn.on ? 'on' : ''}`}
-                        onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}
-                        aria-pressed={guidesOn.on}
-                        title={guidesOn.on ? 'Repères affichés en permanence : toucher pour ne les voir qu’en déplaçant' : 'Repères visibles seulement en déplaçant : toucher pour les afficher en permanence'}
-                      >
-                        <Icon name={guidesOn.on ? 'eye' : 'eyeoff'} />
-                      </button>
-                    </div>
+                    <div className="b-field-label">Repères</div>
                     <div className="seg">
                       {ANCHOR_FRAMES.filter((x) => x !== 'grid').map((x) => (
                         <button key={x} className={doc.frame === x ? 'on' : ''} onClick={() => setDoc((d) => ({ ...d, frame: x as AnchorFrame }))} title={FRAME_TITLES[x]}>

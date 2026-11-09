@@ -1900,3 +1900,4 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .cm-pub-line .cm-pub { flex: 1; min-width: 0; }
 .cm-pub-del { flex: none; width: 32px; height: 32px; color: var(--muted); }
 .cm-pub-del:hover { color: #d64541; }
+.pub-title .pub-eye { flex: none; text-transform: none; }
