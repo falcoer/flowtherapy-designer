@@ -1,3 +1,4 @@
+import type { BrushTip } from './tips';
 import type { LookSettings } from './looks';
 import type { Fx } from './fx';
 import { anchorsFor, formatFraction, nearestAnchor, parseFraction, resolveAnchor, type AnchorFrame, type AnchorPoint, type Format } from '@ftd/core';
@@ -100,8 +101,8 @@ export interface Stroke {
   /** Outil Tampons : motif posé à chaque point, et dilution de l'encre (0 = encre pleine, 1 = très diluée). */
   stamp?: string;
   dilution?: number;
-  /** Forme de la brosse (aquarelle, acrylique, rouleau) ; l'angle est porté par chaque point (Pt.r). */
-  tip?: 'round' | 'flat' | 'triangle';
+  /** Forme de la brosse (aquarelle, acrylique, rouleau) : ronde, plate, croix, triangle, râteau 2 à 5 dents, épis ; l'angle est porté par chaque point (Pt.r). */
+  tip?: BrushTip;
   /** Tampon essuyé : après l'empreinte, le geste étire l'encre au lieu d'imprimer une traînée. */
   wipe?: boolean;
   /** Tampon semé : copies du motif éparpillées le long du geste, tournées dans son sens, mises en perspective au hasard. */
