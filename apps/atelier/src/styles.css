@@ -1908,3 +1908,6 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .pub-title .pub-name:hover { border-color: var(--line); }
 .pub-title .pub-name:focus { outline: none; border-color: var(--accent); background: var(--chrome-solid); }
 .pub-title .pub-name:focus::placeholder { color: var(--muted); }
+.comp-menu .cm-name-input { width: 100%; padding: 2px 6px; margin-left: -7px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--ink); font: inherit; font-size: 16px; font-weight: 700; }
+.comp-menu .cm-name-input:hover { border-color: var(--line); }
+.comp-menu .cm-name-input:focus { outline: none; border-color: var(--accent); background: var(--chrome-solid); }

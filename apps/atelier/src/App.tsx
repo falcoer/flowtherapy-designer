@@ -5208,6 +5208,18 @@ export function App() {
                   aria-label="Titre de la publication"
                   title="Titre de la publication : toucher pour le changer"
                 />
+                <button
+                  className="btn small pub-eye"
+                  onClick={(e) => {
+                    const input = (e.currentTarget.parentElement as HTMLElement).querySelector<HTMLInputElement>('.pub-name');
+                    input?.focus();
+                    input?.select();
+                  }}
+                  title="Renommer la publication"
+                  aria-label="Renommer la publication"
+                >
+                  <Icon name="pen" />
+                </button>
                 {/* repères affichés en permanence, ou seulement en déplaçant */}
                 <button
                   className={`btn small pub-eye ${guidesOn.on ? 'on' : ''}`}

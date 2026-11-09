@@ -562,8 +562,7 @@ export function CompositionMenu(p: {
 }) {
   const m = p.meta;
   const c = p.campaign && m?.campaign === p.campaign.id ? p.campaign : undefined;
-  const [renaming, setRenaming] = useState(false);
-  const lastTap = useRef(0);
+  const nameRef = useRef<HTMLInputElement>(null);
   const fold = useHistoryFold();
   const channels = channelsOf(p.activity);
   const suggested = c ? p.projects.filter((x) => x.campaign === c.id).sort((a, b) => (b.votes?.length ?? 0) - (a.votes?.length ?? 0)).find((x) => x.review?.status === 'approved') : undefined;
@@ -581,12 +580,6 @@ export function CompositionMenu(p: {
         ...(c?.plan ?? []).filter((it) => it.published && it.composition === m.id).map((item) => ({ kind: 'published' as const, item, at: item.published! })),
       ].sort((a, b) => b.at.localeCompare(a.at))
     : [];
-  const tapTitle = () => {
-    if (!p.current || !p.canEdit) return;
-    const now = Date.now();
-    if (now - lastTap.current < 400) setRenaming(true);
-    lastTap.current = now;
-  };
   const card = (pub: Pub, i: number): ReactNode => {
     const f = formatOf(pub.target.format);
     const ratio = Math.min(1.8, Math.max(0.5, f.width / f.height));
@@ -615,20 +608,19 @@ export function CompositionMenu(p: {
     <div className={`bubble projects-bubble cm-menu comp-menu ${fold.on ? 'folded' : ''}`} onPointerDown={(e) => e.stopPropagation()}>
       <div className="act-row act-current cm-head">
         <span className="act-txt">
-          {renaming && p.current ? (
+          {/* le titre se change sur place */}
+          {p.current && p.canEdit ? (
             <input
-              className="pf-input cm-rename"
-              autoFocus
+              ref={nameRef}
+              className="cm-name-input"
               value={p.current.title}
               onChange={(e) => p.onTitle(e.target.value)}
-              onBlur={() => setRenaming(false)}
-              onKeyDown={(e) => (e.key === 'Enter' || e.key === 'Escape') && setRenaming(false)}
+              onKeyDown={(e) => (e.key === 'Enter' || e.key === 'Escape') && e.currentTarget.blur()}
               aria-label="Titre de la composition"
+              title="Titre de la composition : toucher pour le changer"
             />
           ) : (
-            <b className="cm-name" onClick={tapTitle} title={p.current && p.canEdit ? 'Toucher deux fois pour renommer' : undefined}>
-              {title}
-            </b>
+            <b className="cm-name">{title}</b>
           )}
           <small>
             {[m && who(m.author ?? m.by), m && when(m.updated), `${n} publication${n > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}
@@ -648,6 +640,19 @@ export function CompositionMenu(p: {
             </div>
           )}
         </span>
+        {p.current && p.canEdit && (
+          <button
+            className="act-icon"
+            onClick={() => {
+              nameRef.current?.focus();
+              nameRef.current?.select();
+            }}
+            title="Renommer la composition"
+            aria-label="Renommer la composition"
+          >
+            <Icon name="pen" />
+          </button>
+        )}
         <button className="act-icon" onClick={p.onCampaign} title={c ? `Revenir à la campagne « ${c.name} »` : 'Revenir aux compositions'} aria-label="Revenir à la campagne">
           <Icon name="up" />
         </button>
