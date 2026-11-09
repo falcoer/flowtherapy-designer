@@ -256,6 +256,8 @@ export const FORMATS: Format[] = [
   { id: 'carre', title: 'Carré', width: 1080, height: 1080, unit: 'px', target: 'social' },
   { id: 'story', title: 'Story', width: 1080, height: 1920, unit: 'px', target: 'social' },
   { id: 'banniere', title: 'Bannière', width: 1640, height: 624, unit: 'px', target: 'social' },
+  // Apple Music, Spotify et les distributeurs demandent au moins 3000 × 3000 px.
+  { id: 'pochette', title: 'Pochette', width: 3000, height: 3000, unit: 'px', target: 'web' },
 ];
 export const formatOf = (id: string) => FORMATS.find((f) => f.id === id) ?? FORMATS[0]!;
 
