@@ -702,7 +702,6 @@ export function CompositionMenu(p: {
           activity={p.activity}
           folded={fold.on}
           onFold={fold.toggle}
-          title="Historique de la composition"
           empty="Rien encore : les messages, votes, validations et publications de la composition s’inscriront ici."
         />
       </div>
