@@ -12,6 +12,9 @@ const NIGHT = '#07101D';
 const CREAM = '#FFFAF1';
 const BRAND = { violet: '#9A48F0', orange: '#FF8A00', rose: '#FF3B9D', bleu: '#19A7EF' };
 
+// Le « flow » de la vague : du bleu vers le violet vers le jaune.
+const FLOW_YELLOW = '#FFC425';
+
 const APPS = [
   { id: 'gestion', name: 'Gestion', accent: BRAND.orange, echo: BRAND.violet },
   { id: 'designer', name: 'Designer', accent: BRAND.rose, echo: BRAND.orange },
@@ -75,10 +78,9 @@ function svg(app, { maskable = false, tiny = false } = {}) {
       <stop offset="1" stop-color="${app.echo}" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="w-${app.id}" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="${BRAND.violet}"/>
-      <stop offset="0.35" stop-color="${BRAND.rose}"/>
-      <stop offset="0.68" stop-color="${BRAND.orange}"/>
-      <stop offset="1" stop-color="${BRAND.bleu}"/>
+      <stop offset="0" stop-color="${BRAND.bleu}"/>
+      <stop offset="0.5" stop-color="${BRAND.violet}"/>
+      <stop offset="1" stop-color="${FLOW_YELLOW}"/>
     </linearGradient>
   </defs>
   <rect width="1024" height="1024" rx="${r}" fill="${NIGHT}"/>
