@@ -86,6 +86,7 @@ import {
   drawChecker,
   drawLayers,
   forgetPaint,
+  holdPaint,
   prunePaints,
   localRings,
   maskPath2D,
@@ -358,6 +359,20 @@ export function App() {
     future.current = [];
     setDoc((d) => fn(structuredClone(d)));
   }, []);
+  /** Réglage en direct d'une couleur : la peinture posée attend la fin du geste pour se refaire. */
+  const liveT = useRef(0);
+  const livePaint = (live: boolean) => {
+    clearTimeout(liveT.current);
+    holdPaint(true);
+    // pendant le geste : on attend qu'il se calme ; au choix fini, la boîte répond d'abord, la page suit
+    liveT.current = window.setTimeout(
+      () => {
+        holdPaint(false);
+        setDoc((d) => ({ ...d }));
+      },
+      live ? 350 : 40,
+    );
+  };
   const undo = useCallback(() => {
     const s = past.current.pop();
     if (!s) return;
@@ -5128,7 +5143,10 @@ export function App() {
               active={guide}
               declared={paletteFor(activeTarget, activity)}
               onPick={setGuide}
-              onGuides={(guides, commit = true) => (commit ? update : setDoc)((d) => ({ ...d, guides }))}
+              onGuides={(guides, commit = true) => {
+                livePaint(!commit);
+                (commit ? update : setDoc)((d) => ({ ...d, guides }));
+              }}
               onDrag={(i, x, y) => setDragGuide(i === null ? null : { i, x, y })}
               onDrop={(i, x, y) => {
                 setDragGuide(null);

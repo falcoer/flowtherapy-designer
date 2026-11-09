@@ -1,5 +1,5 @@
 import type { Format } from '@ftd/core';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { BORDER_TYPES, fxPreview, GLOW_TYPES, swatch } from './App';
 import { FX, fxGuides, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
@@ -32,6 +32,29 @@ interface Item {
 }
 
 const groupOf = (x: Fx) => fxOf(x.id)?.group;
+
+/** Vignettes des choix déjà calculées pour l'état présent d'une couche (palette, lumière, format). */
+const thumbCache = new WeakMap<Layer, { deps: unknown[]; urls: Map<string, string> }>();
+function thumbsFor(l: Layer, deps: unknown[]) {
+  let c = thumbCache.get(l);
+  if (!c || c.deps.length !== deps.length || c.deps.some((d, i) => d !== deps[i])) {
+    c = { deps, urls: new Map() };
+    thumbCache.set(l, c);
+  }
+  return c;
+}
+/** Dernier toucher ou mouvement du stylet : le préchargement s'efface pendant un geste. */
+let lastInput = 0;
+if (typeof window !== 'undefined')
+  for (const t of ['pointerdown', 'pointermove', 'wheel', 'keydown'])
+    window.addEventListener(t, () => (lastInput = performance.now()), { capture: true, passive: true });
+const busy = () => performance.now() - lastInput < 400;
+/** Un moment creux (requestIdleCallback quand il existe, sinon un court délai, comme sur Safari). */
+function idle(fn: () => void, wait = 120): number {
+  const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
+  if (w.requestIdleCallback) return window.setTimeout(() => w.requestIdleCallback!(fn, { timeout: 1500 }), wait);
+  return window.setTimeout(fn, wait);
+}
 
 /** Ce que fait chaque choix, en quelques mots, et sa famille dans la liste. */
 const HINTS: Record<string, [string, string]> = {
@@ -332,12 +355,38 @@ export function CoupePanel({
   const hintOf = (id: string) => HINTS[id] ?? HINTS[id.replace(/^[bg]-/, '')] ?? ['', ''];
   const edgeGroup = (id: string) => (id.startsWith('b-') ? 'Bord' : id === 'trim' ? 'Rognage' : 'Lueur');
   const depthGroup = (id: string) => (id.startsWith('v-') || id === 'extrude' ? 'Volume' : 'Relief');
-  const thumbs = useMemo(() => {
-    const out: Record<string, string> = {};
-    for (const c of choices) if (!c.font) out[c.id] = fxPreview(l, doc, f, l.fx, `add-${c.id}`, reload, c.patch);
-    return out;
+  // calculées une à une sans bloquer : la section ouverte d'abord, les autres ensuite dans les creux
+  const [, thumbDone] = useState(0);
+  const cache = thumbsFor(l, [doc.guides, doc.light, doc.lamp, f, tick]);
+  useEffect(() => {
+    const todo = (sec: Section) => choicesOf(l, sec).filter((c) => !c.font && !cache.urls.has(c.id));
+    const first = adding ? todo(adding) : [];
+    const later = sections.filter((x) => x.sec !== adding).flatMap((x) => todo(x.sec));
+    let stop = false;
+    let timer = 0;
+    const step = () => {
+      if (stop) return;
+      // en tâche de fond, on attend que la main se pose
+      if (!first.length && busy()) {
+        timer = idle(step, 300);
+        return;
+      }
+      const now = first.shift();
+      const c = now ?? later.shift();
+      if (!c) return;
+      if (!cache.urls.has(c.id)) cache.urls.set(c.id, fxPreview(l, doc, f, l.fx, `add-${c.id}`, reload, c.patch));
+      if (now) thumbDone((n) => n + 1);
+      // la section ouverte se remplit d'affilée ; le reste attend des creux, un par un
+      timer = first.length ? window.setTimeout(step, 0) : idle(step);
+    };
+    timer = first.length ? window.setTimeout(step, 30) : idle(step, 700);
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adding, l, doc.guides, doc.light, doc.lamp, f, tick]);
+  }, [adding, cache]);
+  const thumbs = cache.urls;
 
   // « Plus » : Transformations, Rognage et Lueur se montrent d'un toucher (ou quand l'objet en a déjà)
   const [moreOn, setMore] = useState(false);
@@ -439,6 +488,7 @@ export function CoupePanel({
                         .map((c) => (
                           <button
                             key={c.id}
+                            title={hintOf(c.id)[1] || undefined}
                             onClick={() => {
                               if (c.text) patchText?.(c.text, true);
                               else patch(c.patch);
@@ -452,11 +502,10 @@ export function CoupePanel({
                                   {(l.text?.content || 'Aa').split('\n')[0]!.slice(0, 14)}
                                 </span>
                               ) : (
-                                thumbs[c.id] && <img src={thumbs[c.id]} alt="" />
+                                (thumbs.get(c.id) ? <img src={thumbs.get(c.id)} alt="" /> : <span className="spin" aria-label="Chargement" />)
                               )}
                             </span>
                             <b>{c.name}</b>
-                            {hintOf(c.id)[1] && <small>{hintOf(c.id)[1]}</small>}
                           </button>
                         ))}
                     </div>
