@@ -129,7 +129,7 @@ export type GlowStyle = 'neon' | 'laser' | 'electric' | 'particles' | 'smoke' | 
 export type LayerKind = 'surface' | 'support' | 'photo' | 'shape' | 'text';
 export type ShapeKind = 'star' | 'circle' | 'arch' | 'blob' | 'rounded' | 'triangle' | import('./silhouettes').SilhouetteKind;
 
-export type Pin = boolean | 'margin';
+export type Pin = boolean | 'margin' | 'zone';
 
 export interface Layer {
   id: string;
@@ -199,7 +199,7 @@ export interface Layer {
   /** Lueur autour de la découpe : style, guide, distance au bord et largeur (0..1). */
   glow?: { style: GlowStyle; guide: number; distance: number; width: number };
   /** Bords de la découpe aimantés sur les bords de la page : tenus au changement de format. */
-  /** Bords tenus : true = bord de la page, 'margin' = ligne de la marge des repères. */
+  /** Bords tenus : true = bord de la page, 'margin' = ligne de la marge, 'zone' = ligne de la zone d'intérêt. */
   pins?: { left?: Pin; right?: Pin; top?: Pin; bottom?: Pin };
   /** Style photographique (outil Transformer). */
   look?: LookSettings;
@@ -226,6 +226,8 @@ export interface Target {
   palette?: string;
   /** Marges de la publication, côté par côté (zones mortes de certains réseaux) ; sinon celle du média. */
   margins?: Margins;
+  /** Zone d'intérêt de la publication, depuis le bord de la page et dans la marge ; sinon celle du média. */
+  zone?: Margins;
   /** Résolution d'export : largeur en pixels (la hauteur suit le format) ; sinon celle du format. */
   width?: number;
   /** Titre donné à la publication ; sinon « réseau · format ». */
@@ -253,6 +255,8 @@ export interface Doc {
   margin?: number;
   /** Marges côté par côté (remplacent `margin` quand elles sont là). */
   margins?: Margins;
+  /** Zone d'intérêt : cadre de l'essentiel, depuis le bord de la page, toujours dans la marge. */
+  zone?: Margins;
   /** Points d'ancrage ajoutables (cases à cocher), tous présents par défaut : sommets et milieux des côtés de la page et de la marge, points des bords en répartition. */
   points?: AnchorExtras;
   guides: Guide[];
@@ -318,38 +322,64 @@ export const setAnchorDensity = (d: number | undefined) => (density = Math.max(1
 export const DEFAULT_MARGIN = 0.05;
 // marges des repères du document ouvert : les points se répartissent dans le format rentré (ou agrandi) de ces marges
 let margins: Margins = uniformMargins(0);
+// zone d'intérêt du document ouvert, toujours dans la marge (null : pas de zone)
+let zone: Margins | null = null;
 const clampM = (v: number) => Math.max(-0.25, Math.min(0.25, v || 0));
-export const setAnchorMargin = (m: number | Margins | undefined) => {
+/** La zone d'intérêt monte jusqu'à 45 % du petit côté depuis chaque bord. */
+export const MAX_ZONE = 0.45;
+const SIDES4 = ['top', 'right', 'bottom', 'left'] as const;
+/** Zone ramenée dans la marge, côté par côté ; null quand elle se confond avec la marge. */
+export function zoneWithin(m: Margins, z: Margins | undefined | null): Margins | null {
+  if (!z) return null;
+  const out = { ...m };
+  let wider = false;
+  for (const k of SIDES4) {
+    out[k] = Math.max(m[k], Math.min(MAX_ZONE, z[k] || 0));
+    if (out[k] > m[k] + 1e-4) wider = true;
+  }
+  return wider ? out : null;
+}
+export const setAnchorMargin = (m: number | Margins | undefined, z?: Margins | null) => {
   const x = typeof m === 'object' ? m : uniformMargins(m ?? 0);
   margins = { top: clampM(x.top), right: clampM(x.right), bottom: clampM(x.bottom), left: clampM(x.left) };
+  zone = zoneWithin(margins, z);
+};
+/** Cadres des repères d'un document : sa marge et sa zone d'intérêt. */
+export const setAnchorFrames = (d: { margin?: number; margins?: Margins; zone?: Margins }) => setAnchorMargin(docMargins(d), d.zone);
+const fracOf = (x: Margins, f: Format) => {
+  const m = Math.min(f.width, f.height);
+  return { l: (x.left * m) / f.width, r: (x.right * m) / f.width, t: (x.top * m) / f.height, b: (x.bottom * m) / f.height };
 };
 /** Marges en fraction de la largeur (gauche, droite) et de la hauteur (haut, bas) du format. */
-export function marginOf(f: Format) {
-  const m = Math.min(f.width, f.height);
-  return { l: (margins.left * m) / f.width, r: (margins.right * m) / f.width, t: (margins.top * m) / f.height, b: (margins.bottom * m) / f.height };
-}
-/** Lignes où un bord d'objet peut se tenir, en unités du format : la page, puis la marge si elle existe. */
+export const marginOf = (f: Format) => fracOf(margins, f);
+/** Zone d'intérêt, de même ; la marge quand il n'y en a pas. */
+export const zoneOf = (f: Format) => fracOf(zone ?? margins, f);
+export const hasZone = () => !!zone;
+const linesOf = (x: Margins, f: Format) => {
+  const { l, r, t, b } = fracOf(x, f);
+  return { left: l * f.width, right: f.width - r * f.width, top: t * f.height, bottom: f.height - b * f.height };
+};
+/** Lignes où un bord d'objet peut se tenir, en unités du format : la page, la marge si elle existe, la zone d'intérêt si elle existe. */
 export function edgeLines(f: Format) {
-  const { l, r, t, b } = marginOf(f);
   const page = { left: 0, right: f.width, top: 0, bottom: f.height };
-  const marg = { left: l * f.width, right: f.width - r * f.width, top: t * f.height, bottom: f.height - b * f.height };
-  return { page, margin: hasMargins(margins) ? marg : null };
+  return { page, margin: hasMargins(margins) ? linesOf(margins, f) : null, zone: zone ? linesOf(zone, f) : null };
 }
-/** Coordonnée de la ligne tenue par un bord. */
+/** Coordonnée de la ligne tenue par un bord (la zone absente se replie sur la marge, la marge absente sur la page). */
 export const pinLine = (f: Format, side: 'left' | 'right' | 'top' | 'bottom', p: Pin | undefined) => {
   const e = edgeLines(f);
-  return p === 'margin' && e.margin ? e.margin[side] : e.page[side];
+  if (p === 'zone' && e.zone) return e.zone[side];
+  return (p === 'margin' || p === 'zone') && e.margin ? e.margin[side] : e.page[side];
 };
 /** Point du référentiel (0..1) ramené dans la zone des repères. */
-function inset<T extends { x: number; y: number }>(a: T, f: Format): T {
-  if (!hasMargins(margins)) return a;
-  const { l, r, t, b } = marginOf(f);
+function inset<T extends { x: number; y: number }>(a: T, f: Format, by: Margins = margins): T {
+  if (!hasMargins(by)) return a;
+  const { l, r, t, b } = fracOf(by, f);
   return { ...a, x: l + a.x * (1 - l - r), y: t + a.y * (1 - t - b) };
 }
 
 /** Familles de points qu'on coche en plus de ceux du référentiel. */
 export interface AnchorExtras {
-  /** Sommets : les coins de la page, et ceux de la marge. */
+  /** Sommets : les coins de la page, de la marge et de la zone d'intérêt. */
   corners?: boolean;
   /** Milieux des côtés de la page, et ceux de la marge. */
   sides?: boolean;
@@ -363,8 +393,8 @@ export interface AnchorExtras {
 export const ANCHOR_EXTRAS: Array<{ key: keyof AnchorExtras; label: string; hint: string; frame?: AnchorFrame; obj?: boolean }> = [
   { key: 'objCorners', label: 'Sommets de l’objet', hint: 'Un coin de l’objet s’accroche aux repères', obj: true },
   { key: 'objSides', label: 'Milieux des côtés de l’objet', hint: 'Le milieu d’un côté de l’objet s’accroche aux repères', obj: true },
-  { key: 'corners', label: 'Sommets', hint: 'Les coins de la page et de la marge' },
-  { key: 'sides', label: 'Milieux des côtés', hint: 'Le milieu de chaque côté de la page et de la marge' },
+  { key: 'corners', label: 'Sommets', hint: 'Les coins de la page, de la marge et de la zone d’intérêt' },
+  { key: 'sides', label: 'Milieux des côtés', hint: 'Le milieu de chaque côté de la page, de la marge et de la zone d’intérêt' },
   { key: 'edges', label: 'Points des bords', hint: 'Les lignes de partage (½, ⅓…) touchent les bords extérieurs', frame: 'repartition' },
 ];
 // familles cochées du document ouvert (absentes = cochées)
@@ -381,14 +411,14 @@ export function objectGrips(e: AnchorExtras | undefined): Array<{ x: number; y: 
 }
 
 // sommets et milieux posés sur la page (« page h0 v1/2 ») ou sur le cadre des marges (« marge h1 v0 »)
-const FRAME_PT = /^(page|marge)\s+h(\S+)\s+v(\S+)$/;
+const FRAME_PT = /^(page|marge|zone)\s+h(\S+)\s+v(\S+)$/;
 
 /** Position (0..1) d'un point d'ancrage nommé, marge comprise. */
 export function resolvePoint(frame: AnchorFrame, id: string, f: Format): { x: number; y: number } {
   const m = FRAME_PT.exec(id.trim());
   if (m) {
     const p = { x: parseFraction(m[2]!), y: parseFraction(m[3]!) };
-    return m[1] === 'marge' ? inset(p, f) : p;
+    return m[1] === 'marge' ? inset(p, f) : m[1] === 'zone' ? inset(p, f, zone ?? margins) : p;
   }
   return inset(resolveAnchor(frame, id, f), f);
 }
@@ -405,12 +435,12 @@ export function anchorsOf(frame: AnchorFrame, f: Format) {
     if (extraOn(extras, 'edges'))
       for (const t of fr) for (const e of [0, 1]) pts.push(inset({ id: id(t, e), frame, x: t, y: e }, f), inset({ id: id(e, t), frame, x: e, y: t }, f));
   }
-  const frames: Array<'page' | 'marge'> = hasMargins(margins) ? ['marge', 'page'] : ['page'];
+  const frames: Array<'page' | 'marge' | 'zone'> = [...(hasMargins(margins) ? (['marge'] as const) : []), ...(zone ? (['zone'] as const) : []), 'page'];
   const add = (u: number[][]) => {
     for (const box of frames)
       for (const [x, y] of u) {
         const a = { id: `${box} h${formatFraction(x!)} v${formatFraction(y!)}`, frame, x: x!, y: y! };
-        pts.push(box === 'marge' ? inset(a, f) : a);
+        pts.push(box === 'marge' ? inset(a, f) : box === 'zone' ? inset(a, f, zone!) : a);
       }
   };
   if (extraOn(extras, 'sides')) add([[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]]);

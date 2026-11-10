@@ -1,4 +1,4 @@
-import type { Catalog, MediaKind } from '@ftd/core';
+import type { Catalog, Insets, MediaKind } from '@ftd/core';
 import { compact, type Blend, type Doc, type GradStyle } from './model';
 
 /** Compositions enregistrées sur le serveur du groupe (designer.flowtherapymusic.com). */
@@ -232,7 +232,10 @@ export interface Channel {
   kind: ChannelKind;
   formats: string[];
   margin?: number;
-  /** Zone d'intérêt : description libre en attendant l'outil. */
+  /** Marges et zone d'intérêt, côté par côté (du catalogue). */
+  margins?: Insets;
+  zone?: Insets;
+  /** Ancienne description libre de la zone, plus utilisée. */
   focus?: string;
   logo?: LogoVariant;
   /** Palette du canal, sinon la première. */

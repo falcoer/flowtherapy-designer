@@ -1293,12 +1293,20 @@ export function holdPins(doc: Doc, f: Format, links?: LinkShapes): Doc {
   return links ? keepLinks(held, f, links) : held;
 }
 
-/** Bords de la découpe posés sur un bord de page ou sur la marge (à `tol` près, unités du format). */
+/** Bords de la découpe posés sur un bord de page, sur la marge ou sur la zone d'intérêt (à `tol` près, unités du format). */
 export function pinsOf(l: Layer, f: Format, tol: number): Layer['pins'] {
   const bb = pageBounds(l, f);
   const e = edgeLines(f);
   const at = (side: 'left' | 'right' | 'top' | 'bottom', v: number): Pin | undefined =>
-    Math.abs(v - e.page[side]) < tol ? (e.margin ? true : 'margin') : e.margin && Math.abs(v - e.margin[side]) < tol ? 'margin' : undefined;
+    Math.abs(v - e.page[side]) < tol
+      ? e.margin
+        ? true
+        : 'margin'
+      : e.margin && Math.abs(v - e.margin[side]) < tol
+        ? 'margin'
+        : e.zone && Math.abs(v - e.zone[side]) < tol
+          ? 'zone'
+          : undefined;
   const pins = { left: at('left', bb.x0), right: at('right', bb.x1), top: at('top', bb.y0), bottom: at('bottom', bb.y1) };
   return pins.left || pins.right || pins.top || pins.bottom ? pins : undefined;
 }

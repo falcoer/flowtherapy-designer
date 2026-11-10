@@ -37,7 +37,7 @@ import { CompositionMenu, CompositionsMenu, TopCrumbs } from './compositions-men
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
-import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget } from './model';
+import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorFrames, hasZone, zoneOf, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import { BRUSH_TIPS, TIP_NAMES, isComposite, tipHoverSvg, type BrushTip } from './tips';
@@ -143,13 +143,13 @@ const MAGNET = 30;
  */
 function drawHeldEdges(ctx: CanvasRenderingContext2D, l: Layer, pins: NonNullable<Layer['pins']>, f: Format, px: number) {
   const bb = pageBounds(l, f);
-  const hasMargin = !!edgeLines(f).margin;
+  const lines = edgeLines(f);
   ctx.save();
   ctx.lineCap = 'round';
   for (const side of ['left', 'right', 'top', 'bottom'] as const) {
     const p = pins[side];
     if (!p) continue;
-    const c = markColor(pinKind(p, hasMargin));
+    const c = markColor(pinKind(p, !!lines.margin, !!lines.zone));
     const at = pinLine(f, side, p);
     const v = side === 'left' || side === 'right';
     const seg = (a: number, b: number) => {
@@ -353,10 +353,10 @@ function docAtTarget(d: Doc, i: number, activity: ActivityProfile | null): Doc {
   const t = d.targets?.[i];
   if (!t) return d;
   const next = docForTarget(d, t, activity);
-  if (d.formatId === t.format && JSON.stringify(docMargins(next)) === JSON.stringify(docMargins(d))) return { ...next, target: i };
-  setAnchorMargin(docMargins(d));
+  if (d.formatId === t.format && JSON.stringify([docMargins(next), next.zone]) === JSON.stringify([docMargins(d), d.zone])) return { ...next, target: i };
+  setAnchorFrames(d);
   const links = linkShapes(d, formatOf(d.formatId));
-  setAnchorMargin(docMargins(next));
+  setAnchorFrames(next);
   return { ...holdPins({ ...next, formatId: t.format }, formatOf(t.format), links), target: i };
 }
 
@@ -558,11 +558,11 @@ export function App() {
       return d.targets.map((_, i) => {
         // les ancrages se résolvent avec les marges de cette publication
         const x = docAtTarget(d, i, activity);
-        setAnchorMargin(docMargins(x));
+        setAnchorFrames(x);
         return makeThumb(x);
       });
     } finally {
-      setAnchorMargin(docMargins(docRef.current));
+      setAnchorFrames(docRef.current);
     }
   };
   const saveNow = async (p = project, d = docRef.current) => {
@@ -711,9 +711,9 @@ export function App() {
     const samePalette = paletteFor(currentPub, activity)?.id === paletteFor(t, activity)?.id;
     setDoc((d) => {
       const next = { ...docForTarget(d, t, activity), ...(samePalette ? { guides: d.guides } : {}) };
-      setAnchorMargin(docMargins(d));
+      setAnchorFrames(d);
       const links = linkShapes(d, formatOf(d.formatId));
-      setAnchorMargin(docMargins(next));
+      setAnchorFrames(next);
       const held = d.formatId === t.format ? holdPins(next, formatOf(t.format), links) : holdPins({ ...next, formatId: t.format }, formatOf(t.format), links);
       const cur = d.targets?.length ? (d.target ?? 0) : 0;
       const targets = d.targets?.length ? d.targets.map((x, j) => (j === cur ? { ...t } : x)) : [{ ...t }];
@@ -809,6 +809,7 @@ export function App() {
     format: doc.formatId,
     ...(activeTarget?.palette ? { palette: activeTarget.palette } : {}),
     margins: docMargins(doc),
+    ...(doc.zone ? { zone: doc.zone } : {}),
     ...(activeTarget?.width && activeTarget.format === doc.formatId ? { width: activeTarget.width } : {}),
     ...(activeTarget?.name ? { name: activeTarget.name } : {}),
   };
@@ -1309,7 +1310,7 @@ export function App() {
   const f = formatOf(doc.formatId);
   // les calculs d'ancrage suivent la densité du document ouvert
   setAnchorDensity(doc.density);
-  setAnchorMargin(docMargins(doc));
+  setAnchorFrames(doc);
   /** Points d'accroche par défaut (Préférences) : pour les compositions qui n'ont pas les leurs. */
   const [defaultPoints, setDefaultPointsRaw] = useState<AnchorExtras>(() => {
     try {
@@ -1962,6 +1963,15 @@ export function App() {
         ctx.strokeStyle = markColor('margin');
         ctx.lineWidth = 1.2 * px;
         ctx.setLineDash([6 * px, 5 * px]);
+        ctx.strokeRect(l * f.width, t * f.height, f.width * (1 - l - r), f.height * (1 - t - b));
+        ctx.setLineDash([]);
+      }
+      // la zone d'intérêt : un second cadre, dans la marge
+      if (hasZone()) {
+        const { l, r, t, b } = zoneOf(f);
+        ctx.strokeStyle = markColor('zone');
+        ctx.lineWidth = 1.2 * px;
+        ctx.setLineDash([2 * px, 4 * px]);
         ctx.strokeRect(l * f.width, t * f.height, f.width * (1 - l - r), f.height * (1 - t - b));
         ctx.setLineDash([]);
       }
@@ -2940,7 +2950,11 @@ export function App() {
       const near1 = (side: 'left' | 'right' | 'top' | 'bottom', v: number) => {
         let best: { d: number; pin: Pin; at: number } | null = null;
         // sans marge, la ligne de marge se confond avec le bord : on s'y attache, pour suivre la marge si elle change ensuite
-        for (const [pin, at] of [[lines.margin ? true : 'margin', lines.page[side]], ...(lines.margin ? [['margin', lines.margin[side]]] : [])] as Array<[Pin, number]>) {
+        for (const [pin, at] of [
+          [lines.margin ? true : 'margin', lines.page[side]],
+          ...(lines.margin ? [['margin', lines.margin[side]]] : []),
+          ...(lines.zone ? [['zone', lines.zone[side]]] : []),
+        ] as Array<[Pin, number]>) {
           const d = Math.abs(v - at);
           if (d < tol && (!best || d < best.d)) best = { d, pin, at };
         }
@@ -2987,8 +3001,8 @@ export function App() {
         [bb.y0, O.y, 0],
         [bb.y1, O.y, f.height],
       ];
-      // la marge aimante aussi
-      if (lines.margin) targets.push([bb.x0, O.x, lines.margin.left], [bb.x1, O.x, lines.margin.right], [bb.y0, O.y, lines.margin.top], [bb.y1, O.y, lines.margin.bottom]);
+      // la marge et la zone d'intérêt aimantent aussi
+      for (const z of [lines.margin, lines.zone]) if (z) targets.push([bb.x0, O.x, z.left], [bb.x1, O.x, z.right], [bb.y0, O.y, z.top], [bb.y1, O.y, z.bottom]);
       for (const [edge, o0, page] of targets) {
         if (Math.abs(edge - o0) < 1e-9) continue;
         const kk = (page - o0) / (edge - o0);
@@ -3193,7 +3207,7 @@ export function App() {
         const pins = l.pins
           ? Object.entries(l.pins)
               .filter(([, v]) => v)
-              .map(([k, v]) => ({ left: 'gauche', right: 'droite', top: 'haut', bottom: 'bas' })[k] + (v === 'margin' ? ' (marge)' : ''))
+              .map(([k, v]) => ({ left: 'gauche', right: 'droite', top: 'haut', bottom: 'bas' })[k] + (v === 'margin' ? ' (marge)' : v === 'zone' ? ' (zone d’intérêt)' : ''))
           : [];
         setToast(pins.length ? `Tenu au bord ${pins.join(', ')}` : L.snap ? `Ancré sur ${l.anchor.point}` : `Près de ${l.anchor.point}`);
       }
@@ -5288,7 +5302,7 @@ export function App() {
                     <MarkLegend
                       kinds={(() => {
                         const seen = new Set(anchorsOf(doc.frame, f).map((a) => anchorKind(doc.frame, a.id)));
-                        return marksOfFrame(doc.frame).filter((k) => (k === 'margin' ? hasMargins(docMargins(doc)) : k === 'page' || seen.has(k)));
+                        return marksOfFrame(doc.frame).filter((k) => (k === 'margin' ? hasMargins(docMargins(doc)) : k === 'zone' ? hasZone() : k === 'page' || seen.has(k)));
                       })()}
                       colors={markColors}
                     />

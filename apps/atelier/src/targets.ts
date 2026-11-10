@@ -1,5 +1,5 @@
 import { FORMATS, formatOf, uniformMargins, type Doc, type Guide, type Target } from './model';
-import { DEFAULT_CATALOG, type Catalog, type MediaType } from '@ftd/core';
+import { DEFAULT_CATALOG, mediaMargins, type Catalog, type MediaType } from '@ftd/core';
 import { palettesOf, type ActivityProfile, type Channel, type ChannelPick, type ColorRole, type Contact, type ContactKind, type Operation, type Palette, type PaletteColor } from './server';
 
 /**
@@ -22,7 +22,16 @@ export function setCatalog(c: Catalog) {
     else FORMATS[i] = f;
   }
 }
-const mediaChannel = (m: MediaType): Channel => ({ id: m.id, name: m.name, kind: m.kind, formats: [...m.formats], ...(m.margin !== undefined ? { margin: m.margin } : {}), ...(m.focus ? { focus: m.focus } : {}) });
+const mediaChannel = (m: MediaType): Channel => ({
+  id: m.id,
+  name: m.name,
+  kind: m.kind,
+  formats: [...m.formats],
+  ...(m.margin !== undefined || m.margins ? { margins: mediaMargins(m), margin: m.margin } : {}),
+  ...(m.zone ? { zone: m.zone } : {}),
+});
+/** Marges d'un média : côté par côté, sinon sa marge unique. */
+export const channelMargins = (ch?: Channel) => ch?.margins ?? uniformMargins(ch?.margin ?? 0);
 
 /** Types de diffusion d'une activité qui n'a pas encore choisi : ceux cochés d'office par le catalogue. */
 export const defaultPicks = (): ChannelPick[] => catalog.media.filter((m) => m.default).map((m) => ({ id: m.id }));
@@ -39,7 +48,7 @@ export function channelsOf(p?: ActivityProfile | null): Channel[] {
   return picks.flatMap((c) => {
     const m = catalog.media.find((x) => x.id === c.id);
     if (m) {
-      const { name: _n, kind: _k, formats: _f, margin: _m, focus: _z, ...own } = c;
+      const { name: _n, kind: _k, formats: _f, margin: _m, margins: _ms, zone: _z, focus: _fo, ...own } = c;
       return [{ ...mediaChannel(m), ...own, ...(own.account ? {} : c.url ? { account: c.url } : {}) }];
     }
     return c.name ? [{ formats: [], kind: 'social' as const, ...c, name: c.name }] : [];
@@ -195,11 +204,12 @@ export function recolor(guides: Guide[], pal: Palette | undefined): Guide[] {
   return [...out, ...ordered.filter((g) => g.role && !has(g.role))];
 }
 
-/** Le document vu pour une cible : son format, ses marges (les siennes, sinon celle du média) et sa variante. Le format est changé par l'appelant (holdPins). */
+/** Le document vu pour une cible : son format, ses marges et sa zone d'intérêt (les siennes, sinon celles du média) et sa variante. Le format est changé par l'appelant (holdPins). */
 export function docForTarget(d: Doc, t: Target, p?: ActivityProfile | null): Doc {
   const ch = t.channel ? channelsOf(p).find((c) => c.id === t.channel) : undefined;
-  const margins = t.margins ?? (ch?.margin !== undefined ? uniformMargins(ch.margin) : undefined);
-  return { ...d, guides: recolor(d.guides, paletteFor(t, p)), ...(margins ? { margins, margin: undefined } : {}) };
+  const margins = t.margins ?? (ch?.margins || ch?.margin !== undefined ? channelMargins(ch) : undefined);
+  const zone = t.zone ?? ch?.zone;
+  return { ...d, guides: recolor(d.guides, paletteFor(t, p)), ...(margins ? { margins, margin: undefined } : {}), zone };
 }
 
 /** Clé d'une cible, pour éviter les doublons. */

@@ -12,6 +12,7 @@ import type { Pin } from './model';
 export type MarkKind =
   | 'page'
   | 'margin'
+  | 'zone'
   | 'half'
   | 'third'
   | 'quarter'
@@ -38,6 +39,7 @@ export interface Mark {
 export const MARKS: Record<MarkKind, Mark> = {
   page: { label: 'Bord de page', hint: 'Le bord du format', group: 'page', color: '#3b3f4a' },
   margin: { label: 'Marge', hint: 'Le cadre des marges', group: 'page', color: '#00a6c8' },
+  zone: { label: 'Zone d’intérêt', hint: 'Le cadre de l’essentiel, dans la marge', group: 'page', color: '#86b817' },
   half: { label: 'Moitiés', hint: 'Centre et médianes', group: 'repartition', color: '#ff3b6b' },
   third: { label: 'Tiers', hint: 'Lignes à 1/3 et 2/3', group: 'repartition', color: '#7a5cff' },
   quarter: { label: 'Quarts', hint: 'Lignes à 1/4 et 3/4', group: 'repartition', color: '#ff9419' },
@@ -83,6 +85,7 @@ export function anchorKind(frame: AnchorFrame, id: string): MarkKind {
   // sommets et milieux des côtés : la couleur de leur cadre
   if (id.startsWith('page ')) return 'page';
   if (id.startsWith('marge ')) return 'margin';
+  if (id.startsWith('zone ')) return 'zone';
   if (frame === 'or') return 'golden';
   if (frame === 'repartition') {
     const m = /^h(\S+)\s+v(\S+)$/.exec(id);
@@ -103,8 +106,9 @@ export function anchorKind(frame: AnchorFrame, id: string): MarkKind {
   return 'margin';
 }
 
-/** Sorte de la ligne tenue par un bord : la marge, ou la page quand il n'y a pas de marge. */
-export const pinKind = (p: Pin, hasMargin: boolean): MarkKind => (p === 'margin' && hasMargin ? 'margin' : 'page');
+/** Sorte de la ligne tenue par un bord : la zone d'intérêt, la marge, ou la page quand ces cadres manquent. */
+export const pinKind = (p: Pin, hasMargin: boolean, hasZone = false): MarkKind =>
+  p === 'zone' && hasZone ? 'zone' : (p === 'margin' || p === 'zone') && hasMargin ? 'margin' : 'page';
 
 const KEY = 'ftd-atelier-marks';
 export function loadMarkColors(): Partial<Record<MarkKind, string>> {

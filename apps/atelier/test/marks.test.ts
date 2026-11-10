@@ -27,6 +27,8 @@ describe('couleurs des repères', () => {
   it('un bord tenu à la marge prend la couleur de la marge, sauf sans marge', () => {
     expect(pinKind('margin', true)).toBe('margin');
     expect(pinKind('margin', false)).toBe('page');
+    expect(pinKind('zone', true, true)).toBe('zone');
+    expect(pinKind('zone', true, false)).toBe('margin');
     expect(pinKind(true, true)).toBe('page');
   });
 });

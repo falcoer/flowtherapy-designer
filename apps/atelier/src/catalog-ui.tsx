@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { MEDIA_KINDS, type Catalog, type MediaKind, type MediaType } from '@ftd/core';
+import { MEDIA_KINDS, mediaMargins, type Catalog, type MediaKind, type MediaType } from '@ftd/core';
 import { DEFAULT_FORMATS, type Format } from '@ftd/core';
 import { fetchCatalog, saveCatalog } from './server';
-import { Knob } from './knob';
+import { FrameInsets } from './frame-insets';
 import { MediaIcon } from './targets-ui';
 
 /**
@@ -163,10 +163,18 @@ export function CatalogPanel(p: { onClose: () => void; onSaved: (c: Catalog) => 
               </div>
               <div className="act-field">
                 <span className="pf-group">Marge et zone d’intérêt</span>
-                <div className="cat-margin">
-                  <Knob label="Marge" value={(curM.margin ?? 0.05) / 0.15} fmt={() => `${Math.round((curM.margin ?? 0.05) * 1000) / 10} %`} onChange={(v) => setM({ margin: Math.round(v * 0.15 * 200) / 200 })} />
-                  <textarea className="pf-input" rows={2} value={curM.focus ?? ''} placeholder="Ce qu’il faut laisser libre (profil, boutons…)" onChange={(e) => setM({ focus: e.target.value || undefined })} />
-                </div>
+                {(() => {
+                  const f = formats.find((x) => x.id === curM.formats[0]) ?? formats[0]!;
+                  return (
+                    <FrameInsets
+                      width={f.width}
+                      height={f.height}
+                      margins={mediaMargins(curM)}
+                      zone={curM.zone}
+                      onChange={(margins, zone) => setM({ margins, margin: (margins.top + margins.right + margins.bottom + margins.left) / 4, zone })}
+                    />
+                  );
+                })()}
               </div>
               <div className="act-field">
                 <span className="pf-group">Ce que l’activité renseigne</span>
