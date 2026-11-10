@@ -122,7 +122,7 @@ export interface Palette {
 
 export const COLOR_ROLES = ['principale', 'texte', 'bordure', 'fond', 'complementTexte', 'complementFond', 'sujet1', 'sujet2', 'sujet3', 'accent', 'secondaire'] as const;
 export type ColorRole = (typeof COLOR_ROLES)[number];
-export const CHANNEL_KINDS = ['social', 'affichage', 'impression', 'email', 'site', 'streaming'] as const;
+export const CHANNEL_KINDS = ['social', 'affichage', 'impression', 'email', 'site', 'streaming', 'video'] as const;
 export const LOGO_VARIANTS = ['main', 'light', 'dark', 'icon'] as const;
 /** Logo principal, anciennes variantes, ou logo d'une variante de couleurs (`pal-<id>`). */
 export type LogoVariant = (typeof LOGO_VARIANTS)[number] | `pal-${string}`;

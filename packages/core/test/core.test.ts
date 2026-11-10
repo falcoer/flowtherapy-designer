@@ -327,3 +327,25 @@ describe('dégradés en paliers', () => {
     expect(s[1]!.color).not.toBe(s[2]!.color);
   });
 });
+
+import { cleanCatalog, DEFAULT_CATALOG } from '../src/catalog.js';
+describe('catalogue : YouTube', () => {
+  it('arrive une fois dans un catalogue enregistré avant lui, puis peut être retiré', () => {
+    const old = { formats: [], media: DEFAULT_CATALOG.media.filter((m) => m.id !== 'youtube' && m.id !== 'instagram') };
+    const c = cleanCatalog(JSON.parse(JSON.stringify(old)));
+    expect(c.media.map((m) => m.id)).toContain('youtube');
+    // Instagram, retiré par un administrateur, ne revient pas
+    expect(c.media.map((m) => m.id)).not.toContain('instagram');
+    const without = cleanCatalog({ ...c, media: c.media.filter((m) => m.id !== 'youtube') });
+    expect(without.media.map((m) => m.id)).not.toContain('youtube');
+  });
+  it('garde la bande et la zone sûre de la bannière après un enregistrement', () => {
+    const c = cleanCatalog(JSON.parse(JSON.stringify(DEFAULT_CATALOG)));
+    const b = c.formats.find((f) => f.id === 'yt-banniere')!;
+    expect(b.width).toBe(2560);
+    // bande ordinateur 2560 × 423, zone sûre 1546 × 423
+    expect(Math.round(b.height * (1 - b.margins!.top - b.margins!.bottom) * 1440 / b.height)).toBeCloseTo(423, -1);
+    expect(Math.round(b.width - 2 * b.zone!.left * 1440)).toBeCloseTo(1546, -1);
+    expect(c.media.find((m) => m.id === 'youtube')!.formats).toEqual(['yt-miniature', 'yt-banniere', 'shorts', 'yt-profil', 'yt-filigrane', 'carre']);
+  });
+});

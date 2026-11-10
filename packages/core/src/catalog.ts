@@ -8,7 +8,7 @@ import { cleanFontUses, type FontUses } from './fonts-config.js';
  */
 
 /** Famille d'un type de diffusion (son icône, ses réglages par défaut). */
-export const MEDIA_KINDS = ['social', 'affichage', 'impression', 'email', 'site', 'streaming'] as const;
+export const MEDIA_KINDS = ['social', 'affichage', 'impression', 'email', 'site', 'streaming', 'video'] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];
 
 /** Champs qu'une activité renseigne pour un type de diffusion. */
@@ -39,7 +39,13 @@ export interface Catalog {
   media: MediaType[];
   /** Usages coupés par police (absente = proposée partout). */
   fonts?: FontUses;
+  /** Types d'origine déjà proposés : un type ajouté plus tard au catalogue d'origine arrive une fois, puis peut être retiré. */
+  known?: string[];
 }
+
+/** Marge et zone d'intérêt montent jusqu'à 45 % du petit côté (la bannière YouTube ne garde qu'une bande au milieu). */
+export const MAX_MARGIN = 0.45;
+export const MAX_ZONE = 0.45;
 
 const even = (v: number): Insets => ({ top: v, right: v, bottom: v, left: v });
 const tb = (t: number, side: number, bottom = t): Insets => ({ top: t, right: side, bottom, left: side });
@@ -56,6 +62,20 @@ export const DEFAULT_FORMATS: Format[] = [
   { id: 'site-banniere', title: 'Bannière du site', width: 1920, height: 640, unit: 'px', target: 'web', margins: even(0.04), zone: tb(0.08, 0.3) },
   // image de partage d'une page (Open Graph)
   { id: 'vignette', title: 'Vignette de partage', width: 1200, height: 630, unit: 'px', target: 'web', margins: even(0.04), zone: even(0.08) },
+  /*
+   * YouTube (écarts en fraction du petit côté).
+   * Bannière de chaîne : 2560 × 1440 (2048 × 1152 au moins, 6 Mo au plus). La télé montre tout, l'ordinateur
+   * une bande de 2560 × 423 au milieu (la marge), le téléphone seulement 1546 × 423 (la zone sûre, texte et logo).
+   */
+  { id: 'yt-banniere', title: 'Bannière YouTube', width: 2560, height: 1440, unit: 'px', target: 'social', margins: tb(0.353, 0), zone: tb(0.353, 0.352) },
+  // miniature de vidéo (2 Mo au plus) : la durée s'affiche en bas à droite
+  { id: 'yt-miniature', title: 'Miniature YouTube', width: 1280, height: 720, unit: 'px', target: 'social', margins: even(0.04), zone: { top: 0.06, right: 0.06, bottom: 0.14, left: 0.06 } },
+  // photo de profil montrée en rond : l'essentiel dans le carré inscrit au cercle
+  { id: 'yt-profil', title: 'Photo de profil YouTube', width: 800, height: 800, unit: 'px', target: 'social', margins: even(0.02), zone: even(0.147) },
+  // filigrane posé en bas à droite des vidéos : PNG transparent, 1 Mo au plus
+  { id: 'yt-filigrane', title: 'Filigrane YouTube', width: 150, height: 150, unit: 'px', target: 'social', margins: even(0.04), zone: even(0.1) },
+  // Shorts : titre, chaîne et musique en bas, boutons à droite, recherche en haut
+  { id: 'shorts', title: 'Short', width: 1080, height: 1920, unit: 'px', target: 'social', margins: even(0.04), zone: { top: 0.2, right: 0.17, bottom: 0.38, left: 0.05 } },
 ];
 
 /** « affiche » garde son identifiant : les compositions existantes y renvoient. */
@@ -65,7 +85,11 @@ export const DEFAULT_MEDIA: MediaType[] = [
   { id: 'instagram', name: 'Instagram', kind: 'social', formats: ['carre', 'story'], margin: 0.05, fields: { account: true, api: true, folder: true } },
   { id: 'applemusic', name: 'Apple Music', kind: 'streaming', formats: ['pochette'], margin: 0.04, fields: { account: true, api: true, folder: true } },
   { id: 'site', name: 'Site web', kind: 'site', formats: ['site-banniere', 'vignette'], margin: 0.04, fields: { account: true, folder: true } },
+  // le carré sert aux posts de la communauté
+  { id: 'youtube', name: 'YouTube', kind: 'video', formats: ['yt-miniature', 'yt-banniere', 'shorts', 'yt-profil', 'yt-filigrane', 'carre'], fields: { account: true, api: true, folder: true } },
 ];
+/** Types d'origine avant l'arrivée de YouTube : les catalogues enregistrés avant les connaissent déjà. */
+const FIRST_MEDIA = ['affiche', 'facebook', 'instagram', 'applemusic', 'site'];
 
 /** Marges d'un format : côté par côté, sinon l'ancienne marge unique de son type de diffusion. */
 export const formatMargins = (f: { margins?: Insets }, legacy?: number): Insets => f.margins ?? even(legacy ?? 0);
@@ -79,7 +103,7 @@ export function cleanInsets(v: unknown, lo: number, hi: number): Insets | undefi
 /** Zone d'intérêt ramenée dans la marge, côté par côté. */
 export const zoneInside = (z: Insets, m: Insets): Insets => ({ top: Math.max(z.top, m.top), right: Math.max(z.right, m.right), bottom: Math.max(z.bottom, m.bottom), left: Math.max(z.left, m.left) });
 
-export const DEFAULT_CATALOG: Catalog = { formats: DEFAULT_FORMATS, media: DEFAULT_MEDIA, fonts: {} };
+export const DEFAULT_CATALOG: Catalog = { formats: DEFAULT_FORMATS, media: DEFAULT_MEDIA, fonts: {}, known: DEFAULT_MEDIA.map((m) => m.id) };
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const slug = (v: unknown) => str(v, 40).toLowerCase().replace(/[^a-z0-9-]/g, '');
@@ -104,8 +128,8 @@ export function cleanCatalog(raw: unknown): Catalog {
     seen.add(id);
     const dpi = unit === 'mm' ? (num(f?.dpi, 72, 1200) ?? 300) : undefined;
     const target = (TARGETS as readonly string[]).includes(f?.target as string) ? f!.target : unit === 'mm' ? 'print' : 'web';
-    const margins = cleanInsets(f?.margins, -0.25, 0.25);
-    const zone = cleanInsets(f?.zone, 0, 0.45);
+    const margins = cleanInsets(f?.margins, -0.25, MAX_MARGIN);
+    const zone = cleanInsets(f?.zone, 0, MAX_ZONE);
     formats.push({ id, title, width, height, unit, ...(dpi ? { dpi } : {}), target, ...(margins ? { margins } : {}), ...(zone ? { zone: zoneInside(zone, margins ?? even(0)) } : {}) });
   }
   for (const f of DEFAULT_FORMATS) if (!seen.has(f.id)) formats.push(f), seen.add(f.id);
@@ -129,5 +153,10 @@ export function cleanCatalog(raw: unknown): Catalog {
       ...(m?.default ? { default: true } : {}),
     });
   }
-  return { formats, media: Array.isArray(c.media) ? media : DEFAULT_MEDIA, fonts: cleanFontUses(c.fonts) };
+  if (!Array.isArray(c.media)) return { formats, media: DEFAULT_MEDIA, fonts: cleanFontUses(c.fonts), known: DEFAULT_MEDIA.map((m) => m.id) };
+  // un type d'origine arrivé depuis le dernier enregistrement rejoint la liste ; retiré ensuite, il ne revient plus
+  const known = new Set(Array.isArray(c.known) ? c.known.map(slug).filter(Boolean) : FIRST_MEDIA);
+  for (const m of DEFAULT_MEDIA) if (!known.has(m.id) && !seenM.has(m.id) && media.length < 40) media.push(m), seenM.add(m.id);
+  for (const m of DEFAULT_MEDIA) known.add(m.id);
+  return { formats, media, fonts: cleanFontUses(c.fonts), known: [...known].slice(0, 80) };
 }

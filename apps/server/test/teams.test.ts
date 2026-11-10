@@ -401,6 +401,7 @@ describe('équipes', () => {
     const put = await lauris.send('PUT', '/api/catalog', {
       formats: [{ id: 'flyer-a5', title: 'Flyer A5', width: 148, height: 210, unit: 'mm' }],
       media: [{ id: 'flyer', name: 'Flyers', kind: 'affichage', formats: ['flyer-a5', 'inconnu'], fields: { folder: true } }],
+      known: first.known,
     });
     const cat = put.json().catalog;
     expect(cat.formats.map((f: { id: string }) => f.id)).toEqual(expect.arrayContaining(['flyer-a5', 'a4', 'carre']));

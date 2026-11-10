@@ -1,7 +1,7 @@
 import type { BrushTip } from './tips';
 import type { LookSettings } from './looks';
 import type { Fx } from './fx';
-import { DEFAULT_FORMATS, anchorsFor, formatFraction, nearestAnchor, parseFraction, resolveAnchor, type AnchorFrame, type AnchorPoint, type Format } from '@ftd/core';
+import { DEFAULT_FORMATS, MAX_MARGIN, MAX_ZONE, anchorsFor, formatFraction, nearestAnchor, parseFraction, resolveAnchor, type AnchorFrame, type AnchorPoint, type Format } from '@ftd/core';
 
 /**
  * Modèle de l'atelier : un document est une pile de couches. Chaque couche a
@@ -324,9 +324,9 @@ export const DEFAULT_MARGIN = 0.05;
 let margins: Margins = uniformMargins(0);
 // zone d'intérêt du document ouvert, toujours dans la marge (null : pas de zone)
 let zone: Margins | null = null;
-const clampM = (v: number) => Math.max(-0.25, Math.min(0.25, v || 0));
-/** La zone d'intérêt monte jusqu'à 45 % du petit côté depuis chaque bord. */
-export const MAX_ZONE = 0.45;
+const clampM = (v: number) => Math.max(-0.25, Math.min(MAX_MARGIN, v || 0));
+/** Marge et zone d'intérêt montent jusqu'à 45 % du petit côté depuis chaque bord. */
+export { MAX_MARGIN, MAX_ZONE };
 const SIDES4 = ['top', 'right', 'bottom', 'left'] as const;
 /** Zone ramenée dans la marge, côté par côté ; null quand elle se confond avec la marge. */
 export function zoneWithin(m: Margins, z: Margins | undefined | null): Margins | null {
