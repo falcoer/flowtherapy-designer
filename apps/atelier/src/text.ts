@@ -1,5 +1,6 @@
 import { ringsToPath, simplifyRing, type Ring } from './cut';
 import { loadIndex } from './library';
+import { fontAllowed, type FontUse, type FontUses } from '@ftd/core';
 
 /**
  * Texte de l'atelier : un objet dont la découpe suit les lettres. Les bords, lueurs,
@@ -362,6 +363,10 @@ export interface FontInfo {
   family: string;
   tags: string[];
   files: FontFile[];
+  license?: string;
+  url?: string;
+  /** Installée depuis la configuration globale (on peut la retirer). */
+  installed?: boolean;
 }
 
 /** Polices toujours proposées, même hors ligne (le navigateur les remplace au besoin). */
@@ -373,16 +378,42 @@ const ready = new Set<string>();
 const listeners = new Set<() => void>();
 /** Incrémenté à chaque police chargée : les découpes calculées avant sont recalculées. */
 let fontEpoch = 0;
+/** Usages coupés par la configuration globale. */
+let uses: FontUses = {};
 
-/** Liste des polices de la bibliothèque (chargée une fois). */
+/** Polices installées sur le serveur (aucune hors ligne). */
+const fetchInstalled = (): Promise<FontInfo[]> =>
+  fetch('/api/fonts', { credentials: 'same-origin' })
+    .then((r) => (r.ok ? (r.json() as Promise<{ fonts?: FontInfo[] }>) : { fonts: [] }))
+    .then((d) => (d.fonts ?? []).map((f) => ({ ...f, installed: true })))
+    .catch(() => []);
+
+/** Liste des polices : celles livrées avec l'atelier, puis celles installées (chargée une fois). */
 export function loadFonts(): Promise<FontInfo[]> {
-  listing ??= loadIndex().then((d) => {
-    if (d.fonts?.length) fonts = d.fonts;
+  listing ??= Promise.all([loadIndex(), fetchInstalled()]).then(([d, extra]) => {
+    const base = d.fonts?.length ? d.fonts : fonts;
+    fonts = [...base, ...extra.filter((x) => !base.some((b) => b.id === x.id))];
     return fonts;
   });
   return listing;
 }
+/** Relit la liste (après une installation ou un retrait). */
+export function reloadFonts(): Promise<FontInfo[]> {
+  listing = null;
+  // une police installée peut être retirée puis remplacée sous le même identifiant
+  for (const f of fonts.filter((x) => x.installed)) {
+    loading.delete(f.id);
+    ready.delete(f.id);
+    document.fonts.forEach((ff) => void (ff.family.replace(/"/g, '') === `FTD ${f.family}` && document.fonts.delete(ff)));
+  }
+  return loadFonts();
+}
 export const fontList = () => fonts;
+/** Range les usages de la configuration globale. */
+export const setFontUses = (u: FontUses | undefined) => void (uses = u ?? {});
+export const fontUses = () => uses;
+/** Polices proposées pour un usage (compositions ou style graphique des activités). */
+export const fontsFor = (use: keyof FontUse) => fonts.filter((f) => fontAllowed(uses, f.id, use));
 export const fontOf = (id: string) => fonts.find((x) => x.id === id) ?? fonts[0]!;
 export const fontFamily = (id: string) => `"FTD ${fontOf(id).family}"`;
 

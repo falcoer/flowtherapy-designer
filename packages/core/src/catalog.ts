@@ -1,8 +1,9 @@
 import type { Format, Insets } from './formats.js';
+import { cleanFontUses, type FontUses } from './fonts-config.js';
 
 /**
- * Catalogue du site : les formats et les types de diffusion (Facebook, supports imprimés…),
- * communs à toutes les activités et réglés par les administrateurs du site.
+ * Configuration globale du site : les formats, les types de diffusion (Facebook, supports imprimés…)
+ * et l'usage des polices, communs à toutes les activités et réglés par les administrateurs du site.
  * Chaque activité coche ensuite ceux qui la concernent et y range ses accès.
  */
 
@@ -36,6 +37,8 @@ export interface MediaType {
 export interface Catalog {
   formats: Format[];
   media: MediaType[];
+  /** Usages coupés par police (absente = proposée partout). */
+  fonts?: FontUses;
 }
 
 const even = (v: number): Insets => ({ top: v, right: v, bottom: v, left: v });
@@ -76,7 +79,7 @@ export function cleanInsets(v: unknown, lo: number, hi: number): Insets | undefi
 /** Zone d'intérêt ramenée dans la marge, côté par côté. */
 export const zoneInside = (z: Insets, m: Insets): Insets => ({ top: Math.max(z.top, m.top), right: Math.max(z.right, m.right), bottom: Math.max(z.bottom, m.bottom), left: Math.max(z.left, m.left) });
 
-export const DEFAULT_CATALOG: Catalog = { formats: DEFAULT_FORMATS, media: DEFAULT_MEDIA };
+export const DEFAULT_CATALOG: Catalog = { formats: DEFAULT_FORMATS, media: DEFAULT_MEDIA, fonts: {} };
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const slug = (v: unknown) => str(v, 40).toLowerCase().replace(/[^a-z0-9-]/g, '');
@@ -126,5 +129,5 @@ export function cleanCatalog(raw: unknown): Catalog {
       ...(m?.default ? { default: true } : {}),
     });
   }
-  return { formats, media: Array.isArray(c.media) ? media : DEFAULT_MEDIA };
+  return { formats, media: Array.isArray(c.media) ? media : DEFAULT_MEDIA, fonts: cleanFontUses(c.fonts) };
 }

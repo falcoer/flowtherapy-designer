@@ -1,4 +1,4 @@
-import { FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame, type Format } from '@ftd/core';
+import { FRAME_TITLES, ANCHOR_FRAMES, fontAllowed, type AnchorFrame, type Format } from '@ftd/core';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive, type Target } from './brush';
 import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
@@ -16,7 +16,7 @@ import { kitFromSvg, nearestOf, SAME_COLOR, type Kit } from './kits';
 import { KITS } from './kit-samples';
 import { blankBump, bumpHeights, dab, encodeBump, heightUnder, smoothBump } from './bump';
 import { currentPx, growPatch, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
-import { ensureFont, fontFamily, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
+import { ensureFont, fontFamily, fontUses, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
 import { type SwashTool } from './textbar';
 import { ColorDialog, swatch } from './color-dialog';
 import { GradientOverlay } from './gradient-ui';
@@ -5366,7 +5366,7 @@ export function App() {
               {shelf === 'textes' && (
                 <RailScroll className="forms-scroll">
                   <div className="text-presets">
-                    {TEXT_PRESETS.map((p) => (
+                    {TEXT_PRESETS.filter((p) => fontAllowed(fontUses(), p.style.font, 'compositions')).map((p) => (
                       <button key={p.name} className="text-preset" onClick={() => void addText(p)} title={`Poser un texte « ${p.name} »`}>
                         <span
                           className={`tp-sample tp-${p.extra ?? 'plain'}`}

@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { MEDIA_KINDS, formatMargins, type Catalog, type MediaKind, type MediaType } from '@ftd/core';
-import { DEFAULT_FORMATS, type Format } from '@ftd/core';
-import { fetchCatalog, saveCatalog } from './server';
+import { DEFAULT_FORMATS, FONT_KIND_LABELS, FONT_KINDS, FREE_FONTS, fontAllowed, type FontKind, type FontUse, type Format } from '@ftd/core';
+import { fetchCatalog, installFont, removeFont, saveCatalog } from './server';
+import { ensureFont, fontFamily, fontList, loadFonts, reloadFonts, type FontInfo } from './text';
 import { FrameInsets } from './frame-insets';
 import { MediaIcon } from './targets-ui';
 
 /**
- * Catalogue du site, pour ses administrateurs : les formats et les types de diffusion communs à toutes les activités.
- * Chaque activité coche ensuite, dans sa fiche, les types qui la concernent.
+ * Configuration globale, pour les administrateurs du site : formats, types de diffusion et polices
+ * communs à toutes les activités. Chaque activité coche ensuite, dans sa fiche, les types qui la concernent.
  */
 
 const KIND_LABELS: Record<MediaKind, string> = { social: 'Réseau social', affichage: 'Imprimé', impression: 'Impression', email: 'E-mail', site: 'Site web', streaming: 'Streaming' };
@@ -30,7 +31,7 @@ const size = (f: Format) => `${f.width} × ${f.height}${f.unit === 'mm' ? ' mm' 
 
 export function CatalogPanel(p: { onClose: () => void; onSaved: (c: Catalog) => void }) {
   const [cat, setCat] = useState<Catalog | null>(null);
-  const [tab, setTab] = useState<'media' | 'formats'>('media');
+  const [tab, setTab] = useState<'media' | 'formats' | 'fonts'>('media');
   const [sel, setSel] = useState<string | null>(null);
   const [status, setStatus] = useState('');
   const [err, setErr] = useState<string | null>(null);
@@ -77,7 +78,7 @@ export function CatalogPanel(p: { onClose: () => void; onSaved: (c: Catalog) => 
   return (
     <div className="bubble cat-panel" onPointerDown={(e) => e.stopPropagation()}>
       <div className="pf-head">
-        <span className="b-title">Catalogue du site</span>
+        <span className="b-title">Configuration globale</span>
         {status && <span className="act-status">{status}</span>}
         <button className="lamp-close" onClick={p.onClose} aria-label="Fermer">
           ×
@@ -90,9 +91,13 @@ export function CatalogPanel(p: { onClose: () => void; onSaved: (c: Catalog) => 
         <button role="tab" aria-selected={tab === 'formats'} className={tab === 'formats' ? 'on' : ''} onClick={() => (setTab('formats'), setSel(formats[0]?.id ?? null))}>
           Formats
         </button>
+        <button role="tab" aria-selected={tab === 'fonts'} className={tab === 'fonts' ? 'on' : ''} onClick={() => setTab('fonts')}>
+          Polices
+        </button>
       </div>
       {!cat && !err && <p className="pf-note">Chargement…</p>}
-      {cat && (
+      {cat && tab === 'fonts' && <FontsTab uses={cat.fonts ?? {}} setUses={(fonts) => put({ ...cat, fonts })} onErr={setErr} />}
+      {cat && tab !== 'fonts' && (
         <div className="cat-cols">
           <div className="cat-list">
             {tab === 'media'
@@ -251,6 +256,166 @@ export function CatalogPanel(p: { onClose: () => void; onSaved: (c: Catalog) => 
         </div>
       )}
       {err && <p className="pf-note pf-err">{err}</p>}
+    </div>
+  );
+}
+
+const SAMPLE = 'Flow Therapy en concert';
+const NEW = '+';
+const useLabel = (u: Record<string, FontUse>, id: string) => {
+  const on = [fontAllowed(u, id, 'compositions') && 'Compositions', fontAllowed(u, id, 'branding') && 'Activités'].filter(Boolean);
+  return on.length ? on.join(' · ') : 'désactivée';
+};
+
+/** Polices : livrées avec l'application ou installées ici, chacune proposée ou non aux compositions et au style des activités. */
+function FontsTab(p: { uses: Record<string, FontUse>; setUses: (u: Record<string, FontUse>) => void; onErr: (m: string | null) => void }) {
+  const [list, setList] = useState<FontInfo[]>(fontList());
+  const [sel, setSel] = useState<string>(list[0]?.id ?? NEW);
+  const [, bump] = useState(0);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [url, setUrl] = useState('');
+  const [kind, setKind] = useState<FontKind | null>(null);
+  const sorted = [...list].sort((a, b) => a.family.localeCompare(b.family));
+  useEffect(() => {
+    void loadFonts().then((l) => (setList([...l]), setSel((s) => (s === NEW || l.some((f) => f.id === s) ? s : (l[0]?.id ?? NEW)))));
+  }, []);
+  useEffect(() => {
+    // chaque police arrivée redessine sa ligne
+    let live = true;
+    list.forEach((f) => void ensureFont(f.id).then(() => live && bump((n) => n + 1)));
+    return () => void (live = false);
+  }, [list]);
+
+  const cur = list.find((f) => f.id === sel);
+  const toggle = (id: string, use: keyof FontUse) => {
+    const u = { ...(p.uses[id] ?? {}) };
+    if (fontAllowed(p.uses, id, use)) u[use] = false;
+    else delete u[use];
+    const next = { ...p.uses };
+    if (Object.keys(u).length) next[id] = u;
+    else delete next[id];
+    p.setUses(next);
+  };
+  const install = async (body: { name?: string; url?: string; dir?: string }, label: string) => {
+    setBusy(label);
+    p.onErr(null);
+    try {
+      const r = await installFont(body);
+      const l = await reloadFonts();
+      setList([...l]);
+      setSel(r.font.id);
+      setName('');
+      setUrl('');
+    } catch (e) {
+      p.onErr((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const key = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const have = new Set(list.map((f) => key(f.family)));
+  const free = FREE_FONTS.filter((f) => !have.has(key(f.family)) && (!kind || f.kind === kind));
+
+  return (
+    <div className="cat-cols">
+      <div className="cat-list">
+        {sorted.map((f) => (
+          <button key={f.id} className={`act-row act-pick ${f.id === sel ? 'on' : ''}`} onClick={() => setSel(f.id)}>
+            <span className="act-txt">
+              <b className="cat-font-name" style={{ fontFamily: `${fontFamily(f.id)}, Inter, sans-serif` }}>
+                {f.family}
+              </b>
+              <small>{useLabel(p.uses, f.id)}</small>
+            </span>
+          </button>
+        ))}
+        <button className={`pf-btn act-add ${sel === NEW ? 'on' : ''}`} onClick={() => setSel(NEW)}>
+          + Police
+        </button>
+      </div>
+
+      {cur && (
+        <div className="cat-edit">
+          <div className="cat-font-sample" style={{ fontFamily: `${fontFamily(cur.id)}, Inter, sans-serif` }}>
+            {SAMPLE}
+          </div>
+          <div className="act-checks">
+            <button className={`act-check ${fontAllowed(p.uses, cur.id, 'compositions') ? 'on' : ''}`} onClick={() => toggle(cur.id, 'compositions')}>
+              Compositions
+            </button>
+            <button className={`act-check ${fontAllowed(p.uses, cur.id, 'branding') ? 'on' : ''}`} onClick={() => toggle(cur.id, 'branding')}>
+              Style des activités
+            </button>
+          </div>
+          <p className="pf-note">
+            {cur.license ?? 'Licence à vérifier'}
+            {cur.url && (
+              <>
+                {' · '}
+                <a href={cur.url} target="_blank" rel="noreferrer">
+                  source
+                </a>
+              </>
+            )}
+            {' · '}
+            {cur.installed ? 'installée' : 'livrée avec l’application'}
+          </p>
+          {cur.installed && (
+            <button
+              className="ab-link act-danger"
+              onClick={async () => {
+                try {
+                  await removeFont(cur.id);
+                  const l = await reloadFonts();
+                  setList([...l]);
+                  setSel(l[0]?.id ?? NEW);
+                } catch (e) {
+                  p.onErr((e as Error).message);
+                }
+              }}
+            >
+              Retirer cette police
+            </button>
+          )}
+        </div>
+      )}
+
+      {sel === NEW && (
+        <div className="cat-edit">
+          <form
+            className="cat-font-add"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (url.trim() && !busy) void install({ name, url }, name || url);
+            }}
+          >
+            <input className="pf-input" placeholder="Nom" value={name} onChange={(e) => setName(e.target.value)} />
+            <input className="pf-input" type="url" placeholder="https://…" value={url} onChange={(e) => setUrl(e.target.value)} />
+            <button className="pf-btn" disabled={!url.trim() || !!busy}>
+              {busy ? 'Installation…' : 'Installer'}
+            </button>
+          </form>
+          <div className="pf-group">Polices libres</div>
+          <div className="act-checks">
+            <button className={`act-check ${!kind ? 'on' : ''}`} onClick={() => setKind(null)}>
+              Toutes
+            </button>
+            {FONT_KINDS.map((k) => (
+              <button key={k} className={`act-check ${kind === k ? 'on' : ''}`} onClick={() => setKind(kind === k ? null : k)}>
+                {FONT_KIND_LABELS[k]}
+              </button>
+            ))}
+          </div>
+          <div className="cat-free">
+            {free.map((f) => (
+              <button key={f.dir} className="act-check" disabled={!!busy} onClick={() => void install({ dir: f.dir }, f.family)}>
+                {busy === f.family ? 'Installation…' : `+ ${f.family}`}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
