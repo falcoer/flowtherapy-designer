@@ -1,4 +1,5 @@
 import { FORMATS, formatOf, uniformMargins, type Doc, type Guide, type Margins, type Target } from './model';
+import { setFontUses } from './text';
 import { DEFAULT_CATALOG, type Catalog, type MediaType } from '@ftd/core';
 import { palettesOf, type ActivityProfile, type Channel, type ChannelPick, type Connection, type ColorRole, type Contact, type ContactKind, type Operation, type Palette, type PaletteColor } from './server';
 
@@ -16,6 +17,7 @@ export const catalogNow = () => catalog;
 /** Range le catalogue du serveur ; ses formats rejoignent la liste de l'atelier (ceux d'origine gardent leur place). */
 export function setCatalog(c: Catalog) {
   catalog = c;
+  setFontUses(c.fonts);
   for (const f of c.formats) {
     const i = FORMATS.findIndex((x) => x.id === f.id);
     if (i < 0) FORMATS.push(f);

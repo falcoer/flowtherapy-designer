@@ -13,3 +13,4 @@ export * from './gradient.js';
 export * from './shapes.js';
 export * from './effects.js';
 export * from './catalog.js';
+export * from './fonts-config.js';

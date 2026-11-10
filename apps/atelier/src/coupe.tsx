@@ -5,7 +5,7 @@ import { FX, fxGuides, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId 
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { GEN_DEFAULTS, VOLUMES, type Doc, type Layer } from './model';
-import { ensureFont, fontFamily, fontList, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
+import { ensureFont, fontFamily, fontsFor, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { TextContent, WarpGlyph, weightName } from './textbar';
 import { TiltPad } from './tilt';
 import { borderDefaults } from './targets';
@@ -224,7 +224,7 @@ function imageChoices(l: Layer): Array<{ id: string; name: string; patch: Partia
   // texte : le catalogue des polices, chacune montrée avec le texte lui-même
   if (l.kind === 'text' && l.text && l.molded) return [];
   if (l.kind === 'text' && l.text)
-    return fontList()
+    return fontsFor('compositions')
       .filter((ft) => ft.id !== l.text!.font)
       .map((ft) => ({ id: `font-${ft.id}`, name: ft.family, patch: {}, focus: 'text', text: { font: ft.id }, font: ft.id }));
   if (l.kind !== 'photo') return [];

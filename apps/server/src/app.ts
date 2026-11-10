@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
@@ -8,6 +9,7 @@ import { cookie, readCookie, registerAuth, type AuthConfig } from './auth.js';
 import { Exporter, type ExportKind } from './export.js';
 import { invitationMail, proposalMail, reviewMail, type Mail, type Mailer } from './mail.js';
 import { Library } from './library.js';
+import { FontInstaller, installedFonts } from './fonts.js';
 import { CACHE_PROFILES, type CacheProfile } from './media.js';
 
 export interface AppOptions {
@@ -30,6 +32,8 @@ export interface AppOptions {
   adminEmails?: string[];
   /** Version affichée dans les préférences (paquet et commit). */
   version?: { version: string; commit?: string };
+  /** Téléchargements des polices installées (remplaçable en test). */
+  fetch?: typeof fetch;
   /** Base des comptes et équipes. Par défaut : <bibliothèque>/../comptes.sqlite (à sauvegarder). */
   accountsFile?: string;
   /** Équipe d'origine : elle garde les dossiers ateliers/ et objets/ existants. */
@@ -214,6 +218,42 @@ export async function buildApp(opts: AppOptions) {
   // --- catalogue du site : formats et types de diffusion, réglés par les administrateurs ---
   app.get('/api/catalog', async () => accounts.catalog());
   app.put<{ Body: unknown }>('/api/catalog', { preHandler: adminOnly }, async (req) => ({ ok: true, catalog: accounts.setCatalog(req.body, req.user?.email) }));
+
+  // --- polices : celles livrées avec l'atelier (son index), plus celles installées par les administrateurs ---
+  const fonts = new FontInstaller(lib, opts.fetch);
+  const builtinFonts = async (): Promise<Set<string>> => {
+    if (!opts.atelierDist) return new Set();
+    try {
+      const idx = JSON.parse(await readFile(path.join(opts.atelierDist, 'library', 'index.json'), 'utf8')) as { fonts?: Array<{ id: string }> };
+      return new Set((idx.fonts ?? []).map((f) => f.id));
+    } catch {
+      return new Set();
+    }
+  };
+  app.get('/api/fonts', async () => {
+    const builtin = await builtinFonts();
+    return { fonts: installedFonts(lib).filter((f) => !builtin.has(f.id)) };
+  });
+  app.post<{ Body: { name?: string; url?: string; dir?: string } }>('/api/fonts', { preHandler: adminOnly }, async (req, reply) => {
+    try {
+      return { ok: true, font: await fonts.install(req.body ?? {}, await builtinFonts()) };
+    } catch (e) {
+      return reply.code(400).send({ error: (e as Error).message });
+    }
+  });
+  app.delete<{ Params: { id: string } }>('/api/fonts/:id', { preHandler: adminOnly }, async (req, reply) => {
+    try {
+      await fonts.remove(req.params.id);
+    } catch (e) {
+      return reply.code(404).send({ error: (e as Error).message });
+    }
+    const c = accounts.catalog();
+    if (c.fonts?.[req.params.id]) {
+      delete c.fonts[req.params.id];
+      accounts.setCatalog(c, req.user?.email);
+    }
+    return { ok: true };
+  });
 
   // --- fiche d'activité : tout membre la lit, les responsables la modifient ---
   const profileOf = (id: string) => {

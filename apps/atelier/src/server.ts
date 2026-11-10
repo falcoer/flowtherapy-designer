@@ -373,3 +373,8 @@ export interface SystemInfo {
 export const fetchSystem = () => call<SystemInfo>('/api/system');
 export const restartServer = () => call<{ ok: boolean }>('/api/system/restart', { method: 'POST' });
 export const reindexLibrary = () => call<{ count: number }>('/api/library/reindex', { method: 'POST' });
+
+/* ---------- polices de la configuration globale ---------- */
+export const installFont = (body: { name?: string; url?: string; dir?: string }) =>
+  call<{ font: import('./text').FontInfo }>('/api/fonts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+export const removeFont = (id: string) => call<{ ok: true }>(`/api/fonts/${encodeURIComponent(id)}`, { method: 'DELETE' });

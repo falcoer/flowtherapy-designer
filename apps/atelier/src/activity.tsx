@@ -22,7 +22,7 @@ import {
   type ServiceLink,
   type TeamRef,
 } from './server';
-import { ensureFont, fontFamily, fontList, loadFonts } from './text';
+import { ensureFont, fontFamily, fontList, fontsFor, loadFonts } from './text';
 import { MembersSection } from './team-ui';
 import type { MediaType } from '@ftd/core';
 import { BRAND_SLOTS, catalogNow, channelsOf, colorGuide, connectionsOf, CONTACT_KINDS, defaultPicks, DEFAULT_OPERATIONS, formatsFor, guidePaletteColor, ROLE_NAMES, slotColor } from './targets';
@@ -187,8 +187,8 @@ export function UserMenu(p: { me: Me | null; onPrefs: () => void; onCatalog: () 
       {me?.admin && (
         <button className="row" onClick={p.onCatalog}>
           <Icon name="settings" />
-          <span>Catalogue du site</span>
-          <small>formats, diffusion</small>
+          <span>Configuration globale</span>
+          <small>formats, diffusion, polices</small>
         </button>
       )}
       {/* toujours en bas du menu ; sans compte (accès local ou mot de passe), il n'y a pas de session à fermer */}
@@ -301,6 +301,7 @@ function PaletteEditor(p: {
   name: string;
   set: (q: Palette) => void;
   remove: () => void;
+  duplicate: () => void;
   makeFirst: () => void;
   onLogo: (u: string | null) => void;
   onErr: (m: string) => void;
@@ -372,6 +373,11 @@ function PaletteEditor(p: {
           )
         )}
         {edit && (
+          <button className="act-pal-dup" onClick={p.duplicate} title="Dupliquer la variante" aria-label="Dupliquer la variante">
+            <Icon name="duplicate" />
+          </button>
+        )}
+        {edit && (
           <button className="tm-remove" onClick={p.remove} title="Retirer la variante">
             ×
           </button>
@@ -403,7 +409,7 @@ function PaletteEditor(p: {
 function FontsByUse(p: { fonts: { title?: string; body?: string; accent?: string }; edit: boolean; set: (f: { title?: string; body?: string; accent?: string }) => void }) {
   const [open, setOpen] = useState<'title' | 'body' | 'accent' | null>(null);
   const [, bump] = useState(0);
-  const list = fontList();
+  const list = fontsFor('branding');
   useEffect(() => {
     // chaque police chargée redessine les puces
     const ids = open ? list.map((f) => f.id) : (Object.values(p.fonts).filter(Boolean) as string[]);
@@ -421,7 +427,7 @@ function FontsByUse(p: { fonts: { title?: string; body?: string; accent?: string
       <div className="act-fonts">
         {uses.map(([k, label]) => {
           const id = p.fonts[k];
-          const f = id ? list.find((x) => x.id === id) : undefined;
+          const f = id ? fontList().find((x) => x.id === id) : undefined;
           return (
             <button key={k} className={`act-font ${open === k ? 'on' : ''}`} disabled={!p.edit && !f} onClick={() => p.edit && setOpen(open === k ? null : k)}>
               <small>{label}</small>
@@ -629,7 +635,18 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
     const base = palettes[0]?.colors ?? SITE_VARIANTS[0]!.colors;
     setPalettes([...palettes, { id, name: palettes.length ? `Variante ${palettes.length + 1}` : 'Principale', colors: base.map((c) => ({ ...c, ...(c.stops ? { stops: [...c.stops] } : {}) })) }]);
   };
-  const takeSite = () => setPalettes([...palettes.filter((q) => !SITE_VARIANTS.some((x) => x.id === q.id)), ...SITE_VARIANTS.map((q) => ({ ...q, colors: q.colors.map((c) => ({ ...c })) }))]);
+  // copie juste après l'originale, logo de variante compris
+  const duplicatePalette = (pi: number) => {
+    const src = palettes[pi]!;
+    const id = `palette-${Date.now().toString(36)}`;
+    const copy: Palette = { ...src, id, name: `${src.name} (copie)`, colors: src.colors.map((c) => ({ ...c, ...(c.stops ? { stops: [...c.stops] } : {}) })) };
+    const next = { ...prof, branding: { ...branding, palettes: [...palettes.slice(0, pi + 1), copy, ...palettes.slice(pi + 1)], palette: undefined } };
+    const lg = palLogo(src.id);
+    const nextLogos = lg ? { ...logos, [`pal-${id}`]: lg } : logos;
+    setProf(next);
+    setLogos(nextLogos);
+    schedule(next, nextLogos);
+  };
   const keywords = branding.keywords ?? [];
   const addKeywords = (text: string) => {
     const add = text
@@ -788,6 +805,7 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
                 onErr={setErr}
                 set={(q) => setPalettes(palettes.map((x, j) => (j === pi ? q : x)))}
                 remove={() => setPalettes(palettes.filter((_, j) => j !== pi))}
+                duplicate={() => duplicatePalette(pi)}
                 makeFirst={() => setPalettes([pal, ...palettes.filter((_, j) => j !== pi)])}
               />
             ))}
@@ -796,11 +814,6 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
                 <button className="pf-btn act-add" onClick={addPalette}>
                   + Nouvelle variante
                 </button>
-                {/flow/i.test(prof.name || team.name) && (
-                  <button className="pf-btn act-add" onClick={takeSite} title="Ajoute (ou remet à jour) les variantes « Site clair » et « Site sombre » reprises de flowtherapymusic.com">
-                    Reprendre les couleurs du site
-                  </button>
-                )}
               </div>
             )}
           </>

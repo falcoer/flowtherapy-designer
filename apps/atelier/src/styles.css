@@ -684,6 +684,8 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .tm-role { flex: none; max-width: 9.5em; padding: 6px 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--chrome-solid); color: var(--ink); font: inherit; font-size: 12px; }
 .tm-badge { flex: none; font-size: 11.5px; color: var(--muted); }
 .tm-remove { flex: none; min-width: 28px; height: 28px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+.act-pal-dup { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.act-pal-dup svg { width: 15px; height: 15px; }
 .tm-remove.armed { border-color: #c0392b; color: #c0392b; font-size: 12px; font-weight: 600; }
 .tm-invite { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .pf-confirm { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 12px; border: 1px solid #c0392b; font-size: 12.5px; color: var(--ink); }
@@ -2016,3 +2018,9 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .act-conn-body .pf-input { width: 100%; box-sizing: border-box; }
 .act-conns > .act-add { align-self: flex-start; }
 @media (max-width: 520px) { .act-conn-body { grid-template-columns: 1fr; } }
+.cat-font-name { font-size: 16px; font-weight: 400; }
+.cat-font-sample { font-size: 34px; line-height: 1.15; padding: 14px 4px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.cat-font-add { display: flex; flex-wrap: wrap; gap: 8px; }
+.cat-font-add .pf-input { flex: 1 1 160px; min-width: 0; }
+.cat-free { display: flex; flex-wrap: wrap; gap: 6px; }
+.cat-free .act-check { background: none; color: inherit; }

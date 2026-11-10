@@ -111,7 +111,17 @@ def fonts():
                 name = f"{el['id']}-{i}{src.suffix}"
                 shutil.copyfile(src, OUT / 'fonts' / name)
             files.append({k: x[k] for k in ('weight', 'weightMax', 'style') if k in x} | {'src': f'library/fonts/{name}'})
-        out.append({'id': el['id'], 'family': el['family'], 'tags': el.get('tags', []), 'files': files})
+        if el['id'] == 'inter':
+            # police de l'interface, servie par l'application plutôt que par Google Fonts
+            fmt = {'.woff2': 'woff2', '.woff': 'woff', '.otf': 'opentype'}
+            css = ''.join(
+                f"@font-face{{font-family:'Inter';src:url('{Path(x['src']).name}') format('{fmt.get(Path(x['src']).suffix, 'truetype')}');"
+                f"font-weight:{x['weight']}{' ' + str(x['weightMax']) if 'weightMax' in x else ''};font-style:{x['style']};font-display:swap}}\n"
+                for x in files
+            )
+            (OUT / 'fonts' / 'interface.css').write_text(css)
+        lic = (el.get('origin') or {}).get('license')
+        out.append({'id': el['id'], 'family': el['family'], 'tags': el.get('tags', []), 'files': files} | ({'license': lic} if lic else {}))
     return out
 
 
