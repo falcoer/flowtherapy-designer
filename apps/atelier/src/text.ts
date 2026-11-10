@@ -400,6 +400,12 @@ export function loadFonts(): Promise<FontInfo[]> {
 /** Relit la liste (après une installation ou un retrait). */
 export function reloadFonts(): Promise<FontInfo[]> {
   listing = null;
+  // une police installée peut être retirée puis remplacée sous le même identifiant
+  for (const f of fonts.filter((x) => x.installed)) {
+    loading.delete(f.id);
+    ready.delete(f.id);
+    document.fonts.forEach((ff) => void (ff.family.replace(/"/g, '') === `FTD ${f.family}` && document.fonts.delete(ff)));
+  }
   return loadFonts();
 }
 export const fontList = () => fonts;

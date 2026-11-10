@@ -636,12 +636,26 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
     setPalettes([...palettes, { id, name: palettes.length ? `Variante ${palettes.length + 1}` : 'Principale', colors: base.map((c) => ({ ...c, ...(c.stops ? { stops: [...c.stops] } : {}) })) }]);
   };
   // copie juste après l'originale, logo de variante compris
-  const duplicatePalette = (pi: number) => {
+  const duplicatePalette = async (pi: number) => {
     const src = palettes[pi]!;
+    // un logo déjà enregistré revient en adresse : le serveur attend l'image elle-même
+    let lg = palLogo(src.id);
+    if (lg && !lg.startsWith('data:')) {
+      try {
+        const blob = await (await fetch(lg, { credentials: 'same-origin' })).blob();
+        lg = await new Promise<string>((ok, ko) => {
+          const fr = new FileReader();
+          fr.onload = () => ok(String(fr.result));
+          fr.onerror = () => ko(fr.error);
+          fr.readAsDataURL(blob);
+        });
+      } catch {
+        lg = null;
+      }
+    }
     const id = `palette-${Date.now().toString(36)}`;
     const copy: Palette = { ...src, id, name: `${src.name} (copie)`, colors: src.colors.map((c) => ({ ...c, ...(c.stops ? { stops: [...c.stops] } : {}) })) };
     const next = { ...prof, branding: { ...branding, palettes: [...palettes.slice(0, pi + 1), copy, ...palettes.slice(pi + 1)], palette: undefined } };
-    const lg = palLogo(src.id);
     const nextLogos = lg ? { ...logos, [`pal-${id}`]: lg } : logos;
     setProf(next);
     setLogos(nextLogos);
@@ -805,7 +819,7 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
                 onErr={setErr}
                 set={(q) => setPalettes(palettes.map((x, j) => (j === pi ? q : x)))}
                 remove={() => setPalettes(palettes.filter((_, j) => j !== pi))}
-                duplicate={() => duplicatePalette(pi)}
+                duplicate={() => void duplicatePalette(pi)}
                 makeFirst={() => setPalettes([pal, ...palettes.filter((_, j) => j !== pi)])}
               />
             ))}

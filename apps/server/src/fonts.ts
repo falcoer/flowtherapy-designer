@@ -68,7 +68,8 @@ export function publicUrl(raw: string): URL {
   } catch {
     throw new Error('Adresse invalide');
   }
-  const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  // une IPv4 glissée dans une IPv6 (::ffff:127.0.0.1) compte comme IPv4
+  const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/^::ffff:/, '');
   const local =
     h === 'localhost' ||
     h.endsWith('.local') ||
@@ -79,7 +80,10 @@ export function publicUrl(raw: string): URL {
     /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
     h === '::1' ||
     /^f[cd]/.test(h) ||
-    /^fe80/.test(h);
+    /^fe80/.test(h) ||
+    /^::ffff:/.test(h) ||
+    /^[0-9a-f]{1,4}:[0-9a-f]{1,4}$/.test(h) ||
+    /^\d+$/.test(h);
   if (u.protocol !== 'https:' || local) throw new Error('Adresse https publique attendue');
   return u;
 }
@@ -135,7 +139,13 @@ export class FontInstaller {
   ) {}
 
   private async get(url: string, max = MAX_FILE): Promise<Buffer> {
-    const r = await this.fetcher(url, { redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+    // chaque redirection est revérifiée : jamais vers le réseau local
+    let r = await this.fetcher(publicUrl(url).toString(), { redirect: 'manual', signal: AbortSignal.timeout(30_000) });
+    for (let hops = 0; r.status >= 300 && r.status < 400 && r.headers.get('location'); hops++) {
+      if (hops >= 5) throw new Error('Trop de redirections');
+      url = new URL(r.headers.get('location')!, url).toString();
+      r = await this.fetcher(publicUrl(url).toString(), { redirect: 'manual', signal: AbortSignal.timeout(30_000) });
+    }
     if (!r.ok) throw new Error(`Téléchargement refusé (${r.status})`);
     const buf = Buffer.from(await r.arrayBuffer());
     if (buf.length > max) throw new Error('Fichier trop lourd');

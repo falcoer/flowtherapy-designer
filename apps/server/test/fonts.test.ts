@@ -44,6 +44,7 @@ async function setup() {
     if (url.endsWith('/ofl/lora/OFL.txt')) return new Response('SIL Open Font License');
     if (url === 'https://example.org/ma-police.woff2') return new Response(Buffer.from('wOF2xxxxxxxx'));
     if (url === 'https://example.org/page.html') return new Response('<html>');
+    if (url === 'https://example.org/detour.ttf') return new Response(null, { status: 302, headers: { location: 'http://127.0.0.1:8069/secret' } });
     return new Response('', { status: 404 });
   }) as unknown as typeof fetch;
   const app = await buildApp({ libraryRoot: lib, cacheRoot: path.join(root, 'cache'), ateliersRoot: path.join(root, 'ateliers'), webFonts: false, fetch: fakeFetch });
@@ -69,6 +70,7 @@ describe('polices de la configuration globale', () => {
     expect(() => publicUrl('http://example.org/a.ttf')).toThrow();
     expect(() => publicUrl('https://127.0.0.1/a.ttf')).toThrow();
     expect(() => publicUrl('https://192.168.1.4/a.ttf')).toThrow();
+    expect(() => publicUrl('https://[::ffff:127.0.0.1]/a.ttf')).toThrow();
   });
 
   it('installe une police libre avec sa licence, la sert, puis la retire', async () => {
@@ -92,12 +94,16 @@ describe('polices de la configuration globale', () => {
   });
 
   it('installe un fichier de police donné par son adresse, refuse le reste', async () => {
-    const { app } = await setup();
+    const { app, asked } = await setup();
     const ok = await app.inject({ method: 'POST', url: '/api/fonts', payload: { name: 'Ma Police', url: 'https://example.org/ma-police.woff2' } });
     expect(ok.json().font).toMatchObject({ id: 'ma-police', family: 'Ma Police', files: [{ weight: 400, style: 'normal', src: '/files/fonts/ma-police/ma-police.woff2' }] });
     expect(ok.json().font.license).toBeUndefined();
     expect((await app.inject({ method: 'POST', url: '/api/fonts', payload: { name: 'X', url: 'https://example.org/page.html' } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'POST', url: '/api/fonts', payload: { name: 'X', url: 'https://fonts.google.com/specimen/Inexistante' } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'DELETE', url: '/api/fonts/inter' })).statusCode).toBe(404);
+    // une redirection vers le réseau local est refusée avant d'être suivie
+    const detour = await app.inject({ method: 'POST', url: '/api/fonts', payload: { name: 'X', url: 'https://example.org/detour.ttf' } });
+    expect(detour.statusCode).toBe(400);
+    expect(asked).not.toContain('http://127.0.0.1:8069/secret');
   });
 });
