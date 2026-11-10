@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Knob } from './knob';
-import { exportSize, FORMATS, formatOf, uniformMargins, type Margins, type Target } from './model';
+import { exportSize, FORMATS, formatOf, type Margins, type Target } from './model';
+import { FrameInsets } from './frame-insets';
 import { palettesOf, type ActivityProfile, type Channel, type Palette } from './server';
-import { channelsOf, formatsFor, paletteFor, paletteGuides, targetKey, targetLabel } from './targets';
+import { channelsOf, framesOf, formatsFor, paletteFor, paletteGuides, targetKey, targetLabel } from './targets';
 
 /** Logo d'un média : Facebook et Instagram reconnus par leur nom, sinon un pictogramme selon le type. */
 export function MediaIcon({ ch, size = 22 }: { ch?: Channel; size?: number }) {
@@ -147,36 +147,36 @@ const sameMargins = (a: Margins, b: Margins) => r3(a.top) === r3(b.top) && r3(a.
  * (marges du média quand la publication n'a pas les siennes, résolution native quand elle n'en fixe pas).
  */
 export const samePublication = (a: Target, b: Target, channels: Channel[] = []) => {
-  const m = (t: Target) => t.margins ?? uniformMargins(channels.find((c) => c.id === t.channel)?.margin ?? 0);
+  const ch = (t: Target) => channels.find((c) => c.id === t.channel);
+  const m = (t: Target) => framesOf(t, ch(t)).margins;
+  const z = (t: Target) => framesOf(t, ch(t)).zone ?? m(t);
   const w = (t: Target) => t.width ?? exportSize(formatOf(t.format)).w;
-  return targetKey(a) === targetKey(b) && sameMargins(m(a), m(b)) && w(a) === w(b);
+  return targetKey(a) === targetKey(b) && sameMargins(m(a), m(b)) && sameMargins(z(a), z(b)) && w(a) === w(b);
 };
-const pct = (v: number) => Math.round(v * 1000) / 10;
-const SIDES: Array<[keyof Margins, string]> = [
-  ['top', 'Haut'],
-  ['left', 'Gauche'],
-  ['right', 'Droite'],
-  ['bottom', 'Bas'],
-];
-
-const MAX_MARGIN = 0.25;
-/** Réglage d'une marge : un potard de 0 à 25 % du petit côté, sa légende et sa valeur dessous. */
-function MarginDial({ label, value, onChange, className }: { label: string; value: number; onChange: (v: number) => void; className?: string }) {
+/** Choix de la variante de couleurs de la publication affichée (dans la palette) : celle du réseau, ou une variante de l'activité. */
+export function VariantPick(p: { current: Target; activity: ActivityProfile | null; onApply: (t: Target) => void }) {
+  const cfg = p.current;
+  const ch = channelsOf(p.activity).find((c) => c.id === cfg.channel);
+  const mediaPal = paletteFor(ch ? { channel: ch.id, format: cfg.format } : undefined, p.activity);
   return (
-    <div className={`cp-dial ${className ?? ''}`} title={`${label} : glisser vers le haut ou la droite pour élargir`}>
-      <Knob label={`Marge ${label.toLowerCase()}`} value={Math.max(0, Math.min(1, value / MAX_MARGIN))} fmt={() => `${pct(value)} %`} onChange={(v) => onChange(Math.round(v * MAX_MARGIN * 1000) / 1000)} />
-      <span className="cp-dial-l">{label}</span>
-      <output>
-        {pct(value)}
-        <small> %</small>
-      </output>
-    </div>
+    <Combo
+      text
+      grow
+      label="Variante"
+      value={cfg.palette ?? ''}
+      onChange={(id) => {
+        const next = { ...cfg, palette: id || undefined };
+        if (!next.palette) delete next.palette;
+        p.onApply(next);
+      }}
+      options={[{ id: '', icon: <VariantBar pal={mediaPal} wide />, label: mediaPal ? `Par défaut · ${mediaPal.name}` : 'Par défaut' }, ...palettesOf(p.activity).map((q) => ({ id: q.id, icon: <VariantBar pal={q} wide />, label: q.name }))]}
+    />
   );
 }
 
 /**
  * Édition de la publication affichée : son réseau, son format, sa résolution, sa variante et ses
- * marges (un potard pour les quatre, un par côté), puis ses repères. Chaque réglage s'applique
+ * marge et sa zone d'intérêt (FrameInsets, le même réglage que le catalogue), puis ses repères. Chaque réglage s'applique
  * aussitôt au document et à la publication.
  */
 export function PublicationsPanel(p: {
@@ -188,21 +188,17 @@ export function PublicationsPanel(p: {
   guides?: ReactNode;
 }) {
   const channels = channelsOf(p.activity);
-  const palettes = palettesOf(p.activity);
   const cfg = p.current;
   const ch = channels.find((c) => c.id === cfg.channel);
   const f = formatOf(cfg.format);
   const native = exportSize(f);
   const size = exportSize(f, cfg.width);
-  const margins = cfg.margins ?? uniformMargins(ch?.margin ?? 0);
+  const { margins, zone } = framesOf(cfg, ch);
   const set = (x: Partial<Target>) => {
     const next = { ...cfg, ...x };
     for (const k of Object.keys(next) as (keyof Target)[]) if (next[k] === undefined) delete next[k];
     p.onApply(next);
   };
-  const mediaPal = paletteFor(ch ? { channel: ch.id, format: cfg.format } : undefined, p.activity);
-  const all = (margins.top + margins.right + margins.bottom + margins.left) / 4;
-  const k = Math.min(f.width, f.height);
 
   return (
     <>
@@ -216,14 +212,14 @@ export function PublicationsPanel(p: {
             onChange={(id) => {
               const c = channels.find((y) => y.id === id);
               const fs = formatsFor(c);
-              set({ channel: id || undefined, format: fs.some((x) => x.id === cfg.format) ? cfg.format : fs[0]!.id, margins: uniformMargins(c?.margin ?? 0) });
+              set({ channel: id || undefined, format: fs.some((x) => x.id === cfg.format) ? cfg.format : fs[0]!.id, margins: undefined, zone: undefined });
             }}
             options={[...channels.map((c) => ({ id: c.id, icon: <MediaIcon ch={c} />, label: c.name })), { id: '', icon: <MediaIcon />, label: 'Libre' }]}
           />
         </div>
         <div className="pub-field">
           <span>Format</span>
-          <Combo text label="Format" value={cfg.format} onChange={(id) => set({ format: id, width: undefined })} options={(ch ? formatsFor(ch) : FORMATS).map((x) => ({ id: x.id, icon: <FmtGlyph id={x.id} />, label: x.title }))} />
+          <Combo text label="Format" value={cfg.format} onChange={(id) => set({ format: id, width: undefined, margins: undefined, zone: undefined })} options={(ch ? formatsFor(ch) : FORMATS).map((x) => ({ id: x.id, icon: <FmtGlyph id={x.id} />, label: x.title }))} />
         </div>
         <label className="pub-field">
           <span>Résolution</span>
@@ -244,38 +240,9 @@ export function PublicationsPanel(p: {
             <small>× {size.h} px</small>
           </span>
         </label>
-        <div className="pub-field">
-          <span>Variante</span>
-          <Combo
-            text
-            grow
-            label="Variante"
-            value={cfg.palette ?? ''}
-            onChange={(id) => set({ palette: id || undefined })}
-            options={[{ id: '', icon: <VariantBar pal={mediaPal} wide />, label: mediaPal ? mediaPal.name : 'Du réseau' }, ...palettes.map((q) => ({ id: q.id, icon: <VariantBar pal={q} wide />, label: q.name }))]}
-          />
-        </div>
         <div className="pub-field wide">
-          <span>Marges (zones mortes comprises), en % du petit côté</span>
-          <div className="pub-margins-row">
-            <MarginDial label="Toutes" className="pm-all" value={all} onChange={(v) => set({ margins: uniformMargins(v) })} />
-            <div className="pub-margins" style={{ ['--ratio' as string]: `${f.width} / ${f.height}` }}>
-              {SIDES.map(([side, l]) => (
-                <MarginDial key={side} label={l} className={`pm-${side}`} value={margins[side]} onChange={(v) => set({ margins: { ...margins, [side]: v } })} />
-              ))}
-              <span className="pm-page" aria-hidden>
-                <span
-                  className="pm-zone"
-                  style={{
-                    top: `${((margins.top * k) / f.height) * 100}%`,
-                    bottom: `${((margins.bottom * k) / f.height) * 100}%`,
-                    left: `${((margins.left * k) / f.width) * 100}%`,
-                    right: `${((margins.right * k) / f.width) * 100}%`,
-                  }}
-                />
-              </span>
-            </div>
-          </div>
+          <span>Marge et zone d’intérêt</span>
+          <FrameInsets width={f.width} height={f.height} margins={margins} zone={zone} onChange={(m, z) => set({ margins: m, zone: z })} />
         </div>
       </div>
       {p.guides}

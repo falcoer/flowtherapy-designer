@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { cleanCatalog, type Catalog } from '@ftd/core';
 
 /**
  * Comptes et équipes : qui peut entrer, dans quelles équipes, avec quel rôle.
@@ -80,9 +81,11 @@ export interface ActivityProfile {
     /** Raison d'être. */
     purpose?: string;
     keywords?: string[];
-    /** Textes récurrents prêts à poser (partenaires, réseaux, hashtags…). */
+    /** Anciens textes récurrents (partenaires, réseaux, hashtags…) : lus, plus édités. */
     mentions?: Array<{ name: string; text: string }>;
   };
+  /** Coordonnées : tout ce qui ramène à l'activité (e-mails, téléphones, liens…). */
+  contacts?: Contact[];
   /** Canaux de communication (médias) : chacun fixe ses formats, sa marge, son logo et ses mentions. */
   channels?: Channel[];
   /** Occasions (concert, nouvelle musique…) : les cibles présélectionnées d'un nouveau document. */
@@ -117,18 +120,47 @@ export interface Palette {
   colors: PaletteColor[];
 }
 
-export const COLOR_ROLES = ['principale', 'texte', 'bordure', 'fond', 'sujet1', 'sujet2', 'sujet3', 'accent', 'secondaire'] as const;
+export const COLOR_ROLES = ['principale', 'texte', 'bordure', 'fond', 'complementTexte', 'complementFond', 'sujet1', 'sujet2', 'sujet3', 'accent', 'secondaire'] as const;
 export type ColorRole = (typeof COLOR_ROLES)[number];
-export const CHANNEL_KINDS = ['social', 'affichage', 'impression', 'email', 'site'] as const;
+export const CHANNEL_KINDS = ['social', 'affichage', 'impression', 'email', 'site', 'streaming'] as const;
 export const LOGO_VARIANTS = ['main', 'light', 'dark', 'icon'] as const;
-export type LogoVariant = (typeof LOGO_VARIANTS)[number];
+/** Logo principal, anciennes variantes, ou logo d'une variante de couleurs (`pal-<id>`). */
+export type LogoVariant = (typeof LOGO_VARIANTS)[number] | `pal-${string}`;
+export const isLogoKey = (k: string): k is LogoVariant => (LOGO_VARIANTS as readonly string[]).includes(k) || /^pal-[a-z0-9-]{1,40}$/.test(k);
+
+export const CONTACT_KINDS = ['email', 'tel', 'site', 'lien', 'billetterie', 'adresse', 'autre'] as const;
+export interface Contact {
+  kind: (typeof CONTACT_KINDS)[number];
+  value: string;
+  /** Précision : « booking », « presse »… */
+  label?: string;
+}
+
+/**
+ * Un type de diffusion retenu par l'activité. Ses formats, sa marge et sa zone viennent du catalogue du site ;
+ * l'activité y range ses accès (compte, API, dossier). Les anciens médias décrits en entier restent lus.
+ */
+/** Un branchement de l'activité sur un type de diffusion : un compte, son accès d'API, son dossier. Plusieurs par type (deux pages Facebook…). */
+export interface Connection {
+  id: string;
+  /** Nom donné au branchement (« Page du groupe »…). */
+  label?: string;
+  account?: string;
+  api?: string;
+  /** Jamais renvoyé au navigateur. */
+  secret?: string;
+  secretSet?: boolean;
+  folder?: string;
+}
 
 export interface Channel {
   id: string;
-  name: string;
-  kind: (typeof CHANNEL_KINDS)[number];
+  /** Branchements de l'activité sur ce type (remplacent account/api/secret/folder ci-dessous). */
+  connections?: Connection[];
+  name?: string;
+  kind?: (typeof CHANNEL_KINDS)[number];
   /** Formats de l'atelier (identifiants), le premier par défaut. */
-  formats: string[];
+  formats?: string[];
   /** Marge des repères, en fraction du petit côté. */
   margin?: number;
   /** Zone d'intérêt (à venir) : description libre pour l'instant. */
@@ -138,8 +170,16 @@ export interface Channel {
   palette?: string;
   /** Noms des mentions à poser. */
   mentions?: string[];
-  /** Compte où publier. */
+  /** Compte où publier (ancien nom : url). */
   url?: string;
+  account?: string;
+  /** Délégation d'accès : adresse de l'API et secret (jamais renvoyé au navigateur). */
+  api?: string;
+  secret?: string;
+  /** Le secret est enregistré (seule information renvoyée). */
+  secretSet?: boolean;
+  /** Dossier cloud partagé. */
+  folder?: string;
 }
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -158,25 +198,55 @@ function cleanLinks(v: unknown): ServiceLink[] {
 
 const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 
+function cleanConnections(c: Partial<Channel>): Connection[] {
+  const seen = new Set<string>();
+  // ancienne fiche : un seul branchement rangé à même le type
+  const raw = Array.isArray(c.connections) ? c.connections : c.account || c.api || c.secret || c.folder ? [{ id: 'c1', account: c.account, api: c.api, secret: c.secret, folder: c.folder }] : [];
+  return raw
+    .slice(0, 10)
+    .map((x, i) => {
+      let id = str(x?.id, 20).replace(/[^a-z0-9-]/gi, '') || `c${i + 1}`;
+      for (let n = 2; seen.has(id); n++) id = `c${i + n}`;
+      seen.add(id);
+      const t = (k: 'label' | 'account' | 'api' | 'folder' | 'secret', max: number) => (str(x?.[k], max) ? { [k]: str(x?.[k], max) } : {});
+      return { id, ...t('label', 60), ...t('account', 200), ...t('api', 500), ...t('secret', 2000), ...t('folder', 500) } as Connection;
+    });
+}
+
 function cleanChannel(c: Partial<Channel>, i: number): Channel | null {
   const name = str(c?.name, 60);
-  if (!name) return null;
-  const kind = (CHANNEL_KINDS as readonly string[]).includes(c.kind as string) ? (c.kind as Channel['kind']) : 'social';
-  const id = str(c.id, 40).replace(/[^a-z0-9-]/g, '') || `canal-${i + 1}`;
+  const given = str(c?.id, 40).replace(/[^a-z0-9-]/g, '');
+  // un type du catalogue n'a besoin que de son identifiant
+  if (!name && !given) return null;
+  const kind = (CHANNEL_KINDS as readonly string[]).includes(c.kind as string) ? (c.kind as Channel['kind']) : undefined;
+  const id = given || `canal-${i + 1}`;
   const margin = typeof c.margin === 'number' && Number.isFinite(c.margin) ? Math.max(-0.25, Math.min(0.25, c.margin)) : undefined;
   const logo = (LOGO_VARIANTS as readonly string[]).includes(c.logo as string) ? c.logo : undefined;
+  const formats = arr<string>(c.formats).map((f) => str(f, 40)).filter(Boolean).slice(0, 12);
   return {
     id,
-    name,
-    kind,
-    formats: arr<string>(c.formats).map((f) => str(f, 40)).filter(Boolean).slice(0, 12),
+    ...(name ? { name } : {}),
+    ...(kind ? { kind } : {}),
+    ...(formats.length ? { formats } : {}),
     ...(margin !== undefined ? { margin } : {}),
     ...(str(c.focus, 300) ? { focus: str(c.focus, 300) } : {}),
     ...(logo ? { logo } : {}),
     ...(str(c.palette, 40) ? { palette: str(c.palette, 40) } : {}),
     mentions: arr<string>(c.mentions).map((m) => str(m, 60)).filter(Boolean).slice(0, 20),
     ...(str(c.url, 500) ? { url: str(c.url, 500) } : {}),
+    ...(cleanConnections(c).length ? { connections: cleanConnections(c) } : {}),
   };
+}
+
+function cleanContacts(v: unknown): Contact[] {
+  return arr<Partial<Contact>>(v)
+    .slice(0, 40)
+    .map((c) => ({
+      kind: (CONTACT_KINDS as readonly string[]).includes(c?.kind as string) ? (c!.kind as Contact['kind']) : 'autre',
+      value: str(c?.value, 300),
+      ...(str(c?.label, 60) ? { label: str(c?.label, 60) } : {}),
+    }))
+    .filter((c) => c.value);
 }
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -269,6 +339,7 @@ export function cleanProfile(p: ActivityProfile): ActivityProfile {
     ...(str(p.kind, 60) ? { kind: str(p.kind, 60) } : {}),
     services: { events: cleanLinks(p.services?.events), assets: cleanLinks(p.services?.assets) },
     branding: { palettes, fonts, purpose: str(p.branding?.purpose, 2000), keywords, mentions },
+    contacts: cleanContacts(p.contacts),
     channels,
     ...(Array.isArray(p.operations) ? { operations } : {}),
   };
@@ -311,6 +382,9 @@ export class Accounts {
         text TEXT NOT NULL, target TEXT, at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS messages_atelier ON messages(team, atelier);
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY, value TEXT NOT NULL, updated TEXT NOT NULL, by TEXT
+      );
       CREATE TABLE IF NOT EXISTS reactions (
         message INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
         email TEXT NOT NULL, emoji TEXT NOT NULL, at TEXT NOT NULL,
@@ -373,6 +447,24 @@ export class Accounts {
 
   /* ---------- fiche d'activité ---------- */
 
+  /** Catalogue du site (formats, types de diffusion) : celui des administrateurs, sinon celui d'origine. */
+  catalog(): Catalog {
+    const r = this.db.prepare("SELECT value FROM settings WHERE key = 'catalog'").get() as Row | undefined;
+    try {
+      return cleanCatalog(r?.value ? JSON.parse(String(r.value)) : {});
+    } catch {
+      return cleanCatalog({});
+    }
+  }
+
+  setCatalog(raw: unknown, by?: string): Catalog {
+    const c = cleanCatalog(raw);
+    this.db
+      .prepare("INSERT INTO settings (key, value, updated, by) VALUES ('catalog', ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated, by = excluded.by")
+      .run(JSON.stringify(c), new Date().toISOString(), by ?? null);
+    return c;
+  }
+
   /** Fiche de l'activité (type, services, branding) ; vide tant que personne ne l'a remplie. */
   profile(id: string): ActivityProfile {
     const r = this.db.prepare('SELECT profile FROM teams WHERE id = ?').get(id) as Row | undefined;
@@ -393,10 +485,12 @@ export class Accounts {
 
   /** Logo (ou une de ses variantes) en data URL : PNG, JPEG, SVG ou WebP ; null pour l'enlever. */
   setLogo(id: string, dataUrl: string | null, variant: LogoVariant = 'main') {
-    if (!(LOGO_VARIANTS as readonly string[]).includes(variant)) throw new Error(`Variante de logo inconnue : ${variant}`);
+    if (!isLogoKey(variant)) throw new Error(`Variante de logo inconnue : ${variant}`);
     if (dataUrl !== null) {
       if (!/^data:image\/(png|jpeg|svg\+xml|webp);base64,[A-Za-z0-9+/=]+$/.test(dataUrl)) throw new Error('Logo attendu : image PNG, JPEG, SVG ou WebP');
-      if (dataUrl.length > 1_500_000) throw new Error('Logo trop lourd (1 Mo au plus)');
+      // le logo d'une variante sert dans les documents : transparence et haute résolution
+      const max = variant.startsWith('pal-') ? 5_600_000 : 1_500_000;
+      if (dataUrl.length > max) throw new Error(`Logo trop lourd (${variant.startsWith('pal-') ? 4 : 1} Mo au plus)`);
     }
     const now = new Date().toISOString();
     if (variant === 'main') {

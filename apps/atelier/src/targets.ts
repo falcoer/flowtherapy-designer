@@ -1,5 +1,6 @@
-import { FORMATS, formatOf, uniformMargins, type Doc, type Guide, type Target } from './model';
-import { palettesOf, type ActivityProfile, type Channel, type ColorRole, type Operation, type Palette, type PaletteColor } from './server';
+import { FORMATS, formatOf, uniformMargins, type Doc, type Guide, type Margins, type Target } from './model';
+import { DEFAULT_CATALOG, type Catalog, type MediaType } from '@ftd/core';
+import { palettesOf, type ActivityProfile, type Channel, type ChannelPick, type Connection, type ColorRole, type Contact, type ContactKind, type Operation, type Palette, type PaletteColor } from './server';
 
 /**
  * Cibles d'un document : un média (canal de l'activité), un format compatible, une variante de couleurs.
@@ -7,19 +8,66 @@ import { palettesOf, type ActivityProfile, type Channel, type ColorRole, type Op
  * de chaque guide par celle du même rôle, et tous les supports suivent.
  */
 
-/** Médias proposés tant que l'activité n'a pas décrit les siens. */
-export const DEFAULT_CHANNELS: Channel[] = [
-  { id: 'affiche', name: 'Affiche', kind: 'affichage', formats: ['a4'], margin: 0.06, logo: 'main', mentions: [] },
-  { id: 'facebook', name: 'Facebook', kind: 'social', formats: ['carre', 'banniere'], margin: 0.05, logo: 'main', mentions: [] },
-  { id: 'instagram', name: 'Instagram', kind: 'social', formats: ['carre', 'story'], margin: 0.05, logo: 'icon', mentions: [] },
-  { id: 'applemusic', name: 'Apple Music', kind: 'site', formats: ['pochette'], margin: 0.04, logo: 'main', mentions: [] },
-];
+/* ---------- catalogue du site : formats et types de diffusion ---------- */
 
-/** Occasions proposées tant que l'activité n'a pas décrit les siennes. */
+let catalog: Catalog = DEFAULT_CATALOG;
+/** Le catalogue en cours (celui du serveur une fois chargé). */
+export const catalogNow = () => catalog;
+/** Range le catalogue du serveur ; ses formats rejoignent la liste de l'atelier (ceux d'origine gardent leur place). */
+export function setCatalog(c: Catalog) {
+  catalog = c;
+  for (const f of c.formats) {
+    const i = FORMATS.findIndex((x) => x.id === f.id);
+    if (i < 0) FORMATS.push(f);
+    else FORMATS[i] = f;
+  }
+}
+const mediaChannel = (m: MediaType): Channel => ({
+  id: m.id,
+  name: m.name,
+  kind: m.kind,
+  formats: [...m.formats],
+  ...(m.margin !== undefined ? { margin: m.margin } : {}),
+});
+/** Ancienne marge d'un média (avant qu'elle n'appartienne au format). */
+const channelMargins = (ch?: Channel) => ch?.margins ?? uniformMargins(ch?.margin ?? 0);
+/**
+ * Marge et zone d'intérêt d'une publication : les siennes si elle les a réglées,
+ * sinon celles de son format (catalogue), sinon l'ancienne marge de son média.
+ */
+export function framesOf(t: Pick<Target, 'format' | 'margins' | 'zone'>, ch?: Channel): { margins: Margins; zone?: Margins } {
+  if (t.margins) return { margins: t.margins, zone: t.zone };
+  const f = formatOf(t.format);
+  return { margins: f.margins ?? channelMargins(ch), zone: f.zone ?? ch?.zone };
+}
+
+/** Types de diffusion d'une activité qui n'a pas encore choisi : ceux cochés d'office par le catalogue. */
+export const defaultPicks = (): ChannelPick[] => catalog.media.filter((m) => m.default).map((m) => ({ id: m.id }));
+
+/**
+ * Médias de l'activité : chaque type retenu prend ses formats, sa marge et sa zone dans le catalogue,
+ * et garde les accès et la variante de l'activité. Un ancien média décrit en entier reste tel quel.
+ * Une fiche sans choix enregistré : les types cochés d'office (supports imprimés). Sans fiche (hors ligne) : tout le catalogue.
+ */
+export function channelsOf(p?: ActivityProfile | null): Channel[] {
+  const all = catalog.media.map((m) => ({ id: m.id }));
+  const fallback = p ? defaultPicks() : all;
+  const picks: ChannelPick[] = p?.channels?.length ? p.channels : fallback.length ? fallback : all;
+  return picks.flatMap((c) => {
+    const m = catalog.media.find((x) => x.id === c.id);
+    if (m) {
+      const { name: _n, kind: _k, formats: _f, margin: _m, margins: _ms, zone: _z, focus: _fo, ...own } = c;
+      return [{ ...mediaChannel(m), ...own }];
+    }
+    return c.name ? [{ formats: [], kind: 'social' as const, ...c, name: c.name }] : [];
+  });
+}
+
+/** Types de projet proposés tant que l'activité n'a pas décrit les siens (identifiants gardés : les campagnes y renvoient). */
 export const DEFAULT_OPERATIONS: Operation[] = [
   {
     id: 'concert',
-    name: 'Concert, évènement',
+    name: 'Concert',
     targets: [
       { channel: 'affiche', format: 'a4' },
       { channel: 'facebook', format: 'carre' },
@@ -27,8 +75,16 @@ export const DEFAULT_OPERATIONS: Operation[] = [
     ],
   },
   {
+    id: 'site',
+    name: 'Contenu site web',
+    targets: [
+      { channel: 'site', format: 'site-banniere' },
+      { channel: 'site', format: 'vignette' },
+    ],
+  },
+  {
     id: 'musique',
-    name: 'Nouvelle musique',
+    name: 'Publication d’un album',
     targets: [
       { channel: 'applemusic', format: 'pochette' },
       { channel: 'instagram', format: 'carre' },
@@ -36,19 +92,10 @@ export const DEFAULT_OPERATIONS: Operation[] = [
       { channel: 'facebook', format: 'carre' },
     ],
   },
-  { id: 'bannieres', name: 'Mise à jour des bannières', targets: [{ channel: 'facebook', format: 'banniere' }] },
-  {
-    id: 'logo',
-    name: 'Mise à jour du logo',
-    targets: [
-      { channel: 'facebook', format: 'carre' },
-      { channel: 'instagram', format: 'carre' },
-    ],
-  },
+  { id: 'story', name: 'Story', targets: [{ channel: 'instagram', format: 'story' }] },
 ];
 
-export const channelsOf = (p?: ActivityProfile | null): Channel[] => (p?.channels?.length ? p.channels : DEFAULT_CHANNELS);
-/** Occasions de l'activité, chaque cible gardée seulement si son média existe. */
+/** Types de projet de l'activité, chaque cible gardée seulement si son média existe. */
 export function operationsOf(p?: ActivityProfile | null): Operation[] {
   const chans = channelsOf(p);
   const ops = p?.operations ?? DEFAULT_OPERATIONS;
@@ -84,6 +131,9 @@ export const BRAND_SLOTS: Array<{ role: ColorRole; label: string; short: string 
   { role: 'texte', label: 'Texte', short: 'texte' },
   { role: 'bordure', label: 'Bordure de texte', short: 'bord.' },
   { role: 'fond', label: 'Fond d’écran', short: 'fond' },
+  // panneau en inversion (fond clair et texte foncé sur une variante sombre, et l'inverse)
+  { role: 'complementTexte', label: 'Complément texte', short: 'compl. t.' },
+  { role: 'complementFond', label: 'Complément fond', short: 'compl. f.' },
   { role: 'sujet1', label: 'Sujet 1', short: 'sujet 1' },
   { role: 'sujet2', label: 'Sujet 2', short: 'sujet 2' },
   { role: 'sujet3', label: 'Sujet 3', short: 'sujet 3' },
@@ -116,7 +166,7 @@ export function borderDefaults(style: string, prev: { guide: number; guide2?: nu
 }
 
 // le fond d'abord : la surface de fond prend le premier guide
-const ROLE_ORDER: string[] = ['fond', 'texte', 'bordure', 'principale', 'accent', 'sujet1', 'sujet2', 'sujet3', 'secondaire'];
+const ROLE_ORDER: string[] = ['fond', 'texte', 'bordure', 'principale', 'complementFond', 'complementTexte', 'accent', 'sujet1', 'sujet2', 'sujet3', 'secondaire'];
 const rank = (r?: string) => {
   const i = r ? ROLE_ORDER.indexOf(r) : -1;
   return i < 0 ? ROLE_ORDER.length : i;
@@ -162,12 +212,37 @@ export function recolor(guides: Guide[], pal: Palette | undefined): Guide[] {
   return [...out, ...ordered.filter((g) => g.role && !has(g.role))];
 }
 
-/** Le document vu pour une cible : son format, ses marges (les siennes, sinon celle du média) et sa variante. Le format est changé par l'appelant (holdPins). */
+/** Le document vu pour une cible : son format, ses marges et sa zone d'intérêt (les siennes, sinon celles du format) et sa variante. Le format est changé par l'appelant (holdPins). */
 export function docForTarget(d: Doc, t: Target, p?: ActivityProfile | null): Doc {
   const ch = t.channel ? channelsOf(p).find((c) => c.id === t.channel) : undefined;
-  const margins = t.margins ?? (ch?.margin !== undefined ? uniformMargins(ch.margin) : undefined);
-  return { ...d, guides: recolor(d.guides, paletteFor(t, p)), ...(margins ? { margins, margin: undefined } : {}) };
+  const { margins, zone } = framesOf(t, ch);
+  return { ...d, guides: recolor(d.guides, paletteFor(t, p)), margins, margin: undefined, zone };
 }
 
 /** Clé d'une cible, pour éviter les doublons. */
 export const targetKey = (t: Target) => `${t.channel ?? ''}/${t.format}/${t.palette ?? ''}`;
+
+/** Branchements d'un média de l'activité (une ancienne fiche n'en a qu'un, rangé à même le média). */
+export function connectionsOf(c?: Partial<Channel>): Connection[] {
+  if (!c) return [];
+  if (c.connections) return c.connections;
+  const account = c.account ?? c.url;
+  return account || c.api || c.folder || c.secretSet ? [{ id: 'c1', account, api: c.api, folder: c.folder, secretSet: c.secretSet }] : [];
+}
+
+/** Libellés des coordonnées. */
+export const CONTACT_KINDS: Record<ContactKind, string> = { email: 'E-mail', tel: 'Téléphone', site: 'Site web', lien: 'Lien', billetterie: 'Billetterie', adresse: 'Adresse', autre: 'Autre' };
+
+/**
+ * Coordonnées de l'activité : celles saisies, puis les comptes des médias retenus (marqués de leur média).
+ * Une ancienne fiche sans coordonnées garde ses mentions (partenaires, réseaux…) comme coordonnées libres.
+ */
+export function contactsOf(p?: ActivityProfile | null): Array<Contact & { channel?: string }> {
+  const own: Contact[] = p?.contacts?.length ? p.contacts : (p?.branding?.mentions ?? []).map((m) => ({ kind: 'autre' as const, label: m.name, value: m.text }));
+  const fromMedia = channelsOf(p).flatMap((c) =>
+    connectionsOf(c)
+      .filter((x) => x.account && !own.some((o) => o.value === x.account))
+      .map((x) => ({ kind: (c.kind === 'site' ? 'site' : 'lien') as ContactKind, label: x.label ? `${c.name} · ${x.label}` : c.name, value: x.account!, channel: c.id })),
+  );
+  return [...own, ...fromMedia];
+}

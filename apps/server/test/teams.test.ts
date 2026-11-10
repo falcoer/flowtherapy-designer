@@ -389,4 +389,48 @@ describe('équipes', () => {
     await lauris.send('PUT', '/api/ateliers/affiche', { title: 'Affiche', doc });
     expect((await max.get('/api/ateliers/affiche/messages')).json()).toEqual([]);
   });
+
+  it('le catalogue du site : les administrateurs le règlent, les formats d’origine restent', async () => {
+    const { login, as } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    await lauris.send('POST', '/api/teams/flowtherapy/members', { email: 'jenni@example.org', role: 'owner' });
+    const jenni = as((await login('jenni@example.org'))!);
+    const first = (await jenni.get('/api/catalog')).json();
+    expect(first.media.find((m: { id: string }) => m.id === 'affiche').name).toBe('Supports imprimés');
+    expect((await jenni.send('PUT', '/api/catalog', first)).statusCode).toBe(403);
+    const put = await lauris.send('PUT', '/api/catalog', {
+      formats: [{ id: 'flyer-a5', title: 'Flyer A5', width: 148, height: 210, unit: 'mm' }],
+      media: [{ id: 'flyer', name: 'Flyers', kind: 'affichage', formats: ['flyer-a5', 'inconnu'], fields: { folder: true } }],
+    });
+    const cat = put.json().catalog;
+    expect(cat.formats.map((f: { id: string }) => f.id)).toEqual(expect.arrayContaining(['flyer-a5', 'a4', 'carre']));
+    expect(cat.formats.find((f: { id: string }) => f.id === 'flyer-a5')).toMatchObject({ dpi: 300, target: 'print' });
+    expect(cat.media).toEqual([{ id: 'flyer', name: 'Flyers', kind: 'affichage', formats: ['flyer-a5'], fields: { folder: true } }]);
+    expect((await jenni.get('/api/catalog')).json().media[0].id).toBe('flyer');
+  });
+
+  it('le secret d’une délégation d’accès est gardé sans jamais être relu, branchement par branchement', async () => {
+    const { login, as } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    const url = '/api/teams/flowtherapy/profile';
+    // une ancienne fiche : son branchement unique devient le premier
+    await lauris.send('PUT', url, { channels: [{ id: 'facebook', account: '@flow', api: 'https://graph.facebook.com', secret: 's3cret' }] });
+    let got = (await lauris.get(url)).json();
+    expect(got.channels).toEqual([{ id: 'facebook', mentions: [], connections: [{ id: 'c1', account: '@flow', api: 'https://graph.facebook.com', secretSet: true }] }]);
+    expect(JSON.stringify(got)).not.toContain('s3cret');
+    // deux comptes Facebook : le premier garde son secret sans le renvoyer, le second a le sien
+    const [c1] = got.channels[0].connections;
+    await lauris.send('PUT', url, { channels: [{ id: 'facebook', connections: [{ ...c1, account: '@flowtherapy' }, { id: 'c2', label: 'Page Betty', account: '@betty', secret: 'autre' }] }] });
+    got = (await lauris.get(url)).json();
+    expect(got.channels[0].connections).toEqual([
+      { id: 'c1', account: '@flowtherapy', api: 'https://graph.facebook.com', secretSet: true },
+      { id: 'c2', label: 'Page Betty', account: '@betty', secretSet: true },
+    ]);
+    expect(JSON.stringify(got)).not.toContain('autre');
+    // null : il part
+    await lauris.send('PUT', url, { channels: [{ id: 'facebook', connections: [{ id: 'c1', secret: null }, { id: 'c2' }] }] });
+    got = (await lauris.get(url)).json();
+    expect(got.channels[0].connections.map((x: { secretSet?: boolean }) => !!x.secretSet)).toEqual([false, true]);
+  });
+
 });

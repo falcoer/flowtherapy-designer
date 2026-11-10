@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { blankDoc } from '../src/blank';
 import type { ActivityProfile } from '../src/server';
-import { colorGuide, DEFAULT_OPERATIONS, docForTarget, formatsFor, guidePaletteColor, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, slotColor, targetLabel } from '../src/targets';
+import { channelsOf, colorGuide, contactsOf, DEFAULT_OPERATIONS, docForTarget, formatsFor, guidePaletteColor, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, slotColor, targetLabel } from '../src/targets';
 import { SITE_VARIANTS } from '../src/brand-presets';
-import { docMargins, edgeLines, formatOf, setAnchorMargin } from '../src/model';
+import { anchorsOf, docMargins, edgeLines, formatOf, pinLine, resolvePoint, setAnchorFrames, setAnchorMargin } from '../src/model';
+import { cleanCatalog } from '@ftd/core';
 
 const profile: ActivityProfile = {
   id: 'ft',
@@ -40,7 +41,8 @@ describe('cibles et variantes', () => {
     expect(paletteFor({ channel: 'affiche', format: 'a4', palette: 'jour' }, profile)?.id).toBe('jour');
     expect(paletteFor({ channel: 'instagram', format: 'carre' }, profile)?.id).toBe('jour');
     const d = docForTarget(blankDoc(), { channel: 'affiche', format: 'a4' }, profile);
-    expect(docMargins(d)).toEqual({ top: 0.07, right: 0.07, bottom: 0.07, left: 0.07 });
+    // la marge vient du catalogue du site, plus de la fiche
+    expect(docMargins(d)).toEqual({ top: 0.06, right: 0.06, bottom: 0.06, left: 0.06 });
     expect(d.guides[0]).toMatchObject({ color: '#1b1530' });
     // une publication garde ses propres marges, côté par côté (zones mortes d'un réseau)
     const own = { top: 0.12, right: 0.05, bottom: 0.2, left: 0.05 };
@@ -57,6 +59,25 @@ describe('cibles et variantes', () => {
     expect(operationsOf(null)).toEqual(DEFAULT_OPERATIONS);
     expect(formatsFor(profile.channels![1]).map((f) => f.id)).toEqual(['carre', 'story']);
     expect(targetLabel({ channel: 'instagram', format: 'story' }, profile)).toBe('Instagram · Story');
+  });
+
+  it('un type retenu prend formats et marge dans le catalogue, et garde les accès de l’activité', () => {
+    const p: ActivityProfile = { id: 'x', name: 'X', channels: [{ id: 'facebook', account: '@x', palette: 'nuit' }, { id: 'perso', name: 'Lettre', kind: 'email', formats: ['a4'] }] };
+    expect(channelsOf(p)).toEqual([
+      {
+        id: 'facebook',
+        name: 'Facebook',
+        kind: 'social',
+        formats: ['carre', 'banniere'],
+        margin: 0.05,
+        account: '@x',
+        palette: 'nuit',
+      },
+      { id: 'perso', name: 'Lettre', kind: 'email', formats: ['a4'] },
+    ]);
+    // une fiche sans choix : les supports imprimés seulement ; ses coordonnées reprennent les comptes
+    expect(channelsOf({ id: 'y', name: 'Y' }).map((c) => c.id)).toEqual(['affiche']);
+    expect(contactsOf(p)).toEqual([{ kind: 'lien', label: 'Facebook', value: '@x', channel: 'facebook' }]);
   });
 });
 
@@ -117,4 +138,34 @@ describe('pastilles des variantes', () => {
     setAnchorMargin(0);
     expect(edgeLines(f).margin).toBeNull();
   });
+
+  it('la zone d’intérêt est un second cadre, toujours dans la marge, où les bords se tiennent aussi', () => {
+    const f = formatOf('carre');
+    const m = { top: 0.05, right: 0.05, bottom: 0.05, left: 0.05 };
+    // un côté de zone plus près du bord que la marge y est ramené
+    setAnchorFrames({ margins: m, zone: { top: 0.2, right: 0.02, bottom: 0.1, left: 0.1 } });
+    const e = edgeLines(f);
+    expect(e.zone).toEqual({ left: 108, right: 1080 - 54, top: 216, bottom: 1080 - 108 });
+    expect(pinLine(f, 'top', 'zone')).toBe(216);
+    expect(pinLine(f, 'top', 'margin')).toBe(54);
+    expect(resolvePoint('repartition', 'zone h0 v0', f)).toEqual({ x: 0.1, y: 0.2 });
+    expect(anchorsOf('repartition', f).some((a) => a.id === 'zone h1 v1')).toBe(true);
+    // sans zone plus large que la marge : pas de second cadre, la zone se replie sur la marge
+    setAnchorFrames({ margins: m, zone: m });
+    expect(edgeLines(f).zone).toBeNull();
+    expect(pinLine(f, 'top', 'zone')).toBe(54);
+    setAnchorMargin(0);
+  });
+
+  it('marge et zone appartiennent au format du catalogue, la zone dans la marge', () => {
+    const c = cleanCatalog({ formats: [{ id: 'x', title: 'X', width: 100, height: 100, unit: 'px', target: 'web', margins: { top: 0.1, right: 0.05, bottom: 0.05, left: 0.05 }, zone: { top: 0.05, right: 0.2, bottom: 0.9, left: 0.1 } }] });
+    expect(c.formats[0]).toMatchObject({ margins: { top: 0.1, right: 0.05, bottom: 0.05, left: 0.05 }, zone: { top: 0.1, right: 0.2, bottom: 0.45, left: 0.1 } });
+    // une publication prend la marge et la zone de son format, quel que soit son réseau ; les siennes l'emportent
+    const story = { top: 0.14, right: 0.08, bottom: 0.18, left: 0.08 };
+    expect(docForTarget(blankDoc(), { channel: 'instagram', format: 'story' }, null).zone).toEqual(story);
+    expect(docForTarget(blankDoc(), { format: 'story' }, null).zone).toEqual(story);
+    const own = { top: 0, right: 0, bottom: 0, left: 0 };
+    expect(docForTarget(blankDoc(), { format: 'story', margins: own }, null)).toMatchObject({ margins: own, zone: undefined });
+  });
+
 });

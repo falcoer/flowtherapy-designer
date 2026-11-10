@@ -25,18 +25,19 @@ import { blankDoc } from './blank';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
-import { ActivityForm, ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
-import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
-import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
+import { ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
+import { CatalogPanel } from './catalog-ui';
+import { fetchActivity, fetchCatalog, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
+import { channelsOf, setCatalog, contactsOf, CONTACT_KINDS, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
 import { Knob } from './knob';
-import { MediaIcon, PublicationsPanel, VariantBar } from './targets-ui';
+import { MediaIcon, PublicationsPanel, VariantBar, VariantPick } from './targets-ui';
 import { CampaignDialog } from './campaigns-ui';
 import { NewCompositionDialog } from './compositions-ui';
 import { CompositionMenu, CompositionsMenu, TopCrumbs } from './compositions-menu';
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
-import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget } from './model';
+import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorFrames, hasZone, zoneOf, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import { BRUSH_TIPS, TIP_NAMES, isComposite, tipHoverSvg, type BrushTip } from './tips';
@@ -109,7 +110,7 @@ const EDIT_SECTIONS: Array<[EditTool, string, string]> = [
   ['edge', 'Bords', 'frame'],
 ];
 const isEdit = (t: Tool): t is EditTool => EDIT_SECTIONS.some(([k]) => k === t);
-type Bubble = 'activity' | 'activity-edit' | 'user' | 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'projects' | 'composition' | 'export' | null;
+type Bubble = 'activity' | 'catalog' | 'user' | 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'projects' | 'composition' | 'export' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc-v2';
@@ -142,13 +143,13 @@ const MAGNET = 30;
  */
 function drawHeldEdges(ctx: CanvasRenderingContext2D, l: Layer, pins: NonNullable<Layer['pins']>, f: Format, px: number) {
   const bb = pageBounds(l, f);
-  const hasMargin = !!edgeLines(f).margin;
+  const lines = edgeLines(f);
   ctx.save();
   ctx.lineCap = 'round';
   for (const side of ['left', 'right', 'top', 'bottom'] as const) {
     const p = pins[side];
     if (!p) continue;
-    const c = markColor(pinKind(p, hasMargin));
+    const c = markColor(pinKind(p, !!lines.margin, !!lines.zone));
     const at = pinLine(f, side, p);
     const v = side === 'left' || side === 'right';
     const seg = (a: number, b: number) => {
@@ -352,10 +353,10 @@ function docAtTarget(d: Doc, i: number, activity: ActivityProfile | null): Doc {
   const t = d.targets?.[i];
   if (!t) return d;
   const next = docForTarget(d, t, activity);
-  if (d.formatId === t.format && JSON.stringify(docMargins(next)) === JSON.stringify(docMargins(d))) return { ...next, target: i };
-  setAnchorMargin(docMargins(d));
+  if (d.formatId === t.format && JSON.stringify([docMargins(next), next.zone]) === JSON.stringify([docMargins(d), d.zone])) return { ...next, target: i };
+  setAnchorFrames(d);
   const links = linkShapes(d, formatOf(d.formatId));
-  setAnchorMargin(docMargins(next));
+  setAnchorFrames(next);
   return { ...holdPins({ ...next, formatId: t.format }, formatOf(t.format), links), target: i };
 }
 
@@ -464,6 +465,15 @@ export function App() {
   useEffect(() => {
     if (online) fetchMe().then(setMe, () => setMe(null));
   }, [online]);
+  // catalogue du site : formats et types de diffusion (ceux d'origine hors ligne)
+  const [, setCatalogTick] = useState(0);
+  useEffect(() => {
+    if (online)
+      fetchCatalog().then(
+        (c) => (setCatalog(c), setCatalogTick((n) => n + 1)),
+        () => {},
+      );
+  }, [online]);
   // fiche de l'activité : canaux, palettes (pour partir d'un canal)
   const [activity, setActivity] = useState<ActivityProfile | null>(null);
   const loadActivity = () => {
@@ -548,11 +558,11 @@ export function App() {
       return d.targets.map((_, i) => {
         // les ancrages se résolvent avec les marges de cette publication
         const x = docAtTarget(d, i, activity);
-        setAnchorMargin(docMargins(x));
+        setAnchorFrames(x);
         return makeThumb(x);
       });
     } finally {
-      setAnchorMargin(docMargins(docRef.current));
+      setAnchorFrames(docRef.current);
     }
   };
   const saveNow = async (p = project, d = docRef.current) => {
@@ -701,9 +711,9 @@ export function App() {
     const samePalette = paletteFor(currentPub, activity)?.id === paletteFor(t, activity)?.id;
     setDoc((d) => {
       const next = { ...docForTarget(d, t, activity), ...(samePalette ? { guides: d.guides } : {}) };
-      setAnchorMargin(docMargins(d));
+      setAnchorFrames(d);
       const links = linkShapes(d, formatOf(d.formatId));
-      setAnchorMargin(docMargins(next));
+      setAnchorFrames(next);
       const held = d.formatId === t.format ? holdPins(next, formatOf(t.format), links) : holdPins({ ...next, formatId: t.format }, formatOf(t.format), links);
       const cur = d.targets?.length ? (d.target ?? 0) : 0;
       const targets = d.targets?.length ? d.targets.map((x, j) => (j === cur ? { ...t } : x)) : [{ ...t }];
@@ -799,6 +809,7 @@ export function App() {
     format: doc.formatId,
     ...(activeTarget?.palette ? { palette: activeTarget.palette } : {}),
     margins: docMargins(doc),
+    ...(doc.zone ? { zone: doc.zone } : {}),
     ...(activeTarget?.width && activeTarget.format === doc.formatId ? { width: activeTarget.width } : {}),
     ...(activeTarget?.name ? { name: activeTarget.name } : {}),
   };
@@ -813,7 +824,10 @@ export function App() {
   const pubTargets = (doc.targets ?? []).filter((_, i) => exportTargets.includes(i));
   const pubPlan = (pubCampaign?.plan ?? []).filter((it) => pubTargets.some((t) => (t.channel ?? '') === (it.channel ?? '') && t.format === it.format));
   const pubChannels = channels.filter((c) => pubTargets.some((t) => t.channel === c.id));
-  const pubMentions = (activity?.branding?.mentions ?? []).map((m) => ({ ...m, channel: pubChannels.some((c) => c.mentions?.includes(m.name)) }));
+  // les coordonnées de l'activité ; celles d'un média visé passent en tête
+  const pubMentions = contactsOf(activity)
+    .map((c) => ({ name: c.label || CONTACT_KINDS[c.kind], text: c.value, channel: !!c.channel && pubChannels.some((x) => x.id === c.channel) }))
+    .sort((a, b) => Number(b.channel) - Number(a.channel));
   const markPublished = async (id: string) => {
     if (!pubCampaign || !project) return;
     try {
@@ -1296,7 +1310,7 @@ export function App() {
   const f = formatOf(doc.formatId);
   // les calculs d'ancrage suivent la densité du document ouvert
   setAnchorDensity(doc.density);
-  setAnchorMargin(docMargins(doc));
+  setAnchorFrames(doc);
   /** Points d'accroche par défaut (Préférences) : pour les compositions qui n'ont pas les leurs. */
   const [defaultPoints, setDefaultPointsRaw] = useState<AnchorExtras>(() => {
     try {
@@ -1949,6 +1963,15 @@ export function App() {
         ctx.strokeStyle = markColor('margin');
         ctx.lineWidth = 1.2 * px;
         ctx.setLineDash([6 * px, 5 * px]);
+        ctx.strokeRect(l * f.width, t * f.height, f.width * (1 - l - r), f.height * (1 - t - b));
+        ctx.setLineDash([]);
+      }
+      // la zone d'intérêt : un second cadre, dans la marge
+      if (hasZone()) {
+        const { l, r, t, b } = zoneOf(f);
+        ctx.strokeStyle = markColor('zone');
+        ctx.lineWidth = 1.2 * px;
+        ctx.setLineDash([2 * px, 4 * px]);
         ctx.strokeRect(l * f.width, t * f.height, f.width * (1 - l - r), f.height * (1 - t - b));
         ctx.setLineDash([]);
       }
@@ -2927,7 +2950,11 @@ export function App() {
       const near1 = (side: 'left' | 'right' | 'top' | 'bottom', v: number) => {
         let best: { d: number; pin: Pin; at: number } | null = null;
         // sans marge, la ligne de marge se confond avec le bord : on s'y attache, pour suivre la marge si elle change ensuite
-        for (const [pin, at] of [[lines.margin ? true : 'margin', lines.page[side]], ...(lines.margin ? [['margin', lines.margin[side]]] : [])] as Array<[Pin, number]>) {
+        for (const [pin, at] of [
+          [lines.margin ? true : 'margin', lines.page[side]],
+          ...(lines.margin ? [['margin', lines.margin[side]]] : []),
+          ...(lines.zone ? [['zone', lines.zone[side]]] : []),
+        ] as Array<[Pin, number]>) {
           const d = Math.abs(v - at);
           if (d < tol && (!best || d < best.d)) best = { d, pin, at };
         }
@@ -2974,8 +3001,8 @@ export function App() {
         [bb.y0, O.y, 0],
         [bb.y1, O.y, f.height],
       ];
-      // la marge aimante aussi
-      if (lines.margin) targets.push([bb.x0, O.x, lines.margin.left], [bb.x1, O.x, lines.margin.right], [bb.y0, O.y, lines.margin.top], [bb.y1, O.y, lines.margin.bottom]);
+      // la marge et la zone d'intérêt aimantent aussi
+      for (const z of [lines.margin, lines.zone]) if (z) targets.push([bb.x0, O.x, z.left], [bb.x1, O.x, z.right], [bb.y0, O.y, z.top], [bb.y1, O.y, z.bottom]);
       for (const [edge, o0, page] of targets) {
         if (Math.abs(edge - o0) < 1e-9) continue;
         const kk = (page - o0) / (edge - o0);
@@ -3180,7 +3207,7 @@ export function App() {
         const pins = l.pins
           ? Object.entries(l.pins)
               .filter(([, v]) => v)
-              .map(([k, v]) => ({ left: 'gauche', right: 'droite', top: 'haut', bottom: 'bas' })[k] + (v === 'margin' ? ' (marge)' : ''))
+              .map(([k, v]) => ({ left: 'gauche', right: 'droite', top: 'haut', bottom: 'bas' })[k] + (v === 'margin' ? ' (marge)' : v === 'zone' ? ' (zone d’intérêt)' : ''))
           : [];
         setToast(pins.length ? `Tenu au bord ${pins.join(', ')}` : L.snap ? `Ancré sur ${l.anchor.point}` : `Près de ${l.anchor.point}`);
       }
@@ -4332,7 +4359,7 @@ export function App() {
                 thumb={project ? thumbUrl(projects.find((x) => x.id === project.id) ?? { id: project.id, title: project.title, updated: '' }) : undefined}
                 kind={doc.targets?.length ? `${doc.targets.length} publication${doc.targets.length > 1 ? 's' : ''}` : f.title}
                 saving={online && project ? saving : undefined}
-                open={bubble === 'activity' || bubble === 'activity-edit' ? 'activity' : bubble === 'projects' ? 'campaign' : bubble === 'composition' ? 'content' : null}
+                open={bubble === 'activity' ? 'activity' : bubble === 'projects' ? 'campaign' : bubble === 'composition' ? 'content' : null}
                 onActivity={() => {
                   if (bubble !== 'activity' && online) fetchMe().then(setMe, () => {});
                   setBubble(bubble === 'activity' ? null : 'activity');
@@ -5098,7 +5125,7 @@ export function App() {
                 {pubMentions.length > 0 && (
                   <div className="pub-mentions">
                     {pubMentions.map((m) => (
-                      <button key={m.name} className={`pub-mention ${m.channel ? 'on' : ''}`} title={m.text} onClick={() => setDoc((d) => ({ ...d, caption: `${(d.caption ?? '').trimEnd()}${d.caption ? '\n' : ''}${m.text}` }))}>
+                      <button key={`${m.name}/${m.text}`} className={`pub-mention ${m.channel ? 'on' : ''}`} title={m.text} onClick={() => setDoc((d) => ({ ...d, caption: `${(d.caption ?? '').trimEnd()}${d.caption ? '\n' : ''}${m.text}` }))}>
                         + {m.name}
                       </button>
                     ))}
@@ -5153,14 +5180,18 @@ export function App() {
             </div>
           )}
 
-          {bubble === 'activity' && <ActivityMenu me={me} online={online} onEdit={() => setBubble('activity-edit')} />}
-          {bubble === 'user' && <UserMenu me={me} onPrefs={() => setBubble('prefs')} />}
-          {bubble === 'activity-edit' && me?.team && (
-            <ActivityForm me={me} onClose={() => setBubble(null)} onSaved={() => {
-              void fetchMe().then(setMe, () => {});
-              loadActivity();
-            }} />
+          {bubble === 'activity' && (
+            <ActivityMenu
+              me={me}
+              online={online}
+              onSaved={() => {
+                void fetchMe().then(setMe, () => {});
+                loadActivity();
+              }}
+            />
           )}
+          {bubble === 'user' && <UserMenu me={me} onPrefs={() => setBubble('prefs')} onCatalog={() => setBubble('catalog')} />}
+          {bubble === 'catalog' && me?.admin && online && <CatalogPanel onClose={() => setBubble(null)} onSaved={(c) => (setCatalog(c), setCatalogTick((n) => n + 1))} />}
           {bubble === 'prefs' && (
             <PrefsPanel
               online={online}
@@ -5271,7 +5302,7 @@ export function App() {
                     <MarkLegend
                       kinds={(() => {
                         const seen = new Set(anchorsOf(doc.frame, f).map((a) => anchorKind(doc.frame, a.id)));
-                        return marksOfFrame(doc.frame).filter((k) => (k === 'margin' ? hasMargins(docMargins(doc)) : k === 'page' || seen.has(k)));
+                        return marksOfFrame(doc.frame).filter((k) => (k === 'margin' ? hasMargins(docMargins(doc)) : k === 'zone' ? hasZone() : k === 'page' || seen.has(k)));
                       })()}
                       colors={markColors}
                     />
@@ -5426,6 +5457,7 @@ export function App() {
               doc={doc}
               active={guide}
               declared={paletteFor(activeTarget, activity)}
+              variant={palettesOf(activity).length > 0 ? <VariantPick current={currentPub} activity={activity} onApply={applyPublication} /> : undefined}
               onPick={setGuide}
               onGuides={(guides, commit = true) => {
                 livePaint(!commit);
@@ -5770,11 +5802,14 @@ function PaletteBubble({
   onDrag,
   onDrop,
   declared,
+  variant,
 }: {
   doc: Doc;
   active: number;
-  /** Variante de couleurs que déclare la cible affichée (elle se choisit avec le format). */
+  /** Variante de couleurs que déclare la cible affichée. */
   declared?: Palette;
+  /** Choix de la variante de la publication affichée. */
+  variant?: import('react').ReactNode;
   onPick: (i: number) => void;
   onGuides: (g: Guide[], commit?: boolean) => void;
   onDrag: (i: number | null, x: number, y: number) => void;
@@ -5948,13 +5983,16 @@ function PaletteBubble({
           ))}
         </div>
       )}
-      {variantOnes.length > 0 && (
+      {(variantOnes.length > 0 || variant) && (
         <section className="pal-sec fixed">
-          <span className="pal-sec-label" title="La variante se choisit avec le format">
+          <span className="pal-sec-label">
             Variante
-            {declared && <small>{declared.name}</small>}
+            {!variant && declared && <small>{declared.name}</small>}
           </span>
-          <div className="guides">{variantOnes.map(chip)}</div>
+          <div className="pal-variant">
+            {variant}
+            {variantOnes.length > 0 && <div className="guides">{variantOnes.map(chip)}</div>}
+          </div>
         </section>
       )}
       <section className={`pal-sec mine ${over ? 'over' : ''}`}>
