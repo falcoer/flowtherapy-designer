@@ -2,7 +2,7 @@ import path from 'node:path';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
-import { Accounts, LOGO_VARIANTS, normEmail, ROLES, type ActivityProfile, type CampaignInput, type Target, type LogoVariant, type Role, type TeamOfUser } from './accounts.js';
+import { Accounts, isLogoKey, normEmail, ROLES, type ActivityProfile, type CampaignInput, type Target, type LogoVariant, type Role, type TeamOfUser } from './accounts.js';
 import { Ateliers } from './ateliers.js';
 import { cookie, readCookie, registerAuth, type AuthConfig } from './auth.js';
 import { Exporter, type ExportKind } from './export.js';
@@ -211,6 +211,10 @@ export async function buildApp(opts: AppOptions) {
       return reply.code(400).send({ error: (err as Error).message });
     }
   });
+  // --- catalogue du site : formats et types de diffusion, réglés par les administrateurs ---
+  app.get('/api/catalog', async () => accounts.catalog());
+  app.put<{ Body: unknown }>('/api/catalog', { preHandler: adminOnly }, async (req) => ({ ok: true, catalog: accounts.setCatalog(req.body, req.user?.email) }));
+
   // --- fiche d'activité : tout membre la lit, les responsables la modifient ---
   const profileOf = (id: string) => {
     const look = accounts.looks(id);
@@ -220,18 +224,28 @@ export async function buildApp(opts: AppOptions) {
     const logos = Object.fromEntries(
       [...(look.logo ? (['main'] as LogoVariant[]) : []), ...accounts.logoVariants(id)].map((k) => [k, `${base}${k === 'main' ? '' : `/${k}`}?v=${v}`]),
     );
-    return { ...accounts.team(id)!, ...accounts.profile(id), logos };
+    const prof = accounts.profile(id);
+    // le secret d'une délégation d'accès ne repart jamais vers le navigateur
+    const channels = prof.channels?.map(({ secret, ...c }) => (secret ? { ...c, secretSet: true } : c));
+    return { ...accounts.team(id)!, ...prof, ...(channels ? { channels } : {}), logos };
   };
   app.get<{ Params: { id: string } }>('/api/teams/:id/profile', { preHandler: needsIn('viewer') }, async (req) => profileOf(req.params.id));
   app.put<{ Params: { id: string }; Body: ActivityProfile & { name?: string; logo?: string | null; logos?: Partial<Record<LogoVariant, string | null>> } }>(
     '/api/teams/:id/profile',
-    { preHandler: needsIn('owner'), bodyLimit: 8 * 1024 * 1024 },
+    { preHandler: needsIn('owner'), bodyLimit: 16 * 1024 * 1024 },
     async (req, reply) => {
       try {
         const { name, logo, logos, ...profile } = req.body ?? {};
         if (name !== undefined) accounts.renameTeam(req.params.id, name);
         if (logo !== undefined) accounts.setLogo(req.params.id, logo);
         for (const [k, url] of Object.entries(logos ?? {})) if (url !== undefined) accounts.setLogo(req.params.id, url, k as LogoVariant);
+        // secret absent : on garde celui enregistré ; null : on l'efface
+        const before = new Map((accounts.profile(req.params.id).channels ?? []).map((c) => [c.id, c.secret]));
+        profile.channels = profile.channels?.map((c) => {
+          const { secretSet: _s, ...rest } = c;
+          if (rest.secret === null) return { ...rest, secret: undefined };
+          return rest.secret === undefined && before.get(rest.id) ? { ...rest, secret: before.get(rest.id) } : rest;
+        });
         accounts.setProfile(req.params.id, profile);
         return { ok: true, profile: profileOf(req.params.id) };
       } catch (err) {
@@ -241,7 +255,7 @@ export async function buildApp(opts: AppOptions) {
   );
   app.get<{ Params: { id: string; variant?: string } }>('/api/teams/:id/logo/:variant?', { preHandler: needsIn('viewer') }, async (req, reply) => {
     const variant = (req.params.variant ?? 'main') as LogoVariant;
-    if (!LOGO_VARIANTS.includes(variant)) return reply.code(404).send({ error: 'Variante inconnue' });
+    if (!isLogoKey(variant)) return reply.code(404).send({ error: 'Variante inconnue' });
     const logo = accounts.logo(req.params.id, variant);
     if (!logo) return reply.code(404).send({ error: 'Pas de logo' });
     // un SVG importé ne doit pas pouvoir exécuter de script

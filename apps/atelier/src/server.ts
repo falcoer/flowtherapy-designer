@@ -1,3 +1,4 @@
+import type { Catalog, MediaKind } from '@ftd/core';
 import { compact, type Blend, type Doc, type GradStyle } from './model';
 
 /** Compositions enregistrées sur le serveur du groupe (designer.flowtherapymusic.com). */
@@ -202,9 +203,10 @@ export interface ServiceLink {
   url?: string;
 }
 /** Rôle d'une couleur de variante : les pastilles prévues de la fiche (principale, texte, bordure, fond, sujets), plus les anciens accent et secondaire. */
-export type ColorRole = 'principale' | 'texte' | 'bordure' | 'fond' | 'sujet1' | 'sujet2' | 'sujet3' | 'accent' | 'secondaire';
-export type LogoVariant = 'main' | 'light' | 'dark' | 'icon';
-export type ChannelKind = 'social' | 'affichage' | 'impression' | 'email' | 'site';
+export type ColorRole = 'principale' | 'texte' | 'bordure' | 'fond' | 'complementTexte' | 'complementFond' | 'sujet1' | 'sujet2' | 'sujet3' | 'accent' | 'secondaire';
+/** Logo principal, anciennes variantes, ou logo d'une variante de couleurs (`pal-<id>`). */
+export type LogoVariant = 'main' | 'light' | 'dark' | 'icon' | `pal-${string}`;
+export type ChannelKind = MediaKind;
 export interface PaletteColor {
   /** Couleur unie, ou premier arrêt d'un dégradé (lu par les anciennes versions). */
   hex: string;
@@ -237,6 +239,22 @@ export interface Channel {
   palette?: string;
   mentions?: string[];
   url?: string;
+  /** Accès de l'activité : compte, API (le secret n'est jamais relu, seulement signalé), dossier partagé. */
+  account?: string;
+  api?: string;
+  /** À l'envoi : nouveau secret, ou null pour l'effacer ; absent, il reste. */
+  secret?: string | null;
+  secretSet?: boolean;
+  folder?: string;
+}
+/** Ce que la fiche garde d'un type de diffusion : le reste vient du catalogue. */
+export type ChannelPick = Partial<Channel> & { id: string };
+/** Une coordonnée de l'activité. */
+export type ContactKind = 'email' | 'tel' | 'site' | 'lien' | 'billetterie' | 'adresse' | 'autre';
+export interface Contact {
+  kind: ContactKind;
+  value: string;
+  label?: string;
 }
 /** Une cible d'un document : un média, un format compatible, une variante de couleurs. */
 export interface Target {
@@ -268,12 +286,16 @@ export interface ActivityProfile {
     keywords?: string[];
     mentions?: Array<{ name: string; text: string }>;
   };
-  channels?: Channel[];
-  /** Occasions : cibles présélectionnées d'un nouveau document. */
+  contacts?: Contact[];
+  /** Types de diffusion retenus : l'identifiant d'un type du catalogue et les accès de l'activité (anciens médias complets lus aussi). */
+  channels?: ChannelPick[];
+  /** Types de projet : cibles présélectionnées d'un nouveau document. */
   operations?: Operation[];
   /** Adresses des logos présents, par variante. */
   logos?: Partial<Record<LogoVariant, string>>;
 }
+export const fetchCatalog = () => call<Catalog>('/api/catalog');
+export const saveCatalog = (c: Catalog) => call<{ catalog: Catalog }>('/api/catalog', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(c) });
 export const fetchProfile = (team: string) => call<ActivityProfile>(`/api/teams/${encodeURIComponent(team)}/profile`);
 export const saveProfile = (team: string, p: Omit<ActivityProfile, 'id' | 'logos'> & { logo?: string | null; logos?: Partial<Record<Exclude<LogoVariant, 'main'>, string | null>> }) =>
   call<{ profile: ActivityProfile }>(`/api/teams/${encodeURIComponent(team)}/profile`, {

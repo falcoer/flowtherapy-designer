@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { blankDoc } from '../src/blank';
 import type { ActivityProfile } from '../src/server';
-import { colorGuide, DEFAULT_OPERATIONS, docForTarget, formatsFor, guidePaletteColor, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, slotColor, targetLabel } from '../src/targets';
+import { channelsOf, colorGuide, contactsOf, DEFAULT_OPERATIONS, docForTarget, formatsFor, guidePaletteColor, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, slotColor, targetLabel } from '../src/targets';
 import { SITE_VARIANTS } from '../src/brand-presets';
 import { docMargins, edgeLines, formatOf, setAnchorMargin } from '../src/model';
 
@@ -40,7 +40,8 @@ describe('cibles et variantes', () => {
     expect(paletteFor({ channel: 'affiche', format: 'a4', palette: 'jour' }, profile)?.id).toBe('jour');
     expect(paletteFor({ channel: 'instagram', format: 'carre' }, profile)?.id).toBe('jour');
     const d = docForTarget(blankDoc(), { channel: 'affiche', format: 'a4' }, profile);
-    expect(docMargins(d)).toEqual({ top: 0.07, right: 0.07, bottom: 0.07, left: 0.07 });
+    // la marge vient du catalogue du site, plus de la fiche
+    expect(docMargins(d)).toEqual({ top: 0.06, right: 0.06, bottom: 0.06, left: 0.06 });
     expect(d.guides[0]).toMatchObject({ color: '#1b1530' });
     // une publication garde ses propres marges, côté par côté (zones mortes d'un réseau)
     const own = { top: 0.12, right: 0.05, bottom: 0.2, left: 0.05 };
@@ -57,6 +58,17 @@ describe('cibles et variantes', () => {
     expect(operationsOf(null)).toEqual(DEFAULT_OPERATIONS);
     expect(formatsFor(profile.channels![1]).map((f) => f.id)).toEqual(['carre', 'story']);
     expect(targetLabel({ channel: 'instagram', format: 'story' }, profile)).toBe('Instagram · Story');
+  });
+
+  it('un type retenu prend formats et marge dans le catalogue, et garde les accès de l’activité', () => {
+    const p: ActivityProfile = { id: 'x', name: 'X', channels: [{ id: 'facebook', account: '@x', palette: 'nuit' }, { id: 'perso', name: 'Lettre', kind: 'email', formats: ['a4'] }] };
+    expect(channelsOf(p)).toEqual([
+      { id: 'facebook', name: 'Facebook', kind: 'social', formats: ['carre', 'banniere'], margin: 0.05, account: '@x', palette: 'nuit' },
+      { id: 'perso', name: 'Lettre', kind: 'email', formats: ['a4'] },
+    ]);
+    // une fiche sans choix : les supports imprimés seulement ; ses coordonnées reprennent les comptes
+    expect(channelsOf({ id: 'y', name: 'Y' }).map((c) => c.id)).toEqual(['affiche']);
+    expect(contactsOf(p)).toEqual([{ kind: 'lien', label: 'Facebook', value: '@x', channel: 'facebook' }]);
   });
 });
 

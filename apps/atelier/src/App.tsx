@@ -25,9 +25,10 @@ import { blankDoc } from './blank';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
-import { ActivityForm, ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
-import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
-import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
+import { ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
+import { CatalogPanel } from './catalog-ui';
+import { fetchActivity, fetchCatalog, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
+import { channelsOf, setCatalog, contactsOf, CONTACT_KINDS, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
 import { Knob } from './knob';
 import { MediaIcon, PublicationsPanel, VariantBar } from './targets-ui';
 import { CampaignDialog } from './campaigns-ui';
@@ -109,7 +110,7 @@ const EDIT_SECTIONS: Array<[EditTool, string, string]> = [
   ['edge', 'Bords', 'frame'],
 ];
 const isEdit = (t: Tool): t is EditTool => EDIT_SECTIONS.some(([k]) => k === t);
-type Bubble = 'activity' | 'activity-edit' | 'user' | 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'projects' | 'composition' | 'export' | null;
+type Bubble = 'activity' | 'catalog' | 'user' | 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'projects' | 'composition' | 'export' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc-v2';
@@ -464,6 +465,15 @@ export function App() {
   useEffect(() => {
     if (online) fetchMe().then(setMe, () => setMe(null));
   }, [online]);
+  // catalogue du site : formats et types de diffusion (ceux d'origine hors ligne)
+  const [, setCatalogTick] = useState(0);
+  useEffect(() => {
+    if (online)
+      fetchCatalog().then(
+        (c) => (setCatalog(c), setCatalogTick((n) => n + 1)),
+        () => {},
+      );
+  }, [online]);
   // fiche de l'activité : canaux, palettes (pour partir d'un canal)
   const [activity, setActivity] = useState<ActivityProfile | null>(null);
   const loadActivity = () => {
@@ -813,7 +823,10 @@ export function App() {
   const pubTargets = (doc.targets ?? []).filter((_, i) => exportTargets.includes(i));
   const pubPlan = (pubCampaign?.plan ?? []).filter((it) => pubTargets.some((t) => (t.channel ?? '') === (it.channel ?? '') && t.format === it.format));
   const pubChannels = channels.filter((c) => pubTargets.some((t) => t.channel === c.id));
-  const pubMentions = (activity?.branding?.mentions ?? []).map((m) => ({ ...m, channel: pubChannels.some((c) => c.mentions?.includes(m.name)) }));
+  // les coordonnées de l'activité ; celles d'un média visé passent en tête
+  const pubMentions = contactsOf(activity)
+    .map((c) => ({ name: c.label || CONTACT_KINDS[c.kind], text: c.value, channel: !!c.channel && pubChannels.some((x) => x.id === c.channel) }))
+    .sort((a, b) => Number(b.channel) - Number(a.channel));
   const markPublished = async (id: string) => {
     if (!pubCampaign || !project) return;
     try {
@@ -4332,7 +4345,7 @@ export function App() {
                 thumb={project ? thumbUrl(projects.find((x) => x.id === project.id) ?? { id: project.id, title: project.title, updated: '' }) : undefined}
                 kind={doc.targets?.length ? `${doc.targets.length} publication${doc.targets.length > 1 ? 's' : ''}` : f.title}
                 saving={online && project ? saving : undefined}
-                open={bubble === 'activity' || bubble === 'activity-edit' ? 'activity' : bubble === 'projects' ? 'campaign' : bubble === 'composition' ? 'content' : null}
+                open={bubble === 'activity' ? 'activity' : bubble === 'projects' ? 'campaign' : bubble === 'composition' ? 'content' : null}
                 onActivity={() => {
                   if (bubble !== 'activity' && online) fetchMe().then(setMe, () => {});
                   setBubble(bubble === 'activity' ? null : 'activity');
@@ -5098,7 +5111,7 @@ export function App() {
                 {pubMentions.length > 0 && (
                   <div className="pub-mentions">
                     {pubMentions.map((m) => (
-                      <button key={m.name} className={`pub-mention ${m.channel ? 'on' : ''}`} title={m.text} onClick={() => setDoc((d) => ({ ...d, caption: `${(d.caption ?? '').trimEnd()}${d.caption ? '\n' : ''}${m.text}` }))}>
+                      <button key={`${m.name}/${m.text}`} className={`pub-mention ${m.channel ? 'on' : ''}`} title={m.text} onClick={() => setDoc((d) => ({ ...d, caption: `${(d.caption ?? '').trimEnd()}${d.caption ? '\n' : ''}${m.text}` }))}>
                         + {m.name}
                       </button>
                     ))}
@@ -5153,14 +5166,18 @@ export function App() {
             </div>
           )}
 
-          {bubble === 'activity' && <ActivityMenu me={me} online={online} onEdit={() => setBubble('activity-edit')} />}
-          {bubble === 'user' && <UserMenu me={me} onPrefs={() => setBubble('prefs')} />}
-          {bubble === 'activity-edit' && me?.team && (
-            <ActivityForm me={me} onClose={() => setBubble(null)} onSaved={() => {
-              void fetchMe().then(setMe, () => {});
-              loadActivity();
-            }} />
+          {bubble === 'activity' && (
+            <ActivityMenu
+              me={me}
+              online={online}
+              onSaved={() => {
+                void fetchMe().then(setMe, () => {});
+                loadActivity();
+              }}
+            />
           )}
+          {bubble === 'user' && <UserMenu me={me} onPrefs={() => setBubble('prefs')} onCatalog={() => setBubble('catalog')} />}
+          {bubble === 'catalog' && me?.admin && online && <CatalogPanel onClose={() => setBubble(null)} onSaved={(c) => (setCatalog(c), setCatalogTick((n) => n + 1))} />}
           {bubble === 'prefs' && (
             <PrefsPanel
               online={online}

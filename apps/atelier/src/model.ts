@@ -1,7 +1,7 @@
 import type { BrushTip } from './tips';
 import type { LookSettings } from './looks';
 import type { Fx } from './fx';
-import { anchorsFor, formatFraction, nearestAnchor, parseFraction, resolveAnchor, type AnchorFrame, type AnchorPoint, type Format } from '@ftd/core';
+import { DEFAULT_FORMATS, anchorsFor, formatFraction, nearestAnchor, parseFraction, resolveAnchor, type AnchorFrame, type AnchorPoint, type Format } from '@ftd/core';
 
 /**
  * Modèle de l'atelier : un document est une pile de couches. Chaque couche a
@@ -272,14 +272,8 @@ export interface Doc {
   layers: Layer[];
 }
 
-export const FORMATS: Format[] = [
-  { id: 'a4', title: 'A4 portrait', width: 210, height: 297, unit: 'mm', dpi: 300, target: 'print' },
-  { id: 'carre', title: 'Carré', width: 1080, height: 1080, unit: 'px', target: 'social' },
-  { id: 'story', title: 'Story', width: 1080, height: 1920, unit: 'px', target: 'social' },
-  { id: 'banniere', title: 'Bannière', width: 1640, height: 624, unit: 'px', target: 'social' },
-  // Apple Music, Spotify et les distributeurs demandent au moins 3000 × 3000 px.
-  { id: 'pochette', title: 'Pochette', width: 3000, height: 3000, unit: 'px', target: 'web' },
-];
+/** Formats de l'atelier : ceux d'origine, puis ceux du catalogue du site une fois chargé (setCatalog). */
+export const FORMATS: Format[] = [...DEFAULT_FORMATS];
 export const formatOf = (id: string) => FORMATS.find((f) => f.id === id) ?? FORMATS[0]!;
 
 /** Bords perdus de la surface de fond, en fraction du petit côté. */
