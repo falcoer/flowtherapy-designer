@@ -754,7 +754,8 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
                     <MediaIcon ch={ch ?? { id: m.id, name: m.name, kind: m.kind, formats: m.formats }} size={28} />
                     <span className="act-txt">
                       <b>{m.name}</b>
-                      <small>{formatsFor({ id: m.id, name: m.name, kind: m.kind, formats: m.formats }).map((f) => f.title).join(' · ')}</small>
+                      {/* les formats appartiennent au type de diffusion (catalogue) : la fiche n'en montre que la famille */}
+                      {CHANNEL_KINDS[m.kind] !== m.name && <small>{CHANNEL_KINDS[m.kind]}</small>}
                     </span>
                     <button className={`act-toggle ${pk ? 'on' : ''}`} disabled={!edit} role="switch" aria-checked={!!pk} aria-label={`Diffuser sur ${m.name}`} onClick={() => setPick(m.id, pk ? null : {})} />
                   </div>
