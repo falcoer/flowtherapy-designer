@@ -140,8 +140,23 @@ export interface Contact {
  * Un type de diffusion retenu par l'activité. Ses formats, sa marge et sa zone viennent du catalogue du site ;
  * l'activité y range ses accès (compte, API, dossier). Les anciens médias décrits en entier restent lus.
  */
+/** Un branchement de l'activité sur un type de diffusion : un compte, son accès d'API, son dossier. Plusieurs par type (deux pages Facebook…). */
+export interface Connection {
+  id: string;
+  /** Nom donné au branchement (« Page du groupe »…). */
+  label?: string;
+  account?: string;
+  api?: string;
+  /** Jamais renvoyé au navigateur. */
+  secret?: string;
+  secretSet?: boolean;
+  folder?: string;
+}
+
 export interface Channel {
   id: string;
+  /** Branchements de l'activité sur ce type (remplacent account/api/secret/folder ci-dessous). */
+  connections?: Connection[];
   name?: string;
   kind?: (typeof CHANNEL_KINDS)[number];
   /** Formats de l'atelier (identifiants), le premier par défaut. */
@@ -183,6 +198,21 @@ function cleanLinks(v: unknown): ServiceLink[] {
 
 const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 
+function cleanConnections(c: Partial<Channel>): Connection[] {
+  const seen = new Set<string>();
+  // ancienne fiche : un seul branchement rangé à même le type
+  const raw = Array.isArray(c.connections) ? c.connections : c.account || c.api || c.secret || c.folder ? [{ id: 'c1', account: c.account, api: c.api, secret: c.secret, folder: c.folder }] : [];
+  return raw
+    .slice(0, 10)
+    .map((x, i) => {
+      let id = str(x?.id, 20).replace(/[^a-z0-9-]/gi, '') || `c${i + 1}`;
+      for (let n = 2; seen.has(id); n++) id = `c${i + n}`;
+      seen.add(id);
+      const t = (k: 'label' | 'account' | 'api' | 'folder' | 'secret', max: number) => (str(x?.[k], max) ? { [k]: str(x?.[k], max) } : {});
+      return { id, ...t('label', 60), ...t('account', 200), ...t('api', 500), ...t('secret', 2000), ...t('folder', 500) } as Connection;
+    });
+}
+
 function cleanChannel(c: Partial<Channel>, i: number): Channel | null {
   const name = str(c?.name, 60);
   const given = str(c?.id, 40).replace(/[^a-z0-9-]/g, '');
@@ -193,7 +223,6 @@ function cleanChannel(c: Partial<Channel>, i: number): Channel | null {
   const margin = typeof c.margin === 'number' && Number.isFinite(c.margin) ? Math.max(-0.25, Math.min(0.25, c.margin)) : undefined;
   const logo = (LOGO_VARIANTS as readonly string[]).includes(c.logo as string) ? c.logo : undefined;
   const formats = arr<string>(c.formats).map((f) => str(f, 40)).filter(Boolean).slice(0, 12);
-  const text = (k: 'account' | 'api' | 'folder' | 'secret', max: number) => (str(c[k], max) ? { [k]: str(c[k], max) } : {});
   return {
     id,
     ...(name ? { name } : {}),
@@ -205,10 +234,7 @@ function cleanChannel(c: Partial<Channel>, i: number): Channel | null {
     ...(str(c.palette, 40) ? { palette: str(c.palette, 40) } : {}),
     mentions: arr<string>(c.mentions).map((m) => str(m, 60)).filter(Boolean).slice(0, 20),
     ...(str(c.url, 500) ? { url: str(c.url, 500) } : {}),
-    ...text('account', 200),
-    ...text('api', 500),
-    ...text('secret', 2000),
-    ...text('folder', 500),
+    ...(cleanConnections(c).length ? { connections: cleanConnections(c) } : {}),
   };
 }
 

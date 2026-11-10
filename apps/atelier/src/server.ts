@@ -242,7 +242,20 @@ export interface Channel {
   palette?: string;
   mentions?: string[];
   url?: string;
-  /** Accès de l'activité : compte, API (le secret n'est jamais relu, seulement signalé), dossier partagé. */
+  /** Branchements de l'activité sur ce type. */
+  connections?: Connection[];
+  /** Ancien branchement unique : compte, API (le secret n'est jamais relu, seulement signalé), dossier partagé. */
+  account?: string;
+  api?: string;
+  /** À l'envoi : nouveau secret, ou null pour l'effacer ; absent, il reste. */
+  secret?: string | null;
+  secretSet?: boolean;
+  folder?: string;
+}
+/** Un branchement de l'activité sur un type de diffusion (plusieurs par type : deux pages Facebook…). */
+export interface Connection {
+  id: string;
+  label?: string;
   account?: string;
   api?: string;
   /** À l'envoi : nouveau secret, ou null pour l'effacer ; absent, il reste. */

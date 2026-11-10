@@ -1,6 +1,6 @@
 import { FORMATS, formatOf, uniformMargins, type Doc, type Guide, type Margins, type Target } from './model';
 import { DEFAULT_CATALOG, type Catalog, type MediaType } from '@ftd/core';
-import { palettesOf, type ActivityProfile, type Channel, type ChannelPick, type ColorRole, type Contact, type ContactKind, type Operation, type Palette, type PaletteColor } from './server';
+import { palettesOf, type ActivityProfile, type Channel, type ChannelPick, type Connection, type ColorRole, type Contact, type ContactKind, type Operation, type Palette, type PaletteColor } from './server';
 
 /**
  * Cibles d'un document : un média (canal de l'activité), un format compatible, une variante de couleurs.
@@ -57,7 +57,7 @@ export function channelsOf(p?: ActivityProfile | null): Channel[] {
     const m = catalog.media.find((x) => x.id === c.id);
     if (m) {
       const { name: _n, kind: _k, formats: _f, margin: _m, margins: _ms, zone: _z, focus: _fo, ...own } = c;
-      return [{ ...mediaChannel(m), ...own, ...(own.account ? {} : c.url ? { account: c.url } : {}) }];
+      return [{ ...mediaChannel(m), ...own }];
     }
     return c.name ? [{ formats: [], kind: 'social' as const, ...c, name: c.name }] : [];
   });
@@ -222,6 +222,14 @@ export function docForTarget(d: Doc, t: Target, p?: ActivityProfile | null): Doc
 /** Clé d'une cible, pour éviter les doublons. */
 export const targetKey = (t: Target) => `${t.channel ?? ''}/${t.format}/${t.palette ?? ''}`;
 
+/** Branchements d'un média de l'activité (une ancienne fiche n'en a qu'un, rangé à même le média). */
+export function connectionsOf(c?: Partial<Channel>): Connection[] {
+  if (!c) return [];
+  if (c.connections) return c.connections;
+  const account = c.account ?? c.url;
+  return account || c.api || c.folder || c.secretSet ? [{ id: 'c1', account, api: c.api, folder: c.folder, secretSet: c.secretSet }] : [];
+}
+
 /** Libellés des coordonnées. */
 export const CONTACT_KINDS: Record<ContactKind, string> = { email: 'E-mail', tel: 'Téléphone', site: 'Site web', lien: 'Lien', billetterie: 'Billetterie', adresse: 'Adresse', autre: 'Autre' };
 
@@ -231,8 +239,10 @@ export const CONTACT_KINDS: Record<ContactKind, string> = { email: 'E-mail', tel
  */
 export function contactsOf(p?: ActivityProfile | null): Array<Contact & { channel?: string }> {
   const own: Contact[] = p?.contacts?.length ? p.contacts : (p?.branding?.mentions ?? []).map((m) => ({ kind: 'autre' as const, label: m.name, value: m.text }));
-  const fromMedia = channelsOf(p)
-    .filter((c) => c.account && !own.some((x) => x.value === c.account))
-    .map((c) => ({ kind: (c.kind === 'site' ? 'site' : 'lien') as ContactKind, label: c.name, value: c.account!, channel: c.id }));
+  const fromMedia = channelsOf(p).flatMap((c) =>
+    connectionsOf(c)
+      .filter((x) => x.account && !own.some((o) => o.value === x.account))
+      .map((x) => ({ kind: (c.kind === 'site' ? 'site' : 'lien') as ContactKind, label: x.label ? `${c.name} · ${x.label}` : c.name, value: x.account!, channel: c.id })),
+  );
   return [...own, ...fromMedia];
 }

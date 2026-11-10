@@ -11,6 +11,7 @@ import {
   type ActivityProfile,
   type ChannelKind,
   type ChannelPick,
+  type Connection,
   type ColorRole,
   type Contact,
   type ContactKind,
@@ -23,7 +24,8 @@ import {
 } from './server';
 import { ensureFont, fontFamily, fontList, loadFonts } from './text';
 import { MembersSection } from './team-ui';
-import { BRAND_SLOTS, catalogNow, channelsOf, colorGuide, CONTACT_KINDS, defaultPicks, DEFAULT_OPERATIONS, formatsFor, guidePaletteColor, ROLE_NAMES, slotColor } from './targets';
+import type { MediaType } from '@ftd/core';
+import { BRAND_SLOTS, catalogNow, channelsOf, colorGuide, connectionsOf, CONTACT_KINDS, defaultPicks, DEFAULT_OPERATIONS, formatsFor, guidePaletteColor, ROLE_NAMES, slotColor } from './targets';
 import { SITE_VARIANTS } from './brand-presets';
 import { ColorDialog, swatch } from './color-dialog';
 import { MediaIcon, VariantBar } from './targets-ui';
@@ -474,6 +476,67 @@ function SecretField(p: { set: boolean; value: string | null | undefined; edit: 
 }
 
 /**
+ * Branchements de l'activité sur un type de diffusion : un bloc par compte (plusieurs pages Facebook…),
+ * avec les champs que le catalogue prévoit pour ce type.
+ */
+function ConnectionsEditor(p: { media: MediaType; list: Connection[]; edit: boolean; onChange: (l: Connection[]) => void }) {
+  const { media: m, list } = p;
+  const put = (i: number, patch: Partial<Connection>) => p.onChange(list.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  const site = m.kind === 'site';
+  return (
+    <div className="act-conns wide">
+      {list.map((x, i) => (
+        <div key={x.id} className="act-conn">
+          <div className="act-conn-head">
+            <input className="pf-input act-conn-name" value={x.label ?? ''} disabled={!p.edit} placeholder={`${site ? 'Site' : 'Compte'} ${i + 1}`} onChange={(e) => put(i, { label: e.target.value || undefined })} aria-label="Nom du branchement" />
+            {p.edit && (
+              <button className="tm-remove" onClick={() => p.onChange(list.filter((_, j) => j !== i))} title="Retirer ce branchement">
+                ×
+              </button>
+            )}
+          </div>
+          <div className="act-conn-body">
+            {m.fields.account && (
+              <Field label={site ? 'Adresse du site' : 'Compte'}>
+                <input className="pf-input" value={x.account ?? ''} disabled={!p.edit} placeholder={site ? 'monsite.fr' : '@compte'} onChange={(e) => put(i, { account: e.target.value || undefined })} />
+              </Field>
+            )}
+            {m.fields.folder && (
+              <Field label="Dossier partagé">
+                <input className="pf-input" value={x.folder ?? ''} disabled={!p.edit} placeholder="Drive, Dropbox… (process Make)" onChange={(e) => put(i, { folder: e.target.value || undefined })} />
+              </Field>
+            )}
+            {m.fields.api && (
+              <>
+                <Field label="API">
+                  <input className="pf-input" value={x.api ?? ''} disabled={!p.edit} placeholder="https://…" onChange={(e) => put(i, { api: e.target.value || undefined })} />
+                </Field>
+                <div className="act-field">
+                  <span className="pf-group">Secret</span>
+                  <SecretField set={!!x.secretSet} value={x.secret} edit={p.edit} onChange={(v) => put(i, { secret: v })} />
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ))}
+      {p.edit && (
+        <button
+          className="pf-btn act-add"
+          onClick={() => {
+            let n = list.length + 1;
+            while (list.some((x) => x.id === `c${n}`)) n++;
+            p.onChange([...list, { id: `c${n}` }]);
+          }}
+        >
+          + {site ? 'Site' : 'Compte'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
  * La fiche de l'activité, dépliée sous son en-tête. Tout s'enregistre au fil des changements ;
  * seuls les responsables modifient, les autres membres la lisent.
  */
@@ -590,7 +653,7 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
   const services = prof.services ?? {};
   const shownLogo = 'main' in logos ? logos.main : (prof.logos?.main ?? team.logo);
   const palLogo = (id: string) => (`pal-${id}` in logos ? logos[`pal-${id}`] : prof.logos?.[`pal-${id}`]);
-  const media = channelsOf({ ...prof, channels: picks }).filter((c) => c.account);
+  const media = channelsOf({ ...prof, channels: picks }).flatMap((c) => connectionsOf(c).filter((x) => x.account).map((x) => ({ ch: c, x })));
   const kinds = prof.kind && !KINDS.includes(prof.kind) ? [...KINDS.slice(0, -1), prof.kind] : KINDS;
 
   return (
@@ -688,13 +751,13 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
                   )}
                 </div>
               ))}
-              {media.map((c) => (
-                <div key={c.id} className="act-contact from" title="Compte renseigné dans Médias">
+              {media.map(({ ch: c, x }) => (
+                <div key={`${c.id}/${x.id}`} className="act-contact from" title="Compte renseigné dans Médias">
                   <span className="act-contact-media">
                     <MediaIcon ch={c} size={18} />
-                    {c.name}
+                    {x.label || c.name}
                   </span>
-                  <span className="act-contact-val">{c.account}</span>
+                  <span className="act-contact-val">{x.account}</span>
                 </div>
               ))}
               {edit && (
@@ -761,11 +824,6 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
                   </div>
                   {pk && (
                     <div className="act-media-body">
-                      {m.fields.account && (
-                        <Field label={m.kind === 'site' ? 'Adresse du site' : 'Compte'}>
-                          <input className="pf-input" value={pk.account ?? pk.url ?? ''} disabled={!edit} placeholder={m.kind === 'site' ? 'monsite.fr' : '@compte'} onChange={(e) => setPick(m.id, { account: e.target.value || undefined, url: undefined })} />
-                        </Field>
-                      )}
                       {palettes.length > 1 && (
                         <Field label="Variante">
                           <select className="pf-input" value={pk.palette ?? palettes[0]!.id} disabled={!edit} onChange={(e) => setPick(m.id, { palette: e.target.value })}>
@@ -777,21 +835,13 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
                           </select>
                         </Field>
                       )}
-                      {m.fields.api && (
-                        <>
-                          <Field label="API">
-                            <input className="pf-input" value={pk.api ?? ''} disabled={!edit} placeholder="https://…" onChange={(e) => setPick(m.id, { api: e.target.value || undefined })} />
-                          </Field>
-                          <div className="act-field">
-                            <span className="pf-group">Secret</span>
-                            <SecretField set={!!pk.secretSet} value={pk.secret} edit={edit} onChange={(v) => setPick(m.id, { secret: v })} />
-                          </div>
-                        </>
-                      )}
-                      {m.fields.folder && (
-                        <Field label="Dossier partagé" className="wide">
-                          <input className="pf-input" value={pk.folder ?? ''} disabled={!edit} placeholder="Drive, Dropbox… (process Make)" onChange={(e) => setPick(m.id, { folder: e.target.value || undefined })} />
-                        </Field>
+                      {(m.fields.account || m.fields.api || m.fields.folder) && (
+                        <ConnectionsEditor
+                          media={m}
+                          list={connectionsOf(pk)}
+                          edit={edit}
+                          onChange={(connections) => setPick(m.id, { connections, account: undefined, url: undefined, api: undefined, secret: undefined, secretSet: undefined, folder: undefined })}
+                        />
                       )}
                     </div>
                   )}

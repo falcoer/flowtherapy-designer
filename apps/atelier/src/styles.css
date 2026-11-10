@@ -2004,3 +2004,15 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 /* la variante de la publication se choisit en tête de la palette, ses pastilles dessous */
 .pal-variant { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .pal-variant .cb { align-self: stretch; }
+
+/* branchements d'un type de diffusion : un bloc par compte, nommé, retiré par sa croix */
+.act-conns { display: flex; flex-direction: column; gap: 8px; }
+.act-conn { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 8px; }
+.act-conn-head { display: flex; align-items: center; gap: 6px; }
+.act-conn-name.pf-input { flex: 1; font-weight: 600; border-color: transparent; background: transparent; padding-left: 2px; }
+.act-conn-name.pf-input:focus { border-color: var(--line); background: var(--chrome-solid); }
+.act-conn-body { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.act-conn-body > * { min-width: 0; }
+.act-conn-body .pf-input { width: 100%; box-sizing: border-box; }
+.act-conns > .act-add { align-self: flex-start; }
+@media (max-width: 520px) { .act-conn-body { grid-template-columns: 1fr; } }

@@ -226,7 +226,7 @@ export async function buildApp(opts: AppOptions) {
     );
     const prof = accounts.profile(id);
     // le secret d'une délégation d'accès ne repart jamais vers le navigateur
-    const channels = prof.channels?.map(({ secret, ...c }) => (secret ? { ...c, secretSet: true } : c));
+    const channels = prof.channels?.map((c) => ({ ...c, ...(c.connections ? { connections: c.connections.map(({ secret, ...x }) => (secret ? { ...x, secretSet: true } : x)) } : {}) }));
     return { ...accounts.team(id)!, ...prof, ...(channels ? { channels } : {}), logos };
   };
   app.get<{ Params: { id: string } }>('/api/teams/:id/profile', { preHandler: needsIn('viewer') }, async (req) => profileOf(req.params.id));
@@ -240,11 +240,22 @@ export async function buildApp(opts: AppOptions) {
         if (logo !== undefined) accounts.setLogo(req.params.id, logo);
         for (const [k, url] of Object.entries(logos ?? {})) if (url !== undefined) accounts.setLogo(req.params.id, url, k as LogoVariant);
         // secret absent : on garde celui enregistré ; null : on l'efface
-        const before = new Map((accounts.profile(req.params.id).channels ?? []).map((c) => [c.id, c.secret]));
+        // (un par branchement : type de diffusion / branchement)
+        const before = new Map((accounts.profile(req.params.id).channels ?? []).flatMap((c) => (c.connections ?? []).map((x) => [`${c.id}/${x.id}`, x.secret] as const)));
         profile.channels = profile.channels?.map((c) => {
-          const { secretSet: _s, ...rest } = c;
-          if (rest.secret === null) return { ...rest, secret: undefined };
-          return rest.secret === undefined && before.get(rest.id) ? { ...rest, secret: before.get(rest.id) } : rest;
+          const { secretSet: _s, secret: _x, account: _a, api: _p, folder: _f, ...rest } = c as typeof c & { secret?: string | null };
+          // une ancienne fiche envoyée telle quelle : son branchement unique devient le premier
+          const list = rest.connections ?? (c.account || c.api || c.folder || c.secret !== undefined ? [{ id: 'c1', account: c.account, api: c.api, folder: c.folder, secret: c.secret }] : undefined);
+          if (!list) return rest;
+          return {
+            ...rest,
+            connections: list.map((x) => {
+              const { secretSet: _xs, ...y } = x as typeof x & { secret?: string | null };
+              if (y.secret === null) return { ...y, secret: undefined };
+              const kept = before.get(`${c.id}/${y.id}`);
+              return y.secret === undefined && kept ? { ...y, secret: kept } : y;
+            }),
+          };
         });
         accounts.setProfile(req.params.id, profile);
         return { ok: true, profile: profileOf(req.params.id) };
