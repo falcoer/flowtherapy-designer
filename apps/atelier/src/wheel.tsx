@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Fan, useOutside, type FanItem } from './fan';
+import { insideParts, tipParts, type BrushTip } from './tips';
 
-export type Tip = 'round' | 'flat' | 'triangle';
+export type Tip = BrushTip;
 
 interface Props {
   /** Taille, de 0 à 1, et son affichage. */
@@ -80,12 +81,14 @@ const gaugeT = (a: number) => {
 /** Points d'une empreinte en pointillés. */
 function stipple(tip: Tip, r: number, density: number) {
   const out: Array<[number, number, number]> = [];
-  const step = Math.max(3.2, 6.5 - density * 3);
+  // pointes composées : des pièces fines, des points plus serrés pour qu'on les reconnaisse
+  const parts = tipParts(tip);
+  const step = parts.length ? Math.max(2, 3.6 - density * 1.2) : Math.max(3.2, 6.5 - density * 3);
   for (let y = -r; y <= r; y += step)
     for (let x = -r; x <= r; x += step) {
       const [u, v] = [x / r, y / r];
       // mêmes silhouettes que les pointes peintes : lame, triangle pointe en haut, rond
-      const inside = tip === 'flat' ? Math.abs(u) <= 1 && Math.abs(v) <= 0.22 : tip === 'triangle' ? v <= 0.5 && Math.abs(u) <= ((v + 1) / 1.5) * 0.866 : u * u + v * v <= 1;
+      const inside = parts.length ? insideParts(parts, u, v) : tip === 'flat' ? Math.abs(u) <= 1 && Math.abs(v) <= 0.22 : tip === 'triangle' ? v <= 0.5 && Math.abs(u) <= ((v + 1) / 1.5) * 0.866 : u * u + v * v <= 1;
       if (!inside) continue;
       const edge = tip === 'round' ? Math.sqrt(u * u + v * v) : 0.6;
       out.push([x, y, 0.35 + 0.65 * density * (0.55 + 0.45 * edge)]);

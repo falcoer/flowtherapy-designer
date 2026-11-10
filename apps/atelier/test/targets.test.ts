@@ -3,6 +3,7 @@ import { blankDoc } from '../src/blank';
 import type { ActivityProfile } from '../src/server';
 import { colorGuide, DEFAULT_OPERATIONS, docForTarget, formatsFor, guidePaletteColor, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, slotColor, targetLabel } from '../src/targets';
 import { SITE_VARIANTS } from '../src/brand-presets';
+import { docMargins, edgeLines, formatOf, setAnchorMargin } from '../src/model';
 
 const profile: ActivityProfile = {
   id: 'ft',
@@ -39,8 +40,11 @@ describe('cibles et variantes', () => {
     expect(paletteFor({ channel: 'affiche', format: 'a4', palette: 'jour' }, profile)?.id).toBe('jour');
     expect(paletteFor({ channel: 'instagram', format: 'carre' }, profile)?.id).toBe('jour');
     const d = docForTarget(blankDoc(), { channel: 'affiche', format: 'a4' }, profile);
-    expect(d.margin).toBe(0.07);
+    expect(docMargins(d)).toEqual({ top: 0.07, right: 0.07, bottom: 0.07, left: 0.07 });
     expect(d.guides[0]).toMatchObject({ color: '#1b1530' });
+    // une publication garde ses propres marges, côté par côté (zones mortes d'un réseau)
+    const own = { top: 0.12, right: 0.05, bottom: 0.2, left: 0.05 };
+    expect(docMargins(docForTarget(blankDoc(), { channel: 'affiche', format: 'a4', margins: own }, profile))).toEqual(own);
   });
 
   it('les occasions par défaut ne gardent que les cibles dont le média existe', () => {
@@ -104,5 +108,13 @@ describe('pastilles des variantes', () => {
     const c = guidePaletteColor({ name: 'Flow', type: 'gradient', stops: ['#111111', '#222222'] }, 'principale');
     expect(c).toEqual({ hex: '#111111', stops: ['#111111', '#222222'], role: 'principale' });
     expect(colorGuide(c)).toMatchObject({ type: 'gradient', role: 'principale', name: 'Couleur principale' });
+  });
+
+  it('les marges côté par côté placent les lignes de marge de chaque bord', () => {
+    const f = formatOf('story');
+    setAnchorMargin({ top: 0.1, right: 0.05, bottom: 0.2, left: 0 });
+    expect(edgeLines(f).margin).toEqual({ left: 0, right: 1080 - 54, top: 108, bottom: 1920 - 216 });
+    setAnchorMargin(0);
+    expect(edgeLines(f).margin).toBeNull();
   });
 });

@@ -15,10 +15,14 @@ export interface AtelierMeta {
   created?: string;
   author?: string;
   formatId?: string;
+  /** Rendus du document (média, format, variante), repris pour la liste. */
+  targets?: Array<{ channel?: string; format: string; palette?: string }>;
   /** Campagne à laquelle la composition contribue. */
   campaign?: string;
   /** Circuit de validation : proposée aux responsables, validée, ou à revoir. */
   review?: Review;
+  /** Nombre de vignettes par publication enregistrées (une par rendu, dans l'ordre des rendus). */
+  thumbs?: number;
 }
 
 export interface Review {
@@ -32,11 +36,26 @@ export interface Review {
 }
 
 const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+/** Au plus autant de vignettes par publication que de rendus gardés. */
+const MAX_TARGETS = 16;
+const PNG = /^data:image\/png;base64,(.+)$/;
+
+/** Les rendus du document, réduits à leurs repères (média, format, variante). */
+function targetsOf(v: unknown): Pick<AtelierMeta, 'targets'> {
+  if (!Array.isArray(v)) return {};
+  const str = (x: unknown) => (typeof x === 'string' && x.length <= 64 ? x : undefined);
+  const out = v
+    .slice(0, MAX_TARGETS)
+    .map((t) => (t && typeof t === 'object' ? (t as Record<string, unknown>) : {}))
+    .filter((t) => str(t.format))
+    .map((t) => ({ ...(str(t.channel) ? { channel: str(t.channel) } : {}), format: str(t.format)!, ...(str(t.palette) ? { palette: str(t.palette) } : {}) }));
+  return out.length ? { targets: out } : {};
+}
 
 export class Ateliers {
   constructor(readonly root: string) {}
 
-  private file(id: string, ext: 'json' | 'png') {
+  private file(id: string, ext: 'json' | 'png' | `t${number}.png`) {
     if (!ID.test(id)) throw new Error(`Identifiant invalide : ${id}`);
     return path.join(this.root, `${id}.${ext}`);
   }
@@ -60,8 +79,8 @@ export class Ateliers {
     return JSON.parse(await readFile(this.file(id, 'json'), 'utf8'));
   }
 
-  async write(id: string, input: { title?: string; doc?: unknown; thumb?: string }, by?: string): Promise<AtelierMeta> {
-    const doc = input.doc as { formatId?: unknown; layers?: unknown; campaign?: unknown } | undefined;
+  async write(id: string, input: { title?: string; doc?: unknown; thumb?: string; thumbs?: unknown }, by?: string): Promise<AtelierMeta> {
+    const doc = input.doc as { formatId?: unknown; layers?: unknown; campaign?: unknown; targets?: unknown } | undefined;
     if (!doc || typeof doc !== 'object' || !Array.isArray(doc.layers)) throw new Error('Document d’atelier attendu (couches manquantes)');
     await mkdir(this.root, { recursive: true });
     // l'état de validation suit la composition d'un enregistrement à l'autre
@@ -75,14 +94,23 @@ export class Ateliers {
       ...(previous ? (previous.author ? { author: previous.author } : {}) : by ? { author: by } : {}),
       ...(typeof doc.formatId === 'string' ? { formatId: doc.formatId } : {}),
       ...(typeof doc.campaign === 'string' && ID.test(doc.campaign) ? { campaign: doc.campaign } : {}),
+      ...targetsOf(doc.targets),
       ...(previous?.review ? { review: previous.review } : {}),
     };
     // écriture atomique : un fichier temporaire puis renommage
+    // vignettes par publication : toutes valides, sinon aucune (la vignette générale sert alors partout)
+    const per = Array.isArray(input.thumbs) ? input.thumbs.slice(0, MAX_TARGETS).map((x) => (typeof x === 'string' ? x.match(PNG)?.[1] : undefined)) : [];
+    const thumbs = per.length && per.every(Boolean) ? (per as string[]) : [];
+    if (thumbs.length) meta.thumbs = thumbs.length;
     const target = this.file(id, 'json');
     await writeFile(target + '.tmp', JSON.stringify({ ...meta, doc }));
     await rename(target + '.tmp', target);
-    const m = input.thumb?.match(/^data:image\/png;base64,(.+)$/);
+    const m = input.thumb?.match(PNG);
     if (m) await writeFile(this.file(id, 'png'), Buffer.from(m[1]!, 'base64'));
+    for (let i = 0; i < MAX_TARGETS; i++) {
+      if (i < thumbs.length) await writeFile(this.file(id, `t${i}.png`), Buffer.from(thumbs[i]!, 'base64'));
+      else await rm(this.file(id, `t${i}.png`), { force: true });
+    }
     return meta;
   }
 
@@ -110,7 +138,13 @@ export class Ateliers {
   async copy(from: string, to: string, o: { title?: string; campaign?: string }, by?: string): Promise<AtelierMeta> {
     const src = await this.read(from);
     const doc = { ...(src.doc as object), campaign: o.campaign };
-    const meta = await this.write(to, { title: o.title ?? src.title, doc }, by);
+    const thumbs: string[] = [];
+    for (let i = 0; i < (src.thumbs ?? 0); i++) {
+      const f = await this.thumb(from, i);
+      if (!f) break;
+      thumbs.push(`data:image/png;base64,${(await readFile(f)).toString('base64')}`);
+    }
+    const meta = await this.write(to, { title: o.title ?? src.title, doc, thumbs: thumbs.length === src.thumbs ? thumbs : undefined }, by);
     const thumb = await this.thumb(from);
     if (thumb) await writeFile(this.file(to, 'png'), await readFile(thumb));
     return meta;
@@ -119,10 +153,13 @@ export class Ateliers {
   async remove(id: string) {
     await rm(this.file(id, 'json'), { force: true });
     await rm(this.file(id, 'png'), { force: true });
+    for (let i = 0; i < MAX_TARGETS; i++) await rm(this.file(id, `t${i}.png`), { force: true });
   }
 
-  async thumb(id: string): Promise<string | null> {
-    const f = this.file(id, 'png');
+  /** Vignette générale, ou celle d'une publication (rendu n° t). */
+  async thumb(id: string, t?: number): Promise<string | null> {
+    const f = t === undefined ? this.file(id, 'png') : Number.isInteger(t) && t >= 0 && t < MAX_TARGETS ? this.file(id, `t${t}.png`) : null;
+    if (!f) return null;
     try {
       await stat(f);
       return f;

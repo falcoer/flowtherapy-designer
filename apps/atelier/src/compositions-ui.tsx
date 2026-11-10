@@ -1,9 +1,6 @@
 import { useState } from 'react';
-import { VoteButton } from './campaigns-ui';
-import { REVIEW_LABELS, thumbUrl, type AtelierMeta, type Campaign, type Operation } from './server';
+import { thumbUrl, type AtelierMeta, type Campaign, type Operation } from './server';
 
-const who = (e?: string) => (e ? e.split('@')[0] : '');
-const when = (d: string) => new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
 
 function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   return (
@@ -99,81 +96,6 @@ export function NewCompositionDialog(p: {
           )}
         </>
       )}
-    </Modal>
-  );
-}
-
-/** Les compositions d'une campagne (ou de toute l'activité) : aperçu, auteur, date, note ; charger ou supprimer. */
-export function LoadDialog(p: {
-  campaign?: Campaign;
-  campaigns: Campaign[];
-  projects: AtelierMeta[];
-  current?: string;
-  canDelete: boolean;
-  canVote: boolean;
-  onOpen: (m: AtelierMeta) => void;
-  onVote: (m: AtelierMeta) => void;
-  onDelete: (m: AtelierMeta) => void;
-  onClose: () => void;
-}) {
-  const [scope, setScope] = useState<'campaign' | 'all'>(p.campaign ? 'campaign' : 'all');
-  const [sort, setSort] = useState<'votes' | 'date'>(p.campaign ? 'votes' : 'date');
-  const [q, setQ] = useState('');
-  const [armed, setArmed] = useState<string | null>(null);
-  const list = p.projects
-    .filter((m) => scope === 'all' || m.campaign === p.campaign?.id)
-    .filter((m) => !q || `${m.title} ${m.by ?? ''}`.toLowerCase().includes(q.toLowerCase()))
-    .sort((a, b) => (sort === 'votes' ? (b.votes?.length ?? 0) - (a.votes?.length ?? 0) : 0) || b.updated.localeCompare(a.updated));
-  return (
-    <Modal title="Compositions" onClose={p.onClose} wide>
-      <div className="ld-tools">
-        {p.campaign && (
-          <div className="seg ld-scope">
-            <button className={scope === 'campaign' ? 'on' : ''} onClick={() => setScope('campaign')}>
-              {p.campaign.name}
-            </button>
-            <button className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')}>
-              Toutes
-            </button>
-          </div>
-        )}
-        <input className="pf-input" type="search" placeholder="Chercher un titre, un auteur…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select className="pf-input ld-sort" value={sort} onChange={(e) => setSort(e.target.value as 'votes' | 'date')} aria-label="Trier">
-          <option value="votes">Les mieux notées</option>
-          <option value="date">Les plus récentes</option>
-        </select>
-      </div>
-      <div className="ld-list">
-        {list.map((m) => (
-          <div key={m.id} className={`ld-row ${m.id === p.current ? 'on' : ''}`}>
-            <button className="ld-open" onClick={() => p.onOpen(m)} title={`Charger « ${m.title} »`}>
-              <img src={thumbUrl(m)} alt="" loading="lazy" />
-              <span className="ld-txt">
-                <b>{m.title}</b>
-                <small>
-                  {[who(m.author ?? m.by), when(m.updated), scope === 'all' && (p.campaigns.find((c) => c.id === m.campaign)?.name ?? 'hors campagne')].filter(Boolean).join(' · ')}
-                </small>
-                {m.review && <span className={`proj-badge st-${m.review.status}`}>{REVIEW_LABELS[m.review.status]}</span>}
-              </span>
-            </button>
-            {p.canVote && <VoteButton votes={m.votes ?? []} voted={!!m.voted} onVote={() => p.onVote(m)} />}
-            {p.canDelete && (
-              <button
-                className={`ld-del ${armed === m.id ? 'hot' : ''}`}
-                title={armed === m.id ? 'Toucher encore pour supprimer' : 'Supprimer'}
-                onClick={() => {
-                  if (armed !== m.id) return setArmed(m.id);
-                  setArmed(null);
-                  p.onDelete(m);
-                }}
-              >
-                {armed === m.id ? 'Supprimer ?' : '×'}
-              </button>
-            )}
-          </div>
-        ))}
-        {!list.length && <p className="fx-hint">{scope === 'campaign' ? 'Aucune composition dans cette campagne pour l’instant.' : 'Aucune composition.'}</p>}
-      </div>
     </Modal>
   );
 }

@@ -25,18 +25,21 @@ import { blankDoc } from './blank';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
-import { ActivityForm, ActivityMark, ActivityMenu } from './activity';
-import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, REVIEW_LABELS, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
-import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, targetKey, targetLabel } from './targets';
-import { MediaIcon, TargetsPanel, VariantBar } from './targets-ui';
-import { CampaignDialog, CampaignSummary, VoteButton } from './campaigns-ui';
-import { LoadDialog, NewCompositionDialog } from './compositions-ui';
+import { ActivityForm, ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
+import { fetchActivity, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
+import { channelsOf, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
+import { Knob } from './knob';
+import { MediaIcon, PublicationsPanel, VariantBar } from './targets-ui';
+import { CampaignDialog } from './campaigns-ui';
+import { NewCompositionDialog } from './compositions-ui';
+import { CompositionMenu, CompositionsMenu, TopCrumbs } from './compositions-menu';
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
-import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, type Pin, type AnchorExtras } from './model';
+import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorMargin, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
+import { BRUSH_TIPS, TIP_NAMES, isComposite, tipHoverSvg, type BrushTip } from './tips';
 import {
   anchorFor,
   FORMATS,
@@ -106,7 +109,7 @@ const EDIT_SECTIONS: Array<[EditTool, string, string]> = [
   ['edge', 'Bords', 'frame'],
 ];
 const isEdit = (t: Tool): t is EditTool => EDIT_SECTIONS.some(([k]) => k === t);
-type Bubble = 'activity' | 'activity-edit' | 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'anchor' | 'projects' | 'export' | null;
+type Bubble = 'activity' | 'activity-edit' | 'user' | 'prefs' | 'add' | 'layers' | 'palette' | 'light' | 'format' | 'projects' | 'composition' | 'export' | null;
 type View = { zoom: number; rot: number; px: number; py: number };
 
 const STORE = 'ftd-atelier-doc-v2';
@@ -343,6 +346,19 @@ function migrate(d: Doc): Doc {
   return d;
 }
 
+
+/** Le document affiché sur une de ses publications : format, marge du média, couleurs de la variante ; les bords tenus et les pièces solidaires suivent. */
+function docAtTarget(d: Doc, i: number, activity: ActivityProfile | null): Doc {
+  const t = d.targets?.[i];
+  if (!t) return d;
+  const next = docForTarget(d, t, activity);
+  if (d.formatId === t.format && JSON.stringify(docMargins(next)) === JSON.stringify(docMargins(d))) return { ...next, target: i };
+  setAnchorMargin(docMargins(d));
+  const links = linkShapes(d, formatOf(d.formatId));
+  setAnchorMargin(docMargins(next));
+  return { ...holdPins({ ...next, formatId: t.format }, formatOf(t.format), links), target: i };
+}
+
 export function App() {
   const [doc, setDoc] = useState<Doc>(load);
   const docRef = useRef(doc);
@@ -525,11 +541,25 @@ export function App() {
     drawLayers(ctx, d, ff, { scale: k, onImage: () => {} });
     return c.toDataURL('image/png');
   };
+  /** Une vignette par publication : le document tel qu'il s'affiche sur chacune (format, marges, couleurs). */
+  const makeThumbs = (d: Doc) => {
+    if (!d.targets?.length) return undefined;
+    try {
+      return d.targets.map((_, i) => {
+        // les ancrages se résolvent avec les marges de cette publication
+        const x = docAtTarget(d, i, activity);
+        setAnchorMargin(docMargins(x));
+        return makeThumb(x);
+      });
+    } finally {
+      setAnchorMargin(docMargins(docRef.current));
+    }
+  };
   const saveNow = async (p = project, d = docRef.current) => {
     if (!p || !online) return;
     setSaving('saving');
     try {
-      await saveAtelier(p.id, p.title, d, makeThumb(d));
+      await saveAtelier(p.id, p.title, d, makeThumb(d), makeThumbs(d));
       setSaving(docRef.current === d ? 'saved' : 'dirty');
       if (docRef.current === d) setPending(null);
     } catch (err) {
@@ -579,8 +609,10 @@ export function App() {
       setSaving('saved');
       setBubble(null);
       setToast(`« ${r.title} » ouverte`);
+      return true;
     } catch (err) {
       setToast(`Ouverture impossible : ${(err as Error).message}`);
+      return false;
     }
   };
   // lien reçu par e-mail : ?equipe=…&composition=… ouvre la composition (le serveur a déjà choisi l'équipe)
@@ -662,17 +694,48 @@ export function App() {
     return { ...docForTarget(base, t, activity), formatId: t.format, targets: op.targets.map((x) => ({ ...x })), target: 0, operation: op.id };
   };
   /** Affiche une cible : format (les objets gardent leurs accroches), marge du média, couleurs de la variante. */
-  const showTarget = (i: number) =>
+  const showTarget = (i: number) => setDoc((d) => docAtTarget(d, i, activity));
+  /** Édite la publication affichée (réseau, format, résolution, variante, marges) : le document suit, la publication garde ses réglages. */
+  const applyPublication = (t: PubTarget) => {
+    // les couleurs ne changent que si la variante change : une marge ou une résolution garde les couleurs retouchées
+    const samePalette = paletteFor(currentPub, activity)?.id === paletteFor(t, activity)?.id;
     setDoc((d) => {
-      const t = d.targets?.[i];
-      if (!t) return d;
-      const next = docForTarget(d, t, activity);
-      if (d.formatId === t.format && (next.margin ?? 0) === (d.margin ?? 0)) return { ...next, target: i };
-      // autre format ou autre marge du média : les bords tenus suivent, les pièces solidaires aussi
-      setAnchorMargin(d.margin);
+      const next = { ...docForTarget(d, t, activity), ...(samePalette ? { guides: d.guides } : {}) };
+      setAnchorMargin(docMargins(d));
       const links = linkShapes(d, formatOf(d.formatId));
-      setAnchorMargin(next.margin);
-      return { ...holdPins({ ...next, formatId: t.format }, formatOf(t.format), links), target: i };
+      setAnchorMargin(docMargins(next));
+      const held = d.formatId === t.format ? holdPins(next, formatOf(t.format), links) : holdPins({ ...next, formatId: t.format }, formatOf(t.format), links);
+      const cur = d.targets?.length ? (d.target ?? 0) : 0;
+      const targets = d.targets?.length ? d.targets.map((x, j) => (j === cur ? { ...t } : x)) : [{ ...t }];
+      return { ...held, targets, target: cur };
+    });
+  };
+  /** Titre de la publication affichée (vide : réseau · format). */
+  const renamePublication = (name: string) =>
+    setDoc((d) => {
+      const cur = d.targets?.length ? (d.target ?? 0) : 0;
+      const base = d.targets?.length ? d.targets : [{ ...currentPub }];
+      const targets = base.map((x, j) => {
+        if (j !== cur) return x;
+        const { name: _old, ...rest } = x;
+        return name ? { ...rest, name } : rest;
+      });
+      return { ...d, targets, target: cur };
+    });
+  /** Nouvelle publication de la composition : une copie de celle affichée, à régler ensuite. */
+  const addPublication = () => {
+    const { name: _name, ...copy } = currentPub;
+    setDoc((d) => (d.targets?.length ? { ...d, targets: [...d.targets, copy], target: d.targets.length } : { ...d, targets: [{ ...currentPub }, copy], target: 1 }));
+    setBubble('format');
+  };
+  const removePublication = (i: number) =>
+    setDoc((d) => {
+      const targets = (d.targets ?? []).filter((_, j) => j !== i);
+      const cur = d.target ?? 0;
+      const target = Math.max(0, cur > i ? cur - 1 : Math.min(cur, targets.length - 1));
+      const next = { ...d, targets, target };
+      // la publication affichée disparaît : on montre celle qui prend sa place
+      return cur === i && targets.length ? docAtTarget(next, target, activity) : next;
     });
   const channels = channelsOf(activity);
   const allOperations = operationsOf(activity);
@@ -694,7 +757,6 @@ export function App() {
   const canEditTeam = !!me?.team && me.team.role !== 'viewer';
   const [campaignDialog, setCampaignDialog] = useState(false);
   const [newDialog, setNewDialog] = useState(false);
-  const [loadDialog, setLoadDialog] = useState(false);
   const [msgDialog, setMsgDialog] = useState(false);
   const [sheet, setSheet] = useState<string | null>(null);
   const followedTemplates = (followed?.templates ?? []).map((id) => projects.find((m) => m.id === id)).filter((m): m is AtelierMeta => !!m);
@@ -710,8 +772,36 @@ export function App() {
       setToast(`Copie impossible : ${(err as Error).message}`);
     }
   };
+  /** Double toucher dans le menu de la campagne : la composition s'ouvre sur sa première publication, avec son menu. */
+  const openComposition = async (m: AtelierMeta) => {
+    if (m.id !== project?.id && !(await openProject(m))) return;
+    showTarget(0);
+    setBubble('composition');
+  };
+  const voteFor = (m: AtelierMeta) =>
+    void voteAtelier(m.id, !m.voted).then(
+      (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
+      (e: Error) => setToast(`Vote impossible : ${e.message}`),
+    );
+  const templateFor = (m: AtelierMeta, on: boolean) => {
+    if (!followed) return;
+    const templates = on ? [...(followed.templates ?? []), m.id] : (followed.templates ?? []).filter((t) => t !== m.id);
+    void updateCampaign(followed.id, { templates }).then(
+      (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
+      (e: Error) => setToast(`Impossible : ${e.message}`),
+    );
+  };
   const palettes = palettesOf(activity);
   const activeTarget = doc.targets?.[doc.target ?? 0];
+  /** Réglages de la publication affichée ; marges et format viennent toujours du document. */
+  const currentPub: PubTarget = {
+    ...(activeTarget?.channel ? { channel: activeTarget.channel } : {}),
+    format: doc.formatId,
+    ...(activeTarget?.palette ? { palette: activeTarget.palette } : {}),
+    margins: docMargins(doc),
+    ...(activeTarget?.width && activeTarget.format === doc.formatId ? { width: activeTarget.width } : {}),
+    ...(activeTarget?.name ? { name: activeTarget.name } : {}),
+  };
 
   // --- export ---
   const [exportFormats, setExportFormats] = useState<string[]>([]);
@@ -743,14 +833,14 @@ export function App() {
       ? exportTargets
           .map((i) => d0.targets![i])
           .filter((t): t is NonNullable<typeof t> => !!t)
-          .map((t) => ({ ff: formatOf(t.format), d: docForTarget(d0, t, activity), name: [project?.title ?? 'composition', t.channel].filter(Boolean).join(' ') }))
-      : FORMATS.filter((x) => (exportFormats.length ? exportFormats : [d0.formatId]).includes(x.id)).map((ff) => ({ ff, d: d0, name: project?.title ?? 'composition' }));
+          .map((t) => ({ ff: formatOf(t.format), d: docForTarget(d0, t, activity), width: t.width, name: [project?.title ?? 'composition', t.channel].filter(Boolean).join(' ') }))
+      : FORMATS.filter((x) => (exportFormats.length ? exportFormats : [d0.formatId]).includes(x.id)).map((ff) => ({ ff, d: d0, width: undefined as number | undefined, name: project?.title ?? 'composition' }));
     const list = jobs;
     setExporting(true);
     try {
-      for (const { ff, d, name } of jobs) {
+      for (const { ff, d, width, name } of jobs) {
         setToast(`Export ${ff.title}…`);
-        const c = await renderDoc(d, ff);
+        const c = await renderDoc(d, ff, 8000, width);
         const blob = exportKind === 'pdf' ? await pdfOf(c, ff) : await pngOf(c);
         await download(blob, fileName(name, ff, exportKind));
       }
@@ -817,6 +907,26 @@ export function App() {
   const bgTap = useRef<{ id: number; x: number; y: number; t: number } | null>(null);
   const bgLeave = useRef(0);
   const [bubble, setBubble] = useState<Bubble>(null);
+  // historique du menu de la campagne : demandé au serveur pour cette campagne seulement, à l'ouverture du menu
+  const [campaignFeed, setCampaignFeed] = useState<ActivityEvent[] | null>(null);
+  // menu de la composition : ses publications rendues d'après le document ouvert, retouches comprises
+  const previews = useMemo(() => (bubble === 'composition' ? makeThumbs(doc) : undefined), [bubble, doc, activity]); // eslint-disable-line react-hooks/exhaustive-deps
+  // menu de la composition : l'historique de sa campagne à elle
+  const menuOpen = bubble === 'projects' || bubble === 'composition';
+  const campaignScope = bubble === 'composition' && project ? (projects.find((x) => x.id === project.id)?.campaign ?? '') : (followed?.id ?? '');
+  useEffect(() => {
+    if (!menuOpen || !online || !me?.team) return;
+    let live = true;
+    setCampaignFeed(null);
+    fetchActivity(campaignScope).then(
+      (l) => live && setCampaignFeed(l),
+      () => live && setCampaignFeed([]),
+    );
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuOpen, campaignScope, online, me?.team?.id]);
   // astuces (textes d'aide, sous-titres des menus, bandeau d'état) : masquables pour gagner de la place
   const [tips, setTipsState] = useState(() => {
     try {
@@ -1111,7 +1221,7 @@ export function App() {
     return () => window.removeEventListener('resize', fit);
   });
   /** Forme de la brosse et son angle (radians), auquel s'ajoute la rotation du crayon. */
-  const [brushTip, setBrushTip] = useState<'round' | 'flat' | 'triangle'>('round');
+  const [brushTip, setBrushTip] = useState<BrushTip>('round');
   const [brushRot, setBrushRot] = useState(0);
   /** Inclinaison réglée à la main sur la roue du pinceau : la touche s'allonge dans cette direction, comme un crayon couché. */
   const [brushTilt, setBrushTilt] = useState<[number, number]>([0, 0]);
@@ -1186,7 +1296,7 @@ export function App() {
   const f = formatOf(doc.formatId);
   // les calculs d'ancrage suivent la densité du document ouvert
   setAnchorDensity(doc.density);
-  setAnchorMargin(doc.margin);
+  setAnchorMargin(docMargins(doc));
   /** Points d'accroche par défaut (Préférences) : pour les compositions qui n'ont pas les leurs. */
   const [defaultPoints, setDefaultPointsRaw] = useState<AnchorExtras>(() => {
     try {
@@ -1310,7 +1420,7 @@ export function App() {
   /** Bord gauche des bulles posées à gauche (format, composition, aide au positionnement) : juste après les barres de gauche (réglages, hauteur, outils), pour ne jamais passer dessous. */
   const [bubbleLeft, setBubbleLeft] = useState(0);
   useLayoutEffect(() => {
-    if (bubble !== 'anchor' && bubble !== 'format' && bubble !== 'projects') return;
+    if (bubble !== 'format' && bubble !== 'projects' && bubble !== 'composition') return;
     let x = 0;
     for (const el of document.querySelectorAll('.side, .height-bar')) {
       const r = el.getBoundingClientRect();
@@ -1830,16 +1940,16 @@ export function App() {
     }
     // ancrages pendant un déplacement, et tant que le réglage d'ancrage est ouvert :
     // chaque point et chaque ligne a sa couleur caractéristique (marks.ts)
-    if (L.kind === 'move' || bubble === 'anchor' || guidesOn.on) {
+    if (L.kind === 'move' || bubble === 'format' || guidesOn.on) {
       ctx.save();
       ctx.globalAlpha = 0.7;
       // la marge des repères : un cadre pointillé, dedans ou autour de la page
-      if (doc.margin) {
-        const { mx, my } = marginOf(f);
+      if (hasMargins(docMargins(doc))) {
+        const { l, r, t, b } = marginOf(f);
         ctx.strokeStyle = markColor('margin');
         ctx.lineWidth = 1.2 * px;
         ctx.setLineDash([6 * px, 5 * px]);
-        ctx.strokeRect(mx * f.width, my * f.height, f.width * (1 - 2 * mx), f.height * (1 - 2 * my));
+        ctx.strokeRect(l * f.width, t * f.height, f.width * (1 - l - r), f.height * (1 - t - b));
         ctx.setLineDash([]);
       }
       ctx.lineWidth = 1 * px;
@@ -2485,17 +2595,14 @@ export function App() {
 
   /** Repère de survol : un rond de la taille du pinceau, ou l'empreinte du tampon. */
   /** Sélecteur de pointe de la roue : ronde, plate, triangle. */
-  const tipPick = (cur: 'round' | 'flat' | 'triangle', set: (t: 'round' | 'flat' | 'triangle') => void) => {
-    const all = ['round', 'flat', 'triangle'] as const;
-    const names = { round: 'Ronde', flat: 'Plate', triangle: 'Triangle' };
-    return {
-      face: <Icon name={`tip-${cur}`} />,
-      title: `Pointe : ${names[cur].toLowerCase()}`,
-      next: () => set(all[(all.indexOf(cur) + 1) % all.length]!),
-      options: all.map((t) => ({ key: t, icon: <Icon name={`tip-${t}`} />, label: names[t], on: cur === t })),
-      onOption: (k: string) => set(k as 'round' | 'flat' | 'triangle'),
-    };
-  };
+  /** Le pinceau a toutes les pointes (croix, râteaux, épis) ; Modeler, Plume et Relief : ronde, plate, triangle. */
+  const tipPick = <T extends BrushTip>(cur: T, set: (t: T) => void, all: readonly T[] = ['round', 'flat', 'triangle'] as T[]) => ({
+    face: <Icon name={`tip-${cur}`} />,
+    title: `Pointe : ${TIP_NAMES[cur].toLowerCase()}`,
+    next: () => set(all[(all.indexOf(cur) + 1) % all.length]!),
+    options: all.map((t) => ({ key: t, icon: <Icon name={`tip-${t}`} />, label: TIP_NAMES[t], on: cur === t })),
+    onOption: (k: string) => set(k as T),
+  });
   /** Aperçu d'un tampon tel qu'il s'imprime : couleur ou dégradé du guide, rempli si l'option est prise. */
   const stampLook = (def: StampDef) => {
     const g = doc.guides[guide];
@@ -2526,7 +2633,7 @@ export function App() {
     const tip = tool === 'paint' && tipOn(brushKind) ? brushTip : tool === 'mold' ? moldTip(swash).tip : 'round';
     const H = tip === 'flat' ? Math.max(3, D * 0.3) : D;
     const ang = tool === 'stamp' ? stampRot : tool === 'mold' ? moldTip(swash).rot : tip !== 'round' ? brushRot : 0;
-    el.dataset.tip = tip;
+    tipLook(el, tip);
     el.style.display = 'block';
     el.style.width = `${D}px`;
     el.style.height = `${H}px`;
@@ -2539,6 +2646,12 @@ export function App() {
     const persp = k > 0.02 ? ` rotate(${dir}rad) scaleX(${1 - k * 0.35}) rotate(${-dir}rad)` : kb > 0.02 ? ` rotate(${db}rad) scaleX(${1 + kb * LEAN}) rotate(${-db}rad)` : '';
     el.style.transform = `translate(${at.x - D / 2}px, ${at.y - H / 2}px)${persp} rotate(${ang}rad)`;
   });
+  /** Repère de survol : forme de la pointe ; une pointe composée se dessine en image (dents, lames). */
+  const tipLook = (el: HTMLDivElement, tip: BrushTip) => {
+    el.dataset.tip = isComposite(tip) ? 'parts' : tip;
+    if (tool === 'stamp') return;
+    el.style.backgroundImage = isComposite(tip) ? `url("data:image/svg+xml,${encodeURIComponent(tipHoverSvg(tip))}")` : '';
+  };
   const showHover = (e: React.PointerEvent) => {
     const el = hoverRef.current;
     if (!el) return;
@@ -2565,7 +2678,7 @@ export function App() {
     const D = Math.max(6, d);
     // brosse plate ou triangle : la silhouette de la touche, tournée comme elle peindra
     const tip = molding ? moldTip(swash).tip : shaping && swash.mode === 'orn' ? moldTip(swash).tip : !shaping && tool === 'paint' && tipOn(brushKind) ? brushTip : 'round';
-    el.dataset.tip = tip;
+    tipLook(el, tip);
     el.style.width = `${D}px`;
     el.style.height = `${tip === 'flat' ? Math.max(3, D * 0.3) : D}px`;
     const ang = tool === 'stamp' ? stampScreenAngle(e) : (molding || shaping) && tip !== 'round' ? moldTip(swash).rot : tip !== 'round' ? brushRot + penTwist(e) : view.rot;
@@ -4209,36 +4322,48 @@ export function App() {
               </button>
             </div>
             <div className="bar-left">
-              {/* l'activité pour laquelle l'outil existe : son menu (fiche, profil, préférences, déconnexion) */}
-              <button
-                className={`btn act-btn ${bubble === 'activity' || bubble === 'activity-edit' ? 'on' : ''}`}
-                onClick={() => {
+              {/* fil d'Ariane : l'activité › la campagne (ou l'occasion) › le contenu ouvert */}
+              <TopCrumbs
+                team={me?.team}
+                campaign={followed}
+                occasion={allOperations.find((o) => o.id === doc.operation)}
+                showCampaign={!!(online && me?.team)}
+                title={project?.title}
+                thumb={project ? thumbUrl(projects.find((x) => x.id === project.id) ?? { id: project.id, title: project.title, updated: '' }) : undefined}
+                kind={doc.targets?.length ? `${doc.targets.length} publication${doc.targets.length > 1 ? 's' : ''}` : f.title}
+                saving={online && project ? saving : undefined}
+                open={bubble === 'activity' || bubble === 'activity-edit' ? 'activity' : bubble === 'projects' ? 'campaign' : bubble === 'composition' ? 'content' : null}
+                onActivity={() => {
                   if (bubble !== 'activity' && online) fetchMe().then(setMe, () => {});
                   setBubble(bubble === 'activity' ? null : 'activity');
                 }}
-                title={me?.team ? `${me.team.name} : activité, profil, préférences` : 'Activité, profil, préférences'}
-              >
-                <ActivityMark team={me?.team} size={30} />
-              </button>
-              <button
-                className={`chip project-chip ${bubble === 'projects' ? 'on' : ''}`}
-                onClick={() => {
-                  if (bubble !== 'projects' && online) refreshProjects();
-                  setBubble(bubble === 'projects' ? null : 'projects');
+                onCampaign={() => {
+                  if (bubble === 'projects') return setBubble(null);
+                  if (online) refreshProjects();
+                  setBubble('projects');
                 }}
-                title="Compositions : enregistrer, ouvrir, en commencer une"
-              >
-                <span className="brand">{project?.title ?? 'Atelier'}</span>
-                {online && project && <span className={`save-dot ${saving}`} title={{ saved: 'Enregistrée', dirty: 'Modifications en attente', saving: 'Enregistrement…', error: 'Non enregistrée' }[saving]} />}
-              </button>
-              <button className={`chip ${bubble === 'format' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'format' ? null : 'format')}>
-                <FormatGlyph w={f.width} h={f.height} /> <span className="chip-label">{activeTarget ? targetLabel(activeTarget, activity) : f.title}</span>
-              </button>
-              <button className={`btn ${bubble === 'anchor' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'anchor' ? null : 'anchor')} title="Aide au positionnement : repères, densité, marge">
-                <Icon name="layout" />
-              </button>
+                onContent={() => {
+                  if (bubble === 'composition') return setBubble(null);
+                  if (bubble !== 'projects' && online) refreshProjects();
+                  setBubble('composition');
+                }}
+              />
             </div>
             <div className="bar-right">
+              {/* la publication affichée : son édition */}
+              <button
+                className={`btn pubs-btn ${bubble === 'format' ? 'on' : ''}`}
+                onClick={() => setBubble(bubble === 'format' ? null : 'format')}
+                title={`Édition de la publication : ${targetLabel(currentPub, activity)} (réseau, format, résolution, variante, marges, repères)`}
+                aria-label="Édition de la publication"
+              >
+                <FormatGlyph w={f.width} h={f.height} />
+                {activeTarget?.channel && (
+                  <span className="pubs-media">
+                    <MediaIcon ch={channels.find((c) => c.id === activeTarget.channel)} size={13} />
+                  </span>
+                )}
+              </button>
               <button className={`btn ${bubble === 'light' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'light' ? null : 'light')} title="Lumière">
                 <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
                   <circle cx="12" cy="12" r="4.5" style={{ fill: lampOf(doc).color }} />
@@ -4286,15 +4411,7 @@ export function App() {
               >
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
-              {online && me?.team && (
-                <FeedButton
-                  count={feed ? unreadCount(feed, feedSeen, (me.email ?? 'groupe').toLowerCase(), overdueOf(campaigns).length) : 0}
-                  on={feedOpen}
-                  onClick={openFeed}
-                />
-              )}
               {online && project && me?.team && <MessagesButton count={projects.find((m) => m.id === project.id)?.messages ?? 0} on={msgDialog} onClick={() => setMsgDialog(true)} />}
-              <span className="sep" />
               <button
                 className={`btn ${bubble === 'export' ? 'on' : ''}`}
                 onClick={() => {
@@ -4308,6 +4425,22 @@ export function App() {
               >
                 <Icon name="export" />
               </button>
+              <span className="sep" />
+              {online && me?.team && (
+                <FeedButton
+                  count={feed ? unreadCount(feed, feedSeen, (me.email ?? 'groupe').toLowerCase(), overdueOf(campaigns).length) : 0}
+                  on={feedOpen}
+                  onClick={openFeed}
+                />
+              )}
+              <UserButton
+                me={me}
+                on={bubble === 'user' || bubble === 'prefs'}
+                onClick={() => {
+                  if (bubble !== 'user' && online) fetchMe().then(setMe, () => {});
+                  setBubble(bubble === 'user' ? null : 'user');
+                }}
+              />
             </div>
           </header>
           {/* Maj : gros bouton en tête de la colonne de gauche (de droite pour un gaucher) */}
@@ -4639,9 +4772,9 @@ export function App() {
                     intensity={opacity}
                     onIntensity={(v) => setOpacity(Math.max(0.05, v))}
                     onSizing={(on) => setSizing(on ? 'on' : 'after')}
-                    {...(tipOn(brushKind) ? { tip: brushTip, ...(brushTip !== 'round' ? { rotation: brushRot, onRotation: setBrushRot } : {}) } : {})}
+                    {...(tipOn(brushKind) ? { tip: brushTip, ...(brushTip !== 'round' && brushTip !== 'ears' ? { rotation: brushRot, onRotation: setBrushRot } : {}) } : {})}
                     {...(leanOn(brushKind) ? { tilt: brushTilt, onTilt: (x: number, y: number) => setBrushTilt([x, y]) } : {})}
-                    pick={tipOn(brushKind) ? tipPick(brushTip, setBrushTip) : { face: <Icon name="tip-round" />, title: 'Pointe ronde (seule possible pour ce pinceau)' }}
+                    pick={tipOn(brushKind) ? tipPick(brushTip, setBrushTip, BRUSH_TIPS) : { face: <Icon name="tip-round" />, title: 'Pointe ronde (seule possible pour ce pinceau)' }}
                   />
                 ),
                 tool === 'stamp' && (
@@ -4749,7 +4882,7 @@ export function App() {
           )}
           {feedOpen && me?.team && (
             <FeedDialog
-              events={feed}
+              events={online && me?.team ? campaignFeed : null}
               seen={feedSeen}
               me={(me.email ?? 'groupe').toLowerCase()}
               campaigns={campaigns}
@@ -4834,25 +4967,54 @@ export function App() {
               onClose={() => setMsgDialog(false)}
             />
           )}
-          {loadDialog && (
-            <LoadDialog
+          {bubble === 'composition' && online && (
+            <CompositionMenu
+              meta={project ? projects.find((x) => x.id === project.id) : undefined}
+              current={project ?? undefined}
+              targets={doc.targets ?? []}
+              previews={previews}
+              active={doc.target ?? 0}
               campaign={followed}
-              campaigns={campaigns}
+              campaigns={me?.team ? campaigns : []}
               projects={projects}
-              current={project?.id}
-              canDelete={!me?.team || canEditTeam}
+              activity={activity}
+              events={me?.team ? campaignFeed : null}
+              me={me?.email ?? 'groupe'}
+              canEdit={!me?.team || canEditTeam}
+              isAdmin={!!me?.admin || me?.team?.role === 'owner'}
               canVote={!!me?.team}
-              onClose={() => setLoadDialog(false)}
-              onOpen={(m) => {
-                setLoadDialog(false);
-                void openProject(m);
-              }}
-              onVote={(m) =>
-                void voteAtelier(m.id, !m.voted).then(
-                  (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
-                  (e: Error) => setToast(`Vote impossible : ${e.message}`),
-                )
-              }
+              onTitle={(t) => project && setProject({ ...project, title: t })}
+              onShow={showTarget}
+              onAdd={addPublication}
+              onRemove={removePublication}
+              onCampaign={() => setBubble('projects')}
+              onSaveNew={() => void newProject('Sans titre', true)}
+              onVote={voteFor}
+              onTemplate={templateFor}
+            />
+          )}
+          {(bubble === 'projects' || (bubble === 'composition' && !online)) && (online ? (
+            <CompositionsMenu
+              campaigns={me?.team ? campaigns : []}
+              operations={allOperations}
+              campaign={followed}
+              counts={campaignCounts}
+              activity={activity}
+              projects={projects}
+              current={project ?? undefined}
+              currentTargets={doc.targets ?? []}
+              events={online && me?.team ? campaignFeed : null}
+              me={me?.email ?? 'groupe'}
+              canEdit={!me?.team || canEditTeam}
+              isAdmin={!!me?.admin || me?.team?.role === 'owner'}
+              canVote={!!me?.team}
+              onPickCampaign={setCampaign}
+              onAllCampaigns={() => setCampaignDialog(true)}
+              onEditCampaign={() => followed && setSheet(followed.id)}
+              onSaveNew={() => void newProject('Sans titre', true)}
+              onNew={() => setNewDialog(true)}
+              onOpen={(m) => void openComposition(m)}
+              onVote={voteFor}
               onDelete={(m) =>
                 void removeAtelier(m.id).then(
                   () => {
@@ -4863,68 +5025,13 @@ export function App() {
                   (e: Error) => setToast(`Suppression impossible : ${e.message}`),
                 )
               }
+              onTemplate={templateFor}
             />
-          )}
-          {bubble === 'projects' && (
+          ) : (
             <div className="bubble projects-bubble">
-              {online ? (
-                <>
-                  {me?.team && <CampaignSummary campaign={followed} onOpen={() => setCampaignDialog(true)} onSheet={() => followed && setSheet(followed.id)} />}
-                  {(() => {
-                    const m = project ? projects.find((x) => x.id === project.id) : undefined;
-                    const votes = m?.votes ?? [];
-                    return (
-                      <div className="cur-card">
-                        {m ? <img className="cur-thumb" src={thumbUrl(m)} alt="" /> : <span className="cur-thumb empty" />}
-                        <div className="cur-txt">
-                          <input className="proj-title" value={project?.title ?? ''} placeholder="Composition non enregistrée" onChange={(e) => project && setProject({ ...project, title: e.target.value })} disabled={!project} />
-                          <small>
-                            {project
-                              ? [(m?.author ?? m?.by)?.split('@')[0], m?.updated && new Date(m.updated).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })].filter(Boolean).join(' · ') || 'nouvelle'
-                              : 'Cette page n’est pas encore enregistrée'}
-                          </small>
-                          <div className="cur-acts">
-                            {project ? (
-                              <button className="fx-clear" onClick={() => void saveNow()} disabled={saving === 'saving'}>
-                                {saving === 'saving' ? 'Enregistrement…' : saving === 'saved' ? 'Enregistrée' : 'Enregistrer'}
-                              </button>
-                            ) : (
-                              <button className="fx-clear" onClick={() => void newProject('Sans titre', true)}>
-                                Enregistrer cette page
-                              </button>
-                            )}
-                            {m?.review && <span className={`proj-badge st-${m.review.status}`}>{REVIEW_LABELS[m.review.status]}</span>}
-                            {m && me?.team && (
-                              <VoteButton
-                                votes={votes}
-                                voted={!!m.voted}
-                                onVote={() =>
-                                  void voteAtelier(m.id, !m.voted).then(
-                                    (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
-                                    (e: Error) => setToast(`Vote impossible : ${e.message}`),
-                                  )
-                                }
-                              />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                  <div className="cur-main">
-                    <button className="pf-btn" onClick={() => setNewDialog(true)} disabled={!!me?.team && !canEditTeam}>
-                      <Icon name="plus" /> Nouvelle
-                    </button>
-                    <button className="pf-btn" onClick={() => setLoadDialog(true)}>
-                      Charger…
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <p className="fx-hint">{online === null ? 'Connexion au serveur…' : 'Hors ligne : la page reste dans ce navigateur. Sur designer.flowtherapymusic.com, elle s’enregistre pour tout le groupe.'}</p>
-              )}
+              <p className="fx-hint">{online === null ? 'Connexion au serveur…' : 'Hors ligne : la page reste dans ce navigateur. Sur designer.flowtherapymusic.com, elle s’enregistre pour tout le groupe.'}</p>
             </div>
-          )}
+          ))}
 
           {bubble === 'export' && (
             <div className="bubble export-bubble">
@@ -4955,7 +5062,7 @@ export function App() {
               {doc.targets?.map((t, i) => {
                 const on = exportTargets.includes(i);
                 const x = formatOf(t.format);
-                const sz = exportSize(x);
+                const sz = exportSize(x, t.width);
                 return (
                   <button key={i} className={`row ${on ? 'on' : ''}`} onClick={() => setExportTargets(on ? exportTargets.filter((y) => y !== i) : [...exportTargets, i])}>
                     <MediaIcon ch={channels.find((c) => c.id === t.channel)} />
@@ -5046,7 +5153,8 @@ export function App() {
             </div>
           )}
 
-          {bubble === 'activity' && <ActivityMenu me={me} online={online} onEdit={() => setBubble('activity-edit')} onPrefs={() => setBubble('prefs')} />}
+          {bubble === 'activity' && <ActivityMenu me={me} online={online} onEdit={() => setBubble('activity-edit')} />}
+          {bubble === 'user' && <UserMenu me={me} onPrefs={() => setBubble('prefs')} />}
           {bubble === 'activity-edit' && me?.team && (
             <ActivityForm me={me} onClose={() => setBubble(null)} onSaved={() => {
               void fetchMe().then(setMe, () => {});
@@ -5084,41 +5192,104 @@ export function App() {
             />
           )}
           {bubble === 'format' && (
-            <div className="bubble format-bubble">
-              <div className="b-title">Cibles du document</div>
-              {!doc.targets?.length && <p className="b-note">Choisis où partira ce document : un média, un format, une variante de couleurs.</p>}
-              <TargetsPanel
-                targets={doc.targets ?? []}
-                active={doc.target ?? 0}
+            <div className="bubble format-bubble pubs-bubble">
+              <div className="b-title pub-title">
+                {/* même pictogramme que le bouton de la barre : le format, le réseau en pastille */}
+                <span className="pub-ico">
+                  <FormatGlyph w={f.width} h={f.height} big />
+                  {currentPub.channel && (
+                    <span className="pubs-media">
+                      <MediaIcon ch={channels.find((c) => c.id === currentPub.channel)} size={14} />
+                    </span>
+                  )}
+                </span>
+                {/* le titre de la publication se change sur place */}
+                <input
+                  className="pub-name"
+                  value={currentPub.name ?? ''}
+                  placeholder={defaultLabel(currentPub, activity)}
+                  onChange={(e) => renamePublication(e.target.value)}
+                  aria-label="Titre de la publication"
+                  title="Titre de la publication : toucher pour le changer"
+                />
+                <button
+                  className="btn small pub-eye"
+                  onClick={(e) => {
+                    const input = (e.currentTarget.parentElement as HTMLElement).querySelector<HTMLInputElement>('.pub-name');
+                    input?.focus();
+                    input?.select();
+                  }}
+                  title="Renommer la publication"
+                  aria-label="Renommer la publication"
+                >
+                  <Icon name="pen" />
+                </button>
+                {/* repères affichés en permanence, ou seulement en déplaçant */}
+                <button
+                  className={`btn small pub-eye ${guidesOn.on ? 'on' : ''}`}
+                  onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}
+                  aria-pressed={guidesOn.on}
+                  title={guidesOn.on ? 'Repères affichés en permanence : toucher pour ne les voir qu’en déplaçant' : 'Repères visibles seulement en déplaçant : toucher pour les afficher en permanence'}
+                >
+                  <Icon name={guidesOn.on ? 'eye' : 'eyeoff'} />
+                </button>
+              </div>
+              <PublicationsPanel
+                current={currentPub}
                 activity={activity}
-                onShow={showTarget}
-                onRemove={(i) =>
-                  setDoc((d) => {
-                    const targets = (d.targets ?? []).filter((_, j) => j !== i);
-                    const cur = d.target ?? 0;
-                    return { ...d, targets, target: Math.max(0, cur > i ? cur - 1 : Math.min(cur, targets.length - 1)) };
-                  })
-                }
-                onAdd={(t) => {
-                  const i = doc.targets?.length ?? 0;
-                  setDoc((d) => ({ ...d, targets: [...(d.targets ?? []), t] }));
-                  showTarget(i);
-                }}
-              />
-              {!doc.targets?.length && (
-                <>
-                  <div className="b-title">Format libre</div>
-                  {FORMATS.map((x) => (
-                    <button key={x.id} className={`row ${x.id === f.id ? 'on' : ''}`} onClick={() => setDoc((d) => holdPins({ ...d, formatId: x.id }, x, linkShapes(d, formatOf(d.formatId))))}>
-                      <FormatGlyph w={x.width} h={x.height} big />
-                      <span>{x.title}</span>
-                      <small>
-                        {x.width} × {x.height} {x.unit}
-                      </small>
+                onApply={applyPublication}
+                guides={
+                  <div className="pub-guides">
+                    <div className="b-field-label">Repères</div>
+                    <div className="seg">
+                      {ANCHOR_FRAMES.filter((x) => x !== 'grid').map((x) => (
+                        <button key={x} className={doc.frame === x ? 'on' : ''} onClick={() => setDoc((d) => ({ ...d, frame: x as AnchorFrame }))} title={FRAME_TITLES[x]}>
+                          {x === 'repartition' ? '½ ⅓' : x === 'or' ? 'φ' : '✕'}
+                        </button>
+                      ))}
+                    </div>
+                    {doc.frame === 'repartition' && (
+                      <>
+                        <div className="b-title">
+                          Densité <span className="b-count">{['Demis', 'Tiers', 'Quarts', 'Sixièmes', 'Douzièmes', '24es'][(doc.density ?? DEFAULT_DENSITY) - 1]}</span>
+                        </div>
+                        <label className="density">
+                          <span>−</span>
+                          <input
+                            type="range"
+                            min={1}
+                            max={DENSITY_STEPS.length}
+                            step={1}
+                            value={doc.density ?? DEFAULT_DENSITY}
+                            onChange={(e) => setDoc((d) => ({ ...d, density: Number(e.target.value) }))}
+                          />
+                          <span>+</span>
+                        </label>
+                      </>
+                    )}
+                    {/* légende : seulement ce qui est sur la page en ce moment */}
+                    <MarkLegend
+                      kinds={(() => {
+                        const seen = new Set(anchorsOf(doc.frame, f).map((a) => anchorKind(doc.frame, a.id)));
+                        return marksOfFrame(doc.frame).filter((k) => (k === 'margin' ? hasMargins(docMargins(doc)) : k === 'page' || seen.has(k)));
+                      })()}
+                      colors={markColors}
+                    />
+                    <button className={`ab-more ${anchorMore ? 'on' : ''}`} onClick={() => setAnchorMore(!anchorMore)} aria-expanded={anchorMore}>
+                      <span>Points d’accroche</span>
+                      <span className="ab-chev">{anchorMore ? '−' : '+'}</span>
                     </button>
-                  ))}
-                </>
-              )}
+                    {anchorMore && (
+                      <>
+                        <PointGrids points={points} frame={doc.frame} onChange={(k, v) => setDoc((d) => ({ ...d, points: { ...(d.points ?? defaultPoints), [k]: v } }))} />
+                        <button className="ab-link" onClick={() => setBubble('prefs')}>
+                          Réglages par défaut dans Préférences
+                        </button>
+                      </>
+                    )}
+                  </div>
+                }
+              />
               <button
                 className="row danger"
                 onClick={() => {
@@ -5246,92 +5417,6 @@ export function App() {
                     )}
                   </div>
                 </RailScroll>
-              )}
-            </div>
-          )}
-
-          {bubble === 'anchor' && (
-            <div className="bubble anchor-bubble">
-              <div className="ab-head">
-                <div className="b-title">Aide au positionnement</div>
-                <button
-                  className={`btn small ${guidesOn.on ? 'on' : ''}`}
-                  onClick={() => setGuidesOn({ ...guidesOn, on: !guidesOn.on })}
-                  aria-pressed={guidesOn.on}
-                  title={guidesOn.on ? 'Repères affichés en permanence : toucher pour ne les voir qu’en déplaçant' : 'Repères visibles seulement en déplaçant : toucher pour les afficher en permanence'}
-                >
-                  <Icon name={guidesOn.on ? 'eye' : 'eyeoff'} />
-                </button>
-              </div>
-              <div className="seg">
-                {ANCHOR_FRAMES.filter((x) => x !== 'grid').map((x) => (
-                  <button key={x} className={doc.frame === x ? 'on' : ''} onClick={() => setDoc((d) => ({ ...d, frame: x as AnchorFrame }))} title={FRAME_TITLES[x]}>
-                    {x === 'repartition' ? '½ ⅓' : x === 'or' ? 'φ' : '✕'}
-                  </button>
-                ))}
-              </div>
-              {doc.frame === 'repartition' && (
-                <>
-                  <div className="b-title">
-                    Densité <span className="b-count">{['Demis', 'Tiers', 'Quarts', 'Sixièmes', 'Douzièmes', '24es'][(doc.density ?? DEFAULT_DENSITY) - 1]}</span>
-                  </div>
-                  <label className="density">
-                    <span>−</span>
-                    <input
-                      type="range"
-                      min={1}
-                      max={DENSITY_STEPS.length}
-                      step={1}
-                      value={doc.density ?? DEFAULT_DENSITY}
-                      onChange={(e) => setDoc((d) => ({ ...d, density: Number(e.target.value) }))}
-                    />
-                    <span>+</span>
-                  </label>
-                </>
-              )}
-              <div className="b-title">
-                Marge <span className="b-count">{Math.round((doc.margin ?? 0) * 100)} %</span>
-              </div>
-              <label className="density">
-                <span>−</span>
-                <input
-                  type="range"
-                  min={-0.25}
-                  max={0.25}
-                  step={0.01}
-                  value={doc.margin ?? 0}
-                  onChange={(e) => {
-                    // le neutre aimante le curseur
-                    const v = Number(e.target.value);
-                    const m = Math.abs(v) < 0.015 ? 0 : v;
-                    // les objets tenus à la marge la suivent
-                    // les pièces solidaires gardent leur place entre elles
-                    const links = linkShapes(docRef.current, f);
-                    setAnchorMargin(m);
-                    setDoc((d) => holdPins({ ...d, margin: m }, f, links));
-                  }}
-                />
-                <span>+</span>
-              </label>
-              {/* légende : seulement ce qui est sur la page en ce moment */}
-              <MarkLegend
-                kinds={(() => {
-                  const seen = new Set(anchorsOf(doc.frame, f).map((a) => anchorKind(doc.frame, a.id)));
-                  return marksOfFrame(doc.frame).filter((k) => (k === 'margin' ? !!doc.margin : k === 'page' || seen.has(k)));
-                })()}
-                colors={markColors}
-              />
-              <button className={`ab-more ${anchorMore ? 'on' : ''}`} onClick={() => setAnchorMore(!anchorMore)} aria-expanded={anchorMore}>
-                <span>Points d’accroche</span>
-                <span className="ab-chev">{anchorMore ? '−' : '+'}</span>
-              </button>
-              {anchorMore && (
-                <>
-                  <PointGrids points={points} frame={doc.frame} onChange={(k, v) => setDoc((d) => ({ ...d, points: { ...(d.points ?? defaultPoints), [k]: v } }))} />
-                  <button className="ab-link" onClick={() => setBubble('prefs')}>
-                    Réglages par défaut dans Préférences
-                  </button>
-                </>
               )}
             </div>
           )}
@@ -5503,118 +5588,7 @@ function VSlider({ label, value, onChange, center, onActive }: { label: string; 
   );
 }
 
-/** Petits dessins des potards : ce que règle chacun (repère 16 × 16, centré sur 8,8). */
-const KNOB_GLYPHS: Array<[RegExp, string, boolean?]> = [
-  [/^seuil/i, 'M8 2.5a5.5 5.5 0 0 0 0 11z M8 2.5a5.5 5.5 0 0 1 0 11 5.5 5.5 0 0 1 0-11z', true],
-  [/^lissage/i, 'M2 11c2-1 2-5 4-5s2 3 4 3 3-4 4-5'],
-  [/^densit/i, 'M4 4h.01M8 4h.01M12 4h.01M4 8h.01M8 8h.01M12 8h.01M4 12h.01M8 12h.01M12 12h.01'],
-  [/^écart/i, 'M5.5 8h.01M10.5 8h.01M3 5.5 1.5 8 3 10.5M13 5.5 14.5 8 13 10.5'],
-  [/^ramification/i, 'M8 14V8M8 8 4.5 3.5M8 8l3.5-4.5M8 10.5 5 8.5M8 10l3-2.5'],
-  [/^chaos/i, 'M2 10l2.5-5 2 7 2.5-9 2 8 2-4 1 2'],
-  [/^taille noyau/i, 'M8 6.3a1.7 1.7 0 1 1 0 3.4 1.7 1.7 0 0 1 0-3.4zM8 2.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11z'],
-  [/^longueur/i, 'M4 13.5c1-3.5 1-7 0-11M8 13.5V2.5M12 13.5c-1-3.5-1-7 0-11'],
-  [/^frisure/i, 'M2 9c0-3 3-3 3 0s3 3 3 0 3-3 3 0 3 3 3 0'],
-  [/^roussi/i, 'M8 14c-2.6 0-4-1.8-4-3.9 0-1.9 1.2-3 1.9-4.5.4 1 1 1.6 1.6 1.8C7.3 5.3 8 3.6 9.5 2c.4 2.6 2.5 4.4 2.5 7.2 0 2.9-1.6 4.8-4 4.8zM8 14c-1 0-1.6-.8-1.6-1.7 0-1.1 1-1.7 1.6-2.8.6 1.1 1.6 1.7 1.6 2.8 0 .9-.6 1.7-1.6 1.7z'],
-  [/^mélange/i, 'M6 3.5a4 4 0 1 1 0 8 4 4 0 0 1 0-8zM10 4.5a4 4 0 1 1 0 8 4 4 0 0 1 0-8z'],
-  [/^dessin/i, 'M3 13l.8-3L10.5 3.3l2.2 2.2L6 12.2zM9.3 4.5l2.2 2.2'],
-  [/^intensit/i, 'M8 2.5c2.8 3.6 4 5.6 4 7.5a4 4 0 0 1-8 0c0-1.9 1.2-3.9 4-7.5z'],
-  [/^bord/i, 'M3 3h10v10H3zM5.5 5.5h5v5h-5z'],
-  [/^biseau/i, 'M2.5 2.5h11v11h-11zM5.5 5.5h5v5h-5zM2.5 2.5l3 3M13.5 2.5l-3 3M2.5 13.5l3-3M13.5 13.5l-3-3'],
-  [/^distance/i, 'M6 6h4v4H6zM2.5 2.5h3M10.5 2.5h3M2.5 13.5h3M10.5 13.5h3M2.5 2.5v3M2.5 10.5v3M13.5 2.5v3M13.5 10.5v3'],
-  [/^largeur/i, 'M2 8h12M4 5.5 1.5 8 4 10.5M12 5.5 14.5 8 12 10.5M8 4v8'],
-  [/^graisse/i, 'M4 3h4.5a2.5 2.5 0 0 1 0 5H4zM4 8h5a2.5 2.5 0 0 1 0 5H4zM6 3v10'],
-  [/^courbure/i, 'M2 11Q8 3 14 11'],
-  [/^espacement/i, 'M5 3v10M11 3v10M1.5 8h2M12.5 8h2M7 8h2'],
-  [/^interligne/i, 'M3 4h10M3 12h10M8 6v4M6.5 7.2 8 5.8l1.5 1.4M6.5 8.8 8 10.2l1.5-1.4'],
-];
-
-/** Potard : tourne d'un geste (glisser vers le haut ou vers la droite pour monter),
- *  le libellé et le niveau s'affichent en surbrillance à côté tant qu'on le tient.
- *  Sa jauge est celle de la roue du pinceau : des segments de 6 h à 3 h, par la gauche et le haut.
- *  Double appui : retour au neutre pour un réglage à deux sens. */
-export function Knob({ label, value, onChange, center, fmt }: { label: string; value: number; onChange: (v: number) => void; center?: boolean; fmt?: (v: number) => string }) {
-  const drag = useRef<{ x: number; y: number; v: number; id: number } | null>(null);
-  const lastTap = useRef(0);
-  const [held, setHeld] = useState(false);
-  const N = 12;
-  const A0 = Math.PI; // 6 h
-  const A1 = 2.5 * Math.PI; // 3 h
-  const [r0, r1] = [16, 21.5];
-  const at = (a: number, r: number) => [22 + Math.sin(a) * r, 22 - Math.cos(a) * r].map((n) => n.toFixed(2)).join(' ');
-  const seg = (a: number, b: number) => `M${at(a, r1)}A${r1} ${r1} 0 0 1 ${at(b, r1)}L${at(b, r0)}A${r0} ${r0} 0 0 0 ${at(a, r0)}Z`;
-  const lit = (i: number) => {
-    const [lo, hi] = [i / N, (i + 1) / N];
-    if (!center) return hi <= value + 1e-6 ? 'on' : (lo + hi) / 2 <= value ? 'half' : '';
-    // à deux sens : du milieu vers la valeur
-    const [a, b] = value >= 0.5 ? [0.5, value] : [value, 0.5];
-    return lo >= a - 1e-6 && hi <= b + 1e-6 ? 'on' : (lo + hi) / 2 > a && (lo + hi) / 2 < b ? 'half' : '';
-  };
-  const glyph = KNOB_GLYPHS.find(([re]) => re.test(label));
-  const shown = fmt ? fmt(value) : center ? `${value >= 0.5 ? '+' : '−'}${Math.round(Math.abs(value - 0.5) * 200)}` : `${Math.round(value * 100)} %`;
-  const end = () => {
-    drag.current = null;
-    setHeld(false);
-  };
-  return (
-    <div
-      className={`knob ${held ? 'held' : ''}`}
-      title={label}
-      role="slider"
-      tabIndex={0}
-      aria-label={label}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={Math.round(value * 100)}
-      aria-valuetext={shown}
-      onKeyDown={(e) => {
-        // au clavier : flèches (Maj pour aller plus vite), Début et Fin
-        const k = e.key;
-        const d = e.shiftKey ? 0.1 : 0.02;
-        const v = k === 'ArrowUp' || k === 'ArrowRight' ? value + d : k === 'ArrowDown' || k === 'ArrowLeft' ? value - d : k === 'Home' ? 0 : k === 'End' ? 1 : null;
-        if (v === null) return;
-        e.preventDefault();
-        e.stopPropagation();
-        onChange(Math.max(0, Math.min(1, v)));
-      }}
-      onPointerDown={(e) => {
-        (e.currentTarget as Element).setPointerCapture(e.pointerId);
-        const now = performance.now();
-        if (center && now - lastTap.current < 320) onChange(0.5);
-        lastTap.current = now;
-        drag.current = { x: e.clientX, y: e.clientY, v: value, id: e.pointerId };
-        setHeld(true);
-      }}
-      onPointerMove={(e) => {
-        const d = drag.current;
-        if (!d || d.id !== e.pointerId) return;
-        // 180 px de geste pour toute la course ; le crayon règle plus finement
-        const span = e.pointerType === 'pen' ? 320 : 180;
-        let v = Math.max(0, Math.min(1, d.v + (d.y - e.clientY + (e.clientX - d.x)) / span));
-        if (center && Math.abs(v - 0.5) < 0.03) v = 0.5;
-        if (v !== value) onChange(v);
-      }}
-      onPointerUp={end}
-      onPointerCancel={end}
-    >
-      <svg viewBox="0 0 44 44" aria-hidden>
-        {Array.from({ length: N }, (_, i) => {
-          const a = A0 + (i / N) * (A1 - A0);
-          const b = A0 + ((i + 1) / N) * (A1 - A0);
-          return <path key={i} className={`kn-seg ${lit(i)}`} d={seg(a + 0.035, b - 0.035)} />;
-        })}
-        {center && <path className="kn-zero" d={`M${at((A0 + A1) / 2, r0 - 1.5)}L${at((A0 + A1) / 2, r1 + 1.5)}`} />}
-        <circle className="kn-cap" cx="22" cy="22" r="13.5" />
-        {glyph && <path className={`kn-glyph ${glyph[2] ? 'filled' : ''}`} d={glyph[1]} transform="translate(11.6 11.6) scale(1.3)" />}
-      </svg>
-      {held && (
-        <span className="kn-tag">
-          <b>{label}</b>
-          <span>{shown}</span>
-        </span>
-      )}
-    </div>
-  );
-}
+export { Knob };
 
 function FormatGlyph({ w, h, big }: { w: number; h: number; big?: boolean }) {
   const s = big ? 26 : 16;
