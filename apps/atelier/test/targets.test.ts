@@ -70,8 +70,6 @@ describe('cibles et variantes', () => {
         kind: 'social',
         formats: ['carre', 'banniere'],
         margin: 0.05,
-        margins: { top: 0.05, right: 0.05, bottom: 0.05, left: 0.05 },
-        zone: { top: 0.08, right: 0.08, bottom: 0.08, left: 0.08 },
         account: '@x',
         palette: 'nuit',
       },
@@ -159,12 +157,15 @@ describe('pastilles des variantes', () => {
     setAnchorMargin(0);
   });
 
-  it('le catalogue garde marges et zone côté par côté, la zone dans la marge', () => {
-    const c = cleanCatalog({ media: [{ id: 'x', name: 'X', kind: 'social', formats: ['carre'], margins: { top: 0.1, right: 0.05, bottom: 0.05, left: 0.05 }, zone: { top: 0.05, right: 0.2, bottom: 0.9, left: 0.1 }, fields: {} }] });
-    expect(c.media[0]).toMatchObject({ margins: { top: 0.1, right: 0.05, bottom: 0.05, left: 0.05 }, zone: { top: 0.1, right: 0.2, bottom: 0.45, left: 0.1 } });
-    // l'ancienne marge unique devient quatre côtés
-    expect(cleanCatalog({ media: [{ id: 'y', name: 'Y', margin: 0.07, fields: {} }] }).media[0]!.margins).toEqual({ top: 0.07, right: 0.07, bottom: 0.07, left: 0.07 });
-    // une publication prend la zone de son média
-    expect(docForTarget(blankDoc(), { channel: 'instagram', format: 'story' }, null).zone).toEqual({ top: 0.14, right: 0.08, bottom: 0.18, left: 0.08 });
+  it('marge et zone appartiennent au format du catalogue, la zone dans la marge', () => {
+    const c = cleanCatalog({ formats: [{ id: 'x', title: 'X', width: 100, height: 100, unit: 'px', target: 'web', margins: { top: 0.1, right: 0.05, bottom: 0.05, left: 0.05 }, zone: { top: 0.05, right: 0.2, bottom: 0.9, left: 0.1 } }] });
+    expect(c.formats[0]).toMatchObject({ margins: { top: 0.1, right: 0.05, bottom: 0.05, left: 0.05 }, zone: { top: 0.1, right: 0.2, bottom: 0.45, left: 0.1 } });
+    // une publication prend la marge et la zone de son format, quel que soit son réseau ; les siennes l'emportent
+    const story = { top: 0.14, right: 0.08, bottom: 0.18, left: 0.08 };
+    expect(docForTarget(blankDoc(), { channel: 'instagram', format: 'story' }, null).zone).toEqual(story);
+    expect(docForTarget(blankDoc(), { format: 'story' }, null).zone).toEqual(story);
+    const own = { top: 0, right: 0, bottom: 0, left: 0 };
+    expect(docForTarget(blankDoc(), { format: 'story', margins: own }, null)).toMatchObject({ margins: own, zone: undefined });
   });
+
 });

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { exportSize, FORMATS, formatOf, type Margins, type Target } from './model';
 import { FrameInsets } from './frame-insets';
 import { palettesOf, type ActivityProfile, type Channel, type Palette } from './server';
-import { channelMargins, channelsOf, formatsFor, paletteFor, paletteGuides, targetKey, targetLabel } from './targets';
+import { channelsOf, framesOf, formatsFor, paletteFor, paletteGuides, targetKey, targetLabel } from './targets';
 
 /** Logo d'un média : Facebook et Instagram reconnus par leur nom, sinon un pictogramme selon le type. */
 export function MediaIcon({ ch, size = 22 }: { ch?: Channel; size?: number }) {
@@ -148,8 +148,8 @@ const sameMargins = (a: Margins, b: Margins) => r3(a.top) === r3(b.top) && r3(a.
  */
 export const samePublication = (a: Target, b: Target, channels: Channel[] = []) => {
   const ch = (t: Target) => channels.find((c) => c.id === t.channel);
-  const m = (t: Target) => t.margins ?? channelMargins(ch(t));
-  const z = (t: Target) => (t.margins ? t.zone : (t.zone ?? ch(t)?.zone)) ?? m(t);
+  const m = (t: Target) => framesOf(t, ch(t)).margins;
+  const z = (t: Target) => framesOf(t, ch(t)).zone ?? m(t);
   const w = (t: Target) => t.width ?? exportSize(formatOf(t.format)).w;
   return targetKey(a) === targetKey(b) && sameMargins(m(a), m(b)) && sameMargins(z(a), z(b)) && w(a) === w(b);
 };
@@ -193,8 +193,7 @@ export function PublicationsPanel(p: {
   const f = formatOf(cfg.format);
   const native = exportSize(f);
   const size = exportSize(f, cfg.width);
-  const margins = cfg.margins ?? channelMargins(ch);
-  const zone = cfg.margins ? cfg.zone : (cfg.zone ?? ch?.zone);
+  const { margins, zone } = framesOf(cfg, ch);
   const set = (x: Partial<Target>) => {
     const next = { ...cfg, ...x };
     for (const k of Object.keys(next) as (keyof Target)[]) if (next[k] === undefined) delete next[k];
@@ -213,14 +212,14 @@ export function PublicationsPanel(p: {
             onChange={(id) => {
               const c = channels.find((y) => y.id === id);
               const fs = formatsFor(c);
-              set({ channel: id || undefined, format: fs.some((x) => x.id === cfg.format) ? cfg.format : fs[0]!.id, margins: channelMargins(c), zone: c?.zone });
+              set({ channel: id || undefined, format: fs.some((x) => x.id === cfg.format) ? cfg.format : fs[0]!.id, margins: undefined, zone: undefined });
             }}
             options={[...channels.map((c) => ({ id: c.id, icon: <MediaIcon ch={c} />, label: c.name })), { id: '', icon: <MediaIcon />, label: 'Libre' }]}
           />
         </div>
         <div className="pub-field">
           <span>Format</span>
-          <Combo text label="Format" value={cfg.format} onChange={(id) => set({ format: id, width: undefined })} options={(ch ? formatsFor(ch) : FORMATS).map((x) => ({ id: x.id, icon: <FmtGlyph id={x.id} />, label: x.title }))} />
+          <Combo text label="Format" value={cfg.format} onChange={(id) => set({ format: id, width: undefined, margins: undefined, zone: undefined })} options={(ch ? formatsFor(ch) : FORMATS).map((x) => ({ id: x.id, icon: <FmtGlyph id={x.id} />, label: x.title }))} />
         </div>
         <label className="pub-field">
           <span>Résolution</span>

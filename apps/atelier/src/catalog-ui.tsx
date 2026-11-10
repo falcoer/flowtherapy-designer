@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { MEDIA_KINDS, mediaMargins, type Catalog, type MediaKind, type MediaType } from '@ftd/core';
+import { MEDIA_KINDS, formatMargins, type Catalog, type MediaKind, type MediaType } from '@ftd/core';
 import { DEFAULT_FORMATS, type Format } from '@ftd/core';
 import { fetchCatalog, saveCatalog } from './server';
 import { FrameInsets } from './frame-insets';
@@ -162,21 +162,6 @@ export function CatalogPanel(p: { onClose: () => void; onSaved: (c: Catalog) => 
                 </div>
               </div>
               <div className="act-field">
-                <span className="pf-group">Marge et zone d’intérêt</span>
-                {(() => {
-                  const f = formats.find((x) => x.id === curM.formats[0]) ?? formats[0]!;
-                  return (
-                    <FrameInsets
-                      width={f.width}
-                      height={f.height}
-                      margins={mediaMargins(curM)}
-                      zone={curM.zone}
-                      onChange={(margins, zone) => setM({ margins, margin: (margins.top + margins.right + margins.bottom + margins.left) / 4, zone })}
-                    />
-                  );
-                })()}
-              </div>
-              <div className="act-field">
                 <span className="pf-group">Ce que l’activité renseigne</span>
                 <div className="act-checks">
                   {(
@@ -245,6 +230,10 @@ export function CatalogPanel(p: { onClose: () => void; onSaved: (c: Catalog) => 
                     </button>
                   ))}
                 </div>
+              </div>
+              <div className="act-field">
+                <span className="pf-group">Marge et zone d’intérêt</span>
+                <FrameInsets width={curF.width} height={curF.height} margins={formatMargins(curF)} zone={curF.zone} onChange={(margins, zone) => setF({ margins, zone })} />
               </div>
               {!BUILTIN.has(curF.id) && (
                 <button

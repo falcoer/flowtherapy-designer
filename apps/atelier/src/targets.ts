@@ -1,5 +1,5 @@
-import { FORMATS, formatOf, uniformMargins, type Doc, type Guide, type Target } from './model';
-import { DEFAULT_CATALOG, mediaMargins, type Catalog, type MediaType } from '@ftd/core';
+import { FORMATS, formatOf, uniformMargins, type Doc, type Guide, type Margins, type Target } from './model';
+import { DEFAULT_CATALOG, type Catalog, type MediaType } from '@ftd/core';
 import { palettesOf, type ActivityProfile, type Channel, type ChannelPick, type ColorRole, type Contact, type ContactKind, type Operation, type Palette, type PaletteColor } from './server';
 
 /**
@@ -27,11 +27,19 @@ const mediaChannel = (m: MediaType): Channel => ({
   name: m.name,
   kind: m.kind,
   formats: [...m.formats],
-  ...(m.margin !== undefined || m.margins ? { margins: mediaMargins(m), margin: m.margin } : {}),
-  ...(m.zone ? { zone: m.zone } : {}),
+  ...(m.margin !== undefined ? { margin: m.margin } : {}),
 });
-/** Marges d'un média : côté par côté, sinon sa marge unique. */
-export const channelMargins = (ch?: Channel) => ch?.margins ?? uniformMargins(ch?.margin ?? 0);
+/** Ancienne marge d'un média (avant qu'elle n'appartienne au format). */
+const channelMargins = (ch?: Channel) => ch?.margins ?? uniformMargins(ch?.margin ?? 0);
+/**
+ * Marge et zone d'intérêt d'une publication : les siennes si elle les a réglées,
+ * sinon celles de son format (catalogue), sinon l'ancienne marge de son média.
+ */
+export function framesOf(t: Pick<Target, 'format' | 'margins' | 'zone'>, ch?: Channel): { margins: Margins; zone?: Margins } {
+  if (t.margins) return { margins: t.margins, zone: t.zone };
+  const f = formatOf(t.format);
+  return { margins: f.margins ?? channelMargins(ch), zone: f.zone ?? ch?.zone };
+}
 
 /** Types de diffusion d'une activité qui n'a pas encore choisi : ceux cochés d'office par le catalogue. */
 export const defaultPicks = (): ChannelPick[] => catalog.media.filter((m) => m.default).map((m) => ({ id: m.id }));
@@ -204,12 +212,11 @@ export function recolor(guides: Guide[], pal: Palette | undefined): Guide[] {
   return [...out, ...ordered.filter((g) => g.role && !has(g.role))];
 }
 
-/** Le document vu pour une cible : son format, ses marges et sa zone d'intérêt (les siennes, sinon celles du média) et sa variante. Le format est changé par l'appelant (holdPins). */
+/** Le document vu pour une cible : son format, ses marges et sa zone d'intérêt (les siennes, sinon celles du format) et sa variante. Le format est changé par l'appelant (holdPins). */
 export function docForTarget(d: Doc, t: Target, p?: ActivityProfile | null): Doc {
   const ch = t.channel ? channelsOf(p).find((c) => c.id === t.channel) : undefined;
-  const margins = t.margins ?? (ch?.margins || ch?.margin !== undefined ? channelMargins(ch) : undefined);
-  const zone = t.zone ?? ch?.zone;
-  return { ...d, guides: recolor(d.guides, paletteFor(t, p)), ...(margins ? { margins, margin: undefined } : {}), zone };
+  const { margins, zone } = framesOf(t, ch);
+  return { ...d, guides: recolor(d.guides, paletteFor(t, p)), margins, margin: undefined, zone };
 }
 
 /** Clé d'une cible, pour éviter les doublons. */
