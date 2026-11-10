@@ -8,6 +8,7 @@ import { GEN_DEFAULTS, VOLUMES, type Doc, type Layer } from './model';
 import { ensureFont, fontFamily, fontList, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { TextContent, WarpGlyph, weightName } from './textbar';
 import { TiltPad } from './tilt';
+import { borderDefaults } from './targets';
 
 /**
  * Coupe de l'objet : ses couches lues comme l'objet posé, du dessus au dessous.
@@ -175,7 +176,7 @@ function removal(l: Layer, key: string): Partial<Layer> {
 }
 
 /** Ce qu'on peut ajouter dans chaque section, avec la retouche qui l'applique. */
-function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; patch: Partial<Layer>; focus: string; text?: Partial<TextStyle>; font?: string }> {
+function choicesOf(l: Layer, sec: Section, doc?: Doc): Array<{ id: string; name: string; patch: Partial<Layer>; focus: string; text?: Partial<TextStyle>; font?: string }> {
   const fxAdd = (g: FxGroup) =>
     FX.filter((d) => d.group === g && !(l.fx ?? []).some((x) => x.id === d.id)).map((d) => ({
       id: d.id,
@@ -188,7 +189,7 @@ function choicesOf(l: Layer, sec: Section): Array<{ id: string; name: string; pa
       ...BORDER_TYPES.filter((x) => x[0] && x[0] !== l.border?.style).map(([st, name]) => ({
         id: `b-${st}`,
         name,
-        patch: { border: { style: st!, guide: l.border?.guide ?? 0, guide2: l.border?.guide2 ?? 1, width: l.border?.width ?? 0.012 } },
+        patch: { border: { style: st!, ...borderDefaults(st!, l.border, doc?.guides ?? []), width: l.border?.width ?? 0.012 } },
         focus: 'border',
       })),
       ...(l.trim ? [] : [{ id: 'trim', name: 'Rognage', patch: { trim: { blur: 0.25, float: 0.3, zigzag: 0 } }, focus: 'trim' }]),
@@ -343,7 +344,7 @@ export function CoupePanel({
   }, [l, doc.guides, doc.light, doc.lamp, f, tick]);
 
   // vignettes des choix de la section ouverte : l'objet avec ce choix appliqué
-  const choices = adding ? choicesOf(l, adding) : [];
+  const choices = adding ? choicesOf(l, adding, doc) : [];
   const hintOf = (id: string) => HINTS[id] ?? HINTS[id.replace(/^[bg]-/, '')] ?? ['', ''];
   const edgeGroup = (id: string) => (id.startsWith('b-') ? 'Bord' : id === 'trim' ? 'Rognage' : 'Lueur');
   const depthGroup = (id: string) => (id.startsWith('v-') || id === 'extrude' ? 'Volume' : 'Relief');
@@ -353,7 +354,7 @@ export function CoupePanel({
   const cache = thumbsFor(l, [doc.guides, doc.light, doc.lamp, f, tick]);
   useEffect(() => {
     if (!adding) return;
-    const todo = choicesOf(l, adding).filter((c) => !c.font && !cache.urls.has(c.id));
+    const todo = choicesOf(l, adding, doc).filter((c) => !c.font && !cache.urls.has(c.id));
     let stop = false;
     let timer = 0;
     const step = () => {
@@ -392,7 +393,7 @@ export function CoupePanel({
   const sections = SECTIONS.filter((s) => (l.kind === 'surface' ? s.sec !== 'edge' && s.sec !== 'image' && s.sec !== 'depth' : true)).filter((s) => s.sec !== 'transform' || more || hasFx || only === 'transform');
   const card = (s: (typeof SECTIONS)[number]) => {
     const mine = items.filter((x) => x.sec === s.sec);
-    const can = choicesOf(l, s.sec).length > 0;
+    const can = choicesOf(l, s.sec, doc).length > 0;
     // une seule couche possible (matière, filtre) : on la change au crayon plutôt que d'en ajouter
     const one = s.sec === 'support' || s.sec === 'image';
     return (
@@ -467,7 +468,7 @@ export function CoupePanel({
         {adding === s.sec && (
           <div className="cp-pick-wrap">
             {(() => {
-              const list = choicesOf(l, s.sec);
+              const list = choicesOf(l, s.sec, doc);
               const groups: string[] = [];
               const fam = (id: string) => (s.sec === 'edge' ? edgeGroup(id) : s.sec === 'depth' ? depthGroup(id) : hintOf(id)[0]);
               for (const c of list) if (!groups.includes(fam(c.id))) groups.push(fam(c.id));

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { blankDoc } from '../src/blank';
 import type { ActivityProfile } from '../src/server';
-import { colorGuide, DEFAULT_OPERATIONS, docForTarget, formatsFor, guidePaletteColor, operationsOf, paletteFor, paletteGuides, recolor, slotColor, targetLabel } from '../src/targets';
+import { colorGuide, DEFAULT_OPERATIONS, docForTarget, formatsFor, guidePaletteColor, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, slotColor, targetLabel } from '../src/targets';
 import { SITE_VARIANTS } from '../src/brand-presets';
 import { docMargins, edgeLines, formatOf, setAnchorMargin } from '../src/model';
 
@@ -87,6 +87,21 @@ describe('pastilles des variantes', () => {
     expect(p).toBeLessThan(blankDoc().guides.length);
     expect(out[p]).toMatchObject({ type: 'gradient' });
     expect(out.filter((g) => g.role === 'principale')).toHaveLength(1);
+  });
+
+  it('le texte et les bords prennent leur rôle quand le document l’a', () => {
+    const g = paletteGuides(SITE_VARIANTS[0]!);
+    expect(g[roleIndex(g, 'texte')!]).toMatchObject({ color: '#17171b' });
+    expect(g[roleIndex(g, 'bordure')!]).toMatchObject({ color: '#ffffff' });
+    const old = paletteGuides(profile.branding!.palettes![0]!);
+    expect(old[roleIndex(old, 'principale')!]).toMatchObject({ role: 'accent' });
+    expect(roleIndex(blankDoc().guides, 'bordure')).toBeUndefined();
+    const b = roleIndex(g, 'bordure')!;
+    const m = roleIndex(g, 'principale')!;
+    expect(borderDefaults('round', undefined, g).guide).toBe(b);
+    // double : guide2 peint l'extérieur
+    expect(borderDefaults('double', undefined, g)).toEqual({ guide: m, guide2: b });
+    expect(borderDefaults('double', { guide: 5, guide2: 6 }, g)).toEqual({ guide: 5, guide2: 6 });
   });
 
   it('une couleur éditée garde son premier arrêt dans hex', () => {
