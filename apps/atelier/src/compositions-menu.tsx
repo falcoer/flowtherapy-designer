@@ -748,7 +748,7 @@ export function TopCrumbs(p: {
   const alert = late ? `${late} rendu${late > 1 ? 's' : ''} en retard` : '';
   return (
     <nav className="crumbs" aria-label="Activité, campagne, contenu">
-      <button className={`crumb first ${p.open === 'activity' ? 'on' : ''}`} onClick={p.onActivity} title={p.team ? `${p.team.name} : activité, profil, préférences` : 'Activité, profil, préférences'}>
+      <button className={`crumb first ${p.open === 'activity' ? 'on' : ''}`} onClick={p.onActivity} title={p.team ? `${p.team.name} : activité` : 'Activité'}>
         <ActivityMark team={p.team} size={24} />
         <span className="crumb-txt crumb-act">{p.team?.name ?? 'Atelier'}</span>
       </button>

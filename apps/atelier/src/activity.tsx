@@ -36,7 +36,7 @@ function Avatar({ me, size = 36 }: { me: Me; size?: number }) {
   );
 }
 
-/** Menu de l'activité : l'activité courante, le profil connecté, les préférences, la déconnexion. */
+/** Menu de l'activité : l'activité courante, sa fiche, et le changement d'activité. */
 export function ActivityMenu(p: { me: Me | null; online: boolean | null; onEdit: () => void }) {
   const { me } = p;
   const team = me?.team;
@@ -45,7 +45,8 @@ export function ActivityMenu(p: { me: Me | null; online: boolean | null; onEdit:
   const [err, setErr] = useState<string | null>(null);
   // changer d'activité change toutes les compositions visibles : on recharge l'atelier
   const pick = (id: string) => void switchTeam(id).then(() => location.reload(), (e: Error) => setErr(e.message));
-  const teams = [...(me?.teams ?? [])].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  // la liste ne montre que les autres activités : la courante est déjà en tête du menu
+  const others = (me?.teams ?? []).filter((t) => t.id !== team?.id).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
 
   return (
     <div className="bubble act-menu" onPointerDown={(e) => e.stopPropagation()}>
@@ -53,23 +54,25 @@ export function ActivityMenu(p: { me: Me | null; online: boolean | null; onEdit:
         <ActivityMark team={team} size={44} />
         <span className="act-txt">
           <b>{team?.name ?? 'Atelier'}</b>
-          <small>{team ? [team.kind, ROLE_LABELS[team.role]].filter(Boolean).join(' · ') : p.online === false ? 'Hors ligne : tout reste dans ce navigateur' : 'Aucune activité'}</small>
+          <small>{team ? [team.kind, ROLE_LABELS[team.role]].filter(Boolean).join(' · ') : p.online === false ? 'Hors ligne' : 'Aucune activité'}</small>
         </span>
         {team && (
           <button className="act-icon" onClick={p.onEdit} title={team.role === 'owner' ? 'Modifier la fiche de l’activité' : 'Voir la fiche de l’activité'} aria-label="Fiche de l’activité">
             <Icon name="pen" />
           </button>
         )}
-        {team && (teams.length > 1 || me?.admin) && (
+        {team && (others.length > 0 || me?.admin) && (
           <button className={`act-icon ${switching ? 'on' : ''}`} onClick={() => setSwitching(!switching)} title="Choisir une autre activité" aria-label="Changer d’activité">
             <Icon name="switch" />
           </button>
         )}
       </div>
+      {/* comme pour la campagne : la liste flotte sous les deux flèches, par-dessus le menu */}
+      {switching && <div className="cm-switch-back" onPointerDown={() => setSwitching(false)} />}
       {switching && (
-        <div className="act-switch">
-          {teams.map((t) => (
-            <button key={t.id} className={`act-row act-pick ${t.id === team?.id ? 'on' : ''}`} onClick={() => t.id !== team?.id && pick(t.id)}>
+        <div className="act-switch cm-switch" role="dialog" aria-label="Changer d’activité">
+          {others.map((t) => (
+            <button key={t.id} className="act-row act-pick" onClick={() => pick(t.id)}>
               <ActivityMark team={t} size={28} />
               <span className="act-txt">
                 <b>{t.name}</b>
@@ -79,7 +82,7 @@ export function ActivityMenu(p: { me: Me | null; online: boolean | null; onEdit:
           ))}
           {me?.admin && (
             <form
-              className="tm-invite"
+              className="act-new"
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!newName.trim()) return;
@@ -89,16 +92,16 @@ export function ActivityMenu(p: { me: Me | null; online: boolean | null; onEdit:
                 );
               }}
             >
-              <input className="pf-input" placeholder="Nouvelle activité" value={newName} onChange={(e) => setNewName(e.target.value)} aria-label="Nom de la nouvelle activité" />
-              <button className="pf-btn" type="submit" disabled={!newName.trim()}>
-                Créer
+              <input className="pf-input" placeholder="Nouvelle activité…" value={newName} onChange={(e) => setNewName(e.target.value)} aria-label="Nom de la nouvelle activité" />
+              <button className="act-icon cm-add" type="submit" disabled={!newName.trim()} title="Créer l’activité" aria-label="Créer l’activité">
+                <Icon name="plus" />
               </button>
             </form>
           )}
+          {err && <p className="pf-note pf-err">{err}</p>}
         </div>
       )}
-      {err && <p className="pf-note pf-err">{err}</p>}
-
+      {err && !switching && <p className="pf-note pf-err">{err}</p>}
     </div>
   );
 }
@@ -213,11 +216,10 @@ function LogoPick(p: { label: string; url?: string | null; edit: boolean; dark?:
   );
 }
 
-function LinkList(p: { title: string; hint: string; items: ServiceLink[]; set: (v: ServiceLink[]) => void; edit: boolean; placeholder: string }) {
+function LinkList(p: { title: string; items: ServiceLink[]; set: (v: ServiceLink[]) => void; edit: boolean; placeholder: string }) {
   return (
     <div className="act-field">
       <div className="pf-group">{p.title}</div>
-      <p className="pf-note">{p.hint}</p>
       {p.items.map((it, i) => (
         <div key={i} className="act-link">
           <input className="pf-input" value={it.name} placeholder={p.placeholder} disabled={!p.edit} onChange={(e) => p.set(p.items.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} aria-label="Nom" />
@@ -550,6 +552,7 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
     <div className="bubble act-form" onPointerDown={(e) => e.stopPropagation()}>
       <div className="pf-head">
         <span className="b-title">Fiche de l’activité</span>
+        {!edit && <span className="tm-badge" title="Seuls les responsables modifient la fiche">lecture seule</span>}
         <button className="lamp-close" onClick={p.onClose} aria-label="Fermer">
           ×
         </button>
@@ -597,13 +600,11 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
               />
             ))}
           </div>
-          {edit && <p className="pf-note">Touche un logo pour le choisir (PNG, JPEG, SVG). Chaque canal dit quelle variante utiliser.</p>}
         </div>
       )}
       {prof && tab === 'branding' && (
         <div className="pf-body">
           <div className="pf-group">Variantes de couleurs</div>
-          <p className="pf-note">Chaque variante (jour, nuit, saison…) donne une pastille à chaque élément : couleur principale, texte, bordure de texte, fond d’écran et les trois sujets. Touche une pastille pour choisir une couleur ou un dégradé. Les compositions suivent ces rôles : changer de variante recolore tout, sur tous les supports. La première sert par défaut.</p>
           {palettes.map((pal, pi) => (
             <PaletteEditor
               key={pal.id}
@@ -680,7 +681,6 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
             )}
           </div>
           <div className="pf-group">Mentions récurrentes</div>
-          <p className="pf-note">Textes prêts à poser : partenaires, réseaux, hashtags, billetterie… Chaque canal choisit les siennes.</p>
           {mentions.map((m, i) => (
             <div key={i} className="act-mention">
               <input className="pf-input" value={m.name} placeholder="Réseaux" disabled={!edit} onChange={(e) => setBranding({ mentions: mentions.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} aria-label="Nom de la mention" />
@@ -701,7 +701,6 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
       )}
       {prof && tab === 'channels' && (
         <div className="pf-body">
-          <p className="pf-note">Chaque média (Facebook, Instagram, affiche, lettre…) dit ses formats compatibles, sa marge, sa variante de couleurs, sa version du logo et ses mentions.</p>
           {channels.map((c, i) => (
             <ChannelCard
               key={c.id}
@@ -725,7 +724,6 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
       )}
       {prof && tab === 'operations' && (
         <div className="pf-body">
-          <p className="pf-note">Pour chaque occasion, les cibles cochées sont présélectionnées quand on crée un document.</p>
           {(prof.operations ?? []).map((o, i) => (
             <div key={o.id} className="act-pal">
               <div className="act-pal-head">
@@ -767,9 +765,8 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
       )}
       {prof && tab === 'services' && (
         <div className="pf-body">
-          <LinkList title="Sources d’évènements" hint="Agenda, billetterie, page d’évènements : d’où viennent les dates à annoncer." placeholder="Bandsintown, agenda…" items={services.events ?? []} set={(v) => setServices('events', v)} edit={edit} />
-          <LinkList title="Comptes de visuels" hint="Comptes qui fournissent photos et visuels (photographe, banque d’images, drive…)." placeholder="Google Photos, drive…" items={services.assets ?? []} set={(v) => setServices('assets', v)} edit={edit} />
-          <p className="pf-note">Pour l’instant ce sont des repères ; les connexions automatiques viendront ensuite, service par service.</p>
+          <LinkList title="Sources d’évènements" placeholder="Bandsintown, agenda…" items={services.events ?? []} set={(v) => setServices('events', v)} edit={edit} />
+          <LinkList title="Comptes de visuels" placeholder="Google Photos, drive…" items={services.assets ?? []} set={(v) => setServices('assets', v)} edit={edit} />
         </div>
       )}
       {tab === 'members' && (
@@ -789,7 +786,6 @@ export function ActivityForm(p: { me: Me; onClose: () => void; onSaved: () => vo
           </button>
         </div>
       )}
-      {!edit && <p className="pf-note">Seuls les responsables modifient la fiche.</p>}
     </div>
   );
 }

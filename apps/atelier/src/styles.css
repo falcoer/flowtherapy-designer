@@ -651,6 +651,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .side-params .btn:disabled { opacity: 0.35; }
 .prefs-bubble { width: min(380px, calc(100vw - 20px)); display: flex; flex-direction: column; gap: 10px; }
 .pf-head { display: flex; align-items: center; justify-content: space-between; }
+.pf-head .tm-badge { margin: 0 auto 0 8px; }
 .pf-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
 .pf-body { display: flex; flex-direction: column; gap: 8px; }
 .pf-group { margin-top: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
@@ -1765,6 +1766,12 @@ button.cm-pub:disabled { opacity: 1; cursor: default; }
 .user-menu .user-logout { margin-top: 4px; color: var(--danger); text-decoration: none; }
 .user-menu .user-logout:disabled { opacity: .5; }
 .act-menu .act-current:last-child { border-bottom: 0; padding-bottom: 4px; }
+.act-menu { overflow: visible; }
+.act-menu > .act-current { border-bottom: 0; padding-bottom: 4px; }
+/* boîte de changement d'activité : même boîte que pour la campagne, sous les deux flèches, elle peut déborder du menu */
+.act-menu > .cm-switch { position: absolute; z-index: 5; top: 60px; right: 12px; width: min(320px, calc(100vw - 40px)); max-height: 60dvh; overflow: auto; padding: 6px; border: 1px solid var(--line); border-radius: 16px; background: var(--chrome-solid); box-shadow: 0 12px 32px rgba(20, 16, 32, 0.18); }
+.act-new { display: flex; gap: 6px; align-items: center; padding: 6px 4px 2px; margin-top: 2px; border-top: 1px solid var(--line); }
+.act-new .pf-input { flex: 1; min-width: 0; }
 @media (max-width: 430px) {
   .bar-right .btn, .bar-left > .btn { width: 32px; }
   .user-btn .act-avatar { width: 26px !important; height: 26px !important; }
