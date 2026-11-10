@@ -153,6 +153,27 @@ export const samePublication = (a: Target, b: Target, channels: Channel[] = []) 
   const w = (t: Target) => t.width ?? exportSize(formatOf(t.format)).w;
   return targetKey(a) === targetKey(b) && sameMargins(m(a), m(b)) && sameMargins(z(a), z(b)) && w(a) === w(b);
 };
+/** Choix de la variante de couleurs de la publication affichée (dans la palette) : celle du réseau, ou une variante de l'activité. */
+export function VariantPick(p: { current: Target; activity: ActivityProfile | null; onApply: (t: Target) => void }) {
+  const cfg = p.current;
+  const ch = channelsOf(p.activity).find((c) => c.id === cfg.channel);
+  const mediaPal = paletteFor(ch ? { channel: ch.id, format: cfg.format } : undefined, p.activity);
+  return (
+    <Combo
+      text
+      grow
+      label="Variante"
+      value={cfg.palette ?? ''}
+      onChange={(id) => {
+        const next = { ...cfg, palette: id || undefined };
+        if (!next.palette) delete next.palette;
+        p.onApply(next);
+      }}
+      options={[{ id: '', icon: <VariantBar pal={mediaPal} wide />, label: mediaPal ? `Par défaut · ${mediaPal.name}` : 'Par défaut' }, ...palettesOf(p.activity).map((q) => ({ id: q.id, icon: <VariantBar pal={q} wide />, label: q.name }))]}
+    />
+  );
+}
+
 /**
  * Édition de la publication affichée : son réseau, son format, sa résolution, sa variante et ses
  * marge et sa zone d'intérêt (FrameInsets, le même réglage que le catalogue), puis ses repères. Chaque réglage s'applique
@@ -167,7 +188,6 @@ export function PublicationsPanel(p: {
   guides?: ReactNode;
 }) {
   const channels = channelsOf(p.activity);
-  const palettes = palettesOf(p.activity);
   const cfg = p.current;
   const ch = channels.find((c) => c.id === cfg.channel);
   const f = formatOf(cfg.format);
@@ -180,7 +200,6 @@ export function PublicationsPanel(p: {
     for (const k of Object.keys(next) as (keyof Target)[]) if (next[k] === undefined) delete next[k];
     p.onApply(next);
   };
-  const mediaPal = paletteFor(ch ? { channel: ch.id, format: cfg.format } : undefined, p.activity);
 
   return (
     <>
@@ -222,17 +241,6 @@ export function PublicationsPanel(p: {
             <small>× {size.h} px</small>
           </span>
         </label>
-        <div className="pub-field">
-          <span>Variante</span>
-          <Combo
-            text
-            grow
-            label="Variante"
-            value={cfg.palette ?? ''}
-            onChange={(id) => set({ palette: id || undefined })}
-            options={[{ id: '', icon: <VariantBar pal={mediaPal} wide />, label: mediaPal ? mediaPal.name : 'Du réseau' }, ...palettes.map((q) => ({ id: q.id, icon: <VariantBar pal={q} wide />, label: q.name }))]}
-          />
-        </div>
         <div className="pub-field wide">
           <span>Marge et zone d’intérêt</span>
           <FrameInsets width={f.width} height={f.height} margins={margins} zone={zone} onChange={(m, z) => set({ margins: m, zone: z })} />

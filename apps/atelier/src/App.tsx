@@ -30,7 +30,7 @@ import { CatalogPanel } from './catalog-ui';
 import { fetchActivity, fetchCatalog, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
 import { channelsOf, setCatalog, contactsOf, CONTACT_KINDS, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
 import { Knob } from './knob';
-import { MediaIcon, PublicationsPanel, VariantBar } from './targets-ui';
+import { MediaIcon, PublicationsPanel, VariantBar, VariantPick } from './targets-ui';
 import { CampaignDialog } from './campaigns-ui';
 import { NewCompositionDialog } from './compositions-ui';
 import { CompositionMenu, CompositionsMenu, TopCrumbs } from './compositions-menu';
@@ -5457,6 +5457,7 @@ export function App() {
               doc={doc}
               active={guide}
               declared={paletteFor(activeTarget, activity)}
+              variant={palettesOf(activity).length > 0 ? <VariantPick current={currentPub} activity={activity} onApply={applyPublication} /> : undefined}
               onPick={setGuide}
               onGuides={(guides, commit = true) => {
                 livePaint(!commit);
@@ -5801,11 +5802,14 @@ function PaletteBubble({
   onDrag,
   onDrop,
   declared,
+  variant,
 }: {
   doc: Doc;
   active: number;
-  /** Variante de couleurs que déclare la cible affichée (elle se choisit avec le format). */
+  /** Variante de couleurs que déclare la cible affichée. */
   declared?: Palette;
+  /** Choix de la variante de la publication affichée. */
+  variant?: import('react').ReactNode;
   onPick: (i: number) => void;
   onGuides: (g: Guide[], commit?: boolean) => void;
   onDrag: (i: number | null, x: number, y: number) => void;
@@ -5979,13 +5983,16 @@ function PaletteBubble({
           ))}
         </div>
       )}
-      {variantOnes.length > 0 && (
+      {(variantOnes.length > 0 || variant) && (
         <section className="pal-sec fixed">
-          <span className="pal-sec-label" title="La variante se choisit avec le format">
+          <span className="pal-sec-label">
             Variante
-            {declared && <small>{declared.name}</small>}
+            {!variant && declared && <small>{declared.name}</small>}
           </span>
-          <div className="guides">{variantOnes.map(chip)}</div>
+          <div className="pal-variant">
+            {variant}
+            {variantOnes.length > 0 && <div className="guides">{variantOnes.map(chip)}</div>}
+          </div>
         </section>
       )}
       <section className={`pal-sec mine ${over ? 'over' : ''}`}>
