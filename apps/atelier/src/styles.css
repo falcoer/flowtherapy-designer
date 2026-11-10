@@ -1769,7 +1769,7 @@ button.cm-pub:disabled { opacity: 1; cursor: default; }
 .act-menu { overflow: visible; }
 .act-menu > .act-current { border-bottom: 0; padding-bottom: 4px; }
 /* boîte de changement d'activité : même boîte que pour la campagne, sous les deux flèches, elle peut déborder du menu */
-.act-menu > .cm-switch { position: absolute; z-index: 5; top: 60px; right: 12px; width: min(320px, calc(100vw - 40px)); max-height: 60dvh; overflow: auto; padding: 6px; border: 1px solid var(--line); border-radius: 16px; background: var(--chrome-solid); box-shadow: 0 12px 32px rgba(20, 16, 32, 0.18); }
+.act-menu > .cm-switch { position: absolute; z-index: 5; top: 60px; right: 12px; width: min(320px, calc(100% - 24px)); max-height: 60dvh; overflow: auto; padding: 6px; border: 1px solid var(--line); border-radius: 16px; background: var(--chrome-solid); box-shadow: 0 12px 32px rgba(20, 16, 32, 0.18); }
 .act-new { display: flex; gap: 6px; align-items: center; padding: 6px 4px 2px; margin-top: 2px; border-top: 1px solid var(--line); }
 .act-new .pf-input { flex: 1; min-width: 0; }
 @media (max-width: 430px) {
