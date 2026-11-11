@@ -95,6 +95,25 @@ export const DEFAULT_OPERATIONS: Operation[] = [
     ],
   },
   { id: 'story', name: 'Story', targets: [{ channel: 'instagram', format: 'story' }] },
+  {
+    id: 'video',
+    name: 'Sortie d’une vidéo',
+    targets: [
+      { channel: 'youtube', format: 'yt-miniature' },
+      { channel: 'youtube', format: 'shorts' },
+      { channel: 'instagram', format: 'story' },
+      { channel: 'facebook', format: 'carre' },
+    ],
+  },
+  {
+    id: 'chaine-youtube',
+    name: 'Habillage de la chaîne YouTube',
+    targets: [
+      { channel: 'youtube', format: 'yt-banniere' },
+      { channel: 'youtube', format: 'yt-profil' },
+      { channel: 'youtube', format: 'yt-filigrane' },
+    ],
+  },
 ];
 
 /** Types de projet de l'activité, chaque cible gardée seulement si son média existe. */

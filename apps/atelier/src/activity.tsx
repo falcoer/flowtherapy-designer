@@ -219,7 +219,7 @@ const TABS: Array<[Tab, string]> = [
   ['sources', 'Sources'],
 ];
 
-export const CHANNEL_KINDS: Record<ChannelKind, string> = { social: 'Réseau social', affichage: 'Supports imprimés', impression: 'Impression', email: 'E-mail', site: 'Site web', streaming: 'Streaming' };
+export const CHANNEL_KINDS: Record<ChannelKind, string> = { social: 'Réseau social', affichage: 'Supports imprimés', impression: 'Impression', email: 'E-mail', site: 'Site web', streaming: 'Streaming', video: 'Vidéo' };
 const CONTACT_ORDER: ContactKind[] = ['email', 'tel', 'site', 'lien', 'billetterie', 'adresse', 'autre'];
 const SOURCE_KINDS = {
   events: { label: 'Évènements', tag: 'ICS', hint: 'agenda, billetterie', placeholder: 'https://… .ics' },

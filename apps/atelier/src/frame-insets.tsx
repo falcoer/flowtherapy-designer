@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { Insets } from '@ftd/core';
+import { MAX_MARGIN, MAX_ZONE, type Insets } from '@ftd/core';
 import { Knob } from './knob';
 import { markColor } from './marks';
 
@@ -13,8 +13,7 @@ import { markColor } from './marks';
 type Side = keyof Insets;
 const SIDES: Side[] = ['top', 'right', 'bottom', 'left'];
 const SIDE_LABEL: Record<Side, string> = { top: 'Haut', right: 'Droite', bottom: 'Bas', left: 'Gauche' };
-export const MAX_MARGIN = 0.25;
-export const MAX_ZONE = 0.45;
+export { MAX_MARGIN, MAX_ZONE };
 const pct = (v: number) => `${Math.round(v * 1000) / 10} %`;
 const same = (a: Insets, b: Insets) => SIDES.every((s) => Math.abs(a[s] - b[s]) < 1e-4);
 

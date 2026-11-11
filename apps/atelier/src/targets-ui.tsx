@@ -36,6 +36,13 @@ export function MediaIcon({ ch, size = 22 }: { ch?: Channel; size?: number }) {
         <circle cx="15.6" cy="8.4" r="1" fill="#fff" />
       </>,
     );
+  if (n.includes('youtube'))
+    return svg(
+      <>
+        <rect x="1.5" y="5" width="21" height="14.5" rx="4.2" fill="#ff0000" />
+        <path d="M10 9v6.5l5.6-3.25z" fill="#fff" />
+      </>,
+    );
   const line = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
   switch (ch?.kind) {
     case 'affichage':
@@ -64,6 +71,13 @@ export function MediaIcon({ ch, size = 22 }: { ch?: Channel; size?: number }) {
         <>
           <circle cx="12" cy="12" r="9" {...line} />
           <path d="M3 12h18M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3z" {...line} />
+        </>,
+      );
+    case 'video':
+      return svg(
+        <>
+          <rect x="2.5" y="5" width="19" height="14" rx="3.5" {...line} />
+          <path d="M10 9.2v5.6l4.8-2.8z" {...line} />
         </>,
       );
     case 'social':

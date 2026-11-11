@@ -11,7 +11,7 @@ import { MediaIcon } from './targets-ui';
  * communs à toutes les activités. Chaque activité coche ensuite, dans sa fiche, les types qui la concernent.
  */
 
-const KIND_LABELS: Record<MediaKind, string> = { social: 'Réseau social', affichage: 'Imprimé', impression: 'Impression', email: 'E-mail', site: 'Site web', streaming: 'Streaming' };
+const KIND_LABELS: Record<MediaKind, string> = { social: 'Réseau social', affichage: 'Imprimé', impression: 'Impression', email: 'E-mail', site: 'Site web', streaming: 'Streaming', video: 'Vidéo' };
 const TARGET_LABELS: Record<Format['target'], string> = { print: 'Impression', social: 'Réseaux', web: 'Web', mail: 'E-mail' };
 const BUILTIN = new Set(DEFAULT_FORMATS.map((f) => f.id));
 const slug = (s: string) =>
