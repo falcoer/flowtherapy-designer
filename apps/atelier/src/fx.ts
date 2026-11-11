@@ -69,6 +69,10 @@ export interface Fx {
   amount: number;
   /** Réglages propres à la matière (0..1), par clé : orientation du fil, nœuds… */
   knobs?: Record<string, number>;
+  /** Teinte naturelle d'une matière réelle (assistant) : remplace la couleur de l'objet sous la matière. */
+  tone?: string;
+  /** Nom de la matière réelle choisie dans l'assistant (Chêne, Laiton…). */
+  preset?: string;
 }
 
 type RGB = [number, number, number];
@@ -1673,12 +1677,35 @@ export function paletteRGB(guides: Guide[]): RGB[] {
   return guides.flatMap((g) => (g.type === 'color' ? [hexRGB(g.color)] : g.stops.map(hexRGB)));
 }
 
+/**
+ * Teinte naturelle : chaque pixel prend la teinte, en gardant ses écarts de clarté par rapport à la moyenne
+ * (la peinture et les ombres posées sur l'objet restent lisibles).
+ */
+function toneImage(d: Uint8ClampedArray, t: RGB) {
+  let [sum, n] = [0, 0];
+  for (let i = 0; i < d.length; i += 4)
+    if (d[i + 3]! > 8) {
+      sum += lum(d[i]!, d[i + 1]!, d[i + 2]!);
+      n++;
+    }
+  if (!n) return;
+  const ref = Math.max(8, sum / n);
+  for (let i = 0; i < d.length; i += 4) {
+    if (!d[i + 3]) continue;
+    const k = Math.min(1.6, lum(d[i]!, d[i + 1]!, d[i + 2]!) / ref);
+    d[i] = cl(t[0] * k) * 255;
+    d[i + 1] = cl(t[1] * k) * 255;
+    d[i + 2] = cl(t[2] * k) * 255;
+  }
+}
+
 /** Applique les effets de matière, dans l'ordre, sur une image. */
 export function applyPixelFx(img: ImageData, fx: Fx[], guides: Guide[], pxPerMin: number, lx: number, ly: number) {
   const palette = paletteRGB(guides);
   for (const e of fx) {
     const def = fxOf(e.id);
     if (!def?.pixel) continue;
+    if (e.tone) toneImage(img.data, hexRGB(e.tone));
     const gs = fxGuides(def, e).map((i) => guides[i]);
     gradGuide = gs[0];
     const cols = gs.map((g) => hexRGB(guideColor(g, 0.5)));

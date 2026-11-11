@@ -1,6 +1,8 @@
 import type { Format } from '@ftd/core';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { BORDER_TYPES, fxPreview, GLOW_TYPES, Knob, swatch } from './App';
+import { layerColor, MaterialWizard, WandGlyph } from './material-wizard';
+import { presetFx } from './material-presets';
 import { FX, fxGuides, fxKnobs, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
@@ -161,7 +163,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
     out.push({ sec: 'image', key: 'warp', name: 'Disposition', bg: '', removable: false, glyph: w });
   }
   for (const { x, i } of fxIn(l, 'effet')) out.push({ sec: 'transform', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'radial-gradient(circle,#1c1b3a 30%,#e3a83c 34%) 0 0/6px 6px', removable: true });
-  if (l.material) out.push({ sec: 'support', key: 'material', name: fxOf(l.material.id)!.name, bg: 'repeating-linear-gradient(45deg,#c79a63 0 3px,#b0814d 3px 6px)', removable: true });
+  if (l.material) out.push({ sec: 'support', key: 'material', name: l.material.preset ?? fxOf(l.material.id)!.name, bg: 'repeating-linear-gradient(45deg,#c79a63 0 3px,#b0814d 3px 6px)', removable: true });
   if (l.molded) for (const it of out) if (['shape', 'content', 'text', 'warp'].includes(it.key)) it.locked = true;
   return out;
 }
@@ -328,6 +330,7 @@ export function CoupePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openOn]);
   const [adding, setAdding] = useState<Section | null>(null);
+  const [wizard, setWizard] = useState(false);
   // une couche touchée dans l'aperçu : on ne montre que son panneau
   const [only, setOnly] = useState<Section | null>(null);
   // sur téléphone, l'aperçu n'a pas la place : une section est toujours ouverte
@@ -422,6 +425,11 @@ export function CoupePanel({
           {s.sec === 'depth' && onSculpt && (
             <button className="chip cp-sculpt" onClick={onSculpt} title="Modeler › Relief : bosser, creuser, lisser la surface au stylet">
               {l.bump ? 'Reprendre la sculpture' : 'Sculpter le volume'}
+            </button>
+          )}
+          {s.sec === 'support' && (
+            <button className="cp-add cp-wand" onClick={() => setWizard(true)} title="Assistant matières : choisir une matière réelle (chêne, laiton, velours…)" aria-label="Assistant matières">
+              <WandGlyph />
             </button>
           )}
           {can && (
@@ -667,6 +675,21 @@ export function CoupePanel({
           </svg>
         )}
       </div>
+      {wizard && (
+        <MaterialWizard
+          current={l.material}
+          guides={doc.guides}
+          color={layerColor(doc.guides, l.guide)}
+          onClose={() => setWizard(false)}
+          onPick={(p) => {
+            const d = fxOf(p.fx)!;
+            const base = l.material?.id === p.fx ? l.material : newFx(p.fx);
+            patch({ material: presetFx(p, base), ...(d.transparent && l.material?.id !== p.fx ? { opacity: d.transparent } : {}) });
+            setFocus('material');
+            onToast(`${p.name} posé sur « ${l.name} »`, true);
+          }}
+        />
+      )}
     </aside>
   );
 }
@@ -1000,6 +1023,18 @@ function Attrs({
   } else if (item.key === 'material' && l.material)
     body = (
       <>
+        {l.material.tone && (
+          <label className="cp-row">
+            <span>Teinte</span>
+            <span className="cp-tone">
+              <i style={{ background: l.material.tone }} />
+              {l.material.preset ?? 'naturelle'}
+            </span>
+            <button className="chip cp-tone-off" onClick={() => patch({ material: { ...l.material!, tone: undefined, preset: undefined } })} title="Reprendre la couleur de l’objet sous la matière">
+              Couleur de l’objet
+            </button>
+          </label>
+        )}
         {fxRows(l.material, (x, h) => patch({ material: x }, h))}
         {fxOf(l.material.id)?.transparent && <Range label="Opacité" value={l.opacity ?? 1} onChange={(v) => live({ opacity: Math.max(0.05, Math.round(v * 100) / 100) })} />}
       </>
