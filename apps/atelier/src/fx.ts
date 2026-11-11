@@ -1016,7 +1016,7 @@ export const FX: FxDef[] = [
         (c, x, y) => {
           const l = lum(...c);
           const grey: RGB = [l * 0.78 + 0.08, l * 0.74 + 0.07, l * 0.66 + 0.06];
-          const fleck = hash(x >> 1, y >> 1, 143) > 0.985 ? 0.82 : 1;
+          const fleck = hash(x >> 1, y >> 1, 143) > 0.985 ? 1 - 0.3 * a : 1;
           const m = (1 - 0.08 * a * fbm(x / (P * 0.05), y / (P * 0.05), 144)) * fleck;
           const g = mixRGB(c, grey, 0.55 * a);
           return [g[0] * m, g[1] * m, g[2] * m];
@@ -1077,25 +1077,35 @@ export const FX: FxDef[] = [
     pixel: (d, k, a) => {
       const { w, h } = k;
       const P = k.pxPerMin;
+      if (a <= 0) return;
       const n = w * h;
+      // couleurs pondérées par l'alpha : le vide autour d'une photo détourée ne noircit pas ses bords
       const R = new Float32Array(n);
       const G = new Float32Array(n);
       const B = new Float32Array(n);
+      const A = new Float32Array(n);
       for (let i = 0; i < n; i++) {
-        R[i] = d[i * 4]! / 255;
-        G[i] = d[i * 4 + 1]! / 255;
-        B[i] = d[i * 4 + 2]! / 255;
+        const al = d[i * 4 + 3]! / 255;
+        R[i] = (d[i * 4]! / 255) * al;
+        G[i] = (d[i * 4 + 1]! / 255) * al;
+        B[i] = (d[i * 4 + 2]! / 255) * al;
+        A[i] = al;
       }
       // dépoli : la lumière se diffuse, les détails s'adoucissent, voile clair et grain très fin
       const r = Math.max(1, P * 0.006 * a);
       const Rb = boxBlur(R, w, h, r);
       const Gb = boxBlur(G, w, h, r);
       const Bb = boxBlur(B, w, h, r);
+      const Ab = boxBlur(A, w, h, r);
       for (let y = 0; y < h; y++)
         for (let x = 0; x < w; x++) {
           const i = y * w + x;
+          if (d[i * 4 + 3] === 0) continue;
+          const al = Math.max(1e-4, Ab[i]!);
+          const o: RGB = [d[i * 4]! / 255, d[i * 4 + 1]! / 255, d[i * 4 + 2]! / 255];
+          const blur: RGB = [Rb[i]! / al, Gb[i]! / al, Bb[i]! / al];
           const sat = (hash(x, y, 171) - 0.5) * 0.05 * a;
-          const g = mixRGB([Rb[i]!, Gb[i]!, Bb[i]!], [1, 1, 1], 0.18 * a);
+          const g = mixRGB(mixRGB(o, blur, cl(a * 1.5)), [1, 1, 1], 0.18 * a);
           d[i * 4] = cl(g[0] + sat) * 255;
           d[i * 4 + 1] = cl(g[1] + sat) * 255;
           d[i * 4 + 2] = cl(g[2] + sat) * 255;
@@ -1207,7 +1217,7 @@ export const FX: FxDef[] = [
           const s = strata(x, y);
           const dark: RGB = [c[0] * 0.45 + l * 0.12 + 0.05, c[1] * 0.45 + l * 0.13 + 0.06, c[2] * 0.45 + l * 0.15 + 0.08];
           const g = mixRGB(c, dark, 0.7 * a);
-          const m = 0.9 + 0.2 * s;
+          const m = 1 + a * (0.33 * s - 0.17);
           return [g[0] * m, g[1] * m, g[2] * m];
         },
       );
@@ -1236,7 +1246,7 @@ export const FX: FxDef[] = [
           const v = gran(x, y);
           const tone = 0.75 + 0.5 * v;
           const cork: RGB = [c[0] * 0.75 * tone + 0.1, c[1] * 0.58 * tone + 0.06, c[2] * 0.4 * tone + 0.03];
-          const hole = v < 0.32 ? 0.7 : 1;
+          const hole = v < 0.32 ? 1 - 0.5 * a : 1;
           const g = mixRGB(c, cork, 0.7 * a);
           return [g[0] * hole, g[1] * hole, g[2] * hole];
         },
@@ -1298,7 +1308,7 @@ export const FX: FxDef[] = [
         (c, x, y) => {
           const l = lum(...c);
           const tan: RGB = [c[0] * 0.8 + l * 0.08, c[1] * 0.68 + l * 0.05, c[2] * 0.55 + l * 0.03];
-          const m = 0.92 + 0.12 * fbm(x / (P * 0.1), y / (P * 0.1), 234);
+          const m = 1 + a * (0.2 * fbm(x / (P * 0.1), y / (P * 0.1), 234) - 0.13);
           const g = mixRGB(c, tan, 0.5 * a);
           return [g[0] * m, g[1] * m, g[2] * m];
         },
