@@ -104,6 +104,20 @@ const HINTS: Record<string, [string, string]> = {
   ice: ['', 'givrée, fêlures'],
   smoke: ['', 'volutes, on voit à travers'],
   hologram: ['', 'irisé, lignes de balayage'],
+  greyboard: ['', 'carton compact gris, fibres serrées'],
+  bristol: ['', 'papier blanc lisse, grain léger'],
+  tracing: ['', 'voile laiteux, on devine dessous'],
+  frosted: ['', 'translucide, lumière diffuse'],
+  mirror: ['', 'reflète, bande de lumière vive'],
+  aluminium: ['', 'panneau alu lisse et satiné'],
+  concrete: ['', 'gris, taches et bullages'],
+  slate: ['', 'feuillets gris-bleu, mat'],
+  cork: ['', 'granules bruns agglomérés'],
+  carbon: ['', 'fibre tressée sombre et vernie'],
+  leather: ['', 'grain de cuir, lustre discret'],
+  'soft-leather': ['', 'grain fin, plis souples, satiné'],
+  suede: ['', 'velours mat, poils couchés'],
+  denim: ['', 'sergé indigo, délavé'],
 };
 const genOf = (l: Layer) => l.gen ?? (l.shape && !l.cut ? GEN_DEFAULTS[l.shape] : undefined);
 /** Pour une forme, la section Image devient Forme : sa découpe et sa couleur. */
@@ -470,7 +484,7 @@ export function CoupePanel({
             {(() => {
               const list = choicesOf(l, s.sec, doc);
               const groups: string[] = [];
-              const fam = (id: string) => (s.sec === 'edge' ? edgeGroup(id) : s.sec === 'depth' ? depthGroup(id) : hintOf(id)[0]);
+              const fam = (id: string) => (s.sec === 'edge' ? edgeGroup(id) : s.sec === 'depth' ? depthGroup(id) : s.sec === 'support' ? (fxOf(id as FxId)?.family ?? '') : hintOf(id)[0]);
               for (const c of list) if (!groups.includes(fam(c.id))) groups.push(fam(c.id));
               const extra = s.sec === 'edge' ? ['Rognage', 'Lueur'] : [];
               const shown = groups.filter((gname) => more || !extra.includes(gname));

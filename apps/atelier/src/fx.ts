@@ -36,12 +36,30 @@ export type FxId =
   | 'ice'
   | 'smoke'
   | 'hologram'
+  | 'greyboard'
+  | 'bristol'
+  | 'tracing'
+  | 'frosted'
+  | 'mirror'
+  | 'aluminium'
+  | 'concrete'
+  | 'slate'
+  | 'cork'
+  | 'carbon'
+  | 'leather'
+  | 'soft-leather'
+  | 'suede'
+  | 'denim'
   | 'cartoon'
   | 'manga'
   | 'sketch'
   | 'pencil';
 
 export type FxGroup = 'dessin' | 'effet' | 'materiau' | 'lumiere';
+
+/** Familles des supports, dans l'ordre où on les propose. */
+export const MATERIAL_FAMILIES = ['Papiers et cartons', 'Textiles et cuirs', 'Naturels', 'Métaux et techniques', 'Transparents'] as const;
+export type MaterialFamily = (typeof MATERIAL_FAMILIES)[number];
 
 export interface Fx {
   id: FxId;
@@ -76,6 +94,8 @@ export interface FxDef {
   amountLabel?: string;
   /** Unité affichée après la valeur (0..100). */
   amountUnit?: string;
+  /** Famille de la matière, pour ranger les supports. */
+  family?: MaterialFamily;
   /** Matière qui laisse voir à travers : l'objet gagne alors un réglage d'opacité (valeur de départ). */
   transparent?: number;
   /** Calcul par pixel (matière) ; absent = effet dessiné par la scène. */
@@ -121,6 +141,21 @@ function fbm(x: number, y: number, s: number, oct = 3): number {
     y *= 2.03;
   }
   return t / norm;
+}
+
+/** Cellules (Worley) : distance au germe le plus proche, 0 au centre d'une cellule, ~1 à sa bordure. */
+function cells(x: number, y: number, s: number): number {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  let d1 = 9;
+  for (let j = -1; j <= 1; j++)
+    for (let i = -1; i <= 1; i++) {
+      const px = xi + i + hash(xi + i, yi + j, s);
+      const py = yi + j + hash(xi + i, yi + j, s + 1);
+      const dd = (px - x) ** 2 + (py - y) ** 2;
+      if (dd < d1) d1 = dd;
+    }
+  return 1 - Math.min(1, d1);
 }
 
 /** Relief : champ de hauteur éclairé par la lumière unique, appliqué en ombrage. */
@@ -622,6 +657,7 @@ export const FX: FxDef[] = [
   {
     id: 'grain',
     name: 'Grain',
+    family: 'Papiers et cartons',
     group: 'materiau',
     slots: [],
     amount: 0.4,
@@ -643,6 +679,7 @@ export const FX: FxDef[] = [
   {
     id: 'kraft',
     name: 'Papier kraft',
+    family: 'Papiers et cartons',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -661,6 +698,7 @@ export const FX: FxDef[] = [
   {
     id: 'watercolor',
     name: 'Papier aquarelle',
+    family: 'Papiers et cartons',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -682,6 +720,7 @@ export const FX: FxDef[] = [
   {
     id: 'corrugated',
     name: 'Carton ondulé',
+    family: 'Papiers et cartons',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -699,6 +738,7 @@ export const FX: FxDef[] = [
   {
     id: 'newsprint',
     name: 'Papier journal',
+    family: 'Papiers et cartons',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -725,6 +765,7 @@ export const FX: FxDef[] = [
   {
     id: 'canvas',
     name: 'Toile de lin',
+    family: 'Textiles et cuirs',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -753,6 +794,7 @@ export const FX: FxDef[] = [
   {
     id: 'wood',
     name: 'Bois',
+    family: 'Naturels',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -780,6 +822,7 @@ export const FX: FxDef[] = [
   {
     id: 'metal',
     name: 'Métal brossé',
+    family: 'Métaux et techniques',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -805,6 +848,7 @@ export const FX: FxDef[] = [
   {
     id: 'felt',
     name: 'Feutrine',
+    family: 'Textiles et cuirs',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -829,6 +873,7 @@ export const FX: FxDef[] = [
   {
     id: 'glass',
     name: 'Verre',
+    family: 'Transparents',
     group: 'materiau',
     transparent: 0.45,
     slots: [],
@@ -857,6 +902,7 @@ export const FX: FxDef[] = [
   {
     id: 'plexi',
     name: 'Plexi',
+    family: 'Transparents',
     group: 'materiau',
     transparent: 0.7,
     slots: [],
@@ -883,6 +929,7 @@ export const FX: FxDef[] = [
   {
     id: 'ice',
     name: 'Glace',
+    family: 'Transparents',
     group: 'materiau',
     transparent: 0.65,
     slots: [],
@@ -917,6 +964,7 @@ export const FX: FxDef[] = [
   {
     id: 'smoke',
     name: 'Fumée',
+    family: 'Transparents',
     group: 'materiau',
     transparent: 0.6,
     slots: [],
@@ -944,6 +992,7 @@ export const FX: FxDef[] = [
   {
     id: 'hologram',
     name: 'Hologramme',
+    family: 'Transparents',
     group: 'materiau',
     transparent: 0.75,
     slots: [],
@@ -967,6 +1016,418 @@ export const FX: FxDef[] = [
           d[i + 2] = cl(g[2] + 0.14 * a * scan) * 255;
           d[i + 3] = d[i + 3]! * (1 - 0.45 * a * (1 - scan));
         }
+    },
+  },
+  {
+    id: 'greyboard',
+    name: 'Carton gris',
+    family: 'Papiers et cartons',
+    group: 'materiau',
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const P = k.pxPerMin;
+      const fs = Math.max(1, 0.003 * P);
+      // carton compressé : fibres courtes en tous sens, teinte gris-brun, quelques paillettes plus sombres
+      relief(
+        d,
+        k,
+        (x, y) => 0.7 * fbm(x / fs, y / fs, 141, 3) + 0.3 * vnoise(x / (fs * 5), y / (fs * 5), 142),
+        a * 0.3 * fs,
+        (c, x, y) => {
+          const l = lum(...c);
+          const grey: RGB = [l * 0.78 + 0.08, l * 0.74 + 0.07, l * 0.66 + 0.06];
+          const fleck = hash(x >> 1, y >> 1, 143) > 0.985 ? 1 - 0.3 * a : 1;
+          const m = (1 - 0.08 * a * fbm(x / (P * 0.05), y / (P * 0.05), 144)) * fleck;
+          const g = mixRGB(c, grey, 0.55 * a);
+          return [g[0] * m, g[1] * m, g[2] * m];
+        },
+      );
+    },
+  },
+  {
+    id: 'bristol',
+    name: 'Papier blanc',
+    family: 'Papiers et cartons',
+    group: 'materiau',
+    slots: [],
+    amount: 0.5,
+    pixel: (d, k, a) => {
+      const fs = Math.max(1, 0.0018 * k.pxPerMin);
+      // bristol : surface lisse et claire, grain à peine sensible, les couleurs s'éclaircissent un peu
+      relief(
+        d,
+        k,
+        (x, y) => fbm(x / fs, y / fs, 151, 2),
+        a * 0.12 * fs,
+        (c) => [c[0] * (1 - 0.12 * a) + 0.12 * a, c[1] * (1 - 0.12 * a) + 0.12 * a, c[2] * (1 - 0.1 * a) + 0.1 * a],
+      );
+    },
+  },
+  {
+    id: 'tracing',
+    name: 'Papier calque',
+    family: 'Transparents',
+    group: 'materiau',
+    transparent: 0.65,
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      const P = k.pxPerMin;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          const c: RGB = [d[i]! / 255, d[i + 1]! / 255, d[i + 2]! / 255];
+          // calque : voile laiteux, nuages de fibres plus opaques, on devine ce qui est dessous
+          const cloud = fbm(x / (P * 0.04), y / (P * 0.04), 161, 4);
+          const milk = 0.3 * a + 0.15 * a * cloud;
+          const g = mixRGB(c, [0.97, 0.97, 0.95], milk);
+          d[i] = cl(g[0]) * 255;
+          d[i + 1] = cl(g[1]) * 255;
+          d[i + 2] = cl(g[2]) * 255;
+          d[i + 3] = d[i + 3]! * (1 - 0.3 * a + 0.3 * a * cloud);
+        }
+    },
+  },
+  {
+    id: 'frosted',
+    name: 'Plexi dépoli',
+    family: 'Transparents',
+    group: 'materiau',
+    transparent: 0.8,
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      const P = k.pxPerMin;
+      if (a <= 0) return;
+      const n = w * h;
+      // couleurs pondérées par l'alpha : le vide autour d'une photo détourée ne noircit pas ses bords
+      const R = new Float32Array(n);
+      const G = new Float32Array(n);
+      const B = new Float32Array(n);
+      const A = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const al = d[i * 4 + 3]! / 255;
+        R[i] = (d[i * 4]! / 255) * al;
+        G[i] = (d[i * 4 + 1]! / 255) * al;
+        B[i] = (d[i * 4 + 2]! / 255) * al;
+        A[i] = al;
+      }
+      // dépoli : la lumière se diffuse, les détails s'adoucissent, voile clair et grain très fin
+      const r = Math.max(1, P * 0.006 * a);
+      const Rb = boxBlur(R, w, h, r);
+      const Gb = boxBlur(G, w, h, r);
+      const Bb = boxBlur(B, w, h, r);
+      const Ab = boxBlur(A, w, h, r);
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = y * w + x;
+          if (d[i * 4 + 3] === 0) continue;
+          const al = Math.max(1e-4, Ab[i]!);
+          const o: RGB = [d[i * 4]! / 255, d[i * 4 + 1]! / 255, d[i * 4 + 2]! / 255];
+          const blur: RGB = [Rb[i]! / al, Gb[i]! / al, Bb[i]! / al];
+          const sat = (hash(x, y, 171) - 0.5) * 0.05 * a;
+          const g = mixRGB(mixRGB(o, blur, cl(a * 1.5)), [1, 1, 1], 0.18 * a);
+          d[i * 4] = cl(g[0] + sat) * 255;
+          d[i * 4 + 1] = cl(g[1] + sat) * 255;
+          d[i * 4 + 2] = cl(g[2] + sat) * 255;
+        }
+    },
+  },
+  {
+    id: 'mirror',
+    name: 'Plexi miroir',
+    family: 'Métaux et techniques',
+    group: 'materiau',
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      const P = k.pxPerMin;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          let c: RGB = [d[i]! / 255, d[i + 1]! / 255, d[i + 2]! / 255];
+          // miroir : reflet d'une pièce en dégradé, une bande vive en biais, la couleur reste en teinte
+          const s = ((x * k.lx + y * k.ly) / P) * -1;
+          const env = 0.35 + 0.5 * cl(0.5 + s * 0.8) + 0.15 * fbm(x / (P * 0.3), y / (P * 0.3), 181, 2);
+          const t = (x * k.ly - y * k.lx) / P;
+          const band = Math.max(0, 1 - Math.abs(((((t * 1.6) % 1) + 1) % 1) - 0.5) * 4);
+          const l = lum(...c);
+          c = mixRGB(c, [c[0] * 0.35 + env * 0.65, c[1] * 0.35 + env * 0.65, c[2] * 0.35 + env * 0.7], 0.85 * a);
+          c = mixRGB(c, [l * 0.2, l * 0.2, l * 0.22], 0.15 * a * (1 - env));
+          const g = mixRGB(c, [1, 1, 1], 0.7 * a * band * band);
+          d[i] = cl(g[0]) * 255;
+          d[i + 1] = cl(g[1]) * 255;
+          d[i + 2] = cl(g[2]) * 255;
+        }
+    },
+  },
+  {
+    id: 'aluminium',
+    name: 'Aluminium',
+    family: 'Métaux et techniques',
+    group: 'materiau',
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      const P = k.pxPerMin;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          let c: RGB = [d[i]! / 255, d[i + 1]! / 255, d[i + 2]! / 255];
+          // panneau alu (Dibond) : lisse et satiné, teinte un peu éteinte, lueur large sans rayures
+          const l = lum(...c);
+          c = mixRGB(c, [l, l, l * 1.03], 0.3 * a);
+          const sheen = cl(0.5 - ((x * k.lx + y * k.ly) / P) * 0.7);
+          const m = 0.88 + 0.35 * sheen * sheen * a + 0.02 * (vnoise(x / (P * 0.02), y / (P * 0.02), 191) - 0.5);
+          d[i] = cl(c[0] * (1 - a + a * m)) * 255;
+          d[i + 1] = cl(c[1] * (1 - a + a * m)) * 255;
+          d[i + 2] = cl(c[2] * (1 - a + a * m)) * 255;
+        }
+    },
+  },
+  {
+    id: 'concrete',
+    name: 'Béton',
+    family: 'Naturels',
+    group: 'materiau',
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const P = k.pxPerMin;
+      const fs = Math.max(1, 0.004 * P);
+      // béton : taches de laitance, petits bullages creusés, teinte grise
+      const pore = (x: number, y: number) => {
+        const v = vnoise(x / (fs * 0.8), y / (fs * 0.8), 201);
+        return v > 0.86 ? (v - 0.86) * 7 : 0;
+      };
+      relief(
+        d,
+        k,
+        (x, y) => 0.6 * fbm(x / fs, y / fs, 202, 3) - pore(x, y),
+        a * 0.3 * fs,
+        (c, x, y) => {
+          const l = lum(...c);
+          const mottle = fbm(x / (P * 0.08), y / (P * 0.08), 203, 3);
+          const grey = l * 0.7 + 0.12 + 0.12 * (mottle - 0.5);
+          const g = mixRGB(c, [grey, grey * 0.99, grey * 0.96], 0.6 * a);
+          const p = 1 - 0.5 * a * cl(pore(x, y));
+          return [g[0] * p, g[1] * p, g[2] * p];
+        },
+      );
+    },
+  },
+  {
+    id: 'slate',
+    name: 'Ardoise',
+    family: 'Naturels',
+    group: 'materiau',
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const P = k.pxPerMin;
+      // ardoise : feuillets en couches presque horizontales, gris-bleu sombre et mat
+      const strata = (x: number, y: number) => {
+        const warp = fbm(x / (P * 0.3), y / (P * 0.05), 211) * P * 0.03;
+        return fbm(x / (P * 0.2), (y + warp) / (P * 0.01), 212, 3);
+      };
+      relief(
+        d,
+        k,
+        (x, y) => strata(x, y),
+        a * 0.25 * P * 0.01,
+        (c, x, y) => {
+          const l = lum(...c);
+          const s = strata(x, y);
+          const dark: RGB = [c[0] * 0.45 + l * 0.12 + 0.05, c[1] * 0.45 + l * 0.13 + 0.06, c[2] * 0.45 + l * 0.15 + 0.08];
+          const g = mixRGB(c, dark, 0.7 * a);
+          const m = 1 + a * (0.33 * s - 0.17);
+          return [g[0] * m, g[1] * m, g[2] * m];
+        },
+      );
+    },
+  },
+  {
+    id: 'cork',
+    name: 'Liège',
+    family: 'Naturels',
+    group: 'materiau',
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const P = k.pxPerMin;
+      const g0 = Math.max(2, 0.008 * P);
+      // liège aggloméré : granules bruns de tailles variées, creux sombres entre eux
+      const gran = (x: number, y: number) => {
+        const v = vnoise(x / g0, y / g0, 221) * 0.65 + vnoise(x / (g0 * 0.4), y / (g0 * 0.4), 222) * 0.35;
+        return v;
+      };
+      relief(
+        d,
+        k,
+        (x, y) => gran(x, y),
+        a * 0.5 * g0,
+        (c, x, y) => {
+          const v = gran(x, y);
+          const tone = 0.75 + 0.5 * v;
+          const cork: RGB = [c[0] * 0.75 * tone + 0.1, c[1] * 0.58 * tone + 0.06, c[2] * 0.4 * tone + 0.03];
+          const hole = v < 0.32 ? 1 - 0.5 * a : 1;
+          const g = mixRGB(c, cork, 0.7 * a);
+          return [g[0] * hole, g[1] * hole, g[2] * hole];
+        },
+      );
+    },
+  },
+  {
+    id: 'carbon',
+    name: 'Carbone',
+    family: 'Métaux et techniques',
+    group: 'materiau',
+    slots: [],
+    amount: 0.7,
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      const P = k.pxPerMin;
+      const p = Math.max(3, 0.012 * P);
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          let c: RGB = [d[i]! / 255, d[i + 1]! / 255, d[i + 2]! / 255];
+          // fibre de carbone : sergé 2/2, mèches qui changent de sens à chaque case, sombre et verni
+          const u = x / p;
+          const v = y / p;
+          const along = (Math.floor(u) + Math.floor(v / 2) * 2 + 4096) % 4 < 2;
+          const f = along ? u - Math.floor(u) : v / 2 - Math.floor(v / 2);
+          const tow = Math.sin(Math.PI * f);
+          const strands = 0.85 + 0.15 * Math.sin((along ? v : u) * Math.PI * 7);
+          const lit = along ? 0.5 + 0.5 * k.lx * -1 : 0.5 + 0.5 * k.ly * -1;
+          const shine = (0.25 + 0.75 * lit) * tow * strands;
+          const l = lum(...c);
+          const dark: RGB = [c[0] * 0.25 + l * 0.05, c[1] * 0.25 + l * 0.05, c[2] * 0.25 + l * 0.06];
+          c = mixRGB(c, dark, 0.85 * a);
+          const sheen = cl(0.5 - ((x * k.lx + y * k.ly) / P) * 0.8);
+          const g = mixRGB(c, [0.85, 0.87, 0.9], a * (0.35 * shine + 0.12 * sheen));
+          d[i] = cl(g[0]) * 255;
+          d[i + 1] = cl(g[1]) * 255;
+          d[i + 2] = cl(g[2]) * 255;
+        }
+    },
+  },
+  {
+    id: 'leather',
+    name: 'Cuir',
+    family: 'Textiles et cuirs',
+    group: 'materiau',
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const P = k.pxPerMin;
+      const s = Math.max(2, 0.006 * P);
+      // cuir grainé : petits bombés irréguliers séparés de plis creux, teinte brunie, lustre discret
+      relief(
+        d,
+        k,
+        (x, y) => {
+          const c = cells(x / s + fbm(x / (s * 3), y / (s * 3), 231) * 0.8, y / s, 232);
+          return Math.sqrt(c) * 0.85 + 0.15 * vnoise(x / (s * 0.3), y / (s * 0.3), 233);
+        },
+        a * 0.6 * s,
+        (c, x, y) => {
+          const l = lum(...c);
+          const tan: RGB = [c[0] * 0.8 + l * 0.08, c[1] * 0.68 + l * 0.05, c[2] * 0.55 + l * 0.03];
+          const m = 1 + a * (0.2 * fbm(x / (P * 0.1), y / (P * 0.1), 234) - 0.13);
+          const g = mixRGB(c, tan, 0.5 * a);
+          return [g[0] * m, g[1] * m, g[2] * m];
+        },
+      );
+    },
+  },
+  {
+    id: 'soft-leather',
+    name: 'Cuir souple',
+    family: 'Textiles et cuirs',
+    group: 'materiau',
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const P = k.pxPerMin;
+      const s = Math.max(2, 0.004 * P);
+      // cuir souple : grain fin à peine marqué, grandes ondulations du cuir qui plie, reflet satiné
+      relief(
+        d,
+        k,
+        (x, y) => 0.35 * Math.sqrt(cells(x / s, y / s, 241)) + 0.65 * fbm(x / (P * 0.12), y / (P * 0.06), 242, 3) * (P * 0.012) / s,
+        a * 0.35 * s,
+        (c, x, y) => {
+          const sheen = cl(0.5 - ((x * k.lx + y * k.ly) / P) * 0.7);
+          const fold = fbm(x / (P * 0.12), y / (P * 0.06), 242, 3);
+          const g = mixRGB(c, [c[0] * 0.88, c[1] * 0.8, c[2] * 0.72], 0.4 * a);
+          return mixRGB(g, [1, 0.97, 0.93], a * (0.12 * sheen * sheen + 0.1 * cl((fold - 0.55) * 4)));
+        },
+      );
+    },
+  },
+  {
+    id: 'suede',
+    name: 'Daim',
+    family: 'Textiles et cuirs',
+    group: 'materiau',
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const { w, h } = k;
+      const P = k.pxPerMin;
+      const fs = Math.max(1, 0.0015 * P);
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          const c: RGB = [d[i]! / 255, d[i + 1]! / 255, d[i + 2]! / 255];
+          // daim : velours très mat, poils couchés dans un sens ou l'autre (plages claires et sombres)
+          const nap = fbm(x / (P * 0.07), y / (P * 0.05), 251, 3);
+          const brushed = cl((nap - 0.5) * 3 + 0.5);
+          const fuzz = vnoise(x / fs, y / fs, 252) * 0.6 + vnoise(x / (fs * 0.5), y / (fs * 0.5), 253) * 0.4;
+          const l = lum(...c);
+          const soft = mixRGB(c, [l, l, l], 0.15 * a);
+          const m = 1 - a * (0.18 * (1 - brushed) + 0.1 * fuzz) + 0.08 * a * brushed;
+          d[i] = cl(soft[0] * m + 0.02 * a) * 255;
+          d[i + 1] = cl(soft[1] * m + 0.02 * a) * 255;
+          d[i + 2] = cl(soft[2] * m + 0.02 * a) * 255;
+        }
+    },
+  },
+  {
+    id: 'denim',
+    name: 'Jean',
+    family: 'Textiles et cuirs',
+    group: 'materiau',
+    slots: [],
+    amount: 0.6,
+    pixel: (d, k, a) => {
+      const P = k.pxPerMin;
+      const p = Math.max(2.5, 0.004 * P);
+      // denim : sergé en diagonale, chaîne indigo, trame blanche qui affleure, délavé par endroits
+      const twill = (x: number, y: number) => {
+        const t = (x + y) / p;
+        return 0.5 + 0.5 * Math.sin(t * Math.PI * 2);
+      };
+      relief(
+        d,
+        k,
+        (x, y) => twill(x, y) * 0.8 + 0.2 * vnoise(x / (p * 0.5), y / (p * 4), 261),
+        a * 0.4 * p,
+        (c, x, y) => {
+          const l = lum(...c);
+          const indigo: RGB = [c[0] * 0.35 + l * 0.12 + 0.03, c[1] * 0.4 + l * 0.18 + 0.06, c[2] * 0.5 + l * 0.3 + 0.18];
+          const fade = fbm(x / (P * 0.15), y / (P * 0.15), 262, 3);
+          const weft = (1 - twill(x, y)) * (0.5 + 0.5 * vnoise(x / (p * 0.4), y / (p * 6), 263));
+          const g = mixRGB(c, indigo, 0.9 * a);
+          return mixRGB(g, [0.92, 0.92, 0.95], a * (0.12 * weft + 0.18 * cl((fade - 0.5) * 3)));
+        },
+      );
     },
   },
   {
@@ -1120,7 +1581,11 @@ export const FX_GROUPS: Array<[FxGroup, string]> = [
 ];
 
 /** Matières : une seule par couche, choisie dans l'outil Matière. */
-export const MATERIALS = () => FX.filter((x) => x.group === 'materiau');
+export const MATERIALS = () =>
+  FX.filter((x) => x.group === 'materiau')
+    .map((x, i) => ({ x, i }))
+    .sort((a, b) => MATERIAL_FAMILIES.indexOf(a.x.family!) - MATERIAL_FAMILIES.indexOf(b.x.family!) || a.i - b.i)
+    .map(({ x }) => x);
 export const isMaterial = (id: string) => fxOf(id as FxId)?.group === 'materiau';
 
 export const fxOf = (id: FxId | undefined) => FX.find((x) => x.id === id);
