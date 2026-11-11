@@ -365,11 +365,12 @@ export function CoupePanel({
   };
   const tab = tabs.some(([t]) => t === tabRaw) ? tabRaw : tabs[0]![0];
   // le contenu du texte prend le clavier seulement quand on vient de toucher deux fois le texte (ou d'en poser un)
-  const [typeNow, setTypeNow] = useState(openOn?.key === 'content' ? openOn.n : 0);
+  // demande consommée dès que le contenu a pris le clavier, et réservée au texte qu'elle vise
+  const [typeNow, setTypeNow] = useState<string | null>(openOn?.key === 'content' ? l.id : null);
   useEffect(() => {
     if (!openOn) return;
     setTabRaw(tabOfSec(openOn.sec));
-    if (openOn.key === 'content') setTypeNow(openOn.n);
+    if (openOn.key === 'content') setTypeNow(l.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openOn]);
 
@@ -496,7 +497,17 @@ export function CoupePanel({
   const focused = tabItems.find((x) => x.key === focus) ?? tabItems[0];
   const attrsOf = (it: Item | undefined) => (it ? <Attrs layer={l} doc={doc} item={it} patch={patch} patchText={patchText} unmold={unmold} onMold={onMold} onSculpt={onSculpt} /> : null);
   const hasFx = (l.fx ?? []).some((x) => groupOf(x) === 'effet');
-  const showFx = l.kind === 'photo' || hasFx || !simple;
+  // mode simplifié : les transformations d'un texte ou d'une forme attendent « Plus » (pour cet objet)
+  const [moreFx, setMoreFx] = useState(false);
+  useEffect(() => setMoreFx(false), [l.id]);
+  const showFx = l.kind === 'photo' || hasFx || !simple || moreFx;
+  const fxCard = showFx ? (
+    card('transform', 'Transformations')
+  ) : (
+    <button className="chip cp-more ap-more" onClick={() => setMoreFx(true)} title="Plus : Transformations (effets en parallèle de l'image)">
+      Plus : transformations
+    </button>
+  );
 
   /** Bandeau du bas d'un objet modelé : ses attributs d'origine sont grisés jusqu'au retour. */
   const moldBar = l.molded && (
@@ -519,8 +530,8 @@ export function CoupePanel({
   if (tab === 'main' && l.kind === 'text' && l.text && patchText)
     body = (
       <>
-        <TextTab key={l.id} text={l.text} locked={!!l.molded} onChange={patchText} typeNow={typeNow} />
-        {showFx && card('transform', 'Transformations')}
+        <TextTab key={l.id} text={l.text} locked={!!l.molded} onChange={patchText} typeNow={typeNow === l.id} onTyped={() => setTypeNow(null)} />
+        {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}
       </>
@@ -530,7 +541,7 @@ export function CoupePanel({
     body = (
       <>
         <div className={`ap-shape ${l.molded ? 'ap-locked' : ''}`}>{it && <Attrs bare layer={l} doc={doc} item={{ ...it, locked: false }} patch={patch} />}</div>
-        {showFx && card('transform', 'Transformations')}
+        {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}
       </>
@@ -697,7 +708,20 @@ function SlotRow({
 }
 
 /** Onglet Texte : le contenu en grand, l'alignement, la police (dans sa boîte), la disposition et les potards. */
-function TextTab({ text: t, locked, onChange, typeNow }: { text: TextStyle; locked: boolean; onChange: (next: Partial<TextStyle>, history: boolean) => void; typeNow: number }) {
+function TextTab({
+  text: t,
+  locked,
+  onChange,
+  typeNow,
+  onTyped,
+}: {
+  text: TextStyle;
+  locked: boolean;
+  onChange: (next: Partial<TextStyle>, history: boolean) => void;
+  /** Le contenu prend le clavier (double toucher sur ce texte, ou texte qu'on vient de poser). */
+  typeNow: boolean;
+  onTyped: () => void;
+}) {
   const first = useRef(true);
   const [draft, setDraft] = useLazyText(t.content, (v) => {
     onChange({ content: v }, first.current);
@@ -707,12 +731,14 @@ function TextTab({ text: t, locked, onChange, typeNow }: { text: TextStyle; lock
   useEffect(() => {
     if (!typeNow || locked) return;
     const id = setTimeout(() => {
+      onTyped();
       const a = area.current;
       if (!a || document.activeElement === a) return;
       a.focus();
       a.select();
     }, 60);
     return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typeNow, locked]);
   const live = useStep(onChange);
   const [fonts, setFonts] = useState(false);

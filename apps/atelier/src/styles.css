@@ -2285,3 +2285,4 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
   .hand-right .edit-rail, .hand-left .edit-rail { top: 126px; }
   .atelier .edit-rail .vslider { height: clamp(48px, calc(100dvh - 126px - 160px), 200px); }
 }
+.ap-more { align-self: flex-start; }
