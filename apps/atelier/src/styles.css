@@ -270,7 +270,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 }
 
 /* couleur glissée depuis la palette */
-.drag-dot { position: fixed; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; pointer-events: none; z-index: 20; box-shadow: 0 0 0 3px var(--chrome-solid), 0 6px 18px rgba(0,0,0,.3); }
+.drag-dot { position: fixed; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; pointer-events: none; z-index: 70; box-shadow: 0 0 0 3px var(--chrome-solid), 0 6px 18px rgba(0,0,0,.3); }
 .palette-bubble .guide { touch-action: none; }
 
 /* listes de modes : l'icône garde sa place, le libellé long ne la pousse pas */
@@ -1509,7 +1509,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .pal-edit { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; height: 28px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-soft); }
 .pal-edit svg { width: 14px; height: 14px; }
 .pal-drop-hint { margin: 0; padding: 0 4px; font-size: 12px; color: var(--accent); }
-.color-dialog { position: fixed; z-index: 40; top: 64px; left: 50%; transform: translateX(-50%); width: min(400px, calc(100vw - 20px)); max-height: calc(100dvh - 76px); overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 22px; background: var(--chrome-solid); box-shadow: 0 0 0 1px var(--line), var(--tool-lift, 0 6px 24px rgba(0, 0, 0, 0.2)); }
+.color-dialog { position: fixed; z-index: 50; top: 64px; left: 50%; transform: translateX(-50%); width: min(400px, calc(100vw - 20px)); max-height: calc(100dvh - 76px); overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 22px; background: var(--chrome-solid); box-shadow: 0 0 0 1px var(--line), var(--tool-lift, 0 6px 24px rgba(0, 0, 0, 0.2)); }
 .cd-head { display: flex; align-items: center; gap: 8px; }
 .cd-sw { flex: none; width: 36px; height: 36px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); }
 .cd-remove { height: 32px; padding: 0 10px; border-radius: 9px; font-size: 12px; color: var(--muted); }
