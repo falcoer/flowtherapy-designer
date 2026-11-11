@@ -1405,9 +1405,7 @@ function spray(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Tar
       }
   }
   const tile = (sprayTile ??= document.createElement('canvas'));
-  if (tile.width !== TILE) tile.width = tile.height = TILE;
-  const tctx = tile.getContext('2d')!;
-  const img = tctx.createImageData(TILE, TILE);
+  const img = new ImageData(TILE, TILE);
   const px = img.data;
   const B = sprayBuf;
   dst.save();
@@ -1491,8 +1489,15 @@ function spray(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Tar
       }
     const W = u1 - u0 + 1;
     const H = v1 - v0 + 1;
-    tctx.putImageData(img, 0, 0, u0, v0, W, H);
-    dst.drawImage(tile, u0, v0, W, H, bx + u0, by + v0, W, H);
+    // Safari (iPhone, iPad) : réécrire avec putImageData un canevas déjà collé ailleurs peut
+    // atteindre aussi le canevas où il a été collé, qui reçoit alors le carreau suivant à la place
+    // de sa peinture (des rectangles vides ou coupés net). Le carreau repart donc d'un tampon
+    // neuf à chaque fois : à taille égale WebKit se contente de vider l'ancien, on passe donc par zéro.
+    tile.width = 0;
+    tile.width = W;
+    tile.height = H;
+    tile.getContext('2d')!.putImageData(img, -u0, -v0, u0, v0, W, H);
+    dst.drawImage(tile, 0, 0, W, H, bx + u0, by + v0, W, H);
   }
   dst.restore();
 }
