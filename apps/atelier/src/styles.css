@@ -2073,3 +2073,13 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .matter-dot { width: 34px; height: 34px; }
 .pal-sec.matter { flex-wrap: wrap; }
 .pal-sec.matter .matter-edit { flex-basis: 100%; }
+/* formes des pastilles : couleur ronde, matière hexagone, vernis triangle, bords carrés */
+.shape-matter { --clip: polygon(50% 0, 93.3% 25%, 93.3% 75%, 50% 100%, 6.7% 75%, 6.7% 25%); }
+.shape-varnish { --clip: polygon(50% 3%, 100% 92%, 0 92%); }
+.sw.shape-matter, .sw.shape-varnish { border-radius: 0 !important; border: 0 !important; box-shadow: none !important; clip-path: var(--clip); }
+.sw.shape-edge { border-radius: 3px !important; }
+.pal-sec .guide.matter-chip { border-radius: 0; clip-path: var(--clip); padding: 3px; }
+.pal-sec .guide.matter-chip.on { background: var(--accent); }
+.pal-sec .guide.matter-chip .sw { width: 32px; height: 32px; }
+.drag-dot.shape-matter, .drag-dot.shape-varnish { border-radius: 0; box-shadow: none; clip-path: var(--clip); }
+.mw-chip .sw.shape-varnish { width: 24px; height: 22px; }

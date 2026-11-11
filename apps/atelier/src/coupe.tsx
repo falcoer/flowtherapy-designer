@@ -17,6 +17,12 @@ import { borderDefaults } from './targets';
  */
 export type Section = 'edge' | 'coat' | 'image' | 'transform' | 'support' | 'depth';
 
+/**
+ * Forme des pastilles selon ce qu'elles posent : la couleur reste ronde, la matière est un hexagone,
+ * le vernis un triangle, le carré est réservé aux bords.
+ */
+export const shapeClass = (sec: Section | 'color') => (sec === 'support' ? 'shape-matter' : sec === 'coat' ? 'shape-varnish' : sec === 'edge' ? 'shape-edge' : '');
+
 export interface Item {
   sec: Section;
   /** border, bevel, glow, look, draw, paint, material, fx:<index dans l.fx> */
@@ -462,7 +468,7 @@ export function CoupePanel({
                       Aa
                     </span>
                   ) : (
-                    <span className="sw" style={{ background: it.bg }} />
+                    <span className={`sw ${shapeClass(it.sec)}`} style={{ background: it.bg }} />
                   )}
                   <span className="nm" style={it.font ? { fontFamily: `${fontFamily(it.font)}, Inter, sans-serif` } : undefined}>
                     {it.name}

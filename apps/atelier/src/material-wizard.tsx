@@ -150,7 +150,7 @@ export function MaterialWizard({
                     onToast(`« ${l.name} » prend « ${e.name} »`, true);
                   }}
                 >
-                  <span className="sw" style={{ background: kind === 'material' ? matterSwatch(e.fx) : varnishSwatch(e.fx), backgroundSize: 'cover' }} />
+                  <span className={`sw ${kind === 'material' ? 'shape-matter' : 'shape-varnish'}`} style={{ background: kind === 'material' ? matterSwatch(e.fx) : varnishSwatch(e.fx), backgroundSize: 'cover' }} />
                   {e.name}
                 </button>
               ))}

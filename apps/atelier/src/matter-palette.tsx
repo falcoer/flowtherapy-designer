@@ -50,7 +50,7 @@ export function MatterRow({
             key={e.id}
             role="button"
             tabIndex={0}
-            className={`guide matter-chip ${cur === e.id ? 'on' : ''}`}
+            className={`guide matter-chip ${kind === 'material' ? 'shape-matter' : 'shape-varnish'} ${cur === e.id ? 'on' : ''}`}
             title={`${e.name} : touche pour la poser sur l’objet choisi, glisse-la sur un objet, double toucher pour la renommer`}
             onPointerDown={(ev) => {
               (ev.currentTarget as Element).setPointerCapture(ev.pointerId);
@@ -82,7 +82,7 @@ export function MatterRow({
               setGhost(null);
             }}
           >
-            <span className="sw" style={{ background: bgOf(e.id), backgroundSize: 'cover' }} />
+            <span className={`sw ${kind === 'material' ? 'shape-matter' : 'shape-varnish'}`} style={{ background: bgOf(e.id), backgroundSize: 'cover' }} />
           </div>
         ))}
         {list.length === 0 && <small className="pal-empty">Ajoute {kind === 'material' ? 'une matière' : 'un vernis'} depuis l’assistant (baguette magique de l’outil multicouche).</small>}
@@ -119,7 +119,7 @@ export function MatterRow({
           </button>
         </div>
       )}
-      {ghost && <span className="drag-dot matter-dot" style={{ left: ghost.x, top: ghost.y, background: ghost.bg, backgroundSize: 'cover' }} />}
+      {ghost && <span className={`drag-dot matter-dot ${kind === 'material' ? 'shape-matter' : 'shape-varnish'}`} style={{ left: ghost.x, top: ghost.y, background: ghost.bg, backgroundSize: 'cover' }} />}
     </section>
   );
 }
