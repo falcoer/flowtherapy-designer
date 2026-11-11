@@ -682,7 +682,7 @@ export function CoupePanel({
   );
 }
 
-function Dots({ label, value, doc, onPick }: { label: string; value: number; doc: Doc; onPick: (i: number) => void }) {
+export function Dots({ label, value, doc, onPick }: { label: string; value: number; doc: Doc; onPick: (i: number) => void }) {
   return (
     <div className="cp-row colors">
       <span>{label}</span>

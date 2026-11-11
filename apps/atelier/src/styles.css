@@ -2068,11 +2068,8 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 /* palettes de matières et de vernis */
 .pal-sec.matter .sw { background-size: cover; }
 .pal-empty { color: var(--muted); font-size: 11.5px; line-height: 1.3; }
-.matter-edit { display: flex; gap: 6px; align-items: center; margin-top: 6px; grid-column: 1 / -1; }
-.matter-edit input { flex: 1; min-width: 0; height: 30px; border-radius: 9px; border: 1px solid var(--line); padding: 0 8px; background: var(--chrome-solid); color: var(--ink); }
 .matter-dot { width: 34px; height: 34px; }
 .pal-sec.matter { flex-wrap: wrap; }
-.pal-sec.matter .matter-edit { flex-basis: 100%; }
 /* formes des pastilles : couleur ronde, matière hexagone, vernis triangle, bords carrés */
 .shape-matter { --clip: polygon(50% 0, 93.3% 25%, 93.3% 75%, 50% 100%, 6.7% 75%, 6.7% 25%); }
 .shape-varnish { --clip: polygon(50% 3%, 100% 92%, 0 92%); }
@@ -2083,3 +2080,17 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .pal-sec .guide.matter-chip .sw { width: 32px; height: 32px; }
 .drag-dot.shape-matter, .drag-dot.shape-varnish { border-radius: 0; box-shadow: none; clip-path: var(--clip); }
 .mw-chip .sw.shape-varnish { width: 24px; height: 22px; }
+/* boîtes d'une matière et d'un vernis de la palette */
+.matter-dialog { gap: 10px; }
+.matter-dialog .cd-sw.shape-matter, .matter-dialog .cd-sw.shape-varnish { border-radius: 0; box-shadow: none; clip-path: var(--clip); }
+.md-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+.md-card { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 7px 4px 6px; border-radius: 12px; background: var(--line); color: var(--ink); font-size: 11.5px; font-weight: 600; text-align: center; line-height: 1.2; }
+.md-card .sw { width: 38px; height: 38px; display: block; }
+.md-card.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.md-knobs { display: flex; flex-direction: column; gap: 8px; }
+.md-dials { display: flex; flex-wrap: wrap; gap: 10px 14px; }
+.md-note { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.35; }
+.pal-sec .guide.matter-add { border-radius: 0; clip-path: var(--clip); background: var(--line); padding: 3px; }
+.pal-sec .guide.matter-add .sw.plus { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 0; background: var(--chrome-solid); clip-path: var(--clip); color: var(--accent); }
+.shape-varnish .sw.plus { padding-top: 8px; }
+.matter-dialog .cd-head { padding-right: 34px; }

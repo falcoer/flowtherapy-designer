@@ -5505,9 +5505,10 @@ export function App() {
                       doc={doc}
                       sel={sel ?? undefined}
                       onDoc={(fn) => update(fn)}
-                      onToast={(m) => {
+                      onDocLive={(fn) => setDoc(fn)}
+                      onToast={(m, u) => {
                         setToast(m);
-                        setToastUndo(true);
+                        setToastUndo(!!u);
                       }}
                       targetAt={layerAtScreen}
                     />

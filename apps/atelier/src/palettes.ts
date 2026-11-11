@@ -120,3 +120,21 @@ export function varnishSwatch(fx: Fx): string {
   };
   return `${shine[fx.id] ?? ''}${shine[fx.id] ? ', ' : ''}radial-gradient(circle at 45% 40%, #8f88a0, #4b4558 75%)`;
 }
+
+/** Crée une entrée (depuis le ＋ de la palette), sans objet lié. */
+export function newEntry(d: Doc, k: MatterKind, name: string, fx: Fx): { doc: Doc; id: string } {
+  const id = `${k === 'material' ? 'm' : 'v'}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+  return { doc: withList(d, k, [...listOf(d, k), { id, name, fx: bare(fx) }]), id };
+}
+
+/** Retouche une entrée depuis sa boîte : son réglage et son nom, et tous les objets liés suivent. */
+export function updateEntry(d: Doc, k: MatterKind, id: string, next: { name?: string; fx?: Fx }): Doc {
+  const e = listOf(d, k).find((x) => x.id === id);
+  if (!e) return d;
+  const ne: PaletteMatter = { ...e, ...(next.name !== undefined ? { name: next.name } : {}), ...(next.fx ? { fx: bare(next.fx) } : {}) };
+  const out = withList(d, k, listOf(d, k).map((x) => (x.id === id ? ne : x)));
+  return relink(out, k, id, () => linked(ne));
+}
+
+/** Nombre d'objets liés à une entrée. */
+export const usersOf = (d: Doc, k: MatterKind, id: string) => d.layers.filter((l) => (k === 'material' ? l.material?.ref : varnishOf(l)?.ref) === id).length;
