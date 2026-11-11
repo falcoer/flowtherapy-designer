@@ -484,7 +484,7 @@ export function CoupePanel({
             {(() => {
               const list = choicesOf(l, s.sec, doc);
               const groups: string[] = [];
-              const fam = (id: string) => (s.sec === 'edge' ? edgeGroup(id) : s.sec === 'depth' ? depthGroup(id) : hintOf(id)[0]);
+              const fam = (id: string) => (s.sec === 'edge' ? edgeGroup(id) : s.sec === 'depth' ? depthGroup(id) : s.sec === 'support' ? (fxOf(id as FxId)?.family ?? '') : hintOf(id)[0]);
               for (const c of list) if (!groups.includes(fam(c.id))) groups.push(fam(c.id));
               const extra = s.sec === 'edge' ? ['Rognage', 'Lueur'] : [];
               const shown = groups.filter((gname) => more || !extra.includes(gname));

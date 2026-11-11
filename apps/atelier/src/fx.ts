@@ -57,6 +57,10 @@ export type FxId =
 
 export type FxGroup = 'dessin' | 'effet' | 'materiau' | 'lumiere';
 
+/** Familles des supports, dans l'ordre où on les propose. */
+export const MATERIAL_FAMILIES = ['Papiers et cartons', 'Textiles et cuirs', 'Naturels', 'Métaux et techniques', 'Transparents'] as const;
+export type MaterialFamily = (typeof MATERIAL_FAMILIES)[number];
+
 export interface Fx {
   id: FxId;
   /** Index des guides utilisés, dans l'ordre des rôles de l'effet. */
@@ -90,6 +94,8 @@ export interface FxDef {
   amountLabel?: string;
   /** Unité affichée après la valeur (0..100). */
   amountUnit?: string;
+  /** Famille de la matière, pour ranger les supports. */
+  family?: MaterialFamily;
   /** Matière qui laisse voir à travers : l'objet gagne alors un réglage d'opacité (valeur de départ). */
   transparent?: number;
   /** Calcul par pixel (matière) ; absent = effet dessiné par la scène. */
@@ -651,6 +657,7 @@ export const FX: FxDef[] = [
   {
     id: 'grain',
     name: 'Grain',
+    family: 'Papiers et cartons',
     group: 'materiau',
     slots: [],
     amount: 0.4,
@@ -672,6 +679,7 @@ export const FX: FxDef[] = [
   {
     id: 'kraft',
     name: 'Papier kraft',
+    family: 'Papiers et cartons',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -690,6 +698,7 @@ export const FX: FxDef[] = [
   {
     id: 'watercolor',
     name: 'Papier aquarelle',
+    family: 'Papiers et cartons',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -711,6 +720,7 @@ export const FX: FxDef[] = [
   {
     id: 'corrugated',
     name: 'Carton ondulé',
+    family: 'Papiers et cartons',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -728,6 +738,7 @@ export const FX: FxDef[] = [
   {
     id: 'newsprint',
     name: 'Papier journal',
+    family: 'Papiers et cartons',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -754,6 +765,7 @@ export const FX: FxDef[] = [
   {
     id: 'canvas',
     name: 'Toile de lin',
+    family: 'Textiles et cuirs',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -782,6 +794,7 @@ export const FX: FxDef[] = [
   {
     id: 'wood',
     name: 'Bois',
+    family: 'Naturels',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -809,6 +822,7 @@ export const FX: FxDef[] = [
   {
     id: 'metal',
     name: 'Métal brossé',
+    family: 'Métaux et techniques',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -834,6 +848,7 @@ export const FX: FxDef[] = [
   {
     id: 'felt',
     name: 'Feutrine',
+    family: 'Textiles et cuirs',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -858,6 +873,7 @@ export const FX: FxDef[] = [
   {
     id: 'glass',
     name: 'Verre',
+    family: 'Transparents',
     group: 'materiau',
     transparent: 0.45,
     slots: [],
@@ -886,6 +902,7 @@ export const FX: FxDef[] = [
   {
     id: 'plexi',
     name: 'Plexi',
+    family: 'Transparents',
     group: 'materiau',
     transparent: 0.7,
     slots: [],
@@ -912,6 +929,7 @@ export const FX: FxDef[] = [
   {
     id: 'ice',
     name: 'Glace',
+    family: 'Transparents',
     group: 'materiau',
     transparent: 0.65,
     slots: [],
@@ -946,6 +964,7 @@ export const FX: FxDef[] = [
   {
     id: 'smoke',
     name: 'Fumée',
+    family: 'Transparents',
     group: 'materiau',
     transparent: 0.6,
     slots: [],
@@ -973,6 +992,7 @@ export const FX: FxDef[] = [
   {
     id: 'hologram',
     name: 'Hologramme',
+    family: 'Transparents',
     group: 'materiau',
     transparent: 0.75,
     slots: [],
@@ -1001,6 +1021,7 @@ export const FX: FxDef[] = [
   {
     id: 'greyboard',
     name: 'Carton gris',
+    family: 'Papiers et cartons',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -1027,6 +1048,7 @@ export const FX: FxDef[] = [
   {
     id: 'bristol',
     name: 'Papier blanc',
+    family: 'Papiers et cartons',
     group: 'materiau',
     slots: [],
     amount: 0.5,
@@ -1045,6 +1067,7 @@ export const FX: FxDef[] = [
   {
     id: 'tracing',
     name: 'Papier calque',
+    family: 'Transparents',
     group: 'materiau',
     transparent: 0.65,
     slots: [],
@@ -1070,6 +1093,7 @@ export const FX: FxDef[] = [
   {
     id: 'frosted',
     name: 'Plexi dépoli',
+    family: 'Transparents',
     group: 'materiau',
     transparent: 0.8,
     slots: [],
@@ -1115,6 +1139,7 @@ export const FX: FxDef[] = [
   {
     id: 'mirror',
     name: 'Plexi miroir',
+    family: 'Métaux et techniques',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -1143,6 +1168,7 @@ export const FX: FxDef[] = [
   {
     id: 'aluminium',
     name: 'Aluminium',
+    family: 'Métaux et techniques',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -1167,6 +1193,7 @@ export const FX: FxDef[] = [
   {
     id: 'concrete',
     name: 'Béton',
+    family: 'Naturels',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -1197,6 +1224,7 @@ export const FX: FxDef[] = [
   {
     id: 'slate',
     name: 'Ardoise',
+    family: 'Naturels',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -1226,6 +1254,7 @@ export const FX: FxDef[] = [
   {
     id: 'cork',
     name: 'Liège',
+    family: 'Naturels',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -1256,6 +1285,7 @@ export const FX: FxDef[] = [
   {
     id: 'carbon',
     name: 'Carbone',
+    family: 'Métaux et techniques',
     group: 'materiau',
     slots: [],
     amount: 0.7,
@@ -1290,6 +1320,7 @@ export const FX: FxDef[] = [
   {
     id: 'leather',
     name: 'Cuir',
+    family: 'Textiles et cuirs',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -1318,6 +1349,7 @@ export const FX: FxDef[] = [
   {
     id: 'soft-leather',
     name: 'Cuir souple',
+    family: 'Textiles et cuirs',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -1342,6 +1374,7 @@ export const FX: FxDef[] = [
   {
     id: 'suede',
     name: 'Daim',
+    family: 'Textiles et cuirs',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -1369,6 +1402,7 @@ export const FX: FxDef[] = [
   {
     id: 'denim',
     name: 'Jean',
+    family: 'Textiles et cuirs',
     group: 'materiau',
     slots: [],
     amount: 0.6,
@@ -1547,7 +1581,11 @@ export const FX_GROUPS: Array<[FxGroup, string]> = [
 ];
 
 /** Matières : une seule par couche, choisie dans l'outil Matière. */
-export const MATERIALS = () => FX.filter((x) => x.group === 'materiau');
+export const MATERIALS = () =>
+  FX.filter((x) => x.group === 'materiau')
+    .map((x, i) => ({ x, i }))
+    .sort((a, b) => MATERIAL_FAMILIES.indexOf(a.x.family!) - MATERIAL_FAMILIES.indexOf(b.x.family!) || a.i - b.i)
+    .map(({ x }) => x);
 export const isMaterial = (id: string) => fxOf(id as FxId)?.group === 'materiau';
 
 export const fxOf = (id: FxId | undefined) => FX.find((x) => x.id === id);
