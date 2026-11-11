@@ -278,6 +278,17 @@ export interface Doc {
   materials?: PaletteMatter[];
   /** Palette de vernis (« Mes vernis »). */
   varnishes?: PaletteMatter[];
+  /** Palette de bords (« Mes bords ») : un bord, une lueur ou un rognage nommé, à déposer sur un objet. */
+  edges?: PaletteEdge[];
+}
+
+/** Une entrée de la palette de bords : un seul des trois emplacements (bord, lueur ou rognage), avec tous ses réglages. */
+export interface PaletteEdge {
+  id: string;
+  name: string;
+  border?: Layer['border'];
+  glow?: Layer['glow'];
+  trim?: Layer['trim'];
 }
 
 /** Une entrée des palettes de matières ou de vernis : un réglage nommé, partagé par les objets qui y sont liés (Fx.ref). */

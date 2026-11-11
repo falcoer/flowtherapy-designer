@@ -8,6 +8,7 @@ import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
 import { STAMPS, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel } from './coupe';
 import { MaterialWizard, WandGlyph } from './material-wizard';
+import { EdgeRow } from './edge-palette';
 import { MatterRow } from './matter-palette';
 import { pruneImported } from './guides-prune';
 import { syncRefs } from './palettes';
@@ -897,22 +898,10 @@ export function App() {
   const [coupeOpen, setCoupeOpen] = useState<{ key: string; n: number; sec?: 'edge' | 'coat' | 'image' | 'transform' | 'support' } | undefined>();
   /** Hauteur du bandeau des attributs, quand il est ouvert : la roue du pinceau se pose au-dessus. */
   const [bandH, setBandH] = useState(0);
-  useEffect(() => {
-    if (!coupeOpen) return setBandH(0);
-    let ro: ResizeObserver | null = null;
-    const id = requestAnimationFrame(() => {
-      const el = document.querySelector('aside.coupe.with-list');
-      if (!el) return;
-      ro = new ResizeObserver(() => setBandH(Math.round(el.getBoundingClientRect().height)));
-      ro.observe(el);
-    });
-    return () => {
-      cancelAnimationFrame(id);
-      ro?.disconnect();
-    };
-  }, [coupeOpen]);
   // glisser-déposer dans la liste des objets
   const listPress = useRef<{ id: string; y: number; moved: boolean; grip: boolean } | null>(null);
+  const listTap = useRef<{ id: string; t: number } | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
   const [listDrag, setListDrag] = useState<{ id: string; over?: string; above?: boolean } | null>(null);
   const setTool = (t: Tool) => {
     if (isEdit(t)) lastEdit.current = t;
@@ -1035,6 +1024,22 @@ export function App() {
     }
   };
   const [selected, setSelected] = useState<string | null>('arche');
+  // le bandeau des attributs ouvert : la roue du pinceau et le menu de gauche se posent au-dessus
+  useEffect(() => {
+    if (!(isEdit(tool) && selected)) return setBandH(0);
+    let ro: ResizeObserver | null = null;
+    const id = requestAnimationFrame(() => {
+      const el = document.querySelector('aside.coupe.with-list');
+      setBandH(el ? Math.round(el.getBoundingClientRect().height) : 0);
+      if (!el) return;
+      ro = new ResizeObserver(() => setBandH(Math.round(el.getBoundingClientRect().height)));
+      ro.observe(el);
+    });
+    return () => {
+      cancelAnimationFrame(id);
+      ro?.disconnect();
+    };
+  }, [tool, selected]);
   const [guide, setGuide] = useState(2);
   // une couleur importée que plus rien n'utilise quitte la palette (la couleur du pinceau reste) ;
   // seulement après une modification (pas au chargement, qui compterait comme une retouche non enregistrée)
@@ -1270,6 +1275,10 @@ export function App() {
   const [dragGuide, setDragGuide] = useState<{ i: number; x: number; y: number } | null>(null);
   /** Assistant de l'outil multicouche (baguette magique). */
   const [wizard, setWizard] = useState(false);
+  /** Onglet de l'assistant demandé depuis un emplacement des attributs. */
+  const [wizardTab, setWizardTab] = useState<{ t?: 'support' | 'coat' | 'depth' | 'edge'; n: number }>({ n: 0 });
+  /** Onglet de la palette demandé depuis les attributs (toucher la teinte). */
+  const [palTabReq, setPalTabReq] = useState<{ t: PalTab; n: number } | undefined>();
   /** La couleur de la barre d'outils tenue : départ du doigt, glisser commencé. */
   const guideDrag = useRef<{ x: number; y: number; on: boolean } | null>(null);
   // le doigt qui glisse depuis la couleur ne fait ni défiler ni rebondir la page (et n'avale pas le toucher suivant)
@@ -2154,6 +2163,14 @@ export function App() {
     setDragGuide(null);
     const l = layerAtScreen(x, y);
     if (!l) return;
+    // déposée sur un emplacement de bord des attributs : la couleur de ce bord ou de cette lueur
+    const slot = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('aside.coupe [data-drop^="edge-"]')?.dataset.drop;
+    if (slot === 'edge-border' || slot === 'edge-glow') {
+      const k = slot === 'edge-border' ? 'border' : 'glow';
+      if (!l[k]) return setToast(`Pose d’abord ${k === 'border' ? 'un bord' : 'une lueur'} : sa couleur se dépose ensuite ici`);
+      patchLayer(l.id, { [k]: { ...l[k]!, guide: i } } as Partial<Layer>);
+      return setToast(`${k === 'border' ? 'Le bord' : 'La lueur'} de « ${l.name} » prend la couleur « ${doc.guides[i]?.name} »`);
+    }
     if (l.kind === 'photo') return setToast('Une photo n’a pas de couleur de fond : peins-la ou donne-lui un style');
     patchLayer(l.id, { guide: i });
     setSelected(l.id);
@@ -4148,7 +4165,8 @@ export function App() {
     setSnapshot(c.toDataURL('image/png'));
   };
 
-  // liste des objets, dans le volet du Créateur de matériaux : l'objet choisi l'est aussi sur la page
+  // liste des objets, à gauche du panneau des attributs : l'objet choisi l'est aussi sur la page ;
+  // deux touchers sur le nom le renomment (montrer/cacher, bibliothèque : menu de gauche ; dupliquer, corbeille : barre du haut)
   const layersJsx = (
     <div className="cp-layers">
       <div className="layer-list">
@@ -4182,13 +4200,23 @@ export function App() {
               const r = row.getBoundingClientRect();
               setListDrag({ id: l.id, over, above: e.clientY < r.top + r.height / 2 });
             }}
-            onPointerUp={() => {
+            onPointerUp={(e) => {
               const pr = listPress.current;
               listPress.current = null;
               if (pr?.moved) {
                 if (listDrag?.over) dropLayer(l.id, listDrag.over, !!listDrag.above);
                 setListDrag(null);
-              } else setSelected(l.id);
+              } else if (pr) {
+                setSelected(l.id);
+                // deux touchers rapprochés sur le nom : on le renomme
+                const now = performance.now();
+                const last = listTap.current;
+                listTap.current = { id: l.id, t: now };
+                if (last?.id === l.id && now - last.t < 400 && (e.target as HTMLElement).closest('.layer-main')) {
+                  listTap.current = null;
+                  setRenaming(l.id);
+                }
+              }
             }}
             onPointerCancel={() => {
               listPress.current = null;
@@ -4203,32 +4231,30 @@ export function App() {
                     <Icon name="link" />
                   </span>
                 )}
-                {l.name}
-              </span>
-              <div className="layer-actions">
-                <button onClick={() => patchLayer(l.id, { visible: !l.visible })} title={l.visible ? 'Masquer' : 'Afficher'}>
-                  <Icon name={l.visible ? 'eye' : 'eyeoff'} />
-                </button>
-                {l.kind !== 'surface' && (
-                  <>
-                    <button onClick={() => duplicate(l.id)} title="Dupliquer">
-                      <Icon name="duplicate" />
-                    </button>
-                    <button onClick={() => void saveToLibrary(l)} title="Ranger dans la bibliothèque (Objets) : l'objet et ses pièces, avec tous leurs réglages">
-                      <Icon name="library" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        update((d) => ({ ...d, layers: d.layers.filter((x) => x.id !== l.id) }));
-                        if (selected === l.id) setSelected(null);
-                      }}
-                      title="Supprimer"
-                    >
-                      <Icon name="trash" />
-                    </button>
-                  </>
+                {renaming === l.id ? (
+                  <input
+                    className="layer-rename"
+                    autoFocus
+                    defaultValue={l.name}
+                    aria-label="Nom de l’objet"
+                    onFocus={(e) => e.currentTarget.select()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onPointerUp={(e) => e.stopPropagation()}
+                    onBlur={(e) => {
+                      const name = e.currentTarget.value.trim();
+                      if (name && name !== l.name) patchLayer(l.id, { name });
+                      setRenaming(null);
+                    }}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === 'Enter') e.currentTarget.blur();
+                      if (e.key === 'Escape') setRenaming(null);
+                    }}
+                  />
+                ) : (
+                  l.name
                 )}
-              </div>
+              </span>
             </div>
           </div>
         ))}
@@ -4534,11 +4560,6 @@ export function App() {
             <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => pickTool(lastEdit.current)} title="Créateur de matériaux (T) : forme, bords, vernis, image, transformations, support">
               <Icon name="matter" />
             </button>
-            {isEdit(tool) && (
-              <button className={`btn small wand-btn ${wizard ? 'on' : ''}`} disabled={!sel} onClick={() => setWizard(!wizard)} title="Assistant : matière, vernis, volume et bords de l’objet choisis sur des aperçus, avec tous leurs réglages" aria-label="Assistant">
-                <WandGlyph />
-              </button>
-            )}
             <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => pickTool('cut')} title="Découper (C) : trace un contour au stylet">
               <Icon name="scissors" />
             </button>
@@ -4556,21 +4577,57 @@ export function App() {
 
 
           {isEdit(tool) && !sel && (
-            <aside className="coupe with-list" aria-label="Objets">
-              <button className="cp-close" onClick={() => setTool('move')} aria-label="Fermer">
-                ×
-              </button>
-              <div className="cp-split">{layersJsx}</div>
+            <aside className="coupe with-list ap ap-none" aria-label="Objets">
+              <div className="ap-grid">
+                {layersJsx}
+                <div className="ap-right">
+                  <div className="ap-tabs">
+                    <button className="ap-close" onClick={() => setTool('move')} aria-label="Fermer">
+                      ×
+                    </button>
+                  </div>
+                  <p className="ap-hint ap-pick">Choisis un objet dans la liste ou sur la page pour régler son texte, sa forme ou son image, son support, ses bords et son volume.</p>
+                </div>
+              </div>
             </aside>
           )}
-          {isEdit(tool) && sel && sel.kind !== 'surface' && (
-            <aside className="height-bar" title="Hauteur : au-dessus de 0 l'objet se soulève (ombre), en dessous il se creuse">
-              <VSlider label="Hauteur" center value={0.5 + (sel.height - (sel.inner ?? 0)) / 2} onChange={(v) => setLevel(sel, Math.abs(v - 0.5) < 0.03 ? 0 : Math.round((v * 2 - 1) * 100) / 100)} />
+          {/* menu de gauche des attributs : l'assistant, la hauteur, montrer ou cacher, ranger dans la bibliothèque */}
+          {isEdit(tool) && sel && (
+            <aside className="height-bar edit-rail" style={bandH ? ({ '--band': `${bandH}px` } as React.CSSProperties) : undefined}>
+              <button
+                className={`btn small wand-btn ${wizard ? 'on' : ''}`}
+                onClick={() => setWizard(!wizard)}
+                title="Assistant : matière, vernis, volume et bords de l’objet choisis sur des aperçus, avec tous leurs réglages"
+                aria-label="Assistant"
+                aria-pressed={wizard}
+              >
+                <WandGlyph />
+              </button>
+              {sel.kind !== 'surface' && (
+                <div className="rail-height" title="Hauteur : au-dessus de 0 l'objet se soulève (ombre), en dessous il se creuse">
+                  <VSlider label="Hauteur" center value={0.5 + (sel.height - (sel.inner ?? 0)) / 2} onChange={(v) => setLevel(sel, Math.abs(v - 0.5) < 0.03 ? 0 : Math.round((v * 2 - 1) * 100) / 100)} />
+                </div>
+              )}
+              <button
+                className={`btn small ${sel.visible ? '' : 'on'}`}
+                aria-pressed={!sel.visible}
+                onClick={() => patchLayer(sel.id, { visible: !sel.visible })}
+                title={sel.visible ? `Cacher « ${sel.name} »` : `Montrer « ${sel.name} » (caché)`}
+                aria-label={sel.visible ? 'Cacher' : 'Montrer'}
+              >
+                <Icon name={sel.visible ? 'eye' : 'eyeoff'} />
+              </button>
+              {sel.kind !== 'surface' && (
+                <button className="btn small" onClick={() => void saveToLibrary(sel)} title="Ajouter à la bibliothèque (Objets) : l'objet et ses pièces, avec tous leurs réglages" aria-label="Ajouter à la bibliothèque">
+                  <Icon name="library" />
+                </button>
+              )}
             </aside>
           )}
           {wizard && isEdit(tool) && sel && (
             <MaterialWizard
-              key={sel.id}
+              key={`${sel.id}-${wizardTab.n}`}
+              start={wizardTab.t}
               layer={sel}
               doc={doc}
               f={f}
@@ -4599,6 +4656,14 @@ export function App() {
               f={f}
               patch={(p, h) => patchLayer(sel.id, p, h)}
               onClose={() => setTool('move')}
+              onWizard={(t) => {
+                setWizardTab((w) => ({ t, n: w.n + 1 }));
+                setWizard(true);
+              }}
+              onPalette={(t) => {
+                setPalTabReq((r) => ({ t, n: (r?.n ?? 0) + 1 }));
+                setBubble('palette');
+              }}
               openOn={coupeOpen}
               onToast={(m, u) => {
                 setToast(m);
@@ -5514,7 +5579,23 @@ export function App() {
               }}
               onDrag={(i, x, y) => setDragGuide(i === null ? null : { i, x, y })}
               onDrop={dropGuide}
-              matter={(k, edit) => (
+              tabReq={palTabReq}
+              matter={(k, edit) =>
+                k === 'edge' ? (
+                  <EdgeRow
+                    key={k}
+                    edit={edit}
+                    doc={doc}
+                    sel={sel ?? undefined}
+                    onDoc={(fn) => update(fn)}
+                    onDocLive={(fn) => setDoc(fn)}
+                    onToast={(m, u) => {
+                      setToast(m);
+                      setToastUndo(!!u);
+                    }}
+                    targetAt={layerAtScreen}
+                  />
+                ) : (
                 <MatterRow
                   key={k}
                   kind={k}
@@ -5529,7 +5610,8 @@ export function App() {
                   }}
                   targetAt={layerAtScreen}
                 />
-              )}
+                )
+              }
             />
           )}
 
@@ -5850,7 +5932,7 @@ function LampPanel({ doc, f, onChange, onClose }: { doc: Doc; f: Format; onChang
 
 const SAVED = 'ftd-atelier-palettes';
 const PAL_TAB = 'ftd-atelier-palette-tab';
-type PalTab = 'color' | 'material' | 'varnish';
+type PalTab = 'color' | 'material' | 'varnish' | 'edge';
 /** Toute la palette en un seul dégradé, comme les variantes : chaque guide au milieu de sa part, les dégradés étalés dans la leur. */
 function railGradient(guides: Guide[]): string {
   const n = guides.length;
@@ -5872,13 +5954,16 @@ function PaletteBubble({
   variant,
   matter,
   onEditing,
+  tabReq,
 }: {
+  /** Onglet demandé de l'extérieur (toucher la teinte dans les attributs). */
+  tabReq?: { t: PalTab; n: number };
   /** Une boîte de couleur est ouverte (ou vient de se fermer). */
   onEditing?: (on: boolean) => void;
   doc: Doc;
   active: number;
   /** Palette des matières ou des vernis (onglet choisi), en mode Modifier ou non. */
-  matter?: (kind: 'material' | 'varnish', edit: boolean) => import('react').ReactNode;
+  matter?: (kind: 'material' | 'varnish' | 'edge', edit: boolean) => import('react').ReactNode;
   /** Variante de couleurs que déclare la cible affichée. */
   declared?: Palette;
   /** Choix de la variante de la publication affichée. */
@@ -5896,7 +5981,7 @@ function PaletteBubble({
   const [tab, setTabState] = useState<PalTab>(() => {
     try {
       const t = localStorage.getItem(PAL_TAB);
-      return t === 'material' || t === 'varnish' ? t : 'color';
+      return tabReq ? tabReq.t : t === 'material' || t === 'varnish' || t === 'edge' ? t : 'color';
     } catch {
       return 'color';
     }
@@ -5909,6 +5994,10 @@ function PaletteBubble({
       /* stockage indisponible */
     }
   };
+  useEffect(() => {
+    if (tabReq) setTab(tabReq.t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabReq]);
   // les éléments de la palette ne se modifient (＋, boîtes, reprise, corbeille) que bouton Modifier actif
   const [edit, setEdit] = useState(false);
   const [saved, setSaved] = useState<Array<{ name: string; guides: Guide[] }>>(() => {
@@ -6039,10 +6128,11 @@ function PaletteBubble({
             ['color', 'Couleurs'],
             ['material', 'Matières'],
             ['varnish', 'Vernis'],
+            ['edge', 'Bords'],
           ] as Array<[PalTab, string]>
         ).map(([t, name]) => (
           <button key={t} role="tab" aria-selected={tab === t} className={`pal-tab ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>
-            <span className={`pal-tab-dot ${t === 'color' ? '' : t === 'material' ? 'shape-matter' : 'shape-varnish'}`} />
+            <span className={`pal-tab-dot ${t === 'color' ? '' : t === 'material' ? 'shape-matter' : t === 'edge' ? 'shape-edge' : 'shape-varnish'}`} />
             {name}
           </button>
         ))}

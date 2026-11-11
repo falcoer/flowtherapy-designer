@@ -2106,3 +2106,182 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .pal-hint { margin: 0; padding: 0 4px; font-size: 12px; color: var(--muted); }
 .atelier .palette-bubble.editing { box-shadow: 0 0 0 2px var(--accent), var(--tool-lift); }
 .pal-sec.matter { flex-direction: column; align-items: stretch; }
+
+/* Panneau des attributs (outil multicouche) : liste des objets à gauche, onglets à droite
+   (Texte / Forme / Image, Support, Bord, Volume). Bas et serré, pour laisser la page visible. */
+.coupe.ap { padding: 6px max(10px, env(safe-area-inset-right, 0px)) max(6px, env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px)); }
+.ap-grid { display: grid; grid-template-columns: 200px minmax(0, 1fr); column-gap: 10px; height: min(262px, 40dvh); }
+.ap-grid > * { min-height: 0; min-width: 0; }
+.ap-grid > .cp-layers { overflow-y: auto; padding: 4px 0 4px 2px; direction: ltr; }
+.ap-grid > .cp-layers .layer { gap: 8px; padding: 4px; border-radius: 10px; }
+.ap-grid > .cp-layers .layer.on { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); border-radius: 10px; }
+.ap-grid > .cp-layers .thumb { width: 38px; height: 38px; border-radius: 7px; }
+.ap-grid > .cp-layers .layer-name { font-size: 13px; display: block; }
+.layer-rename { width: 100%; font: inherit; font-size: 13px; padding: 3px 6px; border-radius: 7px; border: 1px solid var(--accent); background: var(--chrome-solid); color: var(--ink); }
+.ap-right { display: flex; flex-direction: column; }
+.ap-tabs { display: flex; align-items: flex-end; gap: 2px; border-bottom: 1px solid var(--line); flex: none; min-height: 34px; }
+.ap-tab { padding: 7px 16px 6px; border-radius: 10px 10px 0 0; font-size: 13px; font-weight: 650; color: var(--muted); border: 1px solid transparent; border-bottom: 0; margin-bottom: -1px; white-space: nowrap; }
+.ap-tab.on { color: var(--ink); background: var(--chrome-solid); border-color: var(--line); }
+.ap-close { margin-left: auto; align-self: center; width: 28px; height: 28px; border-radius: 14px; color: var(--muted); font-size: 18px; line-height: 28px; flex: none; }
+.ap-pane { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 2px 4px; display: flex; flex-direction: column; gap: 8px; }
+.ap-hint { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.35; }
+.ap-pick { padding: 14px 4px; }
+/* réglages posés à côté de leur emplacement : potards en ligne, couleurs au-dessus */
+.ap-attrs { padding: 0; border: 0; background: none; flex: 1; align-items: center; }
+.ap-attrs > .cp-row.colors { flex: 1 1 100%; }
+.ap-attrs > .cp-dial, .ap-attrs > .cp-dial-wrap { order: 1; }
+/* Texte : le contenu en grand, dessous l'alignement, la police et la disposition ; les potards à droite */
+.ap-text { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: start; }
+.ap-area { grid-column: 1 / -1; width: 100%; min-height: 52px; resize: none; font-size: 18px; line-height: 1.25; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--chrome-solid); color: var(--ink); }
+.ap-ctl { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ap-ctl-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.ap-ctl .tb-align { width: 126px; flex: none; }
+.ap-ctl .tb-warps { width: min(100%, 300px); }
+.ap-font { flex: 1 1 140px; max-width: 260px; height: 40px; padding: 0 18px; border-radius: 20px; border: 1.5px solid var(--ink); background: var(--chrome-solid); color: var(--ink); font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap-knobs { display: grid; grid-auto-flow: column; grid-template-rows: repeat(2, auto); gap: 4px 6px; justify-items: center; }
+.ap-knobs .cp-dial { width: 70px; }
+.ap-locked { opacity: 0.42; filter: grayscale(0.7); pointer-events: none; }
+.ap-molded { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 8px; border-radius: 12px; background: var(--accent-soft); font-size: 12.5px; color: var(--ink); margin-top: auto; }
+.ap-molded > span { flex: 1 1 200px; }
+.ap-molded .chip { display: inline-flex; align-items: center; gap: 5px; height: 32px; }
+.ap-molded .chip svg { width: 16px; height: 16px; }
+.ap-molded .chip.primary { background: var(--accent); color: #fff; }
+.ap-shape .ap-attrs { justify-content: flex-start; }
+/* Support : la teinte à gauche, en face le vernis puis la matière, chacun avec ses réglages */
+.ap-support { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 12px; align-items: center; }
+.ap-tint { display: flex; flex-direction: column; align-items: center; gap: 3px; padding-right: 12px; border-right: 2px solid var(--accent-soft); align-self: stretch; justify-content: center; min-width: 76px; }
+.ap-tint .ap-slot { border-radius: 50%; }
+.ap-tint small, .ap-slot-n small { font-size: 11px; color: var(--muted); max-width: 84px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap-rows { display: flex; flex-direction: column; min-width: 0; }
+.ap-row { display: flex; align-items: center; gap: 12px; padding: 5px 0; min-width: 0; }
+.ap-row + .ap-row { border-top: 1px solid var(--line); }
+.ap-slot-col { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 84px; flex: none; }
+.ap-slot { width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border: 0; background: var(--line); box-shadow: 0 0 0 1px var(--line); }
+.ap-slot.shape-matter, .ap-slot.shape-varnish { clip-path: var(--clip); box-shadow: none; }
+.ap-slot.shape-varnish { height: 40px; }
+.ap-slot.shape-edge { border-radius: 6px; background: var(--chrome-solid); }
+.ap-slot.shape-edge .edge-glyph { width: 40px; height: 40px; }
+.ap-slot.empty { background: repeating-linear-gradient(135deg, var(--line) 0 4px, transparent 4px 8px); color: var(--muted); }
+.ap-slot.shape-varnish.empty .ap-plus { padding-top: 12px; }
+.ap-plus { font-size: 16px; color: var(--muted); }
+.ap-slot-l { font: var(--tool-label); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.ap-slot-n { display: flex; align-items: center; gap: 1px; max-width: 100%; }
+.ap-x { width: 20px; height: 20px; border-radius: 10px; font-size: 14px; line-height: 20px; color: var(--muted); flex: none; }
+.ap-params { flex: 1; min-width: 0; display: flex; }
+.ap-params > .ap-hint { align-self: center; }
+/* emplacement survolé par une pastille glissée depuis la palette */
+.ap-row.hot, .ap-tint.hot { background: var(--accent-soft); border-radius: 10px; }
+.ap-row.hot .ap-slot { box-shadow: 0 0 0 2px var(--accent); }
+/* Bord : trois emplacements côte à côte quand la largeur le permet */
+.ap-edges { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0 12px; }
+.ap-edges .ap-row + .ap-row { border-top: 0; }
+.ap-edges .ap-row { align-items: flex-start; }
+.ap-edges .ap-attrs { justify-content: flex-start; }
+/* Image et Volume : les pastilles et leur catalogue, sur une ligne */
+.ap-card { padding: 6px 8px; }
+.ap-card > .cp-h { flex-wrap: wrap; }
+.ap-card > .cp-h .cn { flex: none; min-width: 80px; }
+.ap-card > .cp-h .cp-items { flex: 1; min-width: 0; }
+.ap-pane > .cp-attrs { border-radius: 12px; border: 1px solid var(--line); padding: 6px 10px; }
+/* menu de gauche des attributs : baguette, hauteur, montrer/cacher, bibliothèque */
+.edit-rail { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px 6px; }
+.edit-rail .btn.small { width: 40px; height: 40px; }
+.edit-rail .btn.on { background: var(--accent-soft); color: var(--accent); }
+.atelier .edit-rail .vslider { height: clamp(70px, calc(100dvh - var(--band, 0px) - 126px - 190px), 320px); }
+/* palette de bords : pastilles carrées */
+.pal-sec .guide.edge-chip { border-radius: 8px; padding: 3px; }
+.pal-sec .guide.edge-chip .sw { width: 32px; height: 32px; display: grid; place-items: center; background: var(--chrome-solid); border-radius: 5px; }
+.pal-sec .guide.edge-chip .edge-glyph { width: 32px; height: 32px; }
+.edge-add .sw.plus { border-radius: 5px; }
+.pal-tab-dot.shape-edge { border-radius: 2px; }
+.drag-dot.edge-dot { border-radius: 6px; background: var(--chrome-solid); display: grid; place-items: center; }
+.edge-dialog .cd-sw { display: grid; place-items: center; border-radius: 8px; background: var(--chrome-solid); box-shadow: 0 0 0 1px var(--line); }
+.edge-dialog .md-card .sw { background: var(--chrome-solid); border-radius: 6px; display: grid; place-items: center; }
+.edge-dialog .md-knobs .cp-attrs { padding: 0; border: 0; background: none; }
+/* boîte des polices */
+.font-dialog .cd-head b { font-size: 15px; }
+.fd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.fd-grid button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border-radius: 12px; background: var(--line); color: var(--ink); text-align: left; min-width: 0; }
+.fd-grid button.on { outline: 2px solid var(--accent); background: var(--accent-soft); }
+.fd-sample { font-size: 22px; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.fd-grid small { font-size: 11px; color: var(--muted); }
+@media (max-width: 760px) {
+  .ap-grid { grid-template-columns: 150px minmax(0, 1fr); }
+  .ap-tab { padding: 7px 10px 6px; }
+}
+/* téléphone : les vignettes seules à gauche (nom en petit dessous), les onglets resserrés */
+@media (max-width: 540px) {
+  .ap-grid { grid-template-columns: 58px minmax(0, 1fr); column-gap: 6px; height: min(330px, 46dvh); }
+  .ap-grid > .cp-layers .layer { flex-direction: column; gap: 1px; padding: 3px 2px; }
+  .ap-grid > .cp-layers .layer-main { display: block; width: 100%; }
+  .ap-grid > .cp-layers .layer-name { font-size: 9.5px; text-align: center; color: var(--muted); }
+  .ap-grid > .cp-layers .link-mark { display: none; }
+  .ap-grid > .cp-layers .thumb { width: 40px; height: 40px; }
+  .ap-tab { padding: 7px 8px 6px; font-size: 12px; }
+  .ap-text { grid-template-columns: minmax(0, 1fr); }
+  .ap-ctl .tb-warps { width: 100%; }
+  .ap-font { height: 34px; font-size: 15px; padding: 0 12px; flex: 1 1 100px; }
+  .ap-ctl .tb-align { width: 108px; }
+  .ap-knobs { grid-auto-flow: row; grid-template-rows: none; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); justify-items: center; }
+  .ap-knobs .cp-dial, .ap-knobs .cp-dial-wrap { width: 62px; }
+  .ap-pane .cp-dial .knob { width: 38px; height: 38px; }
+  .ap-pane .cp-dial-l { font-size: 8px; letter-spacing: 0.02em; }
+  .ap-support { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .ap-tint { flex-direction: row; border-right: 0; border-bottom: 2px solid var(--accent-soft); padding: 0 0 6px; justify-content: flex-start; gap: 10px; }
+  .ap-tint .ap-slot { width: 34px; height: 34px; }
+  .ap-row { gap: 6px; }
+  .ap-slot-col { width: 62px; }
+  .ap-edges { grid-template-columns: minmax(0, 1fr); }
+  .ap-edges .ap-row + .ap-row { border-top: 1px solid var(--line); }
+  .ap-attrs .cp-dial { width: 62px; }
+  .ap-attrs .cp-row.colors { grid-template-columns: 1fr; gap: 3px; }
+}
+.ap-attrs > label.cp-row { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 8px; order: 2; }
+.ap-attrs > label.cp-row output { display: none; }
+.ap-area { min-height: 44px; }
+.ap-text { row-gap: 6px; }
+.ap-knobs { gap: 0 4px; margin-top: -2px; }
+.ap-knobs .cp-dial .knob, .ap-knobs .cp-dial .tilt-pad { width: 40px; height: 40px; margin-bottom: 1px; }
+.ap-knobs .cp-dial { width: 72px; gap: 0; padding-top: 0; }
+.ap-knobs .cp-dial output { font-size: 11px; }
+/* réglages compacts dans le panneau : couleurs, segments et cases sur une ligne avec les potards */
+.ap-pane .cp-attrs { flex-direction: row; flex-wrap: wrap; align-items: center; column-gap: 10px; row-gap: 4px; }
+.ap-pane .cp-attrs > .cp-attrs-h { display: none; }
+.ap-pane .cp-attrs > .cp-row { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 8px; order: 0; }
+.ap-pane .cp-attrs > .cp-row > span:first-child { font-size: 11px; white-space: nowrap; }
+.ap-pane .cp-attrs > .cp-row output { display: none; }
+.ap-pane .cp-attrs > .cp-row .seg { width: auto; }
+.ap-pane .cp-attrs > .cp-row .seg button { flex: none; height: 30px; padding: 0 10px; font-size: 12px; }
+.ap-pane .cp-attrs > .cp-row.colors { flex: 0 1 auto; display: inline-flex; }
+.ap-pane .cp-attrs > .cp-row.colors .dots button { width: 20px; height: 20px; }
+.ap-pane .cp-attrs > .cp-note { flex: 1 1 100%; margin: 0; font-size: 11.5px; }
+.ap-edges .ap-attrs > .cp-row.colors > span:first-child { display: none; }
+/* téléphone : le menu de gauche se resserre pour tenir au-dessus du panneau */
+@media (max-width: 540px), (max-height: 520px) {
+  .edit-rail { gap: 4px; padding: 6px 4px; }
+  .edit-rail .btn.small { width: 34px; height: 34px; }
+  .atelier .edit-rail .vslider { height: clamp(56px, calc(100dvh - var(--band, 0px) - 126px - 150px), 260px); }
+}
+/* quatre onglets dans la palette : ils se resserrent pour tenir dans la bulle */
+.pal-tabs { gap: 2px; }
+.pal-tab { padding: 0 5px; gap: 4px; font-size: 12.5px; min-width: 0; }
+.pal-tab-dot { width: 10px; height: 10px; }
+@media (max-width: 400px) { .pal-tab-dot { display: none; } }
+@media (max-width: 540px) { .ap-grid { height: min(300px, 40dvh); } }
+/* téléphone en paysage : panneau bas, la page garde le haut */
+@media (max-height: 520px) and (min-width: 541px) {
+  .ap-grid { height: min(200px, 52dvh); grid-template-columns: 150px minmax(0, 1fr); }
+  .ap-grid > .cp-layers .thumb { width: 30px; height: 30px; }
+  .ap-tab { padding: 5px 10px 4px; font-size: 12px; }
+  .ap-tabs { min-height: 28px; }
+}
+@media (max-height: 520px) and (min-width: 541px) {
+  .ap-grid { height: min(156px, 40dvh); }
+  .ap-grid > .cp-layers .layer { flex-direction: row; justify-content: flex-start; }
+  .ap-grid > .cp-layers .layer-main { display: block; }
+  /* le menu de gauche reste à côté du panneau */
+  .hand-right .coupe.ap { left: calc(max(8px, env(safe-area-inset-left, 0px)) + 54px); border-radius: 18px 0 0 0; }
+  .hand-left .coupe.ap { right: calc(max(8px, env(safe-area-inset-right, 0px)) + 54px); border-radius: 0 18px 0 0; }
+  .hand-right .edit-rail, .hand-left .edit-rail { top: 126px; }
+  .atelier .edit-rail .vslider { height: clamp(48px, calc(100dvh - 126px - 160px), 200px); }
+}

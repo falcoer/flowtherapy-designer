@@ -41,7 +41,7 @@ export function WarpGlyph({ k }: { k: WarpKind | 'none' }) {
   );
 }
 
-function AlignGlyph({ a }: { a: 'left' | 'center' | 'right' }) {
+export function AlignGlyph({ a }: { a: 'left' | 'center' | 'right' }) {
   const lines = [16, 10, 14];
   return (
     <svg width="18" height="14" viewBox="0 0 18 14" aria-hidden>
