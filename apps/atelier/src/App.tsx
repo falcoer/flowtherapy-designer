@@ -9,6 +9,7 @@ import { STAMPS, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel } from './coupe';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { MatterRow } from './matter-palette';
+import { pruneImported } from './guides-prune';
 import { syncRefs } from './palettes';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { PrefsPanel, type FingerMode, type Theme } from './prefs';
@@ -1032,6 +1033,13 @@ export function App() {
   };
   const [selected, setSelected] = useState<string | null>('arche');
   const [guide, setGuide] = useState(2);
+  // une couleur importée que plus rien n'utilise quitte la palette (la couleur du pinceau reste)
+  useEffect(() => {
+    const r = pruneImported(doc, [guide]);
+    if (!r) return;
+    setDoc(r.doc);
+    setGuide(r.map(guide));
+  }, [doc, guide]);
   /** Barre de texte ouverte sur le clavier (ou l'écriture au stylet). */
   /** Outil Prolonger de la barre de texte. */
   const [swash, setSwash] = useState<SwashTool>({ on: false, mode: 'mold', r: 0.3, end: 'point', w: null });
@@ -5497,25 +5505,22 @@ export function App() {
               }}
               onDrag={(i, x, y) => setDragGuide(i === null ? null : { i, x, y })}
               onDrop={dropGuide}
-              matters={
-                <>
-                  {(['material', 'varnish'] as const).map((k) => (
-                    <MatterRow
-                      key={k}
-                      kind={k}
-                      doc={doc}
-                      sel={sel ?? undefined}
-                      onDoc={(fn) => update(fn)}
-                      onDocLive={(fn) => setDoc(fn)}
-                      onToast={(m, u) => {
-                        setToast(m);
-                        setToastUndo(!!u);
-                      }}
-                      targetAt={layerAtScreen}
-                    />
-                  ))}
-                </>
-              }
+              matter={(k, edit) => (
+                <MatterRow
+                  key={k}
+                  kind={k}
+                  edit={edit}
+                  doc={doc}
+                  sel={sel ?? undefined}
+                  onDoc={(fn) => update(fn)}
+                  onDocLive={(fn) => setDoc(fn)}
+                  onToast={(m, u) => {
+                    setToast(m);
+                    setToastUndo(!!u);
+                  }}
+                  targetAt={layerAtScreen}
+                />
+              )}
             />
           )}
 
@@ -5835,6 +5840,8 @@ function LampPanel({ doc, f, onChange, onClose }: { doc: Doc; f: Format; onChang
 }
 
 const SAVED = 'ftd-atelier-palettes';
+const PAL_TAB = 'ftd-atelier-palette-tab';
+type PalTab = 'color' | 'material' | 'varnish';
 /** Toute la palette en un seul dégradé, comme les variantes : chaque guide au milieu de sa part, les dégradés étalés dans la leur. */
 function railGradient(guides: Guide[]): string {
   const n = guides.length;
@@ -5854,12 +5861,12 @@ function PaletteBubble({
   onDrop,
   declared,
   variant,
-  matters,
+  matter,
 }: {
   doc: Doc;
   active: number;
-  /** Rangées « Mes matières » et « Mes vernis ». */
-  matters?: import('react').ReactNode;
+  /** Palette des matières ou des vernis (onglet choisi), en mode Modifier ou non. */
+  matter?: (kind: 'material' | 'varnish', edit: boolean) => import('react').ReactNode;
   /** Variante de couleurs que déclare la cible affichée. */
   declared?: Palette;
   /** Choix de la variante de la publication affichée. */
@@ -5869,12 +5876,29 @@ function PaletteBubble({
   onDrag: (i: number | null, x: number, y: number) => void;
   onDrop: (i: number, x: number, y: number) => void;
 }) {
-  // glisser une couleur jusqu'à un objet : elle devient sa couleur de fond ; jusqu'à « Mes couleurs » : elle y est reprise
-  const drag = useRef<{ i: number; x: number; y: number; on: boolean; timer: number } | null>(null);
-  // un appui long a ouvert la boîte : le toucher qui suit ne compte pas
-  const held = useRef(false);
+  // glisser une couleur jusqu'à un objet : elle devient sa couleur de fond ; jusqu'à « Mes couleurs » (en mode Modifier) : elle y est reprise
+  const drag = useRef<{ i: number; x: number; y: number; on: boolean } | null>(null);
   const [over, setOver] = useState(false);
   const g = doc.guides[active];
+  // une seule palette à la fois : couleurs, matières ou vernis
+  const [tab, setTabState] = useState<PalTab>(() => {
+    try {
+      const t = localStorage.getItem(PAL_TAB);
+      return t === 'material' || t === 'varnish' ? t : 'color';
+    } catch {
+      return 'color';
+    }
+  });
+  const setTab = (t: PalTab) => {
+    setTabState(t);
+    try {
+      localStorage.setItem(PAL_TAB, t);
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  // les éléments de la palette ne se modifient (＋, boîtes, reprise, corbeille) que bouton Modifier actif
+  const [edit, setEdit] = useState(false);
   const [saved, setSaved] = useState<Array<{ name: string; guides: Guide[] }>>(() => {
     try {
       return JSON.parse(localStorage.getItem(SAVED) ?? '[]');
@@ -5886,7 +5910,9 @@ function PaletteBubble({
   const [lib, setLib] = useState(false);
   // la couleur en cours de modification, dans sa propre boîte de dialogue
   const [editing, setEditing] = useState<number | null>(null);
-  const lastPick = useRef<{ i: number; t: number } | null>(null);
+  useEffect(() => {
+    if (!edit) setEditing(null);
+  }, [edit]);
   const store = (list: typeof saved) => {
     setSaved(list);
     try {
@@ -5900,7 +5926,9 @@ function PaletteBubble({
   const all = doc.guides.map((x, i) => ({ x, i }));
   const variantOnes = all.filter(({ x }) => fixed(x));
   const mine = all.filter(({ x }) => !fixed(x) && !x.from);
-  const sources = [...new Set(all.filter(({ x }) => !fixed(x) && x.from).map(({ x }) => x.from!))];
+  // les couleurs venues avec les imports (kits, objets de la bibliothèque) : toutes ensemble
+  const imported = all.filter(({ x }) => !fixed(x) && x.from);
+  const sources = [...new Set(imported.map(({ x }) => x.from!))];
   /** Reprend une couleur dans « Mes couleurs » : une copie libre pour la variante, l'import perd son origine. */
   const adopt = (i: number) => {
     const x = doc.guides[i];
@@ -5921,43 +5949,26 @@ function PaletteBubble({
       tabIndex={0}
       className={`guide ${i === active ? 'on' : ''}`}
       onClick={() => {
-        if (held.current) {
-          held.current = false;
-          return;
-        }
         onPick(i);
-        const now = performance.now();
-        const lp = lastPick.current;
-        if (lp && lp.i === i && now - lp.t < 400 && !fixed(x)) {
-          setEditing(i);
-          lastPick.current = null;
-        } else lastPick.current = { i, t: now };
+        if (edit && !fixed(x)) setEditing(i);
       }}
-      title={fixed(x) ? `${x.name} : couleur de la variante. Glisse-la sur un objet, ou dans « Mes couleurs » pour la modifier` : `${x.name} : appui long ou double toucher pour la modifier, glisse-la sur un objet pour lui donner cette couleur`}
+      title={
+        fixed(x)
+          ? `${x.name} : couleur de la variante. Glisse-la sur un objet${edit ? ', ou dans « Mes couleurs » pour en faire une copie modifiable' : ''}`
+          : x.from
+            ? `${x.name} : venue avec « ${x.from} », elle quitte la palette quand plus rien ne l’utilise. Glisse-la sur un objet${edit ? ', ou dans « Mes couleurs » pour la garder' : ''}`
+            : `${x.name} : ${edit ? 'touche pour la modifier, ' : ''}glisse-la sur un objet pour lui donner cette couleur`
+      }
       onPointerDown={(e) => {
         (e.currentTarget as Element).setPointerCapture(e.pointerId);
-        held.current = false;
-        // appui long sans bouger : la boîte de la couleur s'ouvre
-        const timer = window.setTimeout(() => {
-          const d = drag.current;
-          if (!d || d.on || d.i !== i || fixed(x)) return;
-          held.current = true;
-          lastPick.current = null;
-          onPick(i);
-          setEditing(i);
-        }, 450);
-        drag.current = { i, x: e.clientX, y: e.clientY, on: false, timer };
+        drag.current = { i, x: e.clientX, y: e.clientY, on: false };
       }}
       onPointerMove={(e) => {
         const d = drag.current;
         if (!d) return;
-        if (held.current) return;
-        if (!d.on && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) {
-          d.on = true;
-          clearTimeout(d.timer);
-        }
+        if (!d.on && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) d.on = true;
         if (!d.on) return;
-        const intoMine = !!(document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest('.pal-sec.mine');
+        const intoMine = edit && !!(document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest('.pal-sec.mine');
         setOver(intoMine && (fixed(x) || !!x.from));
         onDrag(intoMine ? null : d.i, e.clientX, e.clientY);
       }}
@@ -5965,16 +5976,14 @@ function PaletteBubble({
         const d = drag.current;
         drag.current = null;
         setOver(false);
-        if (d) clearTimeout(d.timer);
         if (!d?.on) return;
         e.preventDefault();
-        if ((document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest('.pal-sec.mine')) {
+        if (edit && (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest('.pal-sec.mine')) {
           onDrag(null, 0, 0);
           adopt(d.i);
         } else onDrop(d.i, e.clientX, e.clientY);
       }}
       onPointerCancel={() => {
-        if (drag.current) clearTimeout(drag.current.timer);
         drag.current = null;
         setOver(false);
         onDrag(null, 0, 0);
@@ -5983,27 +5992,47 @@ function PaletteBubble({
       <span className="sw" style={{ background: swatch(x) }} />
     </div>
   );
-  const editable = g && !fixed(g);
+  const colors = tab === 'color';
   return (
-    <div className="bubble palette-bubble">
+    <div className={`bubble palette-bubble ${edit ? 'editing' : ''}`}>
       <div className="pal-head">
         <div className="b-title">Palette</div>
-        {g && (
+        {colors && g && (
           <span className="pal-sel" title={g.name}>
             <span className="pal-sel-name">{g.name}</span>
             {fixed(g) && <small>{ROLE_SHORT[g.role!] ?? g.role}</small>}
           </span>
         )}
-        {editable && (
-          <button className="pal-edit" onClick={() => setEditing(active)} title="Modifier la couleur choisie">
-            <Icon name="pen" /> Modifier
+        <button
+          className={`pal-edit ${edit ? 'on' : ''}`}
+          aria-pressed={edit}
+          onClick={() => setEdit(!edit)}
+          title={edit ? 'Fin des modifications : toucher une pastille la pose sur l’objet' : 'Modifier la palette : toucher une pastille ouvre sa boîte, ＋ en ajoute, la corbeille en retire'}
+        >
+          <Icon name="pen" /> {edit ? 'Terminé' : 'Modifier'}
+        </button>
+        {colors && (
+          <button className={`pal-lib-btn ${lib ? 'on' : ''}`} aria-pressed={lib} onClick={() => setLib(!lib)} title="Palettes enregistrées : sauvegarder ou recharger" aria-label="Palettes enregistrées">
+            <Icon name="palettes" />
           </button>
         )}
-        <button className={`pal-lib-btn ${lib ? 'on' : ''}`} aria-pressed={lib} onClick={() => setLib(!lib)} title="Palettes enregistrées : sauvegarder ou recharger" aria-label="Palettes enregistrées">
-          <Icon name="palettes" />
-        </button>
       </div>
-      {lib && (
+      <div className="pal-tabs" role="tablist">
+        {(
+          [
+            ['color', 'Couleurs'],
+            ['material', 'Matières'],
+            ['varnish', 'Vernis'],
+          ] as Array<[PalTab, string]>
+        ).map(([t, name]) => (
+          <button key={t} role="tab" aria-selected={tab === t} className={`pal-tab ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>
+            <span className={`pal-tab-dot ${t === 'color' ? '' : t === 'material' ? 'shape-matter' : 'shape-varnish'}`} />
+            {name}
+          </button>
+        ))}
+      </div>
+      {edit && <p className="pal-hint">{colors ? 'Touche une couleur pour la modifier, ＋ pour en ajouter.' : 'Touche une pastille pour la modifier, ＋ pour en ajouter, glisse-la sur la corbeille pour la retirer.'}</p>}
+      {colors && lib && (
         <div className="pal-lib">
           <div className="pal-lib-head">
             <span className="b-title">Mes palettes</span>
@@ -6059,7 +6088,7 @@ function PaletteBubble({
           ))}
         </div>
       )}
-      {(variantOnes.length > 0 || variant) && (
+      {colors && (variantOnes.length > 0 || variant) && (
         <section className="pal-sec fixed">
           <span className="pal-sec-label">
             Variante
@@ -6071,32 +6100,37 @@ function PaletteBubble({
           </div>
         </section>
       )}
-      <section className={`pal-sec mine ${over ? 'over' : ''}`}>
-        <span className="pal-sec-label">Mes couleurs</span>
-        <div className="guides">
-          {mine.map(chip)}
-          <button
-            className="guide add"
-            onClick={() => {
-              onGuides([...doc.guides, { name: `Couleur ${mine.length + 1}`, type: 'color', color: g?.type === 'color' ? g.color : '#6c8cd5' }]);
-              onPick(doc.guides.length);
-              setEditing(doc.guides.length);
-            }}
-            title="Ajouter une couleur ; glisse ici une couleur de la variante ou d'un import pour la reprendre"
-          >
-            <span className="sw plus">＋</span>
-          </button>
-        </div>
-      </section>
-      {sources.map((src) => (
-        <section key={src} className="pal-sec imported">
-          <span className="pal-sec-label">
-            Importées<small>{src}</small>
-          </span>
-          <div className="guides">{all.filter(({ x }) => !fixed(x) && x.from === src).map(chip)}</div>
+      {colors && (mine.length > 0 || edit) && (
+        <section className={`pal-sec mine ${over ? 'over' : ''}`}>
+          <span className="pal-sec-label">Mes couleurs</span>
+          <div className="guides">
+            {mine.map(chip)}
+            {edit && (
+              <button
+                className="guide add"
+                onClick={() => {
+                  onGuides([...doc.guides, { name: `Couleur ${mine.length + 1}`, type: 'color', color: g?.type === 'color' ? g.color : '#6c8cd5' }]);
+                  onPick(doc.guides.length);
+                  setEditing(doc.guides.length);
+                }}
+                title="Ajouter une couleur ; glisse ici une couleur de la variante ou d'un import pour la reprendre"
+              >
+                <span className="sw plus">＋</span>
+              </button>
+            )}
+          </div>
         </section>
-      ))}
-      {matters}
+      )}
+      {colors && imported.length > 0 && (
+        <section className="pal-sec imported" title={`Venues avec ${sources.map((x) => `« ${x} »`).join(', ')} : elles quittent la palette quand plus rien ne les utilise`}>
+          <span className="pal-sec-label">
+            Importées{sources.length === 1 && <small>{sources[0]}</small>}
+          </span>
+          <div className="guides">{imported.map(chip)}</div>
+        </section>
+      )}
+      {colors && !variantOnes.length && !variant && !mine.length && !imported.length && !edit && <p className="pal-hint">Aucune couleur : touche Modifier pour en ajouter.</p>}
+      {!colors && matter?.(tab, edit)}
       {editing !== null &&
         doc.guides[editing] &&
         !fixed(doc.guides[editing]!) &&

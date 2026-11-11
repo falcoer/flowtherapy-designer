@@ -17,13 +17,14 @@ function overTrash(x: number, y: number): HTMLElement | null {
 }
 
 /**
- * Rangée « Mes matières » ou « Mes vernis » du volet Palette : toucher une pastille la pose sur l'objet
- * choisi, la glisser la pose sur l'objet visé, la glisser sur la corbeille la retire de la palette ;
- * un appui long ou un double toucher (ou ＋ pour une nouvelle) ouvre sa boîte d'édition.
+ * Palette « Mes matières » ou « Mes vernis » (un onglet du volet Palette). Toucher une pastille la pose sur
+ * l'objet choisi, la glisser la pose sur l'objet visé. Bouton Modifier actif seulement : toucher une pastille
+ * ouvre sa boîte, ＋ en ajoute une, la glisser sur la corbeille la retire.
  */
 export function MatterRow({
   doc,
   kind,
+  edit,
   sel,
   onDoc,
   onDocLive,
@@ -32,6 +33,8 @@ export function MatterRow({
 }: {
   doc: Doc;
   kind: MatterKind;
+  /** Bouton Modifier de la palette actif. */
+  edit: boolean;
   sel?: Layer;
   /** Changement du document, avec une étape d'annulation. */
   onDoc: (f: (d: Doc) => Doc) => void;
@@ -44,10 +47,11 @@ export function MatterRow({
   const list = listOf(doc, kind);
   const [ghost, setGhost] = useState<{ x: number; y: number; bg: string } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
-  const drag = useRef<{ id: string; x: number; y: number; on: boolean; timer: number; held?: boolean } | null>(null);
-  const last = useRef<{ id: string; t: number } | null>(null);
+  useEffect(() => {
+    if (!edit) setEditing(null);
+  }, [edit]);
+  const drag = useRef<{ id: string; x: number; y: number; on: boolean } | null>(null);
   const hot = useRef<HTMLElement | null>(null);
-  const label = kind === 'material' ? 'Mes matières' : 'Mes vernis';
   const put = (l: Layer | undefined, e: PaletteMatter) => {
     if (!l) return;
     onDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === l.id ? { ...x, ...applyPatch(x, kind, e) } : x)) }));
@@ -73,7 +77,7 @@ export function MatterRow({
   };
   return (
     <section className={`pal-sec matter ${kind}`}>
-      <span className="pal-sec-label">{label}</span>
+      {list.length === 0 && !edit && <p className="pal-hint">Aucun{kind === 'material' ? 'e matière' : ' vernis'} : touche Modifier pour en ajouter.</p>}
       <div className="guides">
         {list.map((e) => (
           <div
@@ -81,30 +85,18 @@ export function MatterRow({
             role="button"
             tabIndex={0}
             className={`guide matter-chip ${shape(kind)} ${cur === e.id ? 'on' : ''}`}
-            title={`${e.name} : touche pour la poser sur l’objet choisi, glisse-la sur un objet (ou sur la corbeille pour la retirer), appui long ou double toucher pour la modifier`}
+            title={edit ? `${e.name} : touche pour la modifier, glisse-la sur la corbeille pour la retirer` : `${e.name} : touche pour la poser sur l’objet choisi, ou glisse-la sur un objet`}
             onPointerDown={(ev) => {
               (ev.currentTarget as Element).setPointerCapture(ev.pointerId);
-              // appui long sans bouger : la boîte d'édition s'ouvre (plus sûr que le double toucher sur iPad)
-              const timer = window.setTimeout(() => {
-                const d = drag.current;
-                if (!d || d.on || d.id !== e.id) return;
-                d.held = true;
-                last.current = null;
-                setEditing(e.id);
-              }, 450);
-              drag.current = { id: e.id, x: ev.clientX, y: ev.clientY, on: false, timer };
+              drag.current = { id: e.id, x: ev.clientX, y: ev.clientY, on: false };
             }}
             onPointerMove={(ev) => {
               const d = drag.current;
               if (!d) return;
-              if (d.held) return;
-              if (!d.on && Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 8) {
-                d.on = true;
-                clearTimeout(d.timer);
-              }
+              if (!d.on && Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 8) d.on = true;
               if (!d.on) return;
               setGhost({ x: ev.clientX, y: ev.clientY, bg: swatchOf(kind, e.fx) });
-              heat(overTrash(ev.clientX, ev.clientY));
+              heat(edit ? overTrash(ev.clientX, ev.clientY) : null);
             }}
             onPointerUp={(ev) => {
               const d = drag.current;
@@ -112,10 +104,8 @@ export function MatterRow({
               setGhost(null);
               heat(null);
               if (!d) return;
-              clearTimeout(d.timer);
-              if (d.held) return;
               if (d.on) {
-                if (overTrash(ev.clientX, ev.clientY)) {
+                if (edit && overTrash(ev.clientX, ev.clientY)) {
                   const n = usersOf(doc, kind, e.id);
                   onDoc((x) => removeEntry(x, kind, e.id));
                   if (editing === e.id) setEditing(null);
@@ -124,17 +114,10 @@ export function MatterRow({
                 }
                 return put(targetAt(ev.clientX, ev.clientY), e);
               }
-              const now = performance.now();
-              if (last.current && last.current.id === e.id && now - last.current.t < 400) {
-                last.current = null;
-                setEditing(e.id);
-                return;
-              }
-              last.current = { id: e.id, t: now };
+              if (edit) return setEditing(e.id);
               if (sel && (kind === 'varnish' || sel.kind !== 'surface')) put(sel, e);
             }}
             onPointerCancel={() => {
-              if (drag.current) clearTimeout(drag.current.timer);
               drag.current = null;
               setGhost(null);
               heat(null);
@@ -143,9 +126,11 @@ export function MatterRow({
             <span className={`sw ${shape(kind)}`} style={{ background: swatchOf(kind, e.fx), backgroundSize: 'cover' }} />
           </div>
         ))}
-        <button className={`guide add matter-add ${shape(kind)}`} onClick={add} title={kind === 'material' ? 'Nouvelle matière (celle de l’objet choisi, s’il en a une)' : 'Nouveau vernis (celui de l’objet choisi, s’il en a un)'}>
-          <span className="sw plus">＋</span>
-        </button>
+        {edit && (
+          <button className={`guide add matter-add ${shape(kind)}`} onClick={add} title={kind === 'material' ? 'Nouvelle matière (celle de l’objet choisi, s’il en a une)' : 'Nouveau vernis (celui de l’objet choisi, s’il en a un)'}>
+            <span className="sw plus">＋</span>
+          </button>
+        )}
       </div>
       {/* hors de la bulle (qui défile) : sur iPad, un élément fixe dans une zone qui défile y reste coupé et passe sous les panneaux */}
       {ed && createPortal(<MatterDialog doc={doc} kind={kind} entry={ed} onDoc={onDoc} onDocLive={onDocLive} onClose={() => setEditing(null)} />, document.body)}
