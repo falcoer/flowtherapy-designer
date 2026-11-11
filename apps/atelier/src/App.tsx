@@ -6,6 +6,9 @@ import { steadyPath } from './steady';
 import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
 import { STAMPS, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel } from './coupe';
+import { MaterialWizard, WandGlyph } from './material-wizard';
+import { MatterRow } from './matter-palette';
+import { syncRefs } from './palettes';
 import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { PrefsPanel, type FingerMode, type Theme } from './prefs';
 import { PointGrids } from './anchor-ui';
@@ -1248,6 +1251,8 @@ export function App() {
   const growTimer = useRef(0);
   /** Couleur glissée depuis la palette (position écran). */
   const [dragGuide, setDragGuide] = useState<{ i: number; x: number; y: number } | null>(null);
+  /** Assistant de l'outil multicouche (baguette magique). */
+  const [wizard, setWizard] = useState(false);
   /** La couleur de la barre d'outils tenue : départ du doigt, glisser commencé. */
   const guideDrag = useRef<{ x: number; y: number; on: boolean } | null>(null);
   // le doigt qui glisse depuis la couleur ne fait ni défiler ni rebondir la page (et n'avale pas le toucher suivant)
@@ -2114,19 +2119,23 @@ export function App() {
     setToast(`« ${me.name} » dupliqué`);
   };
   /** Une couleur lâchée en (x, y) : l'objet visé sur la page ou dans le volet des attributs la prend comme fond. */
+  /** L'objet sous un point de l'écran : sur la page, ou la ligne visée du volet des attributs (sinon l'objet ouvert). */
+  const layerAtScreen = (x: number, y: number): Layer | undefined => {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    if (!el) return undefined;
+    if (el.closest('aside.coupe')) {
+      const row = el.closest('[data-layer]') as HTMLElement | null;
+      return doc.layers.find((x) => x.id === (row?.dataset.layer ?? selected));
+    }
+    if (el.tagName === 'CANVAS') {
+      const q = toPage(x, y);
+      return layerAt(q.x, q.y) ?? undefined;
+    }
+    return undefined;
+  };
   const dropGuide = (i: number, x: number, y: number) => {
     setDragGuide(null);
-    const el = document.elementFromPoint(x, y) as HTMLElement | null;
-    if (!el) return;
-    let l: Layer | null | undefined;
-    if (el.closest('aside.coupe')) {
-      // posée sur le volet des attributs : la ligne visée de la liste, sinon l'objet ouvert
-      const row = el.closest('[data-layer]') as HTMLElement | null;
-      l = doc.layers.find((x) => x.id === (row?.dataset.layer ?? selected));
-    } else if (el.tagName === 'CANVAS') {
-      const q = toPage(x, y);
-      l = layerAt(q.x, q.y);
-    } else return;
+    const l = layerAtScreen(x, y);
     if (!l) return;
     if (l.kind === 'photo') return setToast('Une photo n’a pas de couleur de fond : peins-la ou donne-lui un style');
     patchLayer(l.id, { guide: i });
@@ -3955,7 +3964,9 @@ export function App() {
     const fn = (d: Doc) => {
       const me = d.layers.find((l) => l.id === id);
       const group = 'extrude' in patch && me?.link ? me.link : null;
-      return { ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, ...patch } : group && l.link === group ? { ...l, extrude: patch.extrude } : l)) };
+      const next = { ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, ...patch } : group && l.link === group ? { ...l, extrude: patch.extrude } : l)) };
+      // matière ou vernis liés à la palette : l'entrée et les autres objets liés suivent
+      return 'material' in patch || 'fx' in patch ? syncRefs(next, id) : next;
     };
     if (history) update(fn);
     else setDoc(fn);
@@ -4506,6 +4517,11 @@ export function App() {
             <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => pickTool(lastEdit.current)} title="Créateur de matériaux (T) : forme, bords, vernis, image, transformations, support">
               <Icon name="matter" />
             </button>
+            {isEdit(tool) && (
+              <button className={`btn small wand-btn ${wizard ? 'on' : ''}`} disabled={!sel} onClick={() => setWizard(!wizard)} title="Assistant : matière, vernis, volume et bords de l’objet choisis sur des aperçus, avec tous leurs réglages" aria-label="Assistant">
+                <WandGlyph />
+              </button>
+            )}
             <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => pickTool('cut')} title="Découper (C) : trace un contour au stylet">
               <Icon name="scissors" />
             </button>
@@ -4534,6 +4550,21 @@ export function App() {
             <aside className="height-bar" title="Hauteur : au-dessus de 0 l'objet se soulève (ombre), en dessous il se creuse">
               <VSlider label="Hauteur" center value={0.5 + (sel.height - (sel.inner ?? 0)) / 2} onChange={(v) => setLevel(sel, Math.abs(v - 0.5) < 0.03 ? 0 : Math.round((v * 2 - 1) * 100) / 100)} />
             </aside>
+          )}
+          {wizard && isEdit(tool) && sel && (
+            <MaterialWizard
+              key={sel.id}
+              layer={sel}
+              doc={doc}
+              f={f}
+              patch={(p, h) => patchLayer(sel.id, p, h)}
+              onDoc={(fn) => update(fn)}
+              onClose={() => setWizard(false)}
+              onToast={(m, u) => {
+                setToast(m);
+                setToastUndo(!!u);
+              }}
+            />
           )}
           {isEdit(tool) && sel && (
             <CoupePanel
@@ -5465,6 +5496,24 @@ export function App() {
               }}
               onDrag={(i, x, y) => setDragGuide(i === null ? null : { i, x, y })}
               onDrop={dropGuide}
+              matters={
+                <>
+                  {(['material', 'varnish'] as const).map((k) => (
+                    <MatterRow
+                      key={k}
+                      kind={k}
+                      doc={doc}
+                      sel={sel ?? undefined}
+                      onDoc={(fn) => update(fn)}
+                      onToast={(m) => {
+                        setToast(m);
+                        setToastUndo(true);
+                      }}
+                      targetAt={layerAtScreen}
+                    />
+                  ))}
+                </>
+              }
             />
           )}
 
@@ -5803,9 +5852,12 @@ function PaletteBubble({
   onDrop,
   declared,
   variant,
+  matters,
 }: {
   doc: Doc;
   active: number;
+  /** Rangées « Mes matières » et « Mes vernis ». */
+  matters?: import('react').ReactNode;
   /** Variante de couleurs que déclare la cible affichée. */
   declared?: Palette;
   /** Choix de la variante de la publication affichée. */
@@ -6020,6 +6072,7 @@ function PaletteBubble({
           <div className="guides">{all.filter(({ x }) => !fixed(x) && x.from === src).map(chip)}</div>
         </section>
       ))}
+      {matters}
       {editing !== null && doc.guides[editing] && !fixed(doc.guides[editing]!) && (
         <ColorDialog
           guide={doc.guides[editing]!}

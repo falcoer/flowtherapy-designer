@@ -1,8 +1,6 @@
 import type { Format } from '@ftd/core';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { BORDER_TYPES, fxPreview, GLOW_TYPES, Knob, swatch } from './App';
-import { layerColor, MaterialWizard, WandGlyph } from './material-wizard';
-import { presetFx } from './material-presets';
 import { FX, fxGuides, fxKnobs, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
@@ -19,7 +17,7 @@ import { borderDefaults } from './targets';
  */
 export type Section = 'edge' | 'coat' | 'image' | 'transform' | 'support' | 'depth';
 
-interface Item {
+export interface Item {
   sec: Section;
   /** border, bevel, glow, look, draw, paint, material, fx:<index dans l.fx> */
   key: string;
@@ -126,7 +124,7 @@ const genOf = (l: Layer) => l.gen ?? (l.shape && !l.cut ? GEN_DEFAULTS[l.shape] 
 const secLabel = (sec: Section, l: Layer) => (sec === 'image' && l.kind === 'shape' ? 'Forme' : sec === 'image' && l.kind === 'text' ? 'Texte' : SECTIONS.find((s) => s.sec === sec)!.name);
 const fxIn = (l: Layer, g: FxGroup) => (l.fx ?? []).map((x, i) => ({ x, i })).filter(({ x }) => groupOf(x) === g);
 
-function itemsOf(l: Layer, doc: Doc): Item[] {
+export function itemsOf(l: Layer, doc: Doc): Item[] {
   const out: Item[] = [];
   const g = (i: number) => swatch(doc.guides[i]);
   if (l.kind !== 'surface') {
@@ -140,7 +138,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
   if (l.molded) out.push({ sec: 'image', key: 'molded', name: 'Modelé', bg: '', removable: false, glyph: 'molded' });
   if (l.volume) out.push({ sec: 'depth', key: 'volume', name: volumeName(l.volume), bg: 'radial-gradient(circle at 35% 30%,#fff,#b9b2c9 55%,#6f6880)', removable: true });
   if (l.bump && l.kind !== 'surface') out.push({ sec: 'depth', key: 'relief', name: 'Relief sculpté', bg: 'radial-gradient(circle at 30% 30%,#fff,#b9b2c9 40%,#fff 55%,#8a849a)', removable: true });
-  for (const { x, i } of fxIn(l, 'lumiere')) out.push({ sec: 'coat', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: true });
+  for (const { x, i } of fxIn(l, 'lumiere')) out.push({ sec: 'coat', key: `fx:${i}`, name: x.preset ?? fxOf(x.id)!.name, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: true });
   if (l.kind === 'shape') {
     const gen = genOf(l);
     out.push({
@@ -169,7 +167,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
 }
 
 /** Ce qu'on retire quand on touche la croix d'un élément. */
-function removal(l: Layer, key: string): Partial<Layer> {
+export function removal(l: Layer, key: string): Partial<Layer> {
   if (key === 'border') return { border: undefined };
   if (key === 'bevel') return { bevel: 0, bevelProfile: undefined, bevelBorder: undefined };
   if (key === 'extrude') return { extrude: undefined };
@@ -192,7 +190,7 @@ function removal(l: Layer, key: string): Partial<Layer> {
 }
 
 /** Ce qu'on peut ajouter dans chaque section, avec la retouche qui l'applique. */
-function choicesOf(l: Layer, sec: Section, doc?: Doc): Array<{ id: string; name: string; patch: Partial<Layer>; focus: string; text?: Partial<TextStyle>; font?: string }> {
+export function choicesOf(l: Layer, sec: Section, doc?: Doc): Array<{ id: string; name: string; patch: Partial<Layer>; focus: string; text?: Partial<TextStyle>; font?: string }> {
   const fxAdd = (g: FxGroup) =>
     FX.filter((d) => d.group === g && !(l.fx ?? []).some((x) => x.id === d.id)).map((d) => ({
       id: d.id,
@@ -216,7 +214,12 @@ function choicesOf(l: Layer, sec: Section, doc?: Doc): Array<{ id: string; name:
         focus: 'glow',
       })),
     ];
-  if (sec === 'coat') return fxAdd('lumiere');
+  if (sec === 'coat') {
+    // un seul vernis : en choisir un autre remplace celui qui est posé
+    const keep = (l.fx ?? []).filter((x) => groupOf(x) !== 'lumiere');
+    const cur = (l.fx ?? []).find((x) => groupOf(x) === 'lumiere');
+    return FX.filter((d) => d.group === 'lumiere' && d.id !== cur?.id).map((d) => ({ id: d.id, name: d.name, patch: { fx: [...keep, newFx(d.id)] } as Partial<Layer>, focus: `fx:${keep.length}` }));
+  }
   if (sec === 'transform') return fxAdd('effet');
   if (sec === 'support')
     return MATERIALS()
@@ -330,7 +333,6 @@ export function CoupePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openOn]);
   const [adding, setAdding] = useState<Section | null>(null);
-  const [wizard, setWizard] = useState(false);
   // une couche touchée dans l'aperçu : on ne montre que son panneau
   const [only, setOnly] = useState<Section | null>(null);
   // sur téléphone, l'aperçu n'a pas la place : une section est toujours ouverte
@@ -416,7 +418,7 @@ export function CoupePanel({
     const mine = items.filter((x) => x.sec === s.sec);
     const can = choicesOf(l, s.sec, doc).length > 0;
     // une seule couche possible (matière, filtre) : on la change au crayon plutôt que d'en ajouter
-    const one = s.sec === 'support' || s.sec === 'image';
+    const one = s.sec === 'support' || s.sec === 'image' || s.sec === 'coat';
     return (
       <div key={s.sec} className={`cp-card ${adding === s.sec ? 'open' : ''}`}>
         <div className="cp-h">
@@ -425,11 +427,6 @@ export function CoupePanel({
           {s.sec === 'depth' && onSculpt && (
             <button className="chip cp-sculpt" onClick={onSculpt} title="Modeler › Relief : bosser, creuser, lisser la surface au stylet">
               {l.bump ? 'Reprendre la sculpture' : 'Sculpter le volume'}
-            </button>
-          )}
-          {s.sec === 'support' && (
-            <button className="cp-add cp-wand" onClick={() => setWizard(true)} title="Assistant matières : choisir une matière réelle (chêne, laiton, velours…)" aria-label="Assistant matières">
-              <WandGlyph />
             </button>
           )}
           {can && (
@@ -675,21 +672,6 @@ export function CoupePanel({
           </svg>
         )}
       </div>
-      {wizard && (
-        <MaterialWizard
-          current={l.material}
-          guides={doc.guides}
-          color={layerColor(doc.guides, l.guide)}
-          onClose={() => setWizard(false)}
-          onPick={(p) => {
-            const d = fxOf(p.fx)!;
-            const base = l.material?.id === p.fx ? l.material : newFx(p.fx);
-            patch({ material: presetFx(p, base), ...(d.transparent && l.material?.id !== p.fx ? { opacity: d.transparent } : {}) });
-            setFocus('material');
-            onToast(`${p.name} posé sur « ${l.name} »`, true);
-          }}
-        />
-      )}
     </aside>
   );
 }
@@ -711,7 +693,7 @@ function Dots({ label, value, doc, onPick }: { label: string; value: number; doc
  * Réglage rotatif : un potard, et sous lui sa légende (nom et valeur) en texte simple.
  * Les potards d'un formulaire s'alignent côte à côte, en bas, après les choix.
  */
-function Range({ label, value, onChange, unit, min = 0, display }: { label: string; value: number; onChange: (v: number) => void; unit?: string; min?: number; display?: string }) {
+export function Range({ label, value, onChange, unit, min = 0, display }: { label: string; value: number; onChange: (v: number) => void; unit?: string; min?: number; display?: string }) {
   const span = 1 - min;
   return (
     <div className="cp-dial" title={`${label} : glisser vers le haut ou la droite pour monter${min < 0 ? ', double toucher pour revenir au neutre' : ''}`}>
@@ -773,7 +755,7 @@ function TextLayout({ text: t, onChange }: { text: TextStyle; onChange: (next: P
 }
 
 /** Réglages de l'élément touché, en bas de la coupe. */
-function Attrs({
+export function Attrs({
   layer: l,
   doc,
   item,
@@ -1023,18 +1005,6 @@ function Attrs({
   } else if (item.key === 'material' && l.material)
     body = (
       <>
-        {l.material.tone && (
-          <label className="cp-row">
-            <span>Teinte</span>
-            <span className="cp-tone">
-              <i style={{ background: l.material.tone }} />
-              {l.material.preset ?? 'naturelle'}
-            </span>
-            <button className="chip cp-tone-off" onClick={() => patch({ material: { ...l.material!, tone: undefined, preset: undefined } })} title="Reprendre la couleur de l’objet sous la matière">
-              Couleur de l’objet
-            </button>
-          </label>
-        )}
         {fxRows(l.material, (x, h) => patch({ material: x }, h))}
         {fxOf(l.material.id)?.transparent && <Range label="Opacité" value={l.opacity ?? 1} onChange={(v) => live({ opacity: Math.max(0.05, Math.round(v * 100) / 100) })} />}
       </>

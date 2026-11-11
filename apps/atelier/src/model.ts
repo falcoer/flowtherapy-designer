@@ -274,6 +274,17 @@ export interface Doc {
   /** Lampe au-dessus de la feuille : position (fractions de la page, peut sortir de la page), hauteur 0..1 et couleur. */
   lamp?: Lamp;
   layers: Layer[];
+  /** Palette de matières (« Mes matières ») : des supports nommés, liés aux objets qui les portent. */
+  materials?: PaletteMatter[];
+  /** Palette de vernis (« Mes vernis »). */
+  varnishes?: PaletteMatter[];
+}
+
+/** Une entrée des palettes de matières ou de vernis : un réglage nommé, partagé par les objets qui y sont liés (Fx.ref). */
+export interface PaletteMatter {
+  id: string;
+  name: string;
+  fx: import('./fx').Fx;
 }
 
 /** Formats de l'atelier : ceux d'origine, puis ceux du catalogue du site une fois chargé (setCatalog). */
