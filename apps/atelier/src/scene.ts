@@ -1,10 +1,10 @@
-import { bevelField, distField, lightKey, shadeBump, shadeField, soften, volumeField, type BumpLight } from './bump';
+import { bevelField, distField, lightKey, seedOf, shadeBump, shadeField, skinField, soften, volumeField, type BumpLight } from './bump';
 import { burnLayers, paintStroke, paintWash, type Target } from './brush';
 import { rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
-import { blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, type Doc, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
+import { blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { keepLinks, type LinkShapes } from './links';
 import { shapedFill } from './gradient';
@@ -966,7 +966,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       ctx.restore();
     }
     // volume et biseau : un relief tiré du contour (ou du bord ajouté), éclairé comme le relief sculpté
-    if (((l.bevel ?? 0) > 0.001 || (l.volume && l.volume.amount > 0.001)) && l.kind !== 'surface') drawBevel(ctx, l, doc, f, path, b);
+    if (((l.bevel ?? 0) > 0.001 || volumeOn(l.volume)) && l.kind !== 'surface') drawBevel(ctx, l, doc, f, path, b);
     drawGlow(ctx, l, doc, f, o, false);
     ctx.restore();
   }
@@ -2004,7 +2004,9 @@ function bevelFor(l: Layer, doc: Doc, f: Format, path: Path2D, b: { cx: number; 
   const out = l.bevelBorder ? borderOut(l, f) : 0;
   const width = (l.bevel ?? 0) > 0.001 ? 0.18 * (l.bevel ?? 0) * minSide : 0;
   const [W, H] = [b.w + 2 * out + 0.01 * minSide, b.h + 2 * out + 0.01 * minSide];
-  const s = 320 / Math.max(W, H);
+  // une peau (plis, fissures) demande une grille plus fine que le seul bombé
+  const skin = l.volume?.skin && l.volume.skin.depth > 0.001 ? l.volume.skin : undefined;
+  const s = (skin ? 512 : 320) / Math.max(W, H);
   const [gw, gh] = [Math.max(8, Math.round(W * s)), Math.max(8, Math.round(H * s))];
   const li = lightAt(doc, f, b.cx, b.cy);
   const r = -(l.rot ?? 0);
@@ -2031,13 +2033,21 @@ function bevelFor(l: Layer, doc: Doc, f: Format, path: Path2D, b: { cx: number; 
     for (let n = 0; n < mask.length; n++) mask[n] = px[n * 4 + 3]! / 255;
     const D = distField(gw, gh, mask);
     const Hf = width > 0 ? bevelField(gw, gh, D, width * s, profile) : new Float32Array(gw * gh);
-    if (l.volume && l.volume.amount > 0.001) {
+    let Hk: Float32Array | null = null;
+    if (volumeOn(l.volume)) {
       // le volume ne prend que la découpe : le bord ajouté reste à plat (sauf biseau)
       const cm = out > 0 ? cutMask(path, gw, gh, s, r, b) : mask;
-      const V = volumeField(gw, gh, cm, out > 0 ? distField(gw, gh, cm) : D, l.volume);
+      const cD = out > 0 ? distField(gw, gh, cm) : D;
+      const V = volumeField(gw, gh, cm, cD, l.volume!);
       for (let n = 0; n < Hf.length; n++) Hf[n] += V[n]!;
+      if (skin) Hk = skinField(gw, gh, cD, skin, seedOf(l.id));
     }
+    // le bombé est lissé (marches de la distance), la peau à peine : ses arêtes restent nettes
     const Hs = soften(Hf, gw, gh, 3);
+    if (Hk) {
+      const K = soften(Hk, gw, gh, 1);
+      for (let n = 0; n < Hs.length; n++) Hs[n] += K[n]!;
+    }
     hit = { key, c: shadeField(gw, gh, Hs, L, 1, mask, 0.65), W, H, field: Hs, gw, gh, s };
     if (bevelCache.size > 64) bevelCache.clear();
     bevelCache.set(l.id, hit);
@@ -2061,7 +2071,7 @@ function drawBevel(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format,
  * (1 = le plus haut), posée sur la page comme le biseau, et sa hauteur maximale en unités du format.
  */
 export function drawRelief(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format): number {
-  if (l.kind === 'surface' || !((l.bevel ?? 0) > 0.001 || (l.volume && l.volume.amount > 0.001))) return 0;
+  if (l.kind === 'surface' || !((l.bevel ?? 0) > 0.001 || volumeOn(l.volume))) return 0;
   const b = layerBox(l, f);
   const hit = bevelFor(l, doc, f, maskPath2D(l, f), b);
   let max = 0;

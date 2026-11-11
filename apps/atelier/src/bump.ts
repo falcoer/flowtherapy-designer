@@ -293,6 +293,7 @@ export function bevelField(w: number, h: number, D: Float32Array, width: number,
  */
 export function volumeField(w: number, h: number, mask: Float32Array, D: Float32Array, v: { kind: string; amount: number; axis?: number }): Float32Array {
   const out = new Float32Array(w * h);
+  if (v.kind === 'flat' || v.amount <= 0.001) return out;
   let R = 1;
   for (let n = 0; n < D.length; n++) if (D[n]! > R) R = D[n]!;
   const a = v.amount;
@@ -343,4 +344,141 @@ export function volumeField(w: number, h: number, mask: Float32Array, D: Float32
     }
   }
   return out;
+}
+
+// ── Peau du volume : draperie, froissure, craquelure ──────────────────────────────────────────
+
+/** Hasard fixe pour une case de la grille (0..1), propre à chaque objet par sa graine. */
+function rnd(i: number, j: number, seed: number, k = 0): number {
+  let x = (Math.imul(i, 374761393) + Math.imul(j, 668265263) + Math.imul(seed, 2246822519) + Math.imul(k, 3266489917)) | 0;
+  x = Math.imul(x ^ (x >>> 13), 1274126177);
+  x ^= x >>> 16;
+  return (x >>> 0) / 4294967296;
+}
+/** Bruit doux sur une ligne (−1..1). */
+function noise1(x: number, seed: number): number {
+  const i = Math.floor(x);
+  const f = x - i;
+  const u = f * f * (3 - 2 * f);
+  return (rnd(i, 0, seed) * (1 - u) + rnd(i + 1, 0, seed) * u) * 2 - 1;
+}
+/** Bruit doux sur le plan (−1..1). */
+function noise2(x: number, y: number, seed: number): number {
+  const [i, j] = [Math.floor(x), Math.floor(y)];
+  const [fx, fy] = [x - i, y - j];
+  const [u, v] = [fx * fx * (3 - 2 * fx), fy * fy * (3 - 2 * fy)];
+  const a = rnd(i, j, seed) * (1 - u) + rnd(i + 1, j, seed) * u;
+  const b = rnd(i, j + 1, seed) * (1 - u) + rnd(i + 1, j + 1, seed) * u;
+  return (a * (1 - v) + b * v) * 2 - 1;
+}
+/** Cellules de Voronoï (points tirés dans une grille de pas `c`) : distances au plus proche, au second, et un hasard propre à la cellule. */
+function cells(x: number, y: number, c: number, seed: number, out: { f1: number; f2: number; id: number }) {
+  const [gi, gj] = [Math.floor(x / c), Math.floor(y / c)];
+  let [f1, f2, id] = [Infinity, Infinity, 0];
+  for (let dj = -1; dj <= 1; dj++)
+    for (let di = -1; di <= 1; di++) {
+      const [ci, cj] = [gi + di, gj + dj];
+      const px = (ci + 0.1 + 0.8 * rnd(ci, cj, seed, 1)) * c;
+      const py = (cj + 0.1 + 0.8 * rnd(ci, cj, seed, 2)) * c;
+      const d = Math.hypot(x - px, y - py);
+      if (d < f1) {
+        f2 = f1;
+        f1 = d;
+        id = rnd(ci, cj, seed, 3);
+      } else if (d < f2) f2 = d;
+    }
+  out.f1 = f1;
+  out.f2 = f2;
+  out.id = id;
+}
+const smooth = (a: number, b: number, x: number) => {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * Peau posée sur le volume (hauteurs en pixels de la grille, autour de zéro) :
+ * draperie = plis souples qui tombent dans l'orientation choisie ; froissure = facettes et arêtes
+ * d'un papier froissé ; craquelure = plaques séparées par des fissures, bords un peu relevés.
+ * Les tailles suivent la forme (la plus grande dimension de la grille), pas le zoom.
+ */
+export function skinField(w: number, h: number, D: Float32Array, sk: { kind: string; depth: number; density: number; angle?: number }, seed: number): Float32Array {
+  const out = new Float32Array(w * h);
+  const S = Math.max(w, h);
+  const dens = Math.max(0, Math.min(1, sk.density));
+  const depth = sk.depth;
+  const c = { f1: 0, f2: 0, id: 0 };
+  const c2 = { f1: 0, f2: 0, id: 0 };
+  if (sk.kind === 'drape') {
+    // plis : une onde en travers de l'orientation, irrégulière (largeurs, profondeurs) et qui ondule le long du pli
+    const n = 3 + dens * 21;
+    const P = S / n;
+    const a = sk.angle ?? 0;
+    const [ax, ay] = [Math.cos(a), Math.sin(a)];
+    const A = depth * P * 0.55;
+    for (let j = 0; j < h; j++)
+      for (let i = 0; i < w; i++) {
+        const k = j * w + i;
+        if (D[k]! <= 0) continue;
+        const [x, y] = [i - w / 2, j - h / 2];
+        const u = (x * ax + y * ay) / P; // en travers, en nombre de plis
+        const v = (-x * ay + y * ax) / S; // le long du pli, en taille d'objet
+        const phi = 2 * Math.PI * (u + 0.35 * noise1(u * 0.45, seed) + 0.25 * noise1(v * 2.2 + u * 0.15, seed + 7));
+        const amp = 0.65 + 0.35 * noise1(u * 0.6 + 11, seed + 3);
+        const crest = 0.5 + 0.5 * Math.cos(phi);
+        out[k] = A * amp * (Math.pow(crest, 0.85) - 0.5);
+      }
+  } else if (sk.kind === 'crumple') {
+    // froissure : trois échelles de facettes ; chaque cellule monte ou descend, les arêtes passent par zéro
+    const c0 = S / (3 + dens * 17);
+    const A = depth * c0 * 0.4;
+    const oct: Array<[number, number]> = [
+      [c0, 1],
+      [c0 / 2.3, 0.45],
+      [c0 / 5.1, 0.18],
+    ];
+    for (let j = 0; j < h; j++)
+      for (let i = 0; i < w; i++) {
+        const k = j * w + i;
+        if (D[k]! <= 0) continue;
+        let z = 0;
+        oct.forEach(([cs, wgt], o) => {
+          cells(i, j, cs, seed + o * 101, c);
+          const sgn = c.id < 0.5 ? -1 : 1;
+          z += (wgt * sgn * (c.f2 - c.f1)) / cs;
+        });
+        out[k] = A * z;
+      }
+  } else {
+    // craquelure : plaques (Voronoï déformé) séparées par des fissures, et de fines fissures secondaires
+    const c0 = S / (4 + dens * 26);
+    const A = depth * Math.max(2, c0 * 0.18);
+    const crack = Math.max(0.9, c0 * 0.05);
+    for (let j = 0; j < h; j++)
+      for (let i = 0; i < w; i++) {
+        const k = j * w + i;
+        if (D[k]! <= 0) continue;
+        const wx = i + 0.22 * c0 * noise2(i / c0 * 1.7, j / c0 * 1.7, seed + 5);
+        const wy = j + 0.22 * c0 * noise2(i / c0 * 1.7 + 40, j / c0 * 1.7, seed + 6);
+        cells(wx, wy, c0, seed, c);
+        const e = (c.f2 - c.f1) / 2; // distance à la fissure
+        cells(wx, wy, c0 / 2.6, seed + 31, c2);
+        const e2 = (c2.f2 - c2.f1) / 2;
+        const lift = 0.35 * Math.exp(-e / (c0 * 0.18)); // bords des plaques relevés
+        const groove = 1 - smooth(0, crack, e);
+        const fine = (1 - smooth(0, crack * 0.6, e2)) * 0.45 * smooth(crack, crack * 3, e);
+        out[k] = A * (lift - groove - fine);
+      }
+  }
+  // la peau s'efface au bord de la découpe : pas de marche le long du contour
+  const fade = Math.max(1.5, S * 0.012);
+  for (let k = 0; k < out.length; k++) if (out[k]) out[k] *= smooth(0, fade, D[k]!);
+  return out;
+}
+
+/** Graine stable tirée de l'identifiant de l'objet : chaque objet a ses propres plis. */
+export function seedOf(id: string): number {
+  let x = 2166136261;
+  for (let n = 0; n < id.length; n++) x = Math.imul(x ^ id.charCodeAt(n), 16777619);
+  return (x >>> 0) % 100000;
 }

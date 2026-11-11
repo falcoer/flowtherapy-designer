@@ -67,6 +67,12 @@ export interface Fx {
   guides: number[];
   /** Intensité (0..1). */
   amount: number;
+  /** Réglages propres à la matière (0..1), par clé : orientation du fil, nœuds… */
+  knobs?: Record<string, number>;
+  /** Nom de la matière réelle choisie dans l'assistant (Chêne, Velours de scène…). */
+  preset?: string;
+  /** Entrée de la palette (« Mes matières », « Mes vernis ») à laquelle ce réglage est lié. */
+  ref?: string;
 }
 
 type RGB = [number, number, number];
@@ -82,6 +88,8 @@ export interface PixelCtx {
   /** Direction vers la lumière, dans le repère de la couche. */
   lx: number;
   ly: number;
+  /** Réglages propres à la matière (valeurs par défaut comprises). */
+  knobs: Record<string, number>;
 }
 
 export interface FxDef {
@@ -100,6 +108,8 @@ export interface FxDef {
   transparent?: number;
   /** Calcul par pixel (matière) ; absent = effet dessiné par la scène. */
   pixel?: (d: Uint8ClampedArray, k: PixelCtx, a: number) => void;
+  /** Réglages propres à la matière, en plus de l'intensité ; `def` : valeur d'une matière posée avant ce réglage, `fresh` : celle d'une matière neuve ; `angle` : affiché en degrés (0..180°). */
+  knobs?: Array<{ key: string; label: string; def: number; fresh?: number; angle?: boolean }>;
 }
 
 const cl = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -798,23 +808,78 @@ export const FX: FxDef[] = [
     group: 'materiau',
     slots: [],
     amount: 0.6,
+    knobs: [
+      { key: 'angle', label: 'Orientation', def: 0, angle: true },
+      { key: 'knots', label: 'Nœuds', def: 0, fresh: 0.2 },
+      { key: 'size', label: 'Taille', def: 0.4 },
+    ],
     pixel: (d, k, a) => {
+      const { w, h } = k;
       const P = k.pxPerMin;
-      const ring = (x: number, y: number) => {
-        // veines : des cernes déformés par un bruit lent, étirés dans le sens du fil
-        const warp = fbm(x / (P * 0.25), y / (P * 0.06), 71) * P * 0.05;
-        const v = Math.sin(((y + warp) / (P * 0.008)) * Math.PI * 2);
-        return 0.5 + 0.5 * v * (0.6 + 0.4 * vnoise(x / (P * 0.1), y / (P * 0.02), 72));
+      // fil dans le sens de l'orientation (0 = fil couché) ; Taille : cernes fins (hêtre, érable) → larges (pin, chêne)
+      const th = (k.knobs.angle ?? 0) * Math.PI;
+      const [ca, sa] = [Math.cos(th), Math.sin(th)];
+      const t = k.knobs.size ?? 0.4;
+      const per = P * (0.003 + 0.025 * Math.pow(t, 1.5));
+      const sc = per / (P * 0.008); // échelle du dessin par rapport au bois d'origine
+      // nœuds : un par case de la grille au plus (longue dans le sens du fil), tirés selon la densité
+      const dens = k.knobs.knots ?? 0.2;
+      const R = per * 3.2;
+      const [cu, cv] = [R * 7.5, R * 6];
+      const knot = (u: number, v: number) => {
+        // déviation du fil autour des nœuds proches, et le cœur sombre
+        let [dv, wk, core, ph] = [0, 0, 0, 0];
+        if (dens <= 0.001) return [0, 0, 0, 0] as const;
+        const [gi, gj] = [Math.floor(u / cu), Math.floor(v / cv)];
+        for (let j = gj - 1; j <= gj + 1; j++)
+          for (let i = gi - 1; i <= gi + 1; i++) {
+            if (hash(i, j, 91) > dens) continue;
+            const r = R * (0.6 + 0.8 * hash(i, j, 92));
+            const ku = (i + 0.15 + 0.7 * hash(i, j, 93)) * cu;
+            const kv = (j + 0.2 + 0.6 * hash(i, j, 94)) * cv;
+            const [du, dd] = [(u - ku) / 2.2, v - kv];
+            const dist = Math.hypot(du, dd);
+            // le fil s'écarte du nœud (les cernes le contournent et s'y resserrent), tout s'efface en deux ou trois rayons
+            const fall = Math.exp(-(((u - ku) / (2.5 * r)) ** 2));
+            dv -= 0.97 * dd * Math.exp(-(dd * dd) / (2.25 * r * r)) * fall;
+            const g = Math.exp(-((dist / (r * 0.75)) ** 2));
+            if (g > wk) {
+              wk = g;
+              ph = dist / (per * 1.6);
+            }
+            core = Math.max(core, (1 - Math.min(1, dist / (r * 0.5))) ** 0.7);
+          }
+        return [dv, wk, core, ph] as const;
       };
+      const ring = new Float32Array(w * h);
+      const fine = new Float32Array(w * h);
+      const dark = new Float32Array(w * h);
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const u = x * ca + y * sa;
+          const v = -x * sa + y * ca;
+          const [dv, wk, core, ph] = knot(u, v);
+          // veines : des cernes déformés par un bruit lent, étirés dans le sens du fil
+          const warp = fbm(u / (P * 0.25 * sc), v / (P * 0.06 * sc), 71) * P * 0.05 * sc;
+          const straight = (v + warp + dv) / per;
+          const phase = straight * (1 - wk) + ph * wk;
+          const s0 = Math.sin(phase * Math.PI * 2);
+          const n = y * w + x;
+          ring[n] = 0.5 + 0.5 * s0 * (0.6 + 0.4 * vnoise(u / (P * 0.1 * sc), v / (P * 0.02 * sc), 72));
+          fine[n] = vnoise(u / (P * 0.03 * sc), (v + dv) / (1.5 * Math.max(1, sc)), 73);
+          dark[n] = core;
+        }
       relief(
         d,
         k,
-        (x, y) => ring(x, y) * 0.6 + 0.4 * vnoise(x / (P * 0.03), y / 1.5, 73),
-        a * 0.18 * P * 0.008,
+        (x, y) => ring[y * w + x]! * 0.6 + 0.4 * fine[y * w + x]! - dark[y * w + x]! * 0.8,
+        a * 0.18 * per,
         (c, x, y) => {
-          const r = ring(x, y);
-          const wood: RGB = [0.62 - 0.12 * r, 0.42 - 0.1 * r, 0.24 - 0.07 * r];
-          return mixRGB(c, [c[0] * wood[0] * 1.5, c[1] * wood[1] * 1.6, c[2] * wood[2] * 1.7], 0.65 * a);
+          const n = y * w + x;
+          const r = Math.min(1, ring[n]! + dark[n]! * 0.9);
+          const wood: RGB = [0.62 - 0.12 * r - 0.12 * dark[n]!, 0.42 - 0.1 * r - 0.1 * dark[n]!, 0.24 - 0.07 * r - 0.06 * dark[n]!];
+          const m = 1 - 0.55 * dark[n]!; // cœur du nœud : bois plus sombre
+          return mixRGB(c, [c[0] * wood[0] * 1.5 * m, c[1] * wood[1] * 1.6 * m, c[2] * wood[2] * 1.7 * m], 0.65 * a);
         },
       );
     },
@@ -1596,8 +1661,11 @@ export function fxGuides(def: FxDef, s: Fx | undefined): number[] {
 
 export function newFx(id: FxId): Fx {
   const d = fxOf(id)!;
-  return { id, guides: d.slots.map((s) => s.def), amount: d.amount };
+  return { id, guides: d.slots.map((s) => s.def), amount: d.amount, ...(d.knobs ? { knobs: Object.fromEntries(d.knobs.map((x) => [x.key, x.fresh ?? x.def])) } : {}) };
 }
+
+/** Réglages propres de la matière, ceux qui manquent (matière posée avant leur arrivée) à leur valeur par défaut. */
+export const fxKnobs = (def: FxDef, e: Fx): Record<string, number> => Object.fromEntries((def.knobs ?? []).map((x) => [x.key, e.knobs?.[x.key] ?? x.def]));
 
 /** Opacité de l'objet : seule une matière transparente laisse voir à travers. */
 export const opacityOf = (l: { material?: Fx; opacity?: number }) => (l.material && fxOf(l.material.id)?.transparent ? (l.opacity ?? 1) : 1);
@@ -1618,6 +1686,6 @@ export function applyPixelFx(img: ImageData, fx: Fx[], guides: Guide[], pxPerMin
     const gs = fxGuides(def, e).map((i) => guides[i]);
     gradGuide = gs[0];
     const cols = gs.map((g) => hexRGB(guideColor(g, 0.5)));
-    def.pixel(img.data, { w: img.width, h: img.height, pxPerMin, cols, palette, lx, ly }, Math.max(0, Math.min(1, e.amount)));
+    def.pixel(img.data, { w: img.width, h: img.height, pxPerMin, cols, palette, lx, ly, knobs: fxKnobs(def, e) }, Math.max(0, Math.min(1, e.amount)));
   }
 }

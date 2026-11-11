@@ -1,10 +1,10 @@
 import type { Format } from '@ftd/core';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { BORDER_TYPES, fxPreview, GLOW_TYPES, Knob, swatch } from './App';
-import { FX, fxGuides, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
+import { FX, fxGuides, fxKnobs, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
-import { GEN_DEFAULTS, VOLUMES, type Doc, type Layer } from './model';
+import { GEN_DEFAULTS, SKINS, VOLUMES, volumeName, type Doc, type Layer } from './model';
 import { ensureFont, fontFamily, fontsFor, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { TextContent, WarpGlyph, weightName } from './textbar';
 import { TiltPad } from './tilt';
@@ -17,7 +17,13 @@ import { borderDefaults } from './targets';
  */
 export type Section = 'edge' | 'coat' | 'image' | 'transform' | 'support' | 'depth';
 
-interface Item {
+/**
+ * Forme des pastilles selon ce qu'elles posent : la couleur reste ronde, la matière est un hexagone,
+ * le vernis un triangle, le carré est réservé aux bords.
+ */
+export const shapeClass = (sec: Section | 'color') => (sec === 'support' ? 'shape-matter' : sec === 'coat' ? 'shape-varnish' : sec === 'edge' ? 'shape-edge' : '');
+
+export interface Item {
   sec: Section;
   /** border, bevel, glow, look, draw, paint, material, fx:<index dans l.fx> */
   key: string;
@@ -124,7 +130,7 @@ const genOf = (l: Layer) => l.gen ?? (l.shape && !l.cut ? GEN_DEFAULTS[l.shape] 
 const secLabel = (sec: Section, l: Layer) => (sec === 'image' && l.kind === 'shape' ? 'Forme' : sec === 'image' && l.kind === 'text' ? 'Texte' : SECTIONS.find((s) => s.sec === sec)!.name);
 const fxIn = (l: Layer, g: FxGroup) => (l.fx ?? []).map((x, i) => ({ x, i })).filter(({ x }) => groupOf(x) === g);
 
-function itemsOf(l: Layer, doc: Doc): Item[] {
+export function itemsOf(l: Layer, doc: Doc): Item[] {
   const out: Item[] = [];
   const g = (i: number) => swatch(doc.guides[i]);
   if (l.kind !== 'surface') {
@@ -136,9 +142,9 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
     if (l.glow) out.push({ sec: 'edge', key: 'glow', name: GLOW_TYPES.find((x) => x[0] === l.glow!.style)![1], bg: `radial-gradient(circle, #fff 20%, ${swatch(doc.guides[l.glow.guide])} 60%)`, removable: true });
   }
   if (l.molded) out.push({ sec: 'image', key: 'molded', name: 'Modelé', bg: '', removable: false, glyph: 'molded' });
-  if (l.volume) out.push({ sec: 'depth', key: 'volume', name: VOLUMES.find((x) => x[0] === l.volume!.kind)![1], bg: 'radial-gradient(circle at 35% 30%,#fff,#b9b2c9 55%,#6f6880)', removable: true });
+  if (l.volume) out.push({ sec: 'depth', key: 'volume', name: volumeName(l.volume), bg: 'radial-gradient(circle at 35% 30%,#fff,#b9b2c9 55%,#6f6880)', removable: true });
   if (l.bump && l.kind !== 'surface') out.push({ sec: 'depth', key: 'relief', name: 'Relief sculpté', bg: 'radial-gradient(circle at 30% 30%,#fff,#b9b2c9 40%,#fff 55%,#8a849a)', removable: true });
-  for (const { x, i } of fxIn(l, 'lumiere')) out.push({ sec: 'coat', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: true });
+  for (const { x, i } of fxIn(l, 'lumiere')) out.push({ sec: 'coat', key: `fx:${i}`, name: x.preset ?? fxOf(x.id)!.name, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: true });
   if (l.kind === 'shape') {
     const gen = genOf(l);
     out.push({
@@ -161,13 +167,13 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
     out.push({ sec: 'image', key: 'warp', name: 'Disposition', bg: '', removable: false, glyph: w });
   }
   for (const { x, i } of fxIn(l, 'effet')) out.push({ sec: 'transform', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'radial-gradient(circle,#1c1b3a 30%,#e3a83c 34%) 0 0/6px 6px', removable: true });
-  if (l.material) out.push({ sec: 'support', key: 'material', name: fxOf(l.material.id)!.name, bg: 'repeating-linear-gradient(45deg,#c79a63 0 3px,#b0814d 3px 6px)', removable: true });
+  if (l.material) out.push({ sec: 'support', key: 'material', name: l.material.preset ?? fxOf(l.material.id)!.name, bg: 'repeating-linear-gradient(45deg,#c79a63 0 3px,#b0814d 3px 6px)', removable: true });
   if (l.molded) for (const it of out) if (['shape', 'content', 'text', 'warp'].includes(it.key)) it.locked = true;
   return out;
 }
 
 /** Ce qu'on retire quand on touche la croix d'un élément. */
-function removal(l: Layer, key: string): Partial<Layer> {
+export function removal(l: Layer, key: string): Partial<Layer> {
   if (key === 'border') return { border: undefined };
   if (key === 'bevel') return { bevel: 0, bevelProfile: undefined, bevelBorder: undefined };
   if (key === 'extrude') return { extrude: undefined };
@@ -190,7 +196,7 @@ function removal(l: Layer, key: string): Partial<Layer> {
 }
 
 /** Ce qu'on peut ajouter dans chaque section, avec la retouche qui l'applique. */
-function choicesOf(l: Layer, sec: Section, doc?: Doc): Array<{ id: string; name: string; patch: Partial<Layer>; focus: string; text?: Partial<TextStyle>; font?: string }> {
+export function choicesOf(l: Layer, sec: Section, doc?: Doc): Array<{ id: string; name: string; patch: Partial<Layer>; focus: string; text?: Partial<TextStyle>; font?: string }> {
   const fxAdd = (g: FxGroup) =>
     FX.filter((d) => d.group === g && !(l.fx ?? []).some((x) => x.id === d.id)).map((d) => ({
       id: d.id,
@@ -214,7 +220,12 @@ function choicesOf(l: Layer, sec: Section, doc?: Doc): Array<{ id: string; name:
         focus: 'glow',
       })),
     ];
-  if (sec === 'coat') return fxAdd('lumiere');
+  if (sec === 'coat') {
+    // un seul vernis : en choisir un autre remplace celui qui est posé
+    const keep = (l.fx ?? []).filter((x) => groupOf(x) !== 'lumiere');
+    const cur = (l.fx ?? []).find((x) => groupOf(x) === 'lumiere');
+    return FX.filter((d) => d.group === 'lumiere' && d.id !== cur?.id).map((d) => ({ id: d.id, name: d.name, patch: { fx: [...keep, newFx(d.id)] } as Partial<Layer>, focus: `fx:${keep.length}` }));
+  }
   if (sec === 'transform') return fxAdd('effet');
   if (sec === 'support')
     return MATERIALS()
@@ -227,7 +238,11 @@ function choicesOf(l: Layer, sec: Section, doc?: Doc): Array<{ id: string; name:
           // volume : proposé à tout objet qui n'en a pas encore
           ...(l.volume
             ? []
-            : VOLUMES.map(([kind, name]) => ({ id: `v-${kind}`, name: `Volume ${name.toLowerCase()}`, patch: { volume: { kind, amount: kind === 'cone' ? 0.5 : 0.7 } } as Partial<Layer>, focus: 'volume' }))),
+            : [
+                ...VOLUMES.filter(([kind]) => kind !== 'flat').map(([kind, name]) => ({ id: `v-${kind}`, name: `Volume ${name.toLowerCase()}`, patch: { volume: { kind, amount: kind === 'cone' ? 0.5 : 0.7 } } as Partial<Layer>, focus: 'volume' })),
+                // plis et fissures : posés à plat, la forme se choisit ensuite dans le réglage
+                ...SKINS.map(([kind, name]) => ({ id: `v-${kind}`, name, patch: { volume: { kind: 'flat', amount: 0.7, skin: { kind, depth: 0.6, density: 0.4 } } } as Partial<Layer>, focus: 'volume' })),
+              ]),
           ...((l.bevel ?? 0) > 0.001 ? [] : [{ id: 'bevel', name: 'Biseau', patch: { bevel: 0.5 } as Partial<Layer>, focus: 'bevel' }]),
           ...((l.extrude ?? 0) > 0.001 ? [] : [{ id: 'extrude', name: 'Extrusion', patch: { extrude: 0.5 } as Partial<Layer>, focus: 'extrude' }]),
         ];
@@ -409,7 +424,7 @@ export function CoupePanel({
     const mine = items.filter((x) => x.sec === s.sec);
     const can = choicesOf(l, s.sec, doc).length > 0;
     // une seule couche possible (matière, filtre) : on la change au crayon plutôt que d'en ajouter
-    const one = s.sec === 'support' || s.sec === 'image';
+    const one = s.sec === 'support' || s.sec === 'image' || s.sec === 'coat';
     return (
       <div key={s.sec} className={`cp-card ${adding === s.sec ? 'open' : ''}`}>
         <div className="cp-h">
@@ -453,7 +468,7 @@ export function CoupePanel({
                       Aa
                     </span>
                   ) : (
-                    <span className="sw" style={{ background: it.bg }} />
+                    <span className={`sw ${shapeClass(it.sec)}`} style={{ background: it.bg }} />
                   )}
                   <span className="nm" style={it.font ? { fontFamily: `${fontFamily(it.font)}, Inter, sans-serif` } : undefined}>
                     {it.name}
@@ -667,7 +682,7 @@ export function CoupePanel({
   );
 }
 
-function Dots({ label, value, doc, onPick }: { label: string; value: number; doc: Doc; onPick: (i: number) => void }) {
+export function Dots({ label, value, doc, onPick }: { label: string; value: number; doc: Doc; onPick: (i: number) => void }) {
   return (
     <div className="cp-row colors">
       <span>{label}</span>
@@ -684,7 +699,7 @@ function Dots({ label, value, doc, onPick }: { label: string; value: number; doc
  * Réglage rotatif : un potard, et sous lui sa légende (nom et valeur) en texte simple.
  * Les potards d'un formulaire s'alignent côte à côte, en bas, après les choix.
  */
-function Range({ label, value, onChange, unit, min = 0, display }: { label: string; value: number; onChange: (v: number) => void; unit?: string; min?: number; display?: string }) {
+export function Range({ label, value, onChange, unit, min = 0, display }: { label: string; value: number; onChange: (v: number) => void; unit?: string; min?: number; display?: string }) {
   const span = 1 - min;
   return (
     <div className="cp-dial" title={`${label} : glisser vers le haut ou la droite pour monter${min < 0 ? ', double toucher pour revenir au neutre' : ''}`}>
@@ -746,7 +761,7 @@ function TextLayout({ text: t, onChange }: { text: TextStyle; onChange: (next: P
 }
 
 /** Réglages de l'élément touché, en bas de la coupe. */
-function Attrs({
+export function Attrs({
   layer: l,
   doc,
   item,
@@ -777,6 +792,18 @@ function Attrs({
           <Dots key={i} label={sl.label} value={slots[i]!} doc={doc} onPick={(g) => set({ ...x, guides: slots.map((v, j) => (j === i ? g : v)) })} />
         ))}
         <Range label={def.amountLabel ?? amountLabel} unit={def.amountUnit} value={x.amount} onChange={(v) => set({ ...x, amount: Math.round(v * 100) / 100 }, false)} />
+        {def.knobs?.map((kn) => {
+          const val = fxKnobs(def, x)[kn.key]!;
+          return (
+            <Range
+              key={kn.key}
+              label={kn.label}
+              value={val}
+              display={kn.angle ? `${Math.round(val * 180) % 180}°` : undefined}
+              onChange={(v) => set({ ...x, knobs: { ...fxKnobs(def, x), [kn.key]: kn.angle ? Math.round(v * 36) / 36 : Math.round(v * 100) / 100 } }, false)}
+            />
+          );
+        })}
       </>
     );
   };
@@ -857,10 +884,11 @@ function Attrs({
     );
   } else if (item.key === 'volume' && l.volume) {
     const v = l.volume;
+    const sk = v.skin;
     body = (
       <>
         <label className="cp-row">
-          <span>Volume</span>
+          <span>Forme</span>
           <span className="seg cp-seg">
             {VOLUMES.map(([k, name]) => (
               <button key={k} className={v.kind === k ? 'on' : ''} onClick={() => patch({ volume: { ...v, kind: k } })}>
@@ -869,7 +897,7 @@ function Attrs({
             ))}
           </span>
         </label>
-        <Range label="Force" value={v.amount} onChange={(x) => live({ volume: { ...v, amount: Math.max(0.05, Math.round(x * 100) / 100) } })} />
+        {v.kind !== 'flat' && <Range label="Force" value={v.amount} onChange={(x) => live({ volume: { ...v, amount: Math.max(0.05, Math.round(x * 100) / 100) } })} />}
         {v.kind === 'cylinder' && (
           <Range
             label="Axe"
@@ -877,6 +905,33 @@ function Attrs({
             display={`${Math.round((((((v.axis ?? 0) * 180) / Math.PI) % 180) + 180) % 180)}°`}
             onChange={(x) => live({ volume: { ...v, axis: (Math.round(x * 36) / 36) * Math.PI } })}
           />
+        )}
+        <label className="cp-row">
+          <span>Surface</span>
+          <span className="seg cp-seg">
+            <button className={!sk ? 'on' : ''} onClick={() => patch({ volume: { ...v, skin: undefined, kind: v.kind === 'flat' ? 'dome' : v.kind } })}>
+              Lisse
+            </button>
+            {SKINS.map(([k, name]) => (
+              <button key={k} className={sk?.kind === k ? 'on' : ''} onClick={() => patch({ volume: { ...v, skin: { depth: 0.6, density: 0.4, ...sk, kind: k } } })}>
+                {name}
+              </button>
+            ))}
+          </span>
+        </label>
+        {sk && (
+          <>
+            <Range label="Profondeur" value={sk.depth} onChange={(x) => live({ volume: { ...v, skin: { ...sk, depth: Math.max(0.05, Math.round(x * 100) / 100) } } })} />
+            <Range label="Densité" value={sk.density} onChange={(x) => live({ volume: { ...v, skin: { ...sk, density: Math.round(x * 100) / 100 } } })} />
+            {sk.kind === 'drape' && (
+              <Range
+                label="Orientation"
+                value={((((sk.angle ?? 0) / Math.PI) % 1) + 1) % 1}
+                display={`${Math.round((((((sk.angle ?? 0) * 180) / Math.PI) % 180) + 180) % 180)}°`}
+                onChange={(x) => live({ volume: { ...v, skin: { ...sk, angle: (Math.round(x * 36) / 36) * Math.PI } } })}
+              />
+            )}
+          </>
         )}
       </>
     );
