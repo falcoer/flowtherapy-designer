@@ -1,7 +1,7 @@
 import type { Format } from '@ftd/core';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { BORDER_TYPES, fxPreview, GLOW_TYPES, Knob, swatch } from './App';
-import { FX, fxGuides, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
+import { FX, fxGuides, fxKnobs, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { GEN_DEFAULTS, SKINS, VOLUMES, volumeName, type Doc, type Layer } from './model';
@@ -781,6 +781,18 @@ function Attrs({
           <Dots key={i} label={sl.label} value={slots[i]!} doc={doc} onPick={(g) => set({ ...x, guides: slots.map((v, j) => (j === i ? g : v)) })} />
         ))}
         <Range label={def.amountLabel ?? amountLabel} unit={def.amountUnit} value={x.amount} onChange={(v) => set({ ...x, amount: Math.round(v * 100) / 100 }, false)} />
+        {def.knobs?.map((kn) => {
+          const val = fxKnobs(def, x)[kn.key]!;
+          return (
+            <Range
+              key={kn.key}
+              label={kn.label}
+              value={val}
+              display={kn.angle ? `${Math.round(val * 180) % 180}°` : undefined}
+              onChange={(v) => set({ ...x, knobs: { ...fxKnobs(def, x), [kn.key]: kn.angle ? Math.round(v * 36) / 36 : Math.round(v * 100) / 100 } }, false)}
+            />
+          );
+        })}
       </>
     );
   };
