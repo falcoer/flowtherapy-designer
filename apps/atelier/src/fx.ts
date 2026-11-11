@@ -104,8 +104,8 @@ export interface FxDef {
   transparent?: number;
   /** Calcul par pixel (matière) ; absent = effet dessiné par la scène. */
   pixel?: (d: Uint8ClampedArray, k: PixelCtx, a: number) => void;
-  /** Réglages propres à la matière, en plus de l'intensité ; `angle` : affiché en degrés (0..180°). */
-  knobs?: Array<{ key: string; label: string; def: number; angle?: boolean }>;
+  /** Réglages propres à la matière, en plus de l'intensité ; `def` : valeur d'une matière posée avant ce réglage, `fresh` : celle d'une matière neuve ; `angle` : affiché en degrés (0..180°). */
+  knobs?: Array<{ key: string; label: string; def: number; fresh?: number; angle?: boolean }>;
 }
 
 const cl = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -806,7 +806,7 @@ export const FX: FxDef[] = [
     amount: 0.6,
     knobs: [
       { key: 'angle', label: 'Orientation', def: 0, angle: true },
-      { key: 'knots', label: 'Nœuds', def: 0.2 },
+      { key: 'knots', label: 'Nœuds', def: 0, fresh: 0.2 },
       { key: 'size', label: 'Taille', def: 0.4 },
     ],
     pixel: (d, k, a) => {
@@ -1657,7 +1657,7 @@ export function fxGuides(def: FxDef, s: Fx | undefined): number[] {
 
 export function newFx(id: FxId): Fx {
   const d = fxOf(id)!;
-  return { id, guides: d.slots.map((s) => s.def), amount: d.amount, ...(d.knobs ? { knobs: Object.fromEntries(d.knobs.map((x) => [x.key, x.def])) } : {}) };
+  return { id, guides: d.slots.map((s) => s.def), amount: d.amount, ...(d.knobs ? { knobs: Object.fromEntries(d.knobs.map((x) => [x.key, x.fresh ?? x.def])) } : {}) };
 }
 
 /** Réglages propres de la matière, ceux qui manquent (matière posée avant leur arrivée) à leur valeur par défaut. */
