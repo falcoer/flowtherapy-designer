@@ -584,20 +584,47 @@ export const DEFAULT_GUIDES: Guide[] = [
  */
 export const compact = (_k: string, v: unknown) => (typeof v === 'number' && !Number.isInteger(v) ? Math.round(v * 1e5) / 1e5 : v);
 
-export type VolumeKind = 'dome' | 'cylinder' | 'cone' | 'cushion';
+export type VolumeKind = 'flat' | 'dome' | 'cylinder' | 'cone' | 'cushion';
+/** Peau du volume : des plis ou des fissures posés sur la forme (ou sur l'objet à plat). */
+export type SkinKind = 'drape' | 'crumple' | 'crack';
+export interface Skin {
+  kind: SkinKind;
+  /** Profondeur des plis ou des fissures (0..1). */
+  depth: number;
+  /** Densité (0..1) : peu de grands plis → beaucoup de petits. */
+  density: number;
+  /** Draperie : orientation des plis (radians, 0 = plis qui tombent, comme un rideau de scène). */
+  angle?: number;
+}
 export interface Volume {
   kind: VolumeKind;
   /** Force (0..1) : 1 = demi-sphère pour le dôme, pente à 45° pour le cône. */
   amount: number;
   /** Cylindre : direction de l'axe dans la forme (radians, 0 = debout). */
   axis?: number;
+  skin?: Skin;
 }
 export const VOLUMES: Array<[VolumeKind, string]> = [
+  ['flat', 'À plat'],
   ['dome', 'Dôme'],
   ['cylinder', 'Cylindre'],
   ['cone', 'Cône'],
   ['cushion', 'Coussin'],
 ];
+export const SKINS: Array<[SkinKind, string]> = [
+  ['drape', 'Draperie'],
+  ['crumple', 'Froissure'],
+  ['crack', 'Craquelure'],
+];
+/** Le volume soulève-t-il quelque chose (une forme ou une peau) ? */
+export const volumeOn = (v: Volume | undefined): boolean => !!v && ((v.kind !== 'flat' && v.amount > 0.001) || (!!v.skin && v.skin.depth > 0.001));
+/** Nom du volume dans la liste des attributs : « Dôme », « Draperie », « Dôme froissé »… */
+export function volumeName(v: Volume): string {
+  const shape = VOLUMES.find((x) => x[0] === v.kind)?.[1] ?? 'Volume';
+  if (!v.skin) return shape;
+  const skin = SKINS.find((x) => x[0] === v.skin!.kind)![1];
+  return v.kind === 'flat' ? skin : `${shape} · ${skin.toLowerCase()}`;
+}
 
 /** Taille de l'image exportée : 300 dpi pour l'imprimé, la taille native pour les écrans. */
 export function exportSize(f: Format, width?: number): { w: number; h: number } {

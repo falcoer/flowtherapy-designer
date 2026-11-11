@@ -911,6 +911,9 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 /* biseau : profil arrondi / chanfrein */
 .cp-row .cp-seg { grid-column: 2 / 4; }
 .cp-row .cp-seg button { height: 26px; font-size: 12px; }
+/* volume (formes, surfaces) : sur téléphone, les choix passent à la ligne plutôt que de se chevaucher */
+.cp-row .cp-seg { flex-wrap: wrap; min-width: 0; }
+.cp-row .cp-seg button { flex: 1 0 auto; padding-inline: 6px; white-space: nowrap; }
 /* Vue 3D : les couches en plaques, à leur hauteur */
 .px3d { position: fixed; inset: 0; z-index: 40; background: radial-gradient(ellipse at 50% 40%, var(--chrome-solid), var(--ground)); color: var(--ink); perspective: 1800px; display: grid; place-items: center; touch-action: none; user-select: none; cursor: grab; }
 .px3d.dragging { cursor: grabbing; }

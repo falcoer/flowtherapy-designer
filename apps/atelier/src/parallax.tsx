@@ -12,7 +12,7 @@ import type { Doc, Layer } from './model';
 import { hexRGB, opacityOf } from './fx';
 import { drawLampTint, drawLayers, drawRelief, lampOf, levelOf, renderOrder, shadowVector } from './scene';
 import { Gl3d, hasWebGL2, type GlView } from './gl3d';
-import { layerBox } from './model';
+import { layerBox, volumeOn } from './model';
 
 interface Plate {
   /** Image de la couche, recadrée sur ce qu'elle couvre. */
@@ -86,7 +86,7 @@ function buildPlates(doc: Doc, f: Format, r: number): Plate[] {
     c.getContext('2d')!.drawImage(one.c, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
     const plate: Plate = { c, x: b.x, y: b.y, h: topOf(l), l };
     // dôme, cylindre, biseau… : la carte de hauteurs pour soulever le dessus en 3D
-    const rel = (l.bevel ?? 0) > 0.001 || (l.volume?.amount ?? 0) > 0.001 ? (scratchRel = fresh(scratchRel)) : null;
+    const rel = (l.bevel ?? 0) > 0.001 || volumeOn(l.volume) ? (scratchRel = fresh(scratchRel)) : null;
     const rh = rel ? drawRelief(rel.ctx, l, doc, f) : 0;
     if (rel && rh > 0) {
       const rc = document.createElement('canvas');
@@ -165,7 +165,7 @@ function buildShadows(doc: Doc, f: Format, r: number, plates: Plate[]): ShadowPi
 const SLICES = 10;
 /** Épaisseur d'un objet découpé (en hauteur de page) : un carton, plus son volume et son biseau. */
 function thicknessOf(l: Layer): number {
-  return 0.035 + (l.volume ? l.volume.amount * 0.07 : 0) + (l.bevel ?? 0) * 0.025 + (l.extrude ?? 0) * EXTRUDE;
+  return 0.035 + (l.volume ? (l.volume.kind === 'flat' ? 0 : l.volume.amount) * 0.07 + (l.volume.skin?.depth ?? 0) * 0.02 : 0) + (l.bevel ?? 0) * 0.025 + (l.extrude ?? 0) * EXTRUDE;
 }
 /** Extrusion à 1, en hauteur de page : le dessus monte d'autant, la tranche descend jusqu'à la feuille. */
 const EXTRUDE = 0.5;

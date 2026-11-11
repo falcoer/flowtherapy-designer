@@ -4,7 +4,7 @@ import { BORDER_TYPES, fxPreview, GLOW_TYPES, Knob, swatch } from './App';
 import { FX, fxGuides, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
-import { GEN_DEFAULTS, VOLUMES, type Doc, type Layer } from './model';
+import { GEN_DEFAULTS, SKINS, VOLUMES, volumeName, type Doc, type Layer } from './model';
 import { ensureFont, fontFamily, fontsFor, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { TextContent, WarpGlyph, weightName } from './textbar';
 import { TiltPad } from './tilt';
@@ -136,7 +136,7 @@ function itemsOf(l: Layer, doc: Doc): Item[] {
     if (l.glow) out.push({ sec: 'edge', key: 'glow', name: GLOW_TYPES.find((x) => x[0] === l.glow!.style)![1], bg: `radial-gradient(circle, #fff 20%, ${swatch(doc.guides[l.glow.guide])} 60%)`, removable: true });
   }
   if (l.molded) out.push({ sec: 'image', key: 'molded', name: 'Modelé', bg: '', removable: false, glyph: 'molded' });
-  if (l.volume) out.push({ sec: 'depth', key: 'volume', name: VOLUMES.find((x) => x[0] === l.volume!.kind)![1], bg: 'radial-gradient(circle at 35% 30%,#fff,#b9b2c9 55%,#6f6880)', removable: true });
+  if (l.volume) out.push({ sec: 'depth', key: 'volume', name: volumeName(l.volume), bg: 'radial-gradient(circle at 35% 30%,#fff,#b9b2c9 55%,#6f6880)', removable: true });
   if (l.bump && l.kind !== 'surface') out.push({ sec: 'depth', key: 'relief', name: 'Relief sculpté', bg: 'radial-gradient(circle at 30% 30%,#fff,#b9b2c9 40%,#fff 55%,#8a849a)', removable: true });
   for (const { x, i } of fxIn(l, 'lumiere')) out.push({ sec: 'coat', key: `fx:${i}`, name: fxOf(x.id)!.name, bg: 'linear-gradient(135deg,#fff,#c9c3d6)', removable: true });
   if (l.kind === 'shape') {
@@ -227,7 +227,11 @@ function choicesOf(l: Layer, sec: Section, doc?: Doc): Array<{ id: string; name:
           // volume : proposé à tout objet qui n'en a pas encore
           ...(l.volume
             ? []
-            : VOLUMES.map(([kind, name]) => ({ id: `v-${kind}`, name: `Volume ${name.toLowerCase()}`, patch: { volume: { kind, amount: kind === 'cone' ? 0.5 : 0.7 } } as Partial<Layer>, focus: 'volume' }))),
+            : [
+                ...VOLUMES.filter(([kind]) => kind !== 'flat').map(([kind, name]) => ({ id: `v-${kind}`, name: `Volume ${name.toLowerCase()}`, patch: { volume: { kind, amount: kind === 'cone' ? 0.5 : 0.7 } } as Partial<Layer>, focus: 'volume' })),
+                // plis et fissures : posés à plat, la forme se choisit ensuite dans le réglage
+                ...SKINS.map(([kind, name]) => ({ id: `v-${kind}`, name, patch: { volume: { kind: 'flat', amount: 0.7, skin: { kind, depth: 0.6, density: 0.4 } } } as Partial<Layer>, focus: 'volume' })),
+              ]),
           ...((l.bevel ?? 0) > 0.001 ? [] : [{ id: 'bevel', name: 'Biseau', patch: { bevel: 0.5 } as Partial<Layer>, focus: 'bevel' }]),
           ...((l.extrude ?? 0) > 0.001 ? [] : [{ id: 'extrude', name: 'Extrusion', patch: { extrude: 0.5 } as Partial<Layer>, focus: 'extrude' }]),
         ];
@@ -857,10 +861,11 @@ function Attrs({
     );
   } else if (item.key === 'volume' && l.volume) {
     const v = l.volume;
+    const sk = v.skin;
     body = (
       <>
         <label className="cp-row">
-          <span>Volume</span>
+          <span>Forme</span>
           <span className="seg cp-seg">
             {VOLUMES.map(([k, name]) => (
               <button key={k} className={v.kind === k ? 'on' : ''} onClick={() => patch({ volume: { ...v, kind: k } })}>
@@ -869,7 +874,7 @@ function Attrs({
             ))}
           </span>
         </label>
-        <Range label="Force" value={v.amount} onChange={(x) => live({ volume: { ...v, amount: Math.max(0.05, Math.round(x * 100) / 100) } })} />
+        {v.kind !== 'flat' && <Range label="Force" value={v.amount} onChange={(x) => live({ volume: { ...v, amount: Math.max(0.05, Math.round(x * 100) / 100) } })} />}
         {v.kind === 'cylinder' && (
           <Range
             label="Axe"
@@ -877,6 +882,33 @@ function Attrs({
             display={`${Math.round((((((v.axis ?? 0) * 180) / Math.PI) % 180) + 180) % 180)}°`}
             onChange={(x) => live({ volume: { ...v, axis: (Math.round(x * 36) / 36) * Math.PI } })}
           />
+        )}
+        <label className="cp-row">
+          <span>Surface</span>
+          <span className="seg cp-seg">
+            <button className={!sk ? 'on' : ''} onClick={() => patch({ volume: { ...v, skin: undefined, kind: v.kind === 'flat' ? 'dome' : v.kind } })}>
+              Lisse
+            </button>
+            {SKINS.map(([k, name]) => (
+              <button key={k} className={sk?.kind === k ? 'on' : ''} onClick={() => patch({ volume: { ...v, skin: { depth: 0.6, density: 0.4, ...sk, kind: k } } })}>
+                {name}
+              </button>
+            ))}
+          </span>
+        </label>
+        {sk && (
+          <>
+            <Range label="Profondeur" value={sk.depth} onChange={(x) => live({ volume: { ...v, skin: { ...sk, depth: Math.max(0.05, Math.round(x * 100) / 100) } } })} />
+            <Range label="Densité" value={sk.density} onChange={(x) => live({ volume: { ...v, skin: { ...sk, density: Math.round(x * 100) / 100 } } })} />
+            {sk.kind === 'drape' && (
+              <Range
+                label="Orientation"
+                value={((((sk.angle ?? 0) / Math.PI) % 1) + 1) % 1}
+                display={`${Math.round((((((sk.angle ?? 0) * 180) / Math.PI) % 180) + 180) % 180)}°`}
+                onChange={(x) => live({ volume: { ...v, skin: { ...sk, angle: (Math.round(x * 36) / 36) * Math.PI } } })}
+              />
+            )}
+          </>
         )}
       </>
     );
