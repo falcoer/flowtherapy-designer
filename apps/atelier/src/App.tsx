@@ -392,7 +392,10 @@ export function App() {
   }, [usedFonts]);
 
   /** Modifie le document en gardant l'historique (annuler / rétablir). */
+  /** Une modification de l'utilisateur a eu lieu : les couleurs importées devenues inutiles pourront partir. */
+  const pruneDue = useRef(false);
   const update = useCallback((fn: (d: Doc) => Doc) => {
+    pruneDue.current = true;
     past.current.push(JSON.stringify(docRef.current, compact));
     if (past.current.length > 60) past.current.shift();
     future.current = [];
@@ -1033,13 +1036,18 @@ export function App() {
   };
   const [selected, setSelected] = useState<string | null>('arche');
   const [guide, setGuide] = useState(2);
-  // une couleur importée que plus rien n'utilise quitte la palette (la couleur du pinceau reste)
+  // une couleur importée que plus rien n'utilise quitte la palette (la couleur du pinceau reste) ;
+  // seulement après une modification (pas au chargement, qui compterait comme une retouche non enregistrée)
+  // et pas pendant qu'une boîte de couleur est ouverte (elle désigne sa couleur par son numéro)
+  const [palEditing, setPalEditing] = useState(false);
   useEffect(() => {
+    if (!pruneDue.current || palEditing) return;
+    pruneDue.current = false;
     const r = pruneImported(doc, [guide]);
     if (!r) return;
     setDoc(r.doc);
     setGuide(r.map(guide));
-  }, [doc, guide]);
+  }, [doc, guide, palEditing]);
   /** Barre de texte ouverte sur le clavier (ou l'écriture au stylet). */
   /** Outil Prolonger de la barre de texte. */
   const [swash, setSwash] = useState<SwashTool>({ on: false, mode: 'mold', r: 0.3, end: 'point', w: null });
@@ -5499,6 +5507,7 @@ export function App() {
               declared={paletteFor(activeTarget, activity)}
               variant={palettesOf(activity).length > 0 ? <VariantPick current={currentPub} activity={activity} onApply={applyPublication} /> : undefined}
               onPick={setGuide}
+              onEditing={setPalEditing}
               onGuides={(guides, commit = true) => {
                 livePaint(!commit);
                 (commit ? update : setDoc)((d) => ({ ...d, guides }));
@@ -5862,7 +5871,10 @@ function PaletteBubble({
   declared,
   variant,
   matter,
+  onEditing,
 }: {
+  /** Une boîte de couleur est ouverte (ou vient de se fermer). */
+  onEditing?: (on: boolean) => void;
   doc: Doc;
   active: number;
   /** Palette des matières ou des vernis (onglet choisi), en mode Modifier ou non. */
@@ -5913,6 +5925,10 @@ function PaletteBubble({
   useEffect(() => {
     if (!edit) setEditing(null);
   }, [edit]);
+  useEffect(() => {
+    onEditing?.(editing !== null);
+  }, [editing, onEditing]);
+  useEffect(() => () => onEditing?.(false), [onEditing]);
   const store = (list: typeof saved) => {
     setSaved(list);
     try {
