@@ -763,6 +763,7 @@ function TextTab({
         onFocus={() => (first.current = true)}
         onChange={(e) => setDraft(e.target.value)}
       />
+      <div className="ap-tools">
       <div className="ap-ctl">
         <div className="ap-ctl-row">
           <div className="seg tb-align" title={lines > 1 ? undefined : 'L’alignement agit sur un texte de plusieurs lignes'}>
@@ -804,6 +805,7 @@ function TextTab({
           />
         </div>
         {t.warp && <Range label="Courbure" min={-1} value={t.warp.amount} display={`${Math.round(t.warp.amount * 100)}`} onChange={(v) => live('warp', { warp: { ...t.warp!, amount: Math.round(v * 50) / 50 } })} />}
+      </div>
       </div>
       {fonts && createPortal(<FontDialog text={t} onPick={(id) => onChange({ font: id }, true)} onClose={() => setFonts(false)} />, document.body)}
     </div>
@@ -856,10 +858,14 @@ function FontDialog({ text: t, onPick, onClose }: { text: TextStyle; onPick: (id
 
 
 /**
- * Teinte d'un réglage : une pastille de la taille d'un potard. Un toucher passe à la couleur suivante
- * de la palette ; tenu, il les fait défiler. Une couleur de la palette déposée sur la zone du réglage
+ * Teinte d'un réglage : une pastille de la taille d'un potard. Doigt posé, la palette s'affiche en petit
+ * dessous ; glisser à droite ou à gauche défile dans l'ordre (et revient), relâcher garde la teinte.
+ * Un simple toucher passe à la suivante. Une couleur de la palette déposée sur la zone du réglage
  * (la plaque, le formulaire) arrive ici par l'événement « tint-drop ».
  */
+const TINT_STEP = 22;
+/** Écart des couleurs sur la bande (plus large que le pas du geste : le cercle en cache une). */
+const TINT_VIS = 46;
 export function Dots({ label, value, doc, onPick }: { label: string; value: number; doc: Doc; onPick: (i: number) => void }) {
   const n = doc.guides.length;
   const ref = useRef<HTMLDivElement>(null);
@@ -867,7 +873,8 @@ export function Dots({ label, value, doc, onPick }: { label: string; value: numb
   pick.current = onPick;
   const cur = useRef(value);
   cur.current = value;
-  const hold = useRef<{ t: number; iv?: number; ran: boolean } | null>(null);
+  const drag = useRef<{ id: number; x0: number; i0: number; moved: boolean } | null>(null);
+  const [strip, setStrip] = useState<{ cx: number; top: number; i0: number; d: number } | null>(null);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -876,39 +883,38 @@ export function Dots({ label, value, doc, onPick }: { label: string; value: numb
     return () => el.removeEventListener('tint-drop', on);
   }, []);
   const step = (d = 1) => n && pick.current((((cur.current + d) % n) + n) % n);
-  const stop = () => {
-    const h = hold.current;
-    if (!h) return;
-    clearTimeout(h.t);
-    clearInterval(h.iv);
-    hold.current = null;
+  const end = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d || d.id !== e.pointerId) return;
+    drag.current = null;
+    setStrip(null);
+    if (!d.moved && e.type === 'pointerup') step();
   };
-  useEffect(() => stop, []);
   const g = doc.guides[value];
   return (
-    <div className="cp-dial cp-tint" ref={ref} data-tint title={`${label} : toucher pour la couleur suivante, tenir pour les faire défiler, ou déposer une couleur de la palette`}>
+    <div className="cp-dial cp-tint" ref={ref} data-tint title={`${label} : glisser à droite ou à gauche pour changer de couleur, toucher pour la suivante, ou déposer une couleur de la palette`}>
       <button
-        className="tint-b"
+        className={`tint-b ${strip ? 'held' : ''}`}
         style={{ background: g ? swatch(g) : undefined }}
-        aria-label={`${label} : ${g?.name ?? 'aucune'}, toucher pour la couleur suivante`}
+        aria-label={`${label} : ${g?.name ?? 'aucune'}`}
         onPointerDown={(e) => {
-          if (e.button) return;
-          stop();
-          const h: { t: number; iv?: number; ran: boolean } = { t: 0, ran: false };
-          h.t = window.setTimeout(() => {
-            h.ran = true;
-            step();
-            h.iv = window.setInterval(() => step(), 420);
-          }, 380);
-          hold.current = h;
+          if (e.button || !n) return;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          drag.current = { id: e.pointerId, x0: e.clientX, i0: cur.current, moved: false };
+          const r = e.currentTarget.getBoundingClientRect();
+          setStrip({ cx: r.left + r.width / 2, top: r.top + r.height / 2, i0: cur.current, d: r.width });
         }}
-        onPointerUp={() => {
-          const h = hold.current;
-          stop();
-          if (h && !h.ran) step();
+        onPointerMove={(e) => {
+          const d = drag.current;
+          if (!d || d.id !== e.pointerId) return;
+          const dx = e.clientX - d.x0;
+          if (Math.abs(dx) > 6) d.moved = true;
+          const i = Math.max(0, Math.min(n - 1, d.i0 + Math.round(dx / TINT_STEP)));
+          if (i !== cur.current) pick.current(i);
         }}
-        onPointerLeave={stop}
-        onPointerCancel={stop}
+        onPointerUp={end}
+        onPointerCancel={end}
+        onLostPointerCapture={end}
         onKeyDown={(e) => {
           if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') step(-1);
           else if (e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') step(1);
@@ -925,6 +931,23 @@ export function Dots({ label, value, doc, onPick }: { label: string; value: numb
       </button>
       <span className="cp-dial-l">{label}</span>
       <output>{g?.name ?? '—'}</output>
+      {strip &&
+        createPortal(
+          // la palette en petit, la teinte choisie sous le doigt : elle défile avec le geste
+          <div className="tint-strip" style={{ top: strip.top, left: strip.cx, ['--tint-d' as string]: `${strip.d}px` }} aria-hidden>
+            <div className="tint-band">
+            <div className="tint-reel" style={{ transform: `translateX(${-(value + 0.5) * TINT_VIS}px)` }}>
+              {doc.guides.map((x, i) => {
+                const k = Math.abs(i - value);
+                return <i key={i} className={i === value ? 'on' : ''} style={{ background: swatch(x), filter: k > 1 ? `blur(${Math.min(3, (k - 1) * 1.2)}px)` : undefined }} />;
+              })}
+            </div>
+            </div>
+            <span className="tint-lens" style={{ background: g ? swatch(g) : undefined }} />
+            <b>{g?.name}</b>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

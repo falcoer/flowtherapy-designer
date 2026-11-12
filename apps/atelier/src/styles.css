@@ -2426,3 +2426,47 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 @media (max-width: 540px) { .cp-pane .cp-tint .tint-b { width: 38px; height: 38px; --tint-r: 15.5px; } }
 .scene-thumb { width: auto; height: 64px; max-width: 100%; max-height: none; }
 .scene-tab { font-size: 11.5px; padding: 6px 2px; }
+
+/* Texte : la zone d'écriture prend toute la hauteur libre du panneau, les réglages restent en bas */
+.ap-pane > .ap-text { display: flex; flex-direction: column; gap: 6px; flex: 1 0 auto; min-height: 0; }
+.ap-text > .ap-area { flex: 1 1 auto; min-height: 52px; height: auto; }
+.ap-tools { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 18px; flex: 0 0 auto; }
+@media (max-width: 540px) { .ap-tools { gap: 6px 10px; } .ap-tools > .ap-ctl, .ap-tools > .ap-knobs { flex: 1 1 100%; } }
+/* les plaques côte à côte (réglages, potards) ont la même hauteur, contenu centré */
+.ap-tools { align-items: stretch; }
+.ap-tools > .ap-ctl { align-content: center; justify-content: center; }
+.ap-tools > .ap-knobs { align-content: center; }
+
+/* Teinte : la palette en petit sous le doigt pendant le geste */
+.tint-strip { position: fixed; z-index: 400; display: flex; gap: 0; padding: 4px 0; border-radius: 12px; background: var(--chrome-solid); box-shadow: var(--shadow); pointer-events: none; transition: left 0.12s ease-out; }
+.tint-strip i { width: 22px; height: 18px; display: block; flex: none; transform: scale(0.72); border-radius: 5px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); transition: transform 0.12s; }
+.tint-strip i.on { transform: scale(1.05); box-shadow: 0 0 0 2px var(--accent); }
+.tint-strip b { position: absolute; top: 100%; margin-top: 3px; transform: translateX(-50%); font: 600 10px/1.2 Inter, sans-serif; white-space: nowrap; padding: 1px 6px; border-radius: 6px; background: var(--ink); color: var(--chrome-solid); }
+.cp-tint .tint-b.held { transform: scale(0.94); }
+.cp-tint .tint-b { touch-action: none; }
+/* bande collée sous le cercle : les couleurs défilent sous un repère fixe en surbrillance */
+.tint-strip { transform: translateX(-50%); left: 0; width: 7.5 * 22px; width: 154px; height: 30px; padding: 0; border-radius: 15px; overflow: visible; transition: none; background: var(--chrome-solid); -webkit-mask: none; }
+.tint-strip .tint-reel { position: absolute; left: 50%; top: 6px; display: flex; transition: transform 0.14s cubic-bezier(.3,.7,.3,1); }
+.tint-strip .tint-reel i { width: 22px; height: 18px; transform: scale(0.7); border-radius: 9px; }
+.tint-strip .tint-reel i.on { transform: scale(1); box-shadow: none; }
+.tint-strip { clip-path: inset(-30px 0 -30px 0 round 15px); }
+.tint-strip .tint-lens { position: absolute; left: 50%; top: 2px; width: 28px; height: 26px; margin-left: -14px; border-radius: 13px; box-shadow: 0 0 0 2px var(--accent), 0 0 10px 2px var(--accent-soft, rgba(124,92,255,.35)); pointer-events: none; }
+.tint-strip b { left: 50%; }
+/* bande qui traverse le cercle (croquis de Lauris) : la teinte choisie dans le cercle, les autres de part et d'autre, bouts flous */
+.tint-strip { width: 260px; height: 30px; transform: translate(-50%, -50%); border-radius: 0; background: color-mix(in srgb, var(--chrome-solid) 92%, transparent); box-shadow: 0 2px 10px rgba(0,0,0,.18); clip-path: none; border-top: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink); -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); overflow: visible; }
+.tint-strip .tint-reel { top: 5px; }
+.tint-strip .tint-reel i { width: 34px; height: 18px; transform: scale(0.72, 1); border-radius: 9px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.tint-strip .tint-reel i.on { transform: scale(0.72, 1); }
+.tint-strip .tint-lens { left: 50%; top: 50%; width: var(--tint-d, 46px); height: var(--tint-d, 46px); margin: 0; transform: translate(-50%, -50%); border-radius: 50%; box-shadow: 0 0 0 5px var(--chrome-solid), 0 0 0 7px var(--ink), 0 0 12px 6px var(--accent-soft, rgba(124,92,255,.35)); }
+.tint-strip b { top: calc(50% + var(--tint-d, 46px) / 2 + 10px); margin-top: 0; }
+.tint-strip { background: none; box-shadow: none; border: 0; -webkit-mask-image: none; mask-image: none; }
+.tint-strip .tint-band { position: absolute; inset: 0; background: color-mix(in srgb, var(--chrome-solid) 94%, transparent); border-top: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink); -webkit-mask-image: linear-gradient(90deg, transparent, #000 24%, #000 76%, transparent); mask-image: linear-gradient(90deg, transparent, #000 24%, #000 76%, transparent); overflow: hidden; }
+.tint-strip .tint-band { background: var(--chrome-solid); }
+/* bande plus grande, traits fins comme le reste de l'interface, couleurs en ronds */
+.tint-strip { width: 340px; height: 40px; }
+.tint-strip .tint-band { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); box-shadow: var(--tool-lift, 0 1px 2px rgba(0,0,0,.12)); }
+.tint-strip .tint-reel { top: 50%; margin-top: -13px; }
+.tint-strip .tint-reel i { width: 40px; height: 26px; transform: none; border-radius: 0; background-clip: content-box !important; padding: 0 7px; box-shadow: none; -webkit-mask: radial-gradient(circle at center, #000 12.5px, transparent 13px); mask: radial-gradient(circle at center, #000 12.5px, transparent 13px); }
+.tint-strip .tint-reel i.on { transform: none; }
+.tint-strip .tint-lens { width: calc(var(--tint-d, 46px) + 8px); height: calc(var(--tint-d, 46px) + 8px); box-shadow: 0 0 0 6px var(--chrome-solid), 0 0 0 7px var(--line), 0 0 0 9px var(--accent), var(--tool-lift, 0 2px 6px rgba(0,0,0,.18)); }
+.tint-strip .tint-reel i { width: 46px; padding: 0 10px; }
