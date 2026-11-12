@@ -604,26 +604,38 @@ export function CoupePanel({
     );
   } else if (tab === 'edge') {
     body = (
-      <div className="ap-rows ap-edges">
+      <div className="ap-edges">
         {EDGE_SLOTS.map(([k, label]) => {
           const has = !!l[k];
+          const what = k === 'glow' ? 'une lueur' : k === 'trim' ? 'un rognage' : 'un bord';
           return (
-            <SlotRow
-              key={k}
-              drop={`edge-${k}`}
-              label={label}
-              shape="shape-edge"
-              name={has ? edgeName(k, l) : undefined}
-              glyph={has ? <EdgeGlyph edge={{ [k]: l[k] }} doc={doc} size={40} /> : undefined}
-              onSlot={() => onWizard?.('edge')}
-              onRemove={() => {
-                patch(removal(l, k));
-                onToast(`${label} retiré${k === 'glow' ? 'e' : ''}`, true);
-              }}
-              hint={`Glisse ici ${k === 'glow' ? 'une lueur' : k === 'trim' ? 'un rognage' : 'un bord'} de la palette (onglet Bords), ou touche le carré pour l’assistant`}
-            >
-              {has && <Attrs bare layer={l} doc={doc} item={{ sec: 'edge', key: k, name: '', bg: '', removable: true }} patch={patch} />}
-            </SlotRow>
+            <div key={k} className={`ap-ecard ${has ? '' : 'empty'}`} data-drop={`edge-${k}`}>
+              <div className="ap-ecard-h">
+                <button className={`ap-slot shape-edge ${has ? '' : 'empty'}`} onClick={() => onWizard?.('edge')} title={`Glisse ici ${what} de la palette (onglet Bords), ou touche le carré pour l’assistant`} aria-label={`${label} : assistant`}>
+                  {has ? <EdgeGlyph edge={{ [k]: l[k] }} doc={doc} size={40} /> : <span className="ap-plus">＋</span>}
+                </button>
+                <span className="ap-ecard-t">
+                  <span className="ap-slot-l">{label}</span>
+                  <small>{has ? edgeName(k, l) : 'Vide'}</small>
+                </span>
+                {has && (
+                  <button
+                    className="ap-x"
+                    onClick={() => {
+                      patch(removal(l, k));
+                      onToast(`${label} retiré${k === 'glow' ? 'e' : ''}`, true);
+                    }}
+                    title={`Retirer : ${edgeName(k, l)}`}
+                    aria-label={`Retirer ${label}`}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+              <div className="ap-ecard-b">
+                {has ? <Attrs bare layer={l} doc={doc} item={{ sec: 'edge', key: k, name: '', bg: '', removable: true }} patch={patch} /> : <p className="ap-hint">Dépose {what} de la palette ici, ou touche le carré.</p>}
+              </div>
+            </div>
           );
         })}
       </div>

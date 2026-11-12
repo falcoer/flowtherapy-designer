@@ -2369,3 +2369,29 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
   .ap-tabs { padding-left: 4px; gap: 2px; }
   .ap-row { padding: 5px 6px; }
 }
+/* Bord : trois plaques identiques (rognage, bord, lueur), chacune : emplacement + nom, couleurs, potards */
+.ap-edges, .ap-rows.ap-edges { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; align-items: stretch; }
+.ap-ecard {
+  display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; min-width: 0;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--chrome-solid) 97%, #fff 3%), color-mix(in srgb, var(--chrome-solid) 94%, #000 3%));
+  border-radius: 14px; box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(20, 16, 30, 0.08);
+}
+.ap-ecard.hot { background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent); }
+.ap-ecard-h { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ap-ecard-t { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.ap-ecard-t small { font-size: 12px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ap-ecard.empty .ap-ecard-t small { color: var(--muted); }
+.ap-ecard-b { display: flex; min-width: 0; }
+.ap-ecard-b .ap-attrs { flex: 1; max-width: none; flex-wrap: wrap; justify-content: flex-start; column-gap: 2px; row-gap: 2px; }
+.ap-pane .ap-ecard-b .cp-attrs > .cp-row.colors { flex: 1 1 100%; display: flex; gap: 6px; }
+.ap-pane .ap-ecard-b .cp-attrs > .cp-row.colors > span:first-child { display: block; width: 58px; flex: none; font: var(--tool-label); letter-spacing: 0.06em; text-transform: uppercase; }
+.ap-ecard-b .cp-dial { width: 64px; }
+.ap-ecard-b .ap-hint { font-size: 11.5px; }
+@media (max-width: 760px) { .ap-edges, .ap-rows.ap-edges { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 540px) { .ap-edges, .ap-rows.ap-edges { grid-template-columns: minmax(0, 1fr); } }
+
+/* Bord sur téléphone : une plaque vide se réduit à son en-tête */
+@media (max-width: 540px) {
+  .ap-ecard.empty .ap-ecard-b { display: none; }
+  .ap-ecard .ap-slot.shape-edge { width: 40px; height: 40px; }
+}
