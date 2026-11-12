@@ -1143,7 +1143,14 @@ export function Attrs({
   unmold?: () => void;
   onMold?: () => void;
 }) {
-  const live = (p: Partial<Layer>) => patch(p, false);
+  // un geste de potard = un pas d'annulation : le premier mouvement l'enregistre, la suite le prolonge
+  const stepAt = useRef(0);
+  const live = (p: Partial<Layer>) => {
+    const now = performance.now();
+    const fresh = now - stepAt.current > 700;
+    stepAt.current = now;
+    patch(p, fresh);
+  };
   const liveText = useStep(patchText ?? (() => {}));
   let body: React.ReactNode = null;
   const fxRows = (x: Fx, set: (x: Fx, history?: boolean) => void, amountLabel = 'Intensité') => {
