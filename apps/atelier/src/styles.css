@@ -2452,3 +2452,13 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .tint-strip { clip-path: inset(-30px 0 -30px 0 round 15px); }
 .tint-strip .tint-lens { position: absolute; left: 50%; top: 2px; width: 28px; height: 26px; margin-left: -14px; border-radius: 13px; box-shadow: 0 0 0 2px var(--accent), 0 0 10px 2px var(--accent-soft, rgba(124,92,255,.35)); pointer-events: none; }
 .tint-strip b { left: 50%; }
+/* bande qui traverse le cercle (croquis de Lauris) : la teinte choisie dans le cercle, les autres de part et d'autre, bouts flous */
+.tint-strip { width: 260px; height: 30px; transform: translate(-50%, -50%); border-radius: 0; background: color-mix(in srgb, var(--chrome-solid) 92%, transparent); box-shadow: 0 2px 10px rgba(0,0,0,.18); clip-path: none; border-top: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink); -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); overflow: visible; }
+.tint-strip .tint-reel { top: 5px; }
+.tint-strip .tint-reel i { width: 34px; height: 18px; transform: scale(0.72, 1); border-radius: 9px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.tint-strip .tint-reel i.on { transform: scale(0.72, 1); }
+.tint-strip .tint-lens { left: 50%; top: 50%; width: var(--tint-d, 46px); height: var(--tint-d, 46px); margin: 0; transform: translate(-50%, -50%); border-radius: 50%; box-shadow: 0 0 0 5px var(--chrome-solid), 0 0 0 7px var(--ink), 0 0 12px 6px var(--accent-soft, rgba(124,92,255,.35)); }
+.tint-strip b { top: calc(50% + var(--tint-d, 46px) / 2 + 10px); margin-top: 0; }
+.tint-strip { background: none; box-shadow: none; border: 0; -webkit-mask-image: none; mask-image: none; }
+.tint-strip .tint-band { position: absolute; inset: 0; background: color-mix(in srgb, var(--chrome-solid) 94%, transparent); border-top: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink); -webkit-mask-image: linear-gradient(90deg, transparent, #000 24%, #000 76%, transparent); mask-image: linear-gradient(90deg, transparent, #000 24%, #000 76%, transparent); overflow: hidden; }
+.tint-strip .tint-band { background: var(--chrome-solid); }

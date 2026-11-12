@@ -864,6 +864,8 @@ function FontDialog({ text: t, onPick, onClose }: { text: TextStyle; onPick: (id
  * (la plaque, le formulaire) arrive ici par l'événement « tint-drop ».
  */
 const TINT_STEP = 22;
+/** Écart des couleurs sur la bande (plus large que le pas du geste : le cercle en cache une). */
+const TINT_VIS = 34;
 export function Dots({ label, value, doc, onPick }: { label: string; value: number; doc: Doc; onPick: (i: number) => void }) {
   const n = doc.guides.length;
   const ref = useRef<HTMLDivElement>(null);
@@ -872,7 +874,7 @@ export function Dots({ label, value, doc, onPick }: { label: string; value: numb
   const cur = useRef(value);
   cur.current = value;
   const drag = useRef<{ id: number; x0: number; i0: number; moved: boolean } | null>(null);
-  const [strip, setStrip] = useState<{ cx: number; top: number; i0: number } | null>(null);
+  const [strip, setStrip] = useState<{ cx: number; top: number; i0: number; d: number } | null>(null);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -900,7 +902,7 @@ export function Dots({ label, value, doc, onPick }: { label: string; value: numb
           e.currentTarget.setPointerCapture(e.pointerId);
           drag.current = { id: e.pointerId, x0: e.clientX, i0: cur.current, moved: false };
           const r = e.currentTarget.getBoundingClientRect();
-          setStrip({ cx: r.left + r.width / 2, top: r.bottom - 4, i0: cur.current });
+          setStrip({ cx: r.left + r.width / 2, top: r.top + r.height / 2, i0: cur.current, d: r.width });
         }}
         onPointerMove={(e) => {
           const d = drag.current;
@@ -932,13 +934,16 @@ export function Dots({ label, value, doc, onPick }: { label: string; value: numb
       {strip &&
         createPortal(
           // la palette en petit, la teinte choisie sous le doigt : elle défile avec le geste
-          <div className="tint-strip" style={{ top: strip.top, left: strip.cx }} aria-hidden>
-            <div className="tint-reel" style={{ transform: `translateX(${-(value + 0.5) * TINT_STEP}px)` }}>
-              {doc.guides.map((x, i) => (
-                <i key={i} className={i === value ? 'on' : ''} style={{ background: swatch(x), opacity: Math.max(0.25, 1 - Math.abs(i - value) * 0.22) }} />
-              ))}
+          <div className="tint-strip" style={{ top: strip.top, left: strip.cx, ['--tint-d' as string]: `${strip.d}px` }} aria-hidden>
+            <div className="tint-band">
+            <div className="tint-reel" style={{ transform: `translateX(${-(value + 0.5) * TINT_VIS}px)` }}>
+              {doc.guides.map((x, i) => {
+                const k = Math.abs(i - value);
+                return <i key={i} className={i === value ? 'on' : ''} style={{ background: swatch(x), filter: k > 1 ? `blur(${Math.min(3, (k - 1) * 1.2)}px)` : undefined }} />;
+              })}
             </div>
-            <span className="tint-lens" />
+            </div>
+            <span className="tint-lens" style={{ background: g ? swatch(g) : undefined }} />
             <b>{g?.name}</b>
           </div>,
           document.body,
