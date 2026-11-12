@@ -36,7 +36,10 @@ export function MaterialWizard({
   onDoc,
   onClose,
   onToast,
+  start,
 }: {
+  /** Onglet ouvert d'emblée (l'emplacement touché dans les attributs). */
+  start?: Tab;
   layer: Layer;
   doc: Doc;
   f: Format;
@@ -46,7 +49,7 @@ export function MaterialWizard({
   onToast: (msg: string, undoable?: boolean) => void;
 }) {
   const tabs = TABS.filter(([t]) => l.kind !== 'surface' || t === 'support' || t === 'coat');
-  const [tab, setTab] = useState<Tab>('support');
+  const [tab, setTab] = useState<Tab>(start && tabs.some(([t]) => t === start) ? start : 'support');
   const startType = MATERIAL_TYPES.find((t) => t.presets.some((p) => p.name === l.material?.preset)) ?? MATERIAL_TYPES.find((t) => t.presets.some((p) => p.fx === l.material?.id)) ?? MATERIAL_TYPES[0]!;
   const [type, setType] = useState(startType.id);
   useEffect(() => {

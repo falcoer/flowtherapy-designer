@@ -213,6 +213,14 @@ export interface Layer {
   strokes: Stroke[];
 }
 
+/** Ce que l'appareil photo fait de la page : transformation globale et déformation de l'objectif. */
+export interface SceneLook {
+  /** Transformation (groupe « effet ») posée sur toute la scène. */
+  fx?: Fx;
+  /** Objectif : distorsion −1 (coussinet) … +1 (barillet), vignettage et franges colorées 0..1. */
+  lens?: { warp: number; vignette: number; fringe: number };
+}
+
 export interface Lamp {
   x: number;
   y: number;
@@ -273,11 +281,24 @@ export interface Doc {
   light: number;
   /** Lampe au-dessus de la feuille : position (fractions de la page, peut sortir de la page), hauteur 0..1 et couleur. */
   lamp?: Lamp;
+  /** Rendu de la scène entière, après la lumière : une transformation et l'objectif. */
+  scene?: SceneLook;
   layers: Layer[];
   /** Palette de matières (« Mes matières ») : des supports nommés, liés aux objets qui les portent. */
   materials?: PaletteMatter[];
   /** Palette de vernis (« Mes vernis »). */
   varnishes?: PaletteMatter[];
+  /** Palette de bords (« Mes bords ») : un bord, une lueur ou un rognage nommé, à déposer sur un objet. */
+  edges?: PaletteEdge[];
+}
+
+/** Une entrée de la palette de bords : un seul des trois emplacements (bord, lueur ou rognage), avec tous ses réglages. */
+export interface PaletteEdge {
+  id: string;
+  name: string;
+  border?: Layer['border'];
+  glow?: Layer['glow'];
+  trim?: Layer['trim'];
 }
 
 /** Une entrée des palettes de matières ou de vernis : un réglage nommé, partagé par les objets qui y sont liés (Fx.ref). */

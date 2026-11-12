@@ -13,14 +13,23 @@ function layerGuides(l: Layer): number[] {
   return [
     l.guide,
     ...l.strokes.map((s) => s.guide),
-    ...(l.border ? [l.border.guide, ...(l.border.guide2 !== undefined ? [l.border.guide2] : [])] : []),
-    ...(l.glow ? [l.glow.guide] : []),
+    ...edgeGuides(l),
     ...(l.look?.guides ?? []),
     ...fxGuides(l.look?.draw),
     ...fxGuides(l.material),
     ...(l.fx ?? []).flatMap(fxGuides),
   ];
 }
+
+/** Les couleurs d'un bord et d'une lueur (entrée de la palette de bords ou objet). */
+const edgeGuides = (e: Pick<Layer, 'border' | 'glow'>) => [
+  ...(e.border ? [e.border.guide, ...(e.border.guide2 !== undefined ? [e.border.guide2] : [])] : []),
+  ...(e.glow ? [e.glow.guide] : []),
+];
+const remapEdges = (e: Pick<Layer, 'border' | 'glow'>, m: (i: number) => number): Pick<Layer, 'border' | 'glow'> => ({
+  ...(e.border ? { border: { ...e.border, guide: m(e.border.guide), ...(e.border.guide2 !== undefined ? { guide2: m(e.border.guide2) } : {}) } } : {}),
+  ...(e.glow ? { glow: { ...e.glow, guide: m(e.glow.guide) } } : {}),
+});
 
 const remapFx = (x: Fx, m: (i: number) => number): Fx => (x.guides ? { ...x, guides: x.guides.map(m) } : x);
 
@@ -29,8 +38,7 @@ function remapLayer(l: Layer, m: (i: number) => number): Layer {
     ...l,
     guide: m(l.guide),
     strokes: l.strokes.map((s) => ({ ...s, guide: m(s.guide) })),
-    ...(l.border ? { border: { ...l.border, guide: m(l.border.guide), ...(l.border.guide2 !== undefined ? { guide2: m(l.border.guide2) } : {}) } } : {}),
-    ...(l.glow ? { glow: { ...l.glow, guide: m(l.glow.guide) } } : {}),
+    ...remapEdges(l, m),
     ...(l.look ? { look: { ...l.look, guides: l.look.guides.map(m), ...(l.look.draw ? { draw: remapFx(l.look.draw, m) } : {}) } } : {}),
     ...(l.material ? { material: remapFx(l.material, m) } : {}),
     ...(l.fx ? { fx: l.fx.map((x) => remapFx(x, m)) } : {}),
@@ -38,7 +46,7 @@ function remapLayer(l: Layer, m: (i: number) => number): Layer {
 }
 
 /**
- * Retire les couleurs importées que plus rien n'utilise (ni un objet, ni une matière ou un vernis de la palette,
+ * Retire les couleurs importées que plus rien n'utilise (ni un objet, ni une matière, un vernis ou un bord de la palette,
  * ni les numéros de `keep`, comme la couleur du pinceau). Renvoie null quand il n'y a rien à retirer ;
  * sinon le document renuméroté et la correspondance ancien numéro → nouveau.
  */
@@ -47,6 +55,7 @@ export function pruneImported(d: Doc, keep: number[] = []): { doc: Doc; map: (i:
   const used = new Set<number>(keep);
   for (const l of d.layers) for (const i of layerGuides(l)) used.add(i);
   for (const e of [...(d.materials ?? []), ...(d.varnishes ?? [])]) for (const i of fxGuides(e.fx)) used.add(i);
+  for (const e of d.edges ?? []) for (const i of edgeGuides(e)) used.add(i);
   const drop = d.guides.map((g, i) => !!g.from && !g.role && !used.has(i));
   if (!drop.some(Boolean)) return null;
   const to: number[] = [];
@@ -61,6 +70,7 @@ export function pruneImported(d: Doc, keep: number[] = []): { doc: Doc; map: (i:
       layers: d.layers.map((l) => remapLayer(l, map)),
       ...(d.materials ? { materials: d.materials.map((e) => ({ ...e, fx: remapFx(e.fx, map) })) } : {}),
       ...(d.varnishes ? { varnishes: d.varnishes.map((e) => ({ ...e, fx: remapFx(e.fx, map) })) } : {}),
+      ...(d.edges ? { edges: d.edges.map((e) => ({ ...e, ...remapEdges(e, map) })) } : {}),
     },
     map,
   };

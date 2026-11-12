@@ -1,6 +1,7 @@
 import type { Format } from '@ftd/core';
 import { exportSize, formatOf, type Doc, type Layer } from './model';
 import { drawLampTint, drawLayers, forgetPaint, holdPins, linkShapes, pageBounds } from './scene';
+import { applySceneLook } from './scene-look';
 
 export { exportSize };
 
@@ -37,6 +38,7 @@ export async function renderDoc(doc: Doc, f: Format, maxSide = 6000, width?: num
     if (late !== before) draw();
   }
   forgetPaint();
+  applySceneLook(c, d, f);
   return c;
 }
 

@@ -29,6 +29,20 @@ describe('couleurs importées', () => {
     expect(r.doc.materials![0]!.fx.guides).toEqual([1]);
     expect(r.map(3)).toBe(2);
   });
+  it('les bords de la palette gardent leurs couleurs et suivent la renumérotation', () => {
+    const d = {
+      guides: [c('a'), c('k1', { from: 'Kit' }), c('k2', { from: 'Kit' }), c('k3', { from: 'Kit' })],
+      layers: [],
+      edges: [
+        { id: 'e1', name: 'Bord', border: { style: 'double', guide: 2, guide2: 3, width: 0.01 } },
+        { id: 'e2', name: 'Lueur', glow: { style: 'neon', guide: 3, distance: 0.1, width: 0.4 } },
+      ],
+    } as unknown as Doc;
+    const r = pruneImported(d)!;
+    expect(r.doc.guides.map((g) => g.name)).toEqual(['a', 'k2', 'k3']);
+    expect(r.doc.edges![0]!.border).toMatchObject({ guide: 1, guide2: 2 });
+    expect(r.doc.edges![1]!.glow!.guide).toBe(2);
+  });
   it('garde la couleur du pinceau et les couleurs de la variante', () => {
     const d = { guides: [c('v', { role: 'principale', from: 'X' } as never), c('k', { from: 'Kit' })], layers: [] } as unknown as Doc;
     expect(pruneImported(d, [1])).toBeNull();
