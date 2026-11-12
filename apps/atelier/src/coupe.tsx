@@ -865,7 +865,7 @@ function FontDialog({ text: t, onPick, onClose }: { text: TextStyle; onPick: (id
  */
 const TINT_STEP = 22;
 /** Écart des couleurs sur la bande (plus large que le pas du geste : le cercle en cache une). */
-const TINT_VIS = 34;
+const TINT_VIS = 46;
 export function Dots({ label, value, doc, onPick }: { label: string; value: number; doc: Doc; onPick: (i: number) => void }) {
   const n = doc.guides.length;
   const ref = useRef<HTMLDivElement>(null);

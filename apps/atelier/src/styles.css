@@ -2462,3 +2462,11 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .tint-strip { background: none; box-shadow: none; border: 0; -webkit-mask-image: none; mask-image: none; }
 .tint-strip .tint-band { position: absolute; inset: 0; background: color-mix(in srgb, var(--chrome-solid) 94%, transparent); border-top: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink); -webkit-mask-image: linear-gradient(90deg, transparent, #000 24%, #000 76%, transparent); mask-image: linear-gradient(90deg, transparent, #000 24%, #000 76%, transparent); overflow: hidden; }
 .tint-strip .tint-band { background: var(--chrome-solid); }
+/* bande plus grande, traits fins comme le reste de l'interface, couleurs en ronds */
+.tint-strip { width: 340px; height: 40px; }
+.tint-strip .tint-band { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); box-shadow: var(--tool-lift, 0 1px 2px rgba(0,0,0,.12)); }
+.tint-strip .tint-reel { top: 50%; margin-top: -13px; }
+.tint-strip .tint-reel i { width: 40px; height: 26px; transform: none; border-radius: 0; background-clip: content-box !important; padding: 0 7px; box-shadow: none; -webkit-mask: radial-gradient(circle at center, #000 12.5px, transparent 13px); mask: radial-gradient(circle at center, #000 12.5px, transparent 13px); }
+.tint-strip .tint-reel i.on { transform: none; }
+.tint-strip .tint-lens { width: calc(var(--tint-d, 46px) + 8px); height: calc(var(--tint-d, 46px) + 8px); box-shadow: 0 0 0 6px var(--chrome-solid), 0 0 0 7px var(--line), 0 0 0 9px var(--accent), var(--tool-lift, 0 2px 6px rgba(0,0,0,.18)); }
+.tint-strip .tint-reel i { width: 46px; padding: 0 10px; }
