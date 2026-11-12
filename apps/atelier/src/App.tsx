@@ -3171,7 +3171,7 @@ export function App() {
       const keep = !fromCentre && L.centered && o.grip;
       setDoc((d) => ({
         ...d,
-        layers: d.layers.map((x) => (x.id === o.id ? (keep ? { ...x, w: o.w * k, h: o.h * k } : { ...x, w: o.w * k, h: o.h * k, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined }) : (carried.get(x.id) ?? x))),
+        layers: d.layers.map((x) => (x.id === o.id ? (keep ? { ...x, w: o.w * k, h: o.h * k, anchor: o.anchor, dx: o.dx, dy: o.dy, grip: o.grip } : { ...x, w: o.w * k, h: o.h * k, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined }) : (carried.get(x.id) ?? x))),
       }));
     } else if (L.kind === 'pivot' && L.orig) {
       // le centre de rotation reste dans le cadre des poignées
