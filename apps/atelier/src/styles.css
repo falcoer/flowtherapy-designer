@@ -2436,3 +2436,11 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .ap-tools { align-items: stretch; }
 .ap-tools > .ap-ctl { align-content: center; justify-content: center; }
 .ap-tools > .ap-knobs { align-content: center; }
+
+/* Teinte : la palette en petit sous le doigt pendant le geste */
+.tint-strip { position: fixed; z-index: 400; display: flex; gap: 0; padding: 4px 0; border-radius: 12px; background: var(--chrome-solid); box-shadow: var(--shadow); pointer-events: none; transition: left 0.12s ease-out; }
+.tint-strip i { width: 22px; height: 18px; display: block; flex: none; transform: scale(0.72); border-radius: 5px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); transition: transform 0.12s; }
+.tint-strip i.on { transform: scale(1.05); box-shadow: 0 0 0 2px var(--accent); }
+.tint-strip b { position: absolute; top: 100%; margin-top: 3px; transform: translateX(-50%); font: 600 10px/1.2 Inter, sans-serif; white-space: nowrap; padding: 1px 6px; border-radius: 6px; background: var(--ink); color: var(--chrome-solid); }
+.cp-tint .tint-b.held { transform: scale(0.94); }
+.cp-tint .tint-b { touch-action: none; }
