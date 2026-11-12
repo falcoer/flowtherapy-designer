@@ -2470,3 +2470,15 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .tint-strip .tint-reel i.on { transform: none; }
 .tint-strip .tint-lens { width: calc(var(--tint-d, 46px) + 8px); height: calc(var(--tint-d, 46px) + 8px); box-shadow: 0 0 0 6px var(--chrome-solid), 0 0 0 7px var(--line), 0 0 0 9px var(--accent), var(--tool-lift, 0 2px 6px rgba(0,0,0,.18)); }
 .tint-strip .tint-reel i { width: 46px; padding: 0 10px; }
+
+/* Volume : trois encarts comme le Bord (biseau, extrusion, un volume en plus facultatif) */
+.ap-depths .ap-slot.shape-depth { color: var(--ink); }
+.ap-depths .ap-slot.shape-depth:disabled { opacity: 1; cursor: default; }
+.ap-depths .ap-ecard.empty .ap-slot.shape-depth:disabled { color: var(--muted); }
+.ap-dglyph { width: 30px; height: 30px; border-radius: 50%; display: block; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.ap-dpick { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; max-height: 150px; overflow: auto; }
+.ap-dpick button { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10.5px; line-height: 1.15; text-align: center; }
+.ap-dpick .thumb { width: 52px; height: 52px; border-radius: 10px; overflow: hidden; background: var(--line); display: grid; place-items: center; }
+.ap-dpick .thumb img { width: 100%; height: 100%; object-fit: cover; }
+.ap-dsculpt { background: radial-gradient(circle at 30% 30%, #fff, #b9b2c9 40%, #fff 55%, #8a849a) !important; }
+@media (max-width: 540px) { .ap-depths .ap-ecard.empty .ap-ecard-b { display: block; } }

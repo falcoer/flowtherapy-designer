@@ -53,7 +53,8 @@ function lens(img: ImageData, L: NonNullable<SceneLook['lens']>, quick: boolean)
   const k = L.warp * 0.32;
   // barillet : on resserre pour que les coins restent pleins
   const fill = k > 0 ? 1 / (1 + k) : 1;
-  const fr = L.fringe * 0.012;
+  // franges colorées : le rouge s'écarte vers les bords, le bleu se resserre (un peu au centre, jusqu'à ~3 % du rayon au bord)
+  const fr = L.fringe * 0.03;
   const vig = L.vignette;
   const sample = (x: number, y: number, ch: number): number => {
     if (x < 0) x = 0;
@@ -84,11 +85,15 @@ function lens(img: ImageData, L: NonNullable<SceneLook['lens']>, quick: boolean)
       const gy = cy + v * m * R;
       let r: number, g: number, b: number;
       if (fr > 0) {
-        const mr = m * (1 + fr * r2);
-        const mb = m * (1 - fr * r2);
-        r = sample(cx + u * mr * R, cy + v * mr * R, 0);
+        // décalage le long du rayon, en pixels : déjà visible près du centre, plus fort vers les bords
+        const rr = Math.sqrt(r2);
+        const d = fr * R * (0.25 + rr * rr * rr);
+        const n = Math.max(rr, 0.12);
+        const dx = (u / n) * d;
+        const dy = (v / n) * d;
+        r = sample(gx + dx, gy + dy, 0);
         g = sample(gx, gy, 1);
-        b = sample(cx + u * mb * R, cy + v * mb * R, 2);
+        b = sample(gx - dx, gy - dy, 2);
       } else {
         r = sample(gx, gy, 0);
         g = sample(gx, gy, 1);
