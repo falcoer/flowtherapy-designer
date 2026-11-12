@@ -900,7 +900,7 @@ export function Dots({ label, value, doc, onPick }: { label: string; value: numb
           e.currentTarget.setPointerCapture(e.pointerId);
           drag.current = { id: e.pointerId, x0: e.clientX, i0: cur.current, moved: false };
           const r = e.currentTarget.getBoundingClientRect();
-          setStrip({ cx: r.left + r.width / 2, top: r.bottom + 6, i0: cur.current });
+          setStrip({ cx: r.left + r.width / 2, top: r.bottom - 4, i0: cur.current });
         }}
         onPointerMove={(e) => {
           const d = drag.current;
@@ -932,11 +932,14 @@ export function Dots({ label, value, doc, onPick }: { label: string; value: numb
       {strip &&
         createPortal(
           // la palette en petit, la teinte choisie sous le doigt : elle défile avec le geste
-          <div className="tint-strip" style={{ top: strip.top, left: strip.cx - (value + 0.5) * TINT_STEP }} aria-hidden>
-            {doc.guides.map((x, i) => (
-              <i key={i} className={i === value ? 'on' : ''} style={{ background: swatch(x) }} />
-            ))}
-            <b style={{ left: (value + 0.5) * TINT_STEP }}>{g?.name}</b>
+          <div className="tint-strip" style={{ top: strip.top, left: strip.cx }} aria-hidden>
+            <div className="tint-reel" style={{ transform: `translateX(${-(value + 0.5) * TINT_STEP}px)` }}>
+              {doc.guides.map((x, i) => (
+                <i key={i} className={i === value ? 'on' : ''} style={{ background: swatch(x), opacity: Math.max(0.25, 1 - Math.abs(i - value) * 0.22) }} />
+              ))}
+            </div>
+            <span className="tint-lens" />
+            <b>{g?.name}</b>
           </div>,
           document.body,
         )}

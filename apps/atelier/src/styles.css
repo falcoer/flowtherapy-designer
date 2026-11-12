@@ -2444,3 +2444,11 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .tint-strip b { position: absolute; top: 100%; margin-top: 3px; transform: translateX(-50%); font: 600 10px/1.2 Inter, sans-serif; white-space: nowrap; padding: 1px 6px; border-radius: 6px; background: var(--ink); color: var(--chrome-solid); }
 .cp-tint .tint-b.held { transform: scale(0.94); }
 .cp-tint .tint-b { touch-action: none; }
+/* bande collée sous le cercle : les couleurs défilent sous un repère fixe en surbrillance */
+.tint-strip { transform: translateX(-50%); left: 0; width: 7.5 * 22px; width: 154px; height: 30px; padding: 0; border-radius: 15px; overflow: visible; transition: none; background: var(--chrome-solid); -webkit-mask: none; }
+.tint-strip .tint-reel { position: absolute; left: 50%; top: 6px; display: flex; transition: transform 0.14s cubic-bezier(.3,.7,.3,1); }
+.tint-strip .tint-reel i { width: 22px; height: 18px; transform: scale(0.7); border-radius: 9px; }
+.tint-strip .tint-reel i.on { transform: scale(1); box-shadow: none; }
+.tint-strip { clip-path: inset(-30px 0 -30px 0 round 15px); }
+.tint-strip .tint-lens { position: absolute; left: 50%; top: 2px; width: 28px; height: 26px; margin-left: -14px; border-radius: 13px; box-shadow: 0 0 0 2px var(--accent), 0 0 10px 2px var(--accent-soft, rgba(124,92,255,.35)); pointer-events: none; }
+.tint-strip b { left: 50%; }
