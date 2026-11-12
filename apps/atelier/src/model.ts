@@ -213,6 +213,14 @@ export interface Layer {
   strokes: Stroke[];
 }
 
+/** Ce que l'appareil photo fait de la page : transformation globale et déformation de l'objectif. */
+export interface SceneLook {
+  /** Transformation (groupe « effet ») posée sur toute la scène. */
+  fx?: Fx;
+  /** Objectif : distorsion −1 (coussinet) … +1 (barillet), vignettage et franges colorées 0..1. */
+  lens?: { warp: number; vignette: number; fringe: number };
+}
+
 export interface Lamp {
   x: number;
   y: number;
@@ -273,6 +281,8 @@ export interface Doc {
   light: number;
   /** Lampe au-dessus de la feuille : position (fractions de la page, peut sortir de la page), hauteur 0..1 et couleur. */
   lamp?: Lamp;
+  /** Rendu de la scène entière, après la lumière : une transformation et l'objectif. */
+  scene?: SceneLook;
   layers: Layer[];
   /** Palette de matières (« Mes matières ») : des supports nommés, liés aux objets qui les portent. */
   materials?: PaletteMatter[];

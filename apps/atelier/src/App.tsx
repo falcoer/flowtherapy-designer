@@ -6,7 +6,7 @@ import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
 import { steadyPath } from './steady';
 import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
 import { STAMPS, stampOf, stampSvg, type StampDef } from './stamps';
-import { CoupePanel } from './coupe';
+import { CoupePanel, Dots } from './coupe';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
 import { MatterRow } from './matter-palette';
@@ -59,6 +59,7 @@ import {
   type Doc,
   type Guide,
   type Lamp,
+  type SceneLook,
   type Layer,
   type Volume,
   type Pt,
@@ -69,6 +70,7 @@ import {
   type Stroke,
 } from './model';
 import { type Ring, geomArea, insideRings, intersect, nearRings, ringsOfGeom, ringsToPath, simplifyRing, splitByCut, subtract } from './cut';
+import { applySceneLook, lookOn } from './scene-look';
 import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, isMaterial, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
 import { analyse, analysisSize, EdgeGrid, edgeMap, type EdgeMap, type EdgeMode } from './edges';
@@ -558,6 +560,8 @@ export function App() {
     const ctx = c.getContext('2d')!;
     ctx.setTransform(k, 0, 0, k, 0, 0);
     drawLayers(ctx, d, ff, { scale: k, onImage: () => {} });
+    drawLampTint(ctx, d, ff);
+    applySceneLook(c, d, ff);
     return c.toDataURL('image/png');
   };
   /** Une vignette par publication : le document tel qu'il s'affiche sur chacune (format, marges, couleurs). */
@@ -1501,6 +1505,9 @@ export function App() {
   const lastTap = useRef<{ t: number; id?: string; x: number; y: number } | null>(null);
   const dotAt = useRef(0);
   // --- état des gestes en cours ---
+  /** Rendu de la scène déjà calculé pour ce document (la vue peut bouger sans le refaire). */
+  const lookCache = useRef<{ doc: Doc; c: HTMLCanvasElement } | null>(null);
+  const lookTimer = useRef<number | undefined>(undefined);
   const live = useRef<{
     kind: 'paint' | 'cut' | 'subject' | 'move' | 'resize' | 'rotate' | 'pivot' | 'view' | 'swash' | 'mold' | 'bump' | null;
     /** Relief en cours de sculpture : hauteurs de travail et dernière touche (pixels de la carte). */
@@ -1660,15 +1667,60 @@ export function App() {
     ctx.restore();
     drawChecker(ctx, f);
     const L = live.current;
-    drawLayers(ctx, doc, f, {
-      scale: scale * dpr,
-      rot: view.rot,
-      onImage: redraw,
-      progressive: true,
-      wet: L.kind === 'paint' && L.wet && L.layer ? { id: L.layer, canvas: L.wet, win: L.win } : undefined,
-      burning: L.kind === 'paint' && L.stroke?.brush === 'burn' && L.layer ? { id: L.layer, stroke: L.stroke } : undefined,
-    });
-    drawLampTint(ctx, doc, f);
+    const wet = L.kind === 'paint' && L.wet && L.layer ? { id: L.layer, canvas: L.wet, win: L.win } : undefined;
+    const burning = L.kind === 'paint' && L.stroke?.brush === 'burn' && L.layer ? { id: L.layer, stroke: L.stroke } : undefined;
+    const look = lookOn(doc);
+    if (look) {
+      // rendu de la scène : la page entière passe par l'appareil photo (transformation, objectif),
+      // dans un tampon à plat ; la vue (zoom, rotation) le pose ensuite comme une image
+      const s = Math.min(scale * dpr, 2400 / Math.max(f.width, f.height));
+      const W = Math.max(2, Math.round(f.width * s));
+      const H = Math.max(2, Math.round(f.height * s));
+      const busy = !!L.kind && L.kind !== 'view';
+      const hit = lookCache.current;
+      if (hit && !busy && hit.doc === doc && hit.c.width === W && hit.c.height === H) ctx.drawImage(hit.c, 0, 0, f.width, f.height);
+      else {
+        const b = document.createElement('canvas');
+        b.width = W;
+        b.height = H;
+        const bx = b.getContext('2d', { willReadFrequently: true })!;
+        bx.setTransform(W / f.width, 0, 0, H / f.height, 0, 0);
+        const late = () => {
+          lookCache.current = null;
+          redraw();
+        };
+        drawLayers(bx, doc, f, { scale: s, onImage: late, progressive: true, wet, burning });
+        drawLampTint(bx, doc, f);
+        // la transformation coûte : pendant un geste, ou juste après un changement, l'objectif seul ;
+        // la scène complète se calcule quand on s'arrête
+        const heavy = !!look.fx;
+        applySceneLook(b, doc, f, heavy);
+        ctx.drawImage(b, 0, 0, f.width, f.height);
+        if (!heavy && !busy) lookCache.current = { doc, c: b };
+        if (heavy) {
+          clearTimeout(lookTimer.current);
+          lookTimer.current = window.setTimeout(() => {
+            if (live.current.kind && live.current.kind !== 'view') return;
+            const d = docRef.current;
+            if (d !== doc) return;
+            const full = document.createElement('canvas');
+            full.width = W;
+            full.height = H;
+            const fx = full.getContext('2d', { willReadFrequently: true })!;
+            fx.setTransform(W / f.width, 0, 0, H / f.height, 0, 0);
+            drawLayers(fx, d, f, { scale: s, onImage: late });
+            drawLampTint(fx, d, f);
+            applySceneLook(full, d, f);
+            lookCache.current = { doc: d, c: full };
+            redraw();
+          }, 260);
+        }
+      }
+    } else {
+      lookCache.current = null;
+      drawLayers(ctx, doc, f, { scale: scale * dpr, rot: view.rot, onImage: redraw, progressive: true, wet, burning });
+      drawLampTint(ctx, doc, f);
+    }
     if (rendu) return;
     const px = 1 / scale;
     // lampe : visible et déplaçable sur la feuille tant que son panneau est ouvert
@@ -2161,6 +2213,17 @@ export function App() {
   };
   const dropGuide = (i: number, x: number, y: number) => {
     setDragGuide(null);
+    // déposée sur la zone d'un réglage qui prend une teinte (plaque de bord, formulaire, boîte) : cette teinte-là ;
+    // s'il y en a plusieurs, celle sous le doigt, sinon la première
+    const under = document.elementFromPoint(x, y) as HTMLElement | null;
+    const zone = under?.closest<HTMLElement>('.ap-ecard, .cp-attrs, [data-tint-zone]');
+    const tint = under?.closest<HTMLElement>('[data-tint]') ?? zone?.querySelector<HTMLElement>('[data-tint]');
+    if (tint) {
+      tint.dispatchEvent(new CustomEvent('tint-drop', { detail: i }));
+      tint.classList.add('dropped');
+      setTimeout(() => tint.classList.remove('dropped'), 500);
+      return setToast(`${tint.querySelector('.cp-dial-l')?.textContent ?? 'Teinte'} : « ${doc.guides[i]?.name} »`);
+    }
     const l = layerAtScreen(x, y);
     if (!l) return;
     // déposée sur un emplacement de bord des attributs : la couleur de ce bord ou de cette lueur
@@ -4162,6 +4225,7 @@ export function App() {
     drawLayers(ctx, doc, f, { scale: k, onImage: () => {} });
     drawLampTint(ctx, doc, f);
     forgetPaint();
+    applySceneLook(c, doc, f);
     setSnapshot(c.toDataURL('image/png'));
   };
 
@@ -4445,11 +4509,8 @@ export function App() {
                   </span>
                 )}
               </button>
-              <button className={`btn ${bubble === 'light' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'light' ? null : 'light')} title="Lumière">
-                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                  <circle cx="12" cy="12" r="4.5" style={{ fill: lampOf(doc).color }} />
-                  <path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
-                </svg>
+              <button className={`btn ${bubble === 'light' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'light' ? null : 'light')} title="Scène : lumière, objectif, transformation" aria-label="Scène">
+                <SceneGlyph color={lampOf(doc).color} on={!!lookOn(doc)} />
               </button>
               <button
                 ref={guideBtn}
@@ -5617,7 +5678,7 @@ export function App() {
 
           {dragGuide && <span className="drag-dot" style={{ left: dragGuide.x, top: dragGuide.y, background: swatch(doc.guides[dragGuide.i]) }} />}
 
-          {bubble === 'light' && <LampPanel doc={doc} f={f} onChange={(lamp) => setDoc((d) => ({ ...d, lamp }))} onClose={() => setBubble(null)} />}
+          {bubble === 'light' && <LampPanel doc={doc} f={f} onChange={(lamp) => setDoc((d) => ({ ...d, lamp }))} onScene={(scene) => setDoc((d) => ({ ...d, scene }))} onClose={() => setBubble(null)} />}
 
           {tool === 'edge' && (!sel || sel.kind === 'surface') && <div className="status">Sélectionne une photo ou une forme pour régler ses bords</div>}
           {tool === 'material' && !sel && <div className="status">Sélectionne une photo ou une forme pour choisir sa matière</div>}
@@ -5860,9 +5921,140 @@ const LAMP_COLORS: Array<[string, string]> = [
  * Lampe au-dessus de la feuille, en petit panneau en haut à gauche : la page reste visible.
  * On la déplace sur la carte (ou directement sur la feuille), on choisit sa couleur et sa hauteur.
  */
-function LampPanel({ doc, f, onChange, onClose }: { doc: Doc; f: Format; onChange: (l: Lamp) => void; onClose: () => void }) {
-  const lp = lampOf(doc);
+type SceneTab = 'light' | 'lens' | 'fx';
+const SCENE_TAB = 'ftd-atelier-scene-tab';
+const SCENE_FX = FX.filter((x) => x.group === 'effet' && x.pixel);
+const NO_LENS = { warp: 0, vignette: 0, fringe: 0 };
+
+/** Petit dessin du bouton : le soleil, et un appareil photo dans le coin (lumière + rendu de la scène). */
+function SceneGlyph({ color, on }: { color: string; on: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="10" cy="10" r="4" style={{ fill: color }} />
+      <path d="M10 1.8v1.6M10 16.6v1.2M3.6 3.6l1.1 1.1M15.3 4.7l1.1-1.1M1.8 10h1.6M3.6 16.4l1.1-1.1M16.6 10h.8" />
+      <g strokeWidth="1.5" className={on ? 'scene-cam on' : 'scene-cam'}>
+        <rect x="13.2" y="15.4" width="9.6" height="7" rx="1.6" style={{ fill: 'var(--chrome-solid)' }} />
+        <path d="M15.6 15.4l.9-1.4h2.8l.9 1.4" />
+        <circle cx="18" cy="18.9" r="1.7" />
+      </g>
+    </svg>
+  );
+}
+
+/** La scène vue par l'appareil : lumière, objectif, transformation de tout le rendu. */
+function LampPanel({ doc, f, onChange, onScene, onClose }: { doc: Doc; f: Format; onChange: (l: Lamp) => void; onScene: (s: SceneLook | undefined) => void; onClose: () => void }) {
   const ref = useRef<SVGSVGElement>(null);
+  const [tab, setTabS] = useState<SceneTab>(() => {
+    try {
+      const t = localStorage.getItem(SCENE_TAB);
+      return t === 'lens' || t === 'fx' ? t : 'light';
+    } catch {
+      return 'light';
+    }
+  });
+  const setTab = (t: SceneTab) => {
+    setTabS(t);
+    try {
+      localStorage.setItem(SCENE_TAB, t);
+    } catch {
+      /* rien */
+    }
+  };
+  const sc = doc.scene ?? {};
+  const lens = sc.lens ?? NO_LENS;
+  const tidy = (x: SceneLook): SceneLook | undefined => {
+    const l = x.lens && (x.lens.warp || x.lens.vignette || x.lens.fringe) ? x.lens : undefined;
+    return x.fx || l ? { ...(x.fx ? { fx: x.fx } : {}), ...(l ? { lens: l } : {}) } : undefined;
+  };
+  const setLens = (p: Partial<typeof lens>) => onScene(tidy({ ...sc, lens: { ...lens, ...p } }));
+  const setFx = (fx: Fx | undefined) => onScene(tidy({ ...sc, fx }));
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const tabs: Array<[SceneTab, string, boolean]> = [
+    ['light', 'Lumière', !!doc.lamp],
+    ['lens', 'Objectif', !!sc.lens],
+    ['fx', 'Transformation', !!sc.fx],
+  ];
+  const head = (
+    <>
+      <div className="lamp-head">
+        <span className="b-title">Scène</span>
+        <button className="lamp-close" onClick={onClose} aria-label="Fermer">
+          ×
+        </button>
+      </div>
+      <div className="scene-tabs" role="tablist">
+        {tabs.map(([k, label, set]) => (
+          <button key={k} role="tab" aria-selected={tab === k} className={`scene-tab ${tab === k ? 'on' : ''}`} onClick={() => setTab(k)}>
+            {label}
+            {set && <i className="scene-dot" />}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+  if (tab === 'lens')
+    return (
+      <div className="lamp-panel scene-panel" data-tint-zone>
+        {head}
+        <div className="scene-knobs">
+          <div className="cp-dial">
+            <Knob label="Distorsion" center value={(lens.warp + 1) / 2} onChange={(v) => setLens({ warp: r2(v * 2 - 1) })} />
+            <span className="cp-dial-l">Distorsion</span>
+            <output>{Math.abs(lens.warp) < 0.005 ? '0' : lens.warp > 0 ? `barillet ${Math.round(lens.warp * 100)}` : `coussinet ${Math.round(-lens.warp * 100)}`}</output>
+          </div>
+          <div className="cp-dial">
+            <Knob label="Vignettage" value={lens.vignette} onChange={(v) => setLens({ vignette: r2(v) })} />
+            <span className="cp-dial-l">Vignettage</span>
+            <output>{Math.round(lens.vignette * 100)}</output>
+          </div>
+          <div className="cp-dial">
+            <Knob label="Franges" value={lens.fringe} onChange={(v) => setLens({ fringe: r2(v) })} />
+            <span className="cp-dial-l">Franges</span>
+            <output>{Math.round(lens.fringe * 100)}</output>
+          </div>
+        </div>
+        {sc.lens && (
+          <button className="chip scene-reset" onClick={() => onScene(tidy({ ...sc, lens: undefined }))}>
+            Objectif neutre
+          </button>
+        )}
+        <p className="hint">Comme un objectif d'appareil : la page se bombe (barillet) ou se creuse (coussinet), les bords s'assombrissent, les couleurs se séparent sur les bords.</p>
+      </div>
+    );
+  if (tab === 'fx') {
+    const def = sc.fx ? fxOf(sc.fx.id) : undefined;
+    return (
+      <div className="lamp-panel scene-panel" data-tint-zone>
+        {head}
+        <div className="scene-fx">
+          <button className={`scene-fx-b ${sc.fx ? '' : 'on'}`} onClick={() => setFx(undefined)}>
+            <SceneThumb doc={doc} f={f} />
+            <span>Aucune</span>
+          </button>
+          {SCENE_FX.map((d) => (
+            <button key={d.id} className={`scene-fx-b ${sc.fx?.id === d.id ? 'on' : ''}`} onClick={() => setFx(sc.fx?.id === d.id ? undefined : newFx(d.id))}>
+              <SceneThumb doc={doc} f={f} fx={d.id} />
+              <span>{d.name}</span>
+            </button>
+          ))}
+        </div>
+        {sc.fx && def && (
+          <div className="scene-knobs">
+            {def.slots.map((sl, i) => (
+              <Dots key={i} label={sl.label} value={Math.min(sc.fx!.guides[i] ?? sl.def, Math.max(0, doc.guides.length - 1))} doc={doc} onPick={(g) => setFx({ ...sc.fx!, guides: def.slots.map((x, j) => (j === i ? g : (sc.fx!.guides[j] ?? x.def))) })} />
+            ))}
+            <div className="cp-dial">
+              <Knob label={def.amountLabel ?? 'Intensité'} value={sc.fx.amount} onChange={(v) => setFx({ ...sc.fx!, amount: r2(v) })} />
+              <span className="cp-dial-l">{def.amountLabel ?? 'Intensité'}</span>
+              <output>{Math.round(sc.fx.amount * 100)}</output>
+            </div>
+          </div>
+        )}
+        <p className="hint">Toute la scène est redessinée, après la lumière : les objets gardent leurs réglages.</p>
+      </div>
+    );
+  }
+  const lp = lampOf(doc);
   // la carte montre la page et une marge de 0,75 page tout autour
   const M = 0.75;
   const ar = f.width / f.height;
@@ -5889,13 +6081,8 @@ function LampPanel({ doc, f, onChange, onClose }: { doc: Doc; f: Format; onChang
   const shx = (-(sx - cx) / dl) * 6 * k;
   const shy = (-(sy - cy) / dl) * 6 * k;
   return (
-    <div className="lamp-panel">
-      <div className="lamp-head">
-        <span className="b-title">Lumière</span>
-        <button className="lamp-close" onClick={onClose} aria-label="Fermer">
-          ×
-        </button>
-      </div>
+    <div className="lamp-panel scene-panel" data-tint-zone>
+      {head}
       <svg
         ref={ref}
         viewBox={`0 0 ${W} ${H}`}
@@ -5928,6 +6115,37 @@ function LampPanel({ doc, f, onChange, onClose }: { doc: Doc; f: Format; onChang
       <p className="hint">Glisse le soleil sur la carte, ou directement sur la feuille. Plus la lampe est basse, plus les ombres s'allongent et la lumière tombe vite.</p>
     </div>
   );
+}
+
+/** Vignette de la page entière, passée par une transformation (une seule image de base par document). */
+const sceneBase = new WeakMap<Doc, HTMLCanvasElement>();
+function SceneThumb({ doc, f, fx }: { doc: Doc; f: Format; fx?: FxId }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const c = ref.current;
+    if (!c) return;
+    const id = window.setTimeout(() => {
+      let base = sceneBase.get(doc);
+      if (!base) {
+        const k = 96 / Math.max(f.width, f.height);
+        base = document.createElement('canvas');
+        base.width = Math.max(2, Math.round(f.width * k));
+        base.height = Math.max(2, Math.round(f.height * k));
+        const bx = base.getContext('2d')!;
+        bx.setTransform(k, 0, 0, k, 0, 0);
+        drawLayers(bx, doc, f, { scale: k, onImage: () => {} });
+        drawLampTint(bx, doc, f);
+        sceneBase.set(doc, base);
+      }
+      c.width = base.width;
+      c.height = base.height;
+      const cx = c.getContext('2d', { willReadFrequently: true })!;
+      cx.drawImage(base, 0, 0);
+      if (fx) applySceneLook(c, { ...doc, scene: { fx: newFx(fx) } }, f);
+    }, 30);
+    return () => clearTimeout(id);
+  }, [doc, f, fx]);
+  return <canvas ref={ref} className="scene-thumb" style={{ aspectRatio: `${f.width} / ${f.height}` }} />;
 }
 
 const SAVED = 'ftd-atelier-palettes';

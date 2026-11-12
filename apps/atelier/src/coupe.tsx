@@ -414,7 +414,8 @@ export function CoupePanel({
   /** Une rangée de pastilles (filtre d'une photo, transformations, volume) avec son catalogue. */
   const card = (sec: Section, title: string) => {
     const mine = items.filter((x) => x.sec === sec);
-    const choices = choicesOf(l, sec, doc);
+    // les transformations se règlent pour toute la scène (boîte Scène) : ici on ne fait plus que retirer les anciennes
+    const choices = sec === 'transform' ? [] : choicesOf(l, sec, doc);
     const one = sec === 'image';
     return (
       <div key={sec} className={`cp-card ap-card ${adding === sec ? 'open' : ''}`}>
@@ -497,17 +498,8 @@ export function CoupePanel({
   const focused = tabItems.find((x) => x.key === focus) ?? tabItems[0];
   const attrsOf = (it: Item | undefined) => (it ? <Attrs layer={l} doc={doc} item={it} patch={patch} patchText={patchText} unmold={unmold} onMold={onMold} onSculpt={onSculpt} /> : null);
   const hasFx = (l.fx ?? []).some((x) => groupOf(x) === 'effet');
-  // mode simplifié : les transformations d'un texte ou d'une forme attendent « Plus » (pour cet objet)
-  const [moreFx, setMoreFx] = useState(false);
-  useEffect(() => setMoreFx(false), [l.id]);
-  const showFx = l.kind === 'photo' || hasFx || !simple || moreFx;
-  const fxCard = showFx ? (
-    card('transform', 'Transformations')
-  ) : (
-    <button className="chip cp-more ap-more" onClick={() => setMoreFx(true)} title="Plus : Transformations (effets en parallèle de l'image)">
-      Plus : transformations
-    </button>
-  );
+  // les transformations sont passées à la scène entière : un objet n'en garde que d'anciennes, à retirer
+  const fxCard = hasFx ? card('transform', 'Anciennes transformations') : null;
 
   /** Bandeau du bas d'un objet modelé : ses attributs d'origine sont grisés jusqu'au retour. */
   const moldBar = l.molded && (
@@ -550,7 +542,7 @@ export function CoupePanel({
     body = (
       <>
         {card('image', 'Filtre')}
-        {card('transform', 'Transformations')}
+        {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}
       </>
@@ -863,15 +855,76 @@ function FontDialog({ text: t, onPick, onClose }: { text: TextStyle; onPick: (id
 }
 
 
+/**
+ * Teinte d'un réglage : une pastille de la taille d'un potard. Un toucher passe à la couleur suivante
+ * de la palette ; tenu, il les fait défiler. Une couleur de la palette déposée sur la zone du réglage
+ * (la plaque, le formulaire) arrive ici par l'événement « tint-drop ».
+ */
 export function Dots({ label, value, doc, onPick }: { label: string; value: number; doc: Doc; onPick: (i: number) => void }) {
+  const n = doc.guides.length;
+  const ref = useRef<HTMLDivElement>(null);
+  const pick = useRef(onPick);
+  pick.current = onPick;
+  const cur = useRef(value);
+  cur.current = value;
+  const hold = useRef<{ t: number; iv?: number; ran: boolean } | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const on = (e: Event) => pick.current((e as CustomEvent<number>).detail);
+    el.addEventListener('tint-drop', on);
+    return () => el.removeEventListener('tint-drop', on);
+  }, []);
+  const step = (d = 1) => n && pick.current((((cur.current + d) % n) + n) % n);
+  const stop = () => {
+    const h = hold.current;
+    if (!h) return;
+    clearTimeout(h.t);
+    clearInterval(h.iv);
+    hold.current = null;
+  };
+  useEffect(() => stop, []);
+  const g = doc.guides[value];
   return (
-    <div className="cp-row colors">
-      <span>{label}</span>
-      <div className="dots">
-        {doc.guides.map((g, i) => (
-          <button key={i} className={i === value ? 'on' : ''} style={{ background: swatch(g) }} title={g.name} aria-label={g.name} onClick={() => onPick(i)} />
-        ))}
-      </div>
+    <div className="cp-dial cp-tint" ref={ref} data-tint title={`${label} : toucher pour la couleur suivante, tenir pour les faire défiler, ou déposer une couleur de la palette`}>
+      <button
+        className="tint-b"
+        style={{ background: g ? swatch(g) : undefined }}
+        aria-label={`${label} : ${g?.name ?? 'aucune'}, toucher pour la couleur suivante`}
+        onPointerDown={(e) => {
+          if (e.button) return;
+          stop();
+          const h: { t: number; iv?: number; ran: boolean } = { t: 0, ran: false };
+          h.t = window.setTimeout(() => {
+            h.ran = true;
+            step();
+            h.iv = window.setInterval(() => step(), 420);
+          }, 380);
+          hold.current = h;
+        }}
+        onPointerUp={() => {
+          const h = hold.current;
+          stop();
+          if (h && !h.ran) step();
+        }}
+        onPointerLeave={stop}
+        onPointerCancel={stop}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') step(-1);
+          else if (e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') step(1);
+          else return;
+          e.preventDefault();
+        }}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        <span className="tint-ring" aria-hidden>
+          {doc.guides.map((x, i) => (
+            <i key={i} className={i === value ? 'on' : ''} style={{ background: swatch(x), transform: `rotate(${(i / Math.max(1, n)) * 360}deg) translateY(calc(var(--tint-r, 19.5px) * -1))` }} />
+          ))}
+        </span>
+      </button>
+      <span className="cp-dial-l">{label}</span>
+      <output>{g?.name ?? '—'}</output>
     </div>
   );
 }
