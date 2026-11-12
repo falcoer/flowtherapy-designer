@@ -235,19 +235,13 @@ export function choicesOf(l: Layer, sec: Section, doc?: Doc): Array<{ id: string
       .filter((d) => d.id !== l.material?.id && !(d.transparent && l.kind === 'surface'))
       .map((d) => ({ id: d.id, name: d.name, patch: { material: newFx(d.id), ...(d.transparent ? { opacity: d.transparent } : {}) }, focus: 'material' }));
   if (sec === 'depth')
+    // le volume supplémentaire : un seul, au choix (biseau et extrusion ont leurs propres encarts)
     return l.kind === 'surface'
       ? []
       : [
-          // volume : proposé à tout objet qui n'en a pas encore
-          ...(l.volume
-            ? []
-            : [
-                ...VOLUMES.filter(([kind]) => kind !== 'flat').map(([kind, name]) => ({ id: `v-${kind}`, name: `Volume ${name.toLowerCase()}`, patch: { volume: { kind, amount: kind === 'cone' ? 0.5 : 0.7 } } as Partial<Layer>, focus: 'volume' })),
-                // plis et fissures : posés à plat, la forme se choisit ensuite dans le réglage
-                ...SKINS.map(([kind, name]) => ({ id: `v-${kind}`, name, patch: { volume: { kind: 'flat', amount: 0.7, skin: { kind, depth: 0.6, density: 0.4 } } } as Partial<Layer>, focus: 'volume' })),
-              ]),
-          ...((l.bevel ?? 0) > 0.001 ? [] : [{ id: 'bevel', name: 'Biseau', patch: { bevel: 0.5 } as Partial<Layer>, focus: 'bevel' }]),
-          ...((l.extrude ?? 0) > 0.001 ? [] : [{ id: 'extrude', name: 'Extrusion', patch: { extrude: 0.5 } as Partial<Layer>, focus: 'extrude' }]),
+          ...VOLUMES.filter(([kind]) => kind !== 'flat' && !(l.volume?.kind === kind && !l.volume.skin)).map(([kind, name]) => ({ id: `v-${kind}`, name: `Volume ${name.toLowerCase()}`, patch: { volume: { kind, amount: kind === 'cone' ? 0.5 : 0.7 }, bump: undefined } as Partial<Layer>, focus: 'volume' })),
+          // plis et fissures : posés à plat, la forme se choisit ensuite dans le réglage
+          ...SKINS.filter(([kind]) => l.volume?.skin?.kind !== kind).map(([kind, name]) => ({ id: `v-${kind}`, name, patch: { volume: { kind: 'flat', amount: 0.7, skin: { kind, depth: 0.6, density: 0.4 } }, bump: undefined } as Partial<Layer>, focus: 'volume' })),
         ];
   return imageChoices(l);
 }
@@ -633,11 +627,100 @@ export function CoupePanel({
       </div>
     );
   } else if (tab === 'depth') {
+    // comme le Bord : des encarts identiques. Biseau et extrusion toujours là (sans effet à zéro),
+    // puis un seul volume supplémentaire, facultatif
+    const extra = l.volume ? items.find((x) => x.key === 'volume') : l.bump ? items.find((x) => x.key === 'relief') : undefined;
+    const choices = adding === 'depth' ? choicesOf(l, 'depth', doc) : [];
+    const plate = (key: string, label: string, glyph: React.ReactNode, sub: string, on: boolean, content: React.ReactNode, x?: React.ReactNode, slotClick?: () => void) => (
+      <div key={key} className={`ap-ecard ${on ? '' : 'empty'}`}>
+        <div className="ap-ecard-h">
+          <button className={`ap-slot shape-depth ${on ? '' : 'empty'}`} onClick={slotClick} disabled={!slotClick} aria-label={label}>
+            {glyph}
+          </button>
+          <span className="ap-ecard-t">
+            <span className="ap-slot-l">{label}</span>
+            <small>{sub}</small>
+          </span>
+          {x}
+        </div>
+        <div className="ap-ecard-b">{content}</div>
+      </div>
+    );
+    const bevelOn = (l.bevel ?? 0) > 0.001;
+    const extrudeOn = (l.extrude ?? 0) > 0.001;
     body = (
-      <>
-        {card('depth', 'Volume')}
-        {focused && attrsOf(focused)}
-      </>
+      <div className="ap-edges ap-depths">
+        {plate(
+          'bevel',
+          'Biseau',
+          <DepthGlyph k="bevel" />,
+          bevelOn ? ((l.bevelProfile ?? 'round') === 'round' ? 'Arrondi' : 'Chanfrein') : 'Sans effet',
+          bevelOn,
+          <Attrs bare layer={l} doc={doc} item={{ sec: 'depth', key: 'bevel', name: '', bg: '', removable: false }} patch={patch} />,
+        )}
+        {plate(
+          'extrude',
+          'Extrusion',
+          <DepthGlyph k="extrude" />,
+          extrudeOn ? `${Math.round((l.extrude ?? 0) * 100)}` : 'Sans effet',
+          extrudeOn,
+          <Attrs bare layer={l} doc={doc} item={{ sec: 'depth', key: 'extrude', name: '', bg: '', removable: false }} patch={patch} />,
+        )}
+        {plate(
+          'extra',
+          'Volume en plus',
+          extra ? <span className="ap-dglyph" style={{ background: extra.bg }} /> : <span className="ap-plus">＋</span>,
+          extra ? extra.name : 'Facultatif',
+          !!extra,
+          adding === 'depth' ? (
+            <div className="cp-pick ap-dpick">
+              {choices.map((c) => (
+                <button
+                  key={c.id}
+                  title={hintOf(c.id)[1] || undefined}
+                  onClick={() => {
+                    patch(c.patch);
+                    setAdding(null);
+                  }}
+                >
+                  <span className="thumb">{thumbs.get(c.id) ? <img src={thumbs.get(c.id)} alt="" /> : <span className="spin" aria-label="Chargement" />}</span>
+                  <b>{c.name}</b>
+                </button>
+              ))}
+              {onSculpt && (
+                <button
+                  onClick={() => {
+                    if (l.volume) patch({ volume: undefined });
+                    setAdding(null);
+                    onSculpt();
+                  }}
+                >
+                  <span className="thumb ap-dsculpt" />
+                  <b>{l.bump ? 'Reprendre la sculpture' : 'Relief sculpté'}</b>
+                </button>
+              )}
+            </div>
+          ) : extra ? (
+            <Attrs bare layer={l} doc={doc} item={extra} patch={patch} onSculpt={onSculpt} />
+          ) : (
+            <p className="ap-hint">Un seul au choix : bombé, cylindre, plis, fissures… ou un relief sculpté. Touche le carré.</p>
+          ),
+          extra && (
+            <button
+              className="ap-x"
+              title={`Retirer ${extra.name}`}
+              aria-label={`Retirer ${extra.name}`}
+              onClick={() => {
+                patch({ volume: undefined, bump: undefined });
+                onToast(`${extra.name} retiré`, true);
+              }}
+            >
+              ×
+            </button>
+          ),
+          () => setAdding(adding === 'depth' ? null : 'depth'),
+        )}
+      </div>
     );
   }
 
@@ -809,6 +892,26 @@ function TextTab({
       </div>
       {fonts && createPortal(<FontDialog text={t} onPick={(id) => onChange({ font: id }, true)} onClose={() => setFonts(false)} />, document.body)}
     </div>
+  );
+}
+
+/** Petits dessins des encarts du volume. */
+function DepthGlyph({ k }: { k: 'bevel' | 'extrude' }) {
+  return (
+    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" aria-hidden>
+      {k === 'bevel' ? (
+        <>
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <rect x="7.5" y="7.5" width="9" height="9" rx="1" />
+          <path d="M3 3l4.5 4.5M21 3l-4.5 4.5M3 21l4.5-4.5M21 21l-4.5-4.5" />
+        </>
+      ) : (
+        <>
+          <path d="M4 9h12v11H4z" />
+          <path d="M4 9l4-5h12l-4 5M16 20l4-5V4" />
+        </>
+      )}
+    </svg>
   );
 }
 
@@ -1101,14 +1204,14 @@ export function Attrs({
   } else if (item.key === 'extrude')
     body = (
       <>
-        <Range label="Épaisseur" value={l.extrude ?? 0} onChange={(v) => live({ extrude: Math.max(0.02, Math.round(v * 100) / 100) })} />
+        <Range label="Épaisseur" value={l.extrude ?? 0} onChange={(v) => live({ extrude: v < 0.01 ? undefined : Math.round(v * 100) / 100 })} />
         {l.link && <p className="cp-note">Toutes les pièces de l’objet prennent la même épaisseur.</p>}
       </>
     );
   else if (item.key === 'bevel')
     body = (
       <>
-        <Range label="Largeur" value={l.bevel ?? 0} onChange={(v) => live({ bevel: Math.max(0.05, Math.round(v * 100) / 100) })} />
+        <Range label="Largeur" value={l.bevel ?? 0} onChange={(v) => live({ bevel: v < 0.01 ? 0 : Math.round(v * 100) / 100 })} />
         <label className="cp-row">
           <span>Profil</span>
           <span className="seg cp-seg">
