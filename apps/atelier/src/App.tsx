@@ -6047,7 +6047,7 @@ function LampPanel({ doc, f, onChange, onScene, onClose }: { doc: Doc; f: Format
             Objectif neutre
           </button>
         )}
-        <p className="hint">Comme un objectif d'appareil : la page se bombe (barillet) ou se creuse (coussinet), les bords s'assombrissent, les couleurs se séparent sur les bords.</p>
+        <p className="hint">Comme un objectif d'appareil : la page se bombe (barillet) ou se creuse (coussinet), les bords s'assombrissent, les franges séparent les couleurs en liserés rouge et bleu autour des formes, plus fort vers les bords.</p>
       </div>
     );
   if (tab === 'fx') {
