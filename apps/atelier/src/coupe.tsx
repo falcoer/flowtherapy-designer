@@ -763,6 +763,7 @@ function TextTab({
         onFocus={() => (first.current = true)}
         onChange={(e) => setDraft(e.target.value)}
       />
+      <div className="ap-tools">
       <div className="ap-ctl">
         <div className="ap-ctl-row">
           <div className="seg tb-align" title={lines > 1 ? undefined : 'L’alignement agit sur un texte de plusieurs lignes'}>
@@ -804,6 +805,7 @@ function TextTab({
           />
         </div>
         {t.warp && <Range label="Courbure" min={-1} value={t.warp.amount} display={`${Math.round(t.warp.amount * 100)}`} onChange={(v) => live('warp', { warp: { ...t.warp!, amount: Math.round(v * 50) / 50 } })} />}
+      </div>
       </div>
       {fonts && createPortal(<FontDialog text={t} onPick={(id) => onChange({ font: id }, true)} onClose={() => setFonts(false)} />, document.body)}
     </div>
