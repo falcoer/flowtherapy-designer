@@ -1525,6 +1525,8 @@ export function App() {
     now?: Pt;
     /** Agrandissement centré (objet posé sur son point d'ancrage). */
     centered?: boolean;
+    /** Agrandissement depuis le centre (Maj) : le point qui reste fixe. */
+    fixed?: Pt;
     pins?: Layer['pins'];
     layer?: string;
     stroke?: Stroke;
@@ -2037,7 +2039,7 @@ export function App() {
     }
     // ancrages pendant un déplacement, et tant que le réglage d'ancrage est ouvert :
     // chaque point et chaque ligne a sa couleur caractéristique (marks.ts)
-    if (L.kind === 'move' || bubble === 'format' || guidesOn.on) {
+    if (L.kind === 'move' || L.kind === 'resize' || bubble === 'format' || guidesOn.on) {
       ctx.save();
       ctx.globalAlpha = 0.7;
       // la marge des repères : un cadre pointillé, dedans ou autour de la page
@@ -2069,8 +2071,31 @@ export function App() {
       }
       ctx.restore();
       // l'objet déplacé (ou choisi) : ses bords tenus prennent la couleur de leur ligne, son contour celle de son point
-      const held = L.kind === 'move' ? doc.layers.find((x) => x.id === L.layer) : sel && sel.kind !== 'surface' ? sel : undefined;
-      if (held?.pins) drawHeldEdges(ctx, held, held.pins, f, px);
+      const held = L.kind === 'move' || L.kind === 'resize' ? doc.layers.find((x) => x.id === L.layer) : sel && sel.kind !== 'surface' ? sel : undefined;
+      // pendant un agrandissement, les bords qui touchent une ligne de page, de marge ou de zone d'intérêt sont montrés en direct
+      const heldPins = held && L.kind === 'resize' ? pinsOf(held, f, 1.5 / scale) : held?.pins;
+      if (held && heldPins) drawHeldEdges(ctx, held, heldPins, f, px);
+      // agrandissement depuis le centre (Maj) : le point fixe
+      if (L.kind === 'resize' && L.fixed) {
+        const { x, y } = L.fixed;
+        const r = 7 * px;
+        ctx.save();
+        ctx.lineCap = 'round';
+        for (const [w, col] of [
+          [4, 'rgba(255,255,255,0.9)'],
+          [1.8, 'rgba(20,16,30,0.85)'],
+        ] as const) {
+          ctx.strokeStyle = col;
+          ctx.lineWidth = w * px;
+          ctx.beginPath();
+          ctx.moveTo(x - r, y);
+          ctx.lineTo(x + r, y);
+          ctx.moveTo(x, y - r);
+          ctx.lineTo(x, y + r);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
       // pendant un déplacement : les points de l'objet qui peuvent s'accrocher (centre, sommets, milieux des côtés)
       if (held && L.kind === 'move') {
         const bb = pageBounds(held, f);
@@ -3094,8 +3119,12 @@ export function App() {
       // agrandir depuis un coin : le coin opposé reste en place
       const o = L.orig;
       const b = layerBox(o, f);
+      // Maj : il grandit autour du centre de sa découpe, sans se déplacer
+      const fromCentre = shiftHeld(shiftLatch, shiftKey, e.shiftKey);
+      const lb = localBounds(o);
       // posé par son centre sur son ancrage : il grandit autour de ce centre, sinon le coin opposé reste en place
-      const O = L.centered ? anchorPointOf(o, f) : localToPage(o, f, L.opp.u, L.opp.v);
+      const O = fromCentre ? localToPage(o, f, (lb.u0 + lb.u1) / 2, (lb.v0 + lb.v1) / 2) : L.centered ? anchorPointOf(o, f) : localToPage(o, f, L.opp.u, L.opp.v);
+      L.fixed = fromCentre ? O : undefined;
       let k = Math.max(0.05, Math.hypot(p.x - O.x, p.y - O.y) / Math.max(1e-9, Math.hypot(L.start.x - O.x, L.start.y - O.y)));
       // aimant : un bord de la découpe qui approche un bord de page s'y pose
       const bb = pageBounds(o, f);
@@ -3113,7 +3142,7 @@ export function App() {
         if (Math.abs(edge - o0) < 1e-9) continue;
         const kk = (page - o0) / (edge - o0);
         const now = o0 + (edge - o0) * k;
-        if (kk > 0.05 && !shiftHeld(shiftLatch, shiftKey, e.shiftKey) && Math.abs(now - page) * scale < MAGNET && (best === null || Math.abs(kk - k) < Math.abs(best - k))) best = kk;
+        if (kk > 0.05 && Math.abs(now - page) * scale < MAGNET && (best === null || Math.abs(kk - k) < Math.abs(best - k))) best = kk;
       }
       if (best !== null) k = best;
       if (o.free) {
@@ -3139,10 +3168,10 @@ export function App() {
       const a = anchorFor(doc.frame, f, cx, cy);
       const carried = carryMates(L.mates, O, k, 0, 0, 0);
       // accroché par un sommet ou un côté : ce point reste sur son ancrage, seule la taille change
-      const keep = L.centered && o.grip;
+      const keep = !fromCentre && L.centered && o.grip;
       setDoc((d) => ({
         ...d,
-        layers: d.layers.map((x) => (x.id === o.id ? (keep ? { ...x, w: o.w * k, h: o.h * k } : { ...x, w: o.w * k, h: o.h * k, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined }) : (carried.get(x.id) ?? x))),
+        layers: d.layers.map((x) => (x.id === o.id ? (keep ? { ...x, w: o.w * k, h: o.h * k, anchor: o.anchor, dx: o.dx, dy: o.dy, grip: o.grip } : { ...x, w: o.w * k, h: o.h * k, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined }) : (carried.get(x.id) ?? x))),
       }));
     } else if (L.kind === 'pivot' && L.orig) {
       // le centre de rotation reste dans le cadre des poignées
