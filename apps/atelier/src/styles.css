@@ -2432,3 +2432,7 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .ap-text > .ap-area { flex: 1 1 auto; min-height: 52px; height: auto; }
 .ap-tools { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 18px; flex: 0 0 auto; }
 @media (max-width: 540px) { .ap-tools { gap: 6px 10px; } .ap-tools > .ap-ctl { flex: 1 1 100%; } }
+/* les plaques côte à côte (réglages, potards) ont la même hauteur, contenu centré */
+.ap-tools { align-items: stretch; }
+.ap-tools > .ap-ctl { align-content: center; justify-content: center; }
+.ap-tools > .ap-knobs { align-content: center; }
