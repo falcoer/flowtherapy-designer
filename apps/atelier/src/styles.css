@@ -2286,3 +2286,29 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
   .atelier .edit-rail .vslider { height: clamp(48px, calc(100dvh - 126px - 160px), 200px); }
 }
 .ap-more { align-self: flex-start; }
+/* iPad et plus large : tout se regroupe à gauche comme sur le téléphone ; une ligne garde au plus
+   six éléments (potards, pastilles de réglage), le reste passe à la ligne */
+@media (min-width: 541px) {
+  .ap-text { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 18px; }
+  .ap-text > .ap-area { flex: 1 1 100%; }
+  .ap-ctl { flex: 0 1 auto; }
+  .ap-knobs { flex: 0 1 auto; grid-auto-flow: row; grid-template-rows: none; grid-template-columns: repeat(6, auto); justify-content: start; gap: 2px 6px; }
+  .ap-pane .ap-attrs { flex: 0 1 auto; max-width: calc(6 * 84px); justify-content: flex-start; }
+  .ap-pane > .cp-attrs, .ap-pane > .cp-card, .ap-pane > .ap-molded { align-self: flex-start; max-width: 100%; }
+  .ap-pane > .cp-attrs { max-width: min(100%, calc(6 * 84px + 24px)); }
+  .ap-support { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0 14px; }
+  .ap-support > .ap-rows { flex: 0 1 auto; }
+  .ap-row { align-items: flex-start; }
+  .ap-row > .ap-params { flex: 0 1 auto; }
+  .ap-edges { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 22px; }
+  .ap-edges > .ap-row { flex: 0 1 auto; max-width: 100%; }
+  .ap-edges > .ap-row.empty { max-width: 300px; }
+  .ap-edges > .ap-row + .ap-row { border-top: 0; }
+}
+@media (min-width: 541px) {
+  .ap-rows.ap-edges { flex-direction: row; }
+  .ap-ctl { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+  .ap-ctl-row { flex: none; flex-wrap: nowrap; }
+  .ap-ctl .ap-font { flex: none; width: 170px; }
+  .ap-ctl .tb-warps { width: 230px; }
+}
