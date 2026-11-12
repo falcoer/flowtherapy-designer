@@ -2312,3 +2312,60 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
   .ap-ctl .ap-font { flex: none; width: 170px; }
   .ap-ctl .tb-warps { width: 230px; }
 }
+
+/* Relief du panneau des attributs : le bandeau est un plateau légèrement creusé, la liste un bac en creux,
+   l'onglet ouvert une carte posée dessus (face pleine, filet, ombre courte des outils), et chaque groupe
+   de réglages une petite plaque. Même vocabulaire que la roue du pinceau. */
+.coupe.ap {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--chrome-solid) 86%, var(--accent) 3%), color-mix(in srgb, var(--chrome-solid) 92%, #000 4%));
+  box-shadow: 0 -1px 0 var(--line), 0 -8px 24px rgba(20, 16, 30, 0.12);
+}
+.ap-grid { column-gap: 12px; padding-top: 4px; }
+/* la liste : un bac en creux */
+.ap-grid > .cp-layers {
+  background: color-mix(in srgb, var(--chrome-solid) 90%, #000 5%);
+  border-radius: 16px; padding: 6px;
+  box-shadow: inset 0 1px 3px rgba(20, 16, 30, 0.14), inset 0 0 0 1px var(--line);
+}
+.ap-grid > .cp-layers .layer.on { background: var(--chrome-solid); box-shadow: 0 0 0 1.5px var(--accent), 0 2px 6px rgba(20, 16, 30, 0.14); }
+/* les onglets posés sur la carte */
+.ap-tabs { border-bottom: 0; gap: 4px; padding-left: 10px; }
+.ap-tab { border: 0; background: color-mix(in srgb, var(--chrome-solid) 88%, #000 5%); box-shadow: inset 0 0 0 1px var(--line); border-radius: 12px 12px 0 0; margin-bottom: 0; }
+.ap-tab.on { background: var(--chrome-solid); color: var(--accent); box-shadow: 0 -1px 0 1px var(--line), 0 -4px 10px rgba(20, 16, 30, 0.08); position: relative; z-index: 1; }
+.ap-tab.on::after { content: ''; position: absolute; left: 0; right: 0; bottom: -6px; height: 8px; background: var(--chrome-solid); }
+/* la carte de l'onglet ouvert */
+.ap-pane {
+  background: var(--chrome-solid); border-radius: 16px; padding: 10px;
+  box-shadow: 0 0 0 1px var(--line), var(--tool-lift);
+}
+/* petites plaques : un groupe de réglages = une plaque légèrement en relief */
+.ap-row, .ap-tint, .ap-ctl, .ap-knobs, .ap-shape, .ap-pane > .cp-card, .ap-pane > .cp-attrs {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--chrome-solid) 97%, #fff 3%), color-mix(in srgb, var(--chrome-solid) 94%, #000 3%));
+  border-radius: 14px; border: 0;
+  box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(20, 16, 30, 0.08);
+}
+.ap-row { padding: 6px 10px; }
+.ap-row + .ap-row { border-top: 0; }
+.ap-rows { gap: 6px; }
+.ap-tint { padding: 8px 10px; border-right: 0; }
+.ap-ctl { padding: 6px 8px; }
+.ap-knobs { padding: 4px 6px; }
+.ap-shape { padding: 6px 10px; align-self: flex-start; }
+.ap-shape:empty { display: none; }
+.ap-pane > .cp-attrs { padding: 6px 10px; }
+.ap-area { box-shadow: inset 0 1px 3px rgba(20, 16, 30, 0.1); background: color-mix(in srgb, var(--chrome-solid) 96%, #000 2%); }
+/* emplacements : des alvéoles en creux, la pastille posée dedans */
+.ap-slot { box-shadow: inset 0 1px 3px rgba(20, 16, 30, 0.18), 0 0 0 1px var(--line); }
+.ap-slot.shape-edge { background: color-mix(in srgb, var(--chrome-solid) 92%, #000 4%); }
+.ap-slot:not(.empty) { filter: drop-shadow(0 2px 3px rgba(20, 16, 30, 0.22)); }
+.ap-slot.empty { filter: none; }
+.ap-x { background: var(--line); }
+.ap-hint { font-style: italic; }
+/* la plaque survolée par une pastille glissée */
+.ap-row.hot, .ap-tint.hot { background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent); }
+@media (max-width: 540px) {
+  .ap-grid > .cp-layers { padding: 4px 2px; border-radius: 12px; }
+  .ap-pane { padding: 6px; border-radius: 12px; }
+  .ap-tabs { padding-left: 4px; gap: 2px; }
+  .ap-row { padding: 5px 6px; }
+}
