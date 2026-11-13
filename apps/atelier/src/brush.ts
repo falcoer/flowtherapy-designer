@@ -1,5 +1,8 @@
 import { guideColor, type Guide, type Pt, type Stroke } from './model';
 import { stampOf, stampPaths, type StampDef } from './stamps';
+import { particles } from './particles';
+import { ramifyInk } from './ramify';
+import { flames } from './fire';
 import { earPrints, isComposite, partLanes, partPolygon, tipParts, type TipPart } from './tips';
 
 /**
@@ -150,7 +153,7 @@ function blurSmall(x: CanvasRenderingContext2D, sw: number, sh: number, passes: 
   x.putImageData(img, 0, 0);
 }
 
-function buffer(key: 'a' | 'b' | 'c' | 'd', w: number, h: number) {
+export function buffer(key: 'a' | 'b' | 'c' | 'd', w: number, h: number) {
   let c = scratch[key];
   if (!c) c = scratch[key] = document.createElement('canvas');
   if (c.width !== w || c.height !== h) {
@@ -177,7 +180,7 @@ export interface Target {
 /** Allongement de la touche d'un pinceau couché, à inclinaison maximale (0.9) : presque deux fois plus longue. */
 export const LEAN = 1.2;
 /** Étire un décalage (dx, dy) dans la direction d, du facteur 1 + K. */
-function stretch(dx: number, dy: number, K: number, d: number): [number, number] {
+export function stretch(dx: number, dy: number, K: number, d: number): [number, number] {
   if (!K) return [dx, dy];
   const c = Math.cos(d);
   const s = Math.sin(d);
@@ -300,7 +303,7 @@ export function paintStroke(dst: CanvasRenderingContext2D, s: Stroke, guides: Gu
     case 'spray':
       return spray(dst, s, guides, t);
     case 'glitter':
-      return glitter(dst, s, guides, t);
+      return particles(dst, s, guides, t);
     case 'hair':
       return hair(dst, s, guides, t);
     case 'stamp':
@@ -731,6 +734,7 @@ export function previewStampInk(dst: CanvasRenderingContext2D, s: Stroke, guides
  * d'où partent les ramifications. La couleur suit le guide du cœur vers les extrémités.
  */
 function branchInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
+  if (s.ramify) return ramifyInk(dst, s, guides, t);
   const r = rng(s.seed);
   const g = guides[s.guide];
   const grow = Math.max(0.05, Math.min(1, s.grow ?? 1));
@@ -861,11 +865,12 @@ function branchInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
  * repère de la peinture : le trou, la zone roussie et carbonisée autour, et la lisière
  * de braise (couleur du guide). Le bord est irrégulier et le feu avance avec `grow`.
  */
-function burnGroup(strokes: Stroke[], guides: Guide[], t: Target) {
-  // contours du feu : un polygone irrégulier par point, centré sur le départ
-  type Shape = { cx: number; cy: number; rr: number; m: Float32Array };
-  const shapes: Shape[] = [];
-  const n = 120;
+export type BurnShape = { cx: number; cy: number; rr: number; m: Float32Array; s: Stroke };
+export const BURN_N = 120;
+/** Contours du feu : un polygone irrégulier par point (un sur deux), centré sur le départ ; `m` module le rayon selon l'angle. */
+export function burnShapes(strokes: Stroke[], t: Target) {
+  const shapes: BurnShape[] = [];
+  const n = BURN_N;
   let big = 0;
   for (const s of strokes) {
     const r = rng(s.seed);
@@ -882,9 +887,15 @@ function burnGroup(strokes: Stroke[], guides: Guide[], t: Target) {
         m[k] = 1 + 0.12 * Math.sin(a * 3 + ph[0]!) + 0.06 * Math.sin(a * 7 + ph[1]!) + 0.03 * Math.sin(a * 17 + ph[2]! + i) + 0.025 * (r() - 0.5);
       }
       m[n] = m[0]!;
-      shapes.push({ cx: p.x * t.pw, cy: p.y * t.ph, rr: R * (0.75 + 0.35 * (p.p ?? 0.7)) * (0.85 + 0.3 * r()), m });
+      shapes.push({ cx: p.x * t.pw, cy: p.y * t.ph, rr: R * (0.75 + 0.35 * (p.p ?? 0.7)) * (0.85 + 0.3 * r()), m, s });
     });
   }
+  return { shapes, big };
+}
+
+function burnGroup(strokes: Stroke[], guides: Guide[], t: Target, live = false) {
+  const n = BURN_N;
+  const { shapes, big } = burnShapes(strokes, t);
   const fillAll = (x: CanvasRenderingContext2D, scale: number) => {
     x.beginPath();
     for (const sh of shapes) {
@@ -958,10 +969,11 @@ function burnGroup(strokes: Stroke[], guides: Guide[], t: Target) {
     ox.globalCompositeOperation = 'source-over';
   }
   if (holed) {
-    // braise : un liseré fin à la couleur de départ du guide, contre le trou
-    ox.filter = `blur(${Math.max(1, big * 0.012)}px)`;
-    ox.globalAlpha = Math.min(1, op * 1.1);
-    ox.fillStyle = guideColor(g, 0);
+    // braise : un liseré fin à la couleur de départ du guide, contre le trou ; un feu éteint laisse un bord de charbon
+    const out = last?.flame !== undefined && !live;
+    ox.filter = `blur(${Math.max(1, big * (out ? 0.02 : 0.012))}px)`;
+    ox.globalAlpha = Math.min(1, op * (out ? 1.3 : 1.1));
+    ox.fillStyle = out ? '#1d1712' : guideColor(g, 0);
     fillAll(ox, 1.03);
     ox.filter = 'none';
     ox.globalAlpha = 1;
@@ -976,11 +988,14 @@ function mixHex(a: string, b: string, t: number) {
   return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
 }
 
-/** Les brûlures d'une couche : chaque réglage de roussi garde sa propre marge. */
-export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target) {
+/**
+ * Les brûlures d'une couche : chaque réglage de roussi garde sa propre marge. `live` dit si un trait
+ * de feu brûle encore (pas éteint) : ses braises restent vives et des flammes montent du front.
+ */
+export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target, live: (s: Stroke) => boolean = () => false, on: (x: number, y: number) => boolean = () => true) {
   const groups = new Map<string, Stroke[]>();
   for (const s of strokes) {
-    const k = `${s.char ?? 0.3}|${s.hole !== false}`;
+    const k = `${s.char ?? 0.3}|${s.hole !== false}|${s.flame === undefined ? '' : live(s) ? 'feu' : 'éteint'}`;
     groups.set(k, [...(groups.get(k) ?? []), s]);
   }
   const hole = document.createElement('canvas');
@@ -992,12 +1007,12 @@ export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target) {
   const ex = edge.getContext('2d')!;
   const hx = hole.getContext('2d')!;
   for (const list of groups.values()) {
-    const r = burnGroup(list, guides, t);
+    const r = burnGroup(list, guides, t, list[0]!.flame !== undefined && live(list[0]!));
     ex.drawImage(r.edge, 0, 0);
     // sans trou, la brûlure ne fait que teinter : la couche reste entière
     if (list[0]!.hole !== false) hx.drawImage(r.hole, 0, 0);
   }
-  return { hole, edge };
+  return { hole, edge, flame: flames(strokes, live, guides, t, on) };
 }
 
 /** Aperçu en direct pendant le geste : tampons translucides, sans liseré. */
@@ -1343,7 +1358,6 @@ function spray(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Tar
   let cap = 4096;
   let D = new Float32Array(cap * 7);
   let n = 0;
-  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
   for (let i = 0; i < st.length; i += 1) {
     const q = st[i]!;
     const R = q.r * 1.4;
@@ -1375,13 +1389,26 @@ function spray(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Tar
       D[o + 5] = cg;
       D[o + 6] = cb;
       n++;
-      if (x - d < x0) x0 = x - d;
-      if (y - d < y0) y0 = y - d;
-      if (x + d > x1) x1 = x + d;
-      if (y + d > y1) y1 = y + d;
     }
   }
+  rasterDrops(dst, D, n, t);
+}
+
+/**
+ * Gouttelettes (x, y, rayon, opacité, r, g, b par goutte, `n` gouttes) posées pixel par pixel, carreau par carreau :
+ * des centaines de milliers de disques minuscules coûtent bien moins cher ainsi qu'en tracés du canevas.
+ */
+export function rasterDrops(dst: CanvasRenderingContext2D, D: Float32Array, n: number, t: Target) {
   if (!n) return;
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < n; i++) {
+    const o = i * 7;
+    const d = D[o + 2]!;
+    if (D[o]! - d < x0) x0 = D[o]! - d;
+    if (D[o + 1]! - d < y0) y0 = D[o + 1]! - d;
+    if (D[o]! + d > x1) x1 = D[o]! + d;
+    if (D[o + 1]! + d > y1) y1 = D[o + 1]! + d;
+  }
   // carreaux touchés, en gardant l'ordre des gouttelettes dans chacun
   const tx0 = Math.floor(Math.max(-TILE, x0) / TILE);
   const ty0 = Math.floor(Math.max(-TILE, y0) / TILE);
@@ -1498,54 +1525,6 @@ function spray(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Tar
     tile.height = H;
     tile.getContext('2d')!.putImageData(img, -u0, -v0, u0, v0, W, H);
     dst.drawImage(tile, 0, 0, W, H, bx + u0, by + v0, W, H);
-  }
-  dst.restore();
-}
-
-/** Paillettes : petits éclats plats de tailles et d'angles variés, quelques-uns scintillent. */
-function glitter(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
-  const g = guides[s.guide];
-  const st = stamps(s, t);
-  const r = rng(s.seed ^ 0x99);
-  dst.save();
-  for (let i = 0; i < st.length; i += 2) {
-    const q = st[i]!;
-    const n = Math.round(3 + q.r * 0.25);
-    for (let k = 0; k < n; k++) {
-      const a = r() * Math.PI * 2;
-      const rad = Math.sqrt(r()) * q.r;
-      const [ox, oy] = stretch(Math.cos(a) * rad, Math.sin(a) * rad, q.K, q.d);
-      const x = q.x + ox;
-      const y = q.y + oy;
-      const sz = Math.max(1, q.r * (0.06 + r() * 0.1));
-      const base = guideColor(g, q.t);
-      // chaque éclat accroche la lumière différemment
-      const lit = r();
-      dst.fillStyle = lit > 0.85 ? shade(base, 0.75, 1) : lit < 0.3 ? shade(base, -0.35, 1) : shade(base, (lit - 0.5) * 0.5, 1);
-      dst.globalAlpha = Math.min(1, 0.5 + 0.5 * s.opacity);
-      dst.save();
-      dst.translate(x, y);
-      dst.rotate(r() * Math.PI);
-      if (r() < 0.5) dst.fillRect(-sz / 2, -sz / 2, sz, sz);
-      else {
-        dst.beginPath();
-        for (let h = 0; h < 6; h++) dst.lineTo(Math.cos((h * Math.PI) / 3) * sz * 0.6, Math.sin((h * Math.PI) / 3) * sz * 0.6);
-        dst.fill();
-      }
-      dst.restore();
-      // scintillement : une petite croix de lumière
-      if (lit > 0.965) {
-        const L = sz * 2.6;
-        dst.strokeStyle = 'rgba(255,255,255,0.9)';
-        dst.lineWidth = Math.max(0.6, sz * 0.18);
-        dst.beginPath();
-        dst.moveTo(x - L, y);
-        dst.lineTo(x + L, y);
-        dst.moveTo(x, y - L);
-        dst.lineTo(x, y + L);
-        dst.stroke();
-      }
-    }
   }
   dst.restore();
 }

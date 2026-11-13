@@ -2,6 +2,9 @@ import { FRAME_TITLES, ANCHOR_FRAMES, fontAllowed, type AnchorFrame, type Format
 import { createPortal } from 'react-dom';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive, type Target } from './brush';
+import { ELEMENTS, elementOf, presetOf, startParams, strokeParams, type ElementId } from './elements';
+import { passKind } from './fresh';
+import { presetThumb } from './element-thumb';
 import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
 import { steadyPath } from './steady';
 import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
@@ -107,6 +110,8 @@ import {
   tracePath,
 } from './scene';
 
+/** Éléments qu'un tampon peut imprimer. */
+const STAMPABLE: ElementId[] = ['acrylic', 'aquarelle'];
 type Tool = 'cut' | 'paint' | 'mold' | 'stamp' | 'filter' | 'transform' | 'material' | 'coat' | 'edge' | 'move';
 /** Les cinq sections du mode Modifier l'objet, dans l'ordre de la barre. */
 type EditTool = 'filter' | 'transform' | 'material' | 'coat' | 'edge';
@@ -276,16 +281,6 @@ const SCULPT_MODES = [
     ),
   },
 ] as const;
-const BRUSHES: Array<[BrushKind, string, string]> = [
-  ['aquarelle', 'Aquarelle', 'lavis transparent'],
-  ['acrylic', 'Acrylique pinceau', 'pâte couvrante striée'],
-  ['roller', 'Acrylique rouleau', 'bande large pochée'],
-  ['spray', 'Acrylique pistolet', 'nuage de gouttelettes'],
-  ['glitter', 'Paillettes', 'éclats qui scintillent'],
-  ['hair', 'Poils', 'brins fins effilés'],
-  ['branch', 'Ramures', 'veines, racines : la couleur se propage'],
-  ['burn', 'Brûlure', 'consume la couche, lisière de braise'],
-];
 export const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
   [null, 'Aucune', 'pas de lueur'],
   ['neon', 'Néon', 'tube lumineux'],
@@ -907,8 +902,13 @@ export function App() {
   const listTap = useRef<{ id: string; t: number } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [listDrag, setListDrag] = useState<{ id: string; over?: string; above?: boolean } | null>(null);
+  /** Le menu principal entre par ce sur quoi on agit : Forme garde le dernier de Découper / Modeler, Éléments le dernier de Peindre / Tampon. */
+  const lastShape = useRef<'cut' | 'mold'>('cut');
+  const lastDeposit = useRef<'paint' | 'stamp'>('paint');
   const setTool = (t: Tool) => {
     if (isEdit(t)) lastEdit.current = t;
+    if (t === 'cut' || t === 'mold') lastShape.current = t;
+    if (t === 'paint' || t === 'stamp') lastDeposit.current = t;
     setToolState(t);
   };
   /** Ranger l'outil en cours : plus aucun outil actif, le stylet déplace et choisit les objets. */
@@ -1172,28 +1172,30 @@ export function App() {
       window.removeEventListener('pointermove', onPen, true);
     };
   }, [penSeen]);
-  const [burnChar, setBurnChar] = useState(0.3);
   /**
-   * Aquarelle sur papier mouillé : la passe en cours (couche, numéro, dernier trait). Ses traits se
-   * mêlent jusqu'à ce qu'on touche « Sécher » ou qu'on peigne une autre couche.
+   * Passe fraîche (aquarelle sur papier mouillé, acrylique, bombe) : couche, numéro, dernier trait, et
+   * contexte (élément et outil). Ses traits travaillent ensemble jusqu'à ce que le contexte se termine
+   * (autre couche, autre élément ou outil, sortie de l'outil) ou qu'on touche « Sécher » ; jamais au temps.
    */
-  const wetPass = useRef<{ layer: string; id: number; at: number } | null>(null);
-  /** Papier mouillé (1) ou sec (0), pour la jauge du bouton Sécher. */
+  const wetPass = useRef<{ layer: string; id: number; at: number; ctx: string } | null>(null);
+  /** Passe fraîche (1) ou sèche (0), pour le bouton Sécher de la roue. */
   const [wetness, setWetness] = useState(0);
-  /** La passe humide d'un nouveau trait d'aquarelle sur cette couche : on la rejoint tant qu'on n'a pas séché ni changé de couche. */
-  const washFor = (layerId: string) => {
+  /** La passe fraîche d'un nouveau trait sur cette couche : on la rejoint tant que le contexte dure. */
+  const washFor = (layerId: string, ctx: string) => {
     const w = wetPass.current;
     const now = Date.now();
     setWetness(1);
-    if (w && w.layer === layerId) {
+    if (w && w.layer === layerId && w.ctx === ctx) {
       w.at = now;
       return w.id;
     }
-    wetPass.current = { layer: layerId, id: now, at: now };
+    wetPass.current = { layer: layerId, id: now, at: now, ctx };
     return now;
   };
-  const [branchCore, setBranchCore] = useState(1);
-  const [burnHole, setBurnHole] = useState(true);
+  const dryPass = () => {
+    wetPass.current = null;
+    setWetness(0);
+  };
   /** Survol du stylet (ou de la souris) : un repère montre où la pointe touchera. */
   const hoverRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>({ zoom: 1, rot: 0, px: 0, py: 0 });
@@ -1231,7 +1233,23 @@ export function App() {
   const [modePick, setModePick] = useState(false);
   /** Bulle ouverte de l'outil Bords. */
   const [epop, setEpop] = useState<string | null>(null);
-  const [brushKind, setBrushKind] = useState<BrushKind>('aquarelle');
+  /** Élément peint, ses réglages (gardés élément par élément) et l'outil qui le tire quand il en a plusieurs. */
+  const [element, setElement] = useState<ElementId>('aquarelle');
+  const [elParams, setElParams] = useState(startParams);
+  const [elTool, setElTool] = useState<Partial<Record<ElementId, string>>>({});
+  const elDef = elementOf(element);
+  const elP = elParams[element];
+  const elToolDef = elDef.tools?.find((t) => t.key === elTool[element]) ?? elDef.tools?.[0];
+  /** Moteur qui calcule le trait : celui de l'élément, ou de l'outil choisi. */
+  const brushKind: BrushKind = elToolDef?.brush ?? elDef.brush;
+  /** Passe fraîche de l'élément en cours (aquarelle, acrylique, bombe), et son contexte : changer d'élément ou d'outil la sèche. */
+  const wetKind = passKind({ brush: brushKind, matter: elDef.matter });
+  const wetCtx = `${element}|${elToolDef?.key ?? ''}`;
+  /** Outils de dépôt de l'élément : ses pinceaux, plus le tampon pour les peintures qui s'impriment. */
+  const depositTools: Array<{ key: string; icon: string; label: string; hint?: string }> = [
+    ...(elDef.tools?.map((t) => ({ key: t.key, icon: t.icon, label: t.label, hint: t.hint })) ?? [{ key: 'brush', icon: 'brush', label: 'Pinceau' }]),
+    ...(STAMPABLE.includes(element) ? [{ key: 'stamp', icon: 'stamp', label: 'Tampon', hint: 'Imprimer ou semer un motif' }] : []),
+  ];
   /** Barre latérale : réglages sur deux colonnes quand une seule ne tient pas dans la hauteur. */
   const sideRef = useRef<HTMLElement>(null);
   const paramsRef = useRef<HTMLDivElement>(null);
@@ -1268,12 +1286,6 @@ export function App() {
   const [brushRot, setBrushRot] = useState(0);
   /** Inclinaison réglée à la main sur la roue du pinceau : la touche s'allonge dans cette direction, comme un crayon couché. */
   const [brushTilt, setBrushTilt] = useState<[number, number]>([0, 0]);
-  /** Ramures : nombre de ramifications et convergence. */
-  const [branches, setBranches] = useState(6);
-  const [converge, setConverge] = useState(0.3);
-  /** Poils : longueur des brins et frisure (raide, alpaga, mouton). */
-  const [hairLen, setHairLen] = useState(0.3);
-  const [curl, setCurl] = useState(0);
   const growTimer = useRef(0);
   /** Couleur glissée depuis la palette (position écran). */
   const [dragGuide, setDragGuide] = useState<{ i: number; x: number; y: number } | null>(null);
@@ -2625,7 +2637,7 @@ export function App() {
     // peinture : dans la couche sélectionnée, sinon celle sous le stylet
     const under = layerAt(p.x, p.y);
     // Déborder : parti du fond tout près, le trait reste à l'objet choisi
-    const spills = spill && (t === 'stamp' || brushKind === 'hair' || brushKind === 'branch');
+    const spills = spill && (t === 'stamp' || brushKind === 'hair' || brushKind === 'branch' || brushKind === 'glitter');
     const target = sel && insideRings(maskRings(sel, f), p.x, p.y) ? sel : spills && sel && sel.kind !== 'surface' && (!under || under.kind === 'surface') ? sel : under;
     if (!target) return;
     if (target.id !== selected) setSelected(target.id);
@@ -2659,24 +2671,20 @@ export function App() {
               seed: Math.floor(Math.random() * 1e9),
               pts: [{ ...q, p: pr, ...stampAngle(e, target) }],
             }
-          : brushKind === 'burn'
-            ? { brush: 'burn', grow: 0.15, char: burnChar, hole: burnHole, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
-            : brushKind === 'branch'
-              ? { brush: 'branch', branches, converge, core: branchCore, grow: 0.12, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
-              : {
-                  brush: brushKind,
-                  guide,
-                  size,
-                  opacity,
-                  seed: Math.floor(Math.random() * 1e9),
-                  ...(tipOn(brushKind) ? { tip: brushTip } : {}),
-                  ...(brushKind === 'hair' ? { hairLen, curl } : {}),
-                  ...(brushKind === 'aquarelle' ? { wash: washFor(target.id) } : {}),
-                  pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, target) } : {}), ...(leanOn(brushKind) ? brushLean(e, target) : {}) }],
-                },
+          : {
+              brush: brushKind,
+              guide,
+              size,
+              opacity,
+              seed: Math.floor(Math.random() * 1e9),
+              ...(tipOn(brushKind) ? { tip: brushTip } : {}),
+              ...strokeParams(elDef, elP),
+              ...(wetKind ? { wash: washFor(target.id, wetCtx) } : {}),
+              pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, target) } : {}), ...(leanOn(brushKind) ? brushLean(e, target) : {}) }],
+            },
     };
-    // ramures : tant que la pointe reste posée, les ramifications poussent
-    if (t !== 'stamp' && (brushKind === 'branch' || brushKind === 'burn')) {
+    // ramures, particules : tant que la pointe reste posée, les ramifications poussent, les grains voyagent
+    if (t !== 'stamp' && (brushKind === 'branch' || brushKind === 'burn' || (brushKind === 'glitter' && elDef.matter !== 'hair'))) {
       const L0 = live.current;
       const t0 = performance.now();
       const tick = () => {
@@ -2976,6 +2984,8 @@ export function App() {
       const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
       const stamping = L.stroke.brush === 'stamp';
       const branching = L.stroke.brush === 'branch';
+      // ramures et particules se repeignent en entier à chaque image
+      const whole = branching || L.stroke.brush === 'glitter';
       const had = L.stroke.pts.length;
       for (const ev of events) {
         // le stylet n'écrit qu'au contact
@@ -3001,8 +3011,8 @@ export function App() {
         const tg = L.wtg ?? paintTarget(l, f, scale * dpr);
         const ws = L.win ? inWin(L.stroke, L.win) : L.stroke;
         if (stamping) L.ink = previewStampInk(L.wet!.getContext('2d')!, ws, doc.guides, tg, L.ink);
-        else if (branching) {
-          // les ramures se repeignent en entier : au plus une fois par image
+        else if (whole) {
+          // au plus une fois par image
           L.branchFrame ||= requestAnimationFrame(() => {
             L.branchFrame = 0;
             if (live.current !== L) return;
@@ -3902,6 +3912,13 @@ export function App() {
   const swashFrame = useRef(0);
   // Prolonger se range quand on change de texte ou d'outil
   useEffect(() => setSwash((s) => (s.on ? { ...s, on: false } : s)), [selected, tool]);
+  // fin du contexte : quitter la peinture, changer d'élément ou d'outil, choisir un autre objet sèche la passe fraîche
+  useEffect(() => {
+    const w = wetPass.current;
+    if (!w) return;
+    if (tool !== 'paint' || w.ctx !== wetCtx || (selected && selected !== w.layer)) dryPass();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool, wetCtx, selected]);
   useEffect(() => {
     if (swash.on) {
       setToast(
@@ -4647,21 +4664,14 @@ export function App() {
               <Icon name="plus" />
             </button>
             <span className="side-sep" />
-            <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => pickTool(lastEdit.current)} title="Créateur de matériaux (T) : forme, bords, vernis, image, transformations, support">
+            <button className={`btn small ${tool === 'cut' || tool === 'mold' ? 'on' : ''}`} onClick={() => (tool === 'cut' || tool === 'mold' ? leaveTool() : setTool(lastShape.current))} title="Forme (C, G) : ciseaux, scalpel ou modelage du contour de l'objet">
+              <Icon name={tool === 'mold' || (tool !== 'cut' && lastShape.current === 'mold') ? 'mold' : blade} />
+            </button>
+            <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => pickTool(lastEdit.current)} title="Matériau (T) : le support de l'objet, ses bords, son vernis, son volume">
               <Icon name="matter" />
             </button>
-            <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => pickTool('cut')} title="Découper (C) : trace un contour au stylet">
-              <Icon name="scissors" />
-            </button>
-            <button className={`btn small ${tool === 'mold' ? 'on' : ''}`} onClick={() => pickTool('mold')} title="Modeler (G) : tirer ou repousser le contour de l'objet, à la plume ou au doigt de glaise">
-              <Icon name="mold" />
-            </button>
-
-            <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => pickTool('paint')} title="Peindre (B) : aquarelle, acrylique, pistolet, paillettes, poils">
+            <button className={`btn small ${tool === 'paint' || tool === 'stamp' ? 'on' : ''}`} onClick={() => (tool === 'paint' || tool === 'stamp' ? leaveTool() : setTool(lastDeposit.current))} title="Éléments (B, S) : ce qu'on dépose sur l'objet, choisir un élément, un outil, un jeu de paramètres">
               <Icon name="brush" />
-            </button>
-            <button className={`btn small ${tool === 'stamp' ? 'on' : ''}`} onClick={() => pickTool('stamp')} title="Tampons (S) : motifs à la couleur courante, intensité et rotation">
-              <Icon name="stamp" />
             </button>
           </aside>
 
@@ -4767,15 +4777,64 @@ export function App() {
             className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][1 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'filter' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0)] : ''}`}
           >
             <div ref={paramsRef} className={`side-params ${sideTwo ? 'two' : ''} ${sideOdd ? 'odd' : ''}`}>
-              {tool === 'paint' && (
+              {(tool === 'cut' || tool === 'mold') && (
+                <FanButton
+                  dir={lefty ? 'left' : 'right'}
+                  face={<Icon name={tool === 'cut' ? blade : 'mold'} />}
+                  title={`Outil de forme : ${tool === 'mold' ? 'Modeler' : blade === 'scalpel' ? 'Scalpel' : 'Ciseaux'}`}
+                  items={[
+                    { key: 'scissors', icon: <Icon name="scissors" />, label: 'Ciseaux', hint: 'Trace un contour : le morceau se détache', on: tool === 'cut' && blade === 'scissors' },
+                    { key: 'scalpel', icon: <Icon name="scalpel" />, label: 'Scalpel', hint: 'Trace un contour : le morceau reste en place, lié à son objet', on: tool === 'cut' && blade === 'scalpel' },
+                    { key: 'mold', icon: <Icon name="mold" />, label: 'Modeler', hint: 'Tirer ou repousser le contour, à la plume ou au doigt de glaise', on: tool === 'mold' },
+                  ]}
+                  onPick={(k) => {
+                    if (k === 'mold') return setTool('mold');
+                    setBlade(k as 'scissors' | 'scalpel');
+                    setTool('cut');
+                  }}
+                />
+              )}
+              {(tool === 'paint' || tool === 'stamp') && (
                 <>
                   <FanButton
                     dir={lefty ? 'left' : 'right'}
-                    face={<Icon name={`brush-${brushKind}`} />}
-                    title={`Pinceau : ${BRUSHES.find((x) => x[0] === brushKind)![1]}`}
-                    items={BRUSHES.map(([k, t, hint]) => ({ key: k, icon: <Icon name={`brush-${k}`} />, label: t, hint, on: brushKind === k }))}
-                    onPick={(k) => setBrushKind(k as BrushKind)}
+                    face={<Icon name={elDef.icon} />}
+                    title={`Élément : ${elDef.name} (${elDef.family})`}
+                    items={ELEMENTS.map((d) => ({ key: d.id, icon: <Icon name={d.icon} />, label: d.name, hint: d.hint, group: d.family, on: element === d.id }))}
+                    onPick={(k) => {
+                      setElement(k as ElementId);
+                      if (tool === 'stamp' && !STAMPABLE.includes(k as ElementId)) setTool('paint');
+                    }}
                   />
+                  {depositTools.length > 1 && (
+                    <FanButton
+                      dir={lefty ? 'left' : 'right'}
+                      face={<Icon name={tool === 'stamp' ? 'stamp' : (elToolDef?.icon ?? 'brush')} />}
+                      title={`Outil : ${tool === 'stamp' ? 'Tampon' : (elToolDef?.label ?? 'Pinceau')}`}
+                      items={depositTools.map((t) => ({ ...t, icon: <Icon name={t.icon} />, on: t.key === 'stamp' ? tool === 'stamp' : tool === 'paint' && (elToolDef?.key ?? 'brush') === t.key }))}
+                      onPick={(k) => {
+                        if (k === 'stamp') return setTool('stamp');
+                        if (elDef.tools) setElTool((all) => ({ ...all, [element]: k }));
+                        setTool('paint');
+                      }}
+                    />
+                  )}
+                </>
+              )}
+              {tool === 'paint' && (
+                <>
+                  {elDef.presets.length > 0 && (
+                    <FanButton
+                      dir={lefty ? 'left' : 'right'}
+                      face={<Icon name="presets" />}
+                      title={`Jeu de paramètres : ${elDef.presets[presetOf(elDef, elP)]?.name ?? 'réglages personnels'}`}
+                      items={elDef.presets.map((ps, i) => {
+                        const thumb = presetThumb(elDef, ps.values, doc.guides[guide]);
+                        return { key: String(i), icon: thumb ? <img className="preset-thumb" src={thumb} alt="" /> : <Icon name={elDef.icon} />, label: ps.name, on: presetOf(elDef, elP) === i };
+                      })}
+                      onPick={(k) => setElParams((all) => ({ ...all, [element]: { ...all[element], ...elDef.presets[Number(k)]!.values } }))}
+                    />
+                  )}
                   <button
                     className="btn small"
                     disabled={!sel?.strokes.length}
@@ -4789,49 +4848,28 @@ export function App() {
                   >
                     <Icon name="paint-reset" />
                   </button>
-                  {(brushKind === 'hair' || brushKind === 'branch') && (
+                  {(brushKind === 'hair' || brushKind === 'branch' || brushKind === 'glitter') && (
                     <button className={`btn small ${spill ? 'on' : ''}`} onClick={toggleSpill} title={spill ? 'Déborder : l’encre sort de la forme et repousse son contour, comme le modelage (« Revenir à la forme » le rend). Toucher pour rester dans la forme' : 'Dans la forme : l’encre reste dans la découpe. Toucher pour la laisser déborder et repousser le contour'}>
                       <Icon name="spill" />
                     </button>
                   )}
-                  {brushKind === 'aquarelle' && (
-                    <>
-                      <button
-                        className={`btn small dry-btn ${wetness > 0 ? 'wet' : ''}`}
-                        style={{ '--wet': wetness } as React.CSSProperties}
-                        disabled={wetness <= 0}
-                        onClick={() => {
-                          wetPass.current = null;
-                          setWetness(0);
-                          setToast('Papier séché : les traits suivants se posent en glacis par-dessus');
-                        }}
-                        title={wetness > 0 ? 'Sécher : le papier est encore mouillé, les traits s’y mêlent. Toucher pour figer la passe' : 'Papier sec : le prochain trait commence une nouvelle passe humide'}
-                      >
-                        <Icon name="dry" />
-                      </button>
-                    </>
-                  )}
-                  {brushKind === 'branch' && (
-                    <>
-                      <Knob label="Ramifications" fmt={(v) => String(1 + Math.round(v * 15))} value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
-                      <Knob label="Chaos" value={converge} onChange={(v) => setConverge(Math.round(v * 100) / 100)} />
-                      <Knob label="Taille noyau" value={branchCore} onChange={(v) => setBranchCore(Math.round(v * 100) / 100)} />
-                    </>
-                  )}
-                  {brushKind === 'hair' && (
-                    <>
-                      <Knob label="Longueur" value={hairLen} onChange={(v) => setHairLen(Math.max(0.03, Math.round(v * 100) / 100))} />
-                      <Knob label={curl < 0.15 ? 'Frisure · raide' : curl < 0.6 ? 'Frisure · alpaga' : 'Frisure · mouton'} value={curl} onChange={(v) => setCurl(Math.round(v * 100) / 100)} />
-                    </>
-                  )}
-                  {brushKind === 'burn' && (
-                    <>
-                      <Knob label="Roussi" value={burnChar} onChange={(v) => setBurnChar(Math.max(0.02, Math.round(v * 100) / 100))} />
-                      <button className={`btn small ${burnHole ? 'on' : ''}`} onClick={() => setBurnHole(!burnHole)} title={burnHole ? 'Trous : la brûlure perce la couche' : 'Sans trou : la brûlure teinte seulement'}>
-                        <Icon name="burn-hole" />
-                      </button>
-                    </>
-                  )}
+                  {elDef.knobs
+                    .filter((k) => k.main || !simple)
+                    .map((k) => {
+                      const v = elP[k.key] ?? 0;
+                      const set = (n: number) => setElParams((all) => ({ ...all, [element]: { ...all[element], [k.key]: n } }));
+                      if (k.toggle)
+                        return (
+                          <button key={k.key} className={`btn small ${v > 0.5 ? 'on' : ''}`} onClick={() => set(v > 0.5 ? 0 : 1)} title={v > 0.5 ? k.toggle.on : k.toggle.off}>
+                            <Icon name={k.toggle.icon} />
+                          </button>
+                        );
+                      return k.center ? (
+                        <Knob key={k.key} label={k.label} glyph={k.glyph} center value={(v + 1) / 2} onChange={(n) => set(Math.round((n * 2 - 1) * 50) / 50)} />
+                      ) : (
+                        <Knob key={k.key} label={k.zone ? `${k.label} · ${k.zone(v)}` : k.label} glyph={k.glyph} fmt={k.fmt} value={v} onChange={(n) => set(Math.max(k.min ?? 0, Math.round(n * 100) / 100))} />
+                      );
+                    })}
                 </>
               )}
               {tool === 'mold' && (
@@ -4920,13 +4958,6 @@ export function App() {
               {tool === 'cut' && (
                 <>
                   <button
-                    className="btn small"
-                    onClick={() => setBlade(blade === 'scissors' ? 'scalpel' : 'scissors')}
-                    title={blade === 'scalpel' ? 'Scalpel : le morceau reste en place, lié à son objet (toucher pour les ciseaux)' : 'Ciseaux : le morceau se détache (toucher pour le scalpel)'}
-                  >
-                    <Icon name={blade} />
-                  </button>
-                  <button
                     className={`btn small ${subjectOn ? 'on' : ''}`}
                     onClick={() => {
                       setSubjectOn(!subjectOn);
@@ -5005,6 +5036,39 @@ export function App() {
                     {...(tipOn(brushKind) ? { tip: brushTip, ...(brushTip !== 'round' && brushTip !== 'ears' ? { rotation: brushRot, onRotation: setBrushRot } : {}) } : {})}
                     {...(leanOn(brushKind) ? { tilt: brushTilt, onTilt: (x: number, y: number) => setBrushTilt([x, y]) } : {})}
                     pick={tipOn(brushKind) ? tipPick(brushTip, setBrushTip, BRUSH_TIPS) : { face: <Icon name="tip-round" />, title: 'Pointe ronde (seule possible pour ce pinceau)' }}
+                    {...(element === 'fire'
+                      ? {
+                          dry: {
+                            face: <Icon name="snuffer" />,
+                            wet: sel?.strokes.some((x) => x.flame !== undefined && !x.out) ? 1 : 0,
+                            press: true,
+                            title: sel?.strokes.some((x) => x.flame !== undefined && !x.out)
+                              ? `Éteindre : le feu brûle encore sur « ${sel.name} ». Toucher pour l’éteindre, il ne restera que le brûlé`
+                              : 'Aucun feu ne brûle sur cet objet',
+                            onDry: () => {
+                              if (!sel) return;
+                              update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === sel.id ? { ...l, strokes: l.strokes.map((x) => (x.flame !== undefined && !x.out ? { ...x, out: true } : x)) } : l)) }));
+                              setToast('Feu éteint : il ne reste que le brûlé, un nouveau feu n’y reprend pas');
+                              setToastUndo(true);
+                            },
+                          },
+                        }
+                      : wetKind
+                      ? {
+                          dry: {
+                            face: <Icon name="propeller" />,
+                            wet: wetness,
+                            title:
+                              wetness > 0
+                                ? `Sécher : ${wetKind === 'aquarelle' ? 'le papier est encore mouillé, les traits s’y mêlent' : wetKind === 'acrylic' ? 'la pâte est fraîche, les traits la tirent et s’y mélangent' : wetKind === 'water' ? 'l’eau est encore là, les gouttes des traits se rejoignent' : 'la peinture est fraîche, chargée elle coule'}. Toucher pour figer la passe`
+                                : 'Sec : le prochain trait commence une nouvelle passe fraîche',
+                            onDry: () => {
+                              dryPass();
+                              setToast('Passe séchée : les traits suivants se posent par-dessus');
+                            },
+                          },
+                        }
+                      : {})}
                   />
                 ),
                 tool === 'stamp' && (

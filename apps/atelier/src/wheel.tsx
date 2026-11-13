@@ -26,6 +26,8 @@ interface Props {
    * un toucher passe au suivant ; double toucher ou appui long ouvre le choix.
    */
   pick?: { face: ReactNode; title: string; next?: () => void; choices?: (close: () => void) => ReactNode; options?: FanItem[]; onOption?: (key: string) => void };
+  /** Sécher la passe fraîche (aquarelle, acrylique, bombe) : petit bouton au bord de la roue, sa jauge bleue montre la passe encore fraîche. */
+  dry?: { face: ReactNode; wet: number; title: string; onDry: () => void; press?: boolean };
   /** Côté de l'écran où la roue est posée (et vers lequel elle s'écarte). */
   side?: 'left' | 'right';
   /** Après combien de temps sans y toucher la roue s'écarte (ms) ; absent : jamais. */
@@ -52,10 +54,13 @@ const A1 = 2.5 * Math.PI;
 const SEG = 18;
 // le choix du pinceau et le cadran de perspective, de même taille, dans le quart vide
 // de la jauge (en bas à droite) : la roue peut se loger dans le coin de l'écran
-const RB = 110; // distance des deux boutons au centre
-const AP = (118 * Math.PI) / 180; // choix du pinceau, vers 4 h
-const AT = (152 * Math.PI) / 180; // perspective, vers 5 h
-const TR = 26;
+const RB2 = 110; // distance des deux boutons au centre
+const AP2 = (118 * Math.PI) / 180; // choix du pinceau, vers 4 h
+const AT2 = (152 * Math.PI) / 180; // perspective, vers 5 h
+const TR2 = 26;
+// avec Sécher, trois disques un peu plus petits se partagent le quart vide : Sécher vers 3 h, le choix du pinceau, la perspective vers 6 h
+const DEG = Math.PI / 180;
+const THREE = { tr: 22, rb: 112, ad: 104 * DEG, ap: 135 * DEG, at: 166 * DEG };
 const RG = RI + 17; // bord intérieur des segments : entre la taille et l'intensité, une gorge
 const RA = RI + 8.5; // la pastille de rotation tourne dans cette gorge
 
@@ -107,8 +112,15 @@ export function BrushWheel(p: Props) {
   const ref = useRef<SVGSVGElement>(null);
   const drag = useRef<{ zone: Zone; a0: number; rot0: number; r0: number; v0: number; x0: number; y0: number } | null>(null);
   const left = (p.side ?? 'left') === 'left';
+  const three = !!p.dry;
+  const TR = three ? THREE.tr : TR2;
+  const RB = three ? THREE.rb : RB2;
+  const AP = three ? THREE.ap : AP2;
+  const AT = three ? THREE.at : AT2;
   const [TX, TY] = at(AT, RB);
   const [PX, PY] = at(AP, RB);
+  const [PX0, PY0, TX0, TY0] = [PX, PY, TX, TY];
+  const [DX, DY] = at(THREE.ad, RB);
   // écartée sur le côté ; elle revient au survol ou au toucher, puis repart
   const [out, setOut] = useState(true);
   const away = useRef<number | null>(null);
@@ -282,15 +294,16 @@ export function BrushWheel(p: Props) {
     [PX, PY, TR + 7],
     [TX, TY, TR + 7],
     [...at((AP + AT) / 2, RB - 4), TR - 7],
+    ...(three ? [[DX, DY, TR + 7] as [number, number, number], [...at((THREE.ad + AP) / 2, RB - 4), TR - 7] as [number, number, number]] : []),
   ];
   // entre les deux boutons, l'enveloppe passe par une courbe douce qui rentre vers la roue (moins creusée que la rencontre des deux ronds)
-  const bridge = (r: number) => {
-    const [dx, dy] = [TX - PX, TY - PY];
+  const bridge = (r: number, [PX, PY]: number[] = [PX0, PY0], [TX, TY]: number[] = [TX0, TY0]) => {
+    const [dx, dy] = [TX! - PX!, TY! - PY!];
     const L = Math.hypot(dx, dy);
     let [nx, ny] = [dy / L, -dx / L];
-    if (nx * (PX + TX - 2 * C) + ny * (PY + TY - 2 * C) < 0) [nx, ny] = [-nx, -ny];
-    const [ax, ay] = [PX + nx * r, PY + ny * r];
-    const [bx, by] = [TX + nx * r, TY + ny * r];
+    if (nx * (PX! + TX! - 2 * C) + ny * (PY! + TY! - 2 * C) < 0) [nx, ny] = [-nx, -ny];
+    const [ax, ay] = [PX! + nx * r, PY! + ny * r];
+    const [bx, by] = [TX! + nx * r, TY! + ny * r];
     // creux de 12 au milieu : le point de contrôle rentre de deux fois plus
     const [cx, cy] = [(ax + bx) / 2 - nx * 24, (ay + by) / 2 - ny * 24];
     return `M${PX} ${PY}L${ax} ${ay}Q${cx} ${cy} ${bx} ${by}L${TX} ${TY}Z`;
@@ -298,6 +311,7 @@ export function BrushWheel(p: Props) {
   return (
     <div
       className={`brush-wheel side-${left ? 'left' : 'right'} ${out ? '' : 'away'}`}
+      style={{ '--disc': `${((2 * TR) / S) * 100}%` } as React.CSSProperties}
       onPointerEnter={(e) => e.pointerType !== 'touch' && comeBack()}
       onPointerLeave={(e) => {
         // la roue file sous la souris en se rangeant : ce départ-là ne compte pas
@@ -314,10 +328,12 @@ export function BrushWheel(p: Props) {
             <circle key={`e${i}`} cx={x} cy={y} r={r + 1} className="bw-shell-edge" />
           ))}
           <path d={bridge(TR + 8)} className="bw-shell-edge" />
+          {three && <path d={bridge(TR + 8, [DX, DY], [PX, PY])} className="bw-shell-edge" />}
           {shell.map(([x, y, r], i) => (
             <circle key={`f${i}`} cx={x} cy={y} r={r} className="bw-shell-face" />
           ))}
           <path d={bridge(TR + 7)} className="bw-shell-face" />
+          {three && <path d={bridge(TR + 7, [DX, DY], [PX, PY])} className="bw-shell-face" />}
         </g>
         <circle cx={C} cy={C} r={RO} className="bw-disc" />
         {segs.map(([a, b], i) => (
@@ -382,8 +398,46 @@ export function BrushWheel(p: Props) {
           </g>
         )}
       </svg>
+      {p.dry && <DryFan {...p.dry} at={[DX / S, DY / S]} />}
       {p.pick && (p.pick.options ? <FanPicker {...p.pick} at={[PX / S, PY / S]} dir={left ? 'right' : 'left'} /> : <Picker {...p.pick} at={[PX / S, PY / S]} />)}
     </div>
+  );
+}
+
+/**
+ * Sécher : une petite hélice. Elle tourne tant que le doigt est posé dessus et la passe sèche quand on
+ * le lève ; elle finit son tour sur sa lancée.
+ */
+function DryFan({ face, wet, title, onDry, press, at: [px, py] }: NonNullable<Props['dry']> & { at: [number, number] }) {
+  const [spin, setSpin] = useState<'on' | 'coast' | null>(null);
+  const coast = useRef(0);
+  useEffect(() => () => clearTimeout(coast.current), []);
+  const stop = (dry: boolean) => {
+    if (spin !== 'on') return;
+    setSpin('coast');
+    clearTimeout(coast.current);
+    coast.current = window.setTimeout(() => setSpin(null), 700);
+    if (dry) onDry();
+  };
+  return (
+    <button
+      className={`bw-dry dry-btn ${press ? 'press' : ''} ${wet > 0 ? 'wet' : ''} ${spin ? `spin-${spin}` : ''}`}
+      style={{ left: `${px * 100}%`, top: `${py * 100}%`, '--wet': wet } as React.CSSProperties}
+      disabled={wet <= 0 && !spin}
+      title={title}
+      aria-label={title}
+      onPointerDown={(e) => {
+        if (wet <= 0) return;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        clearTimeout(coast.current);
+        setSpin('on');
+      }}
+      onPointerUp={() => stop(true)}
+      onPointerCancel={() => stop(false)}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && wet > 0 && onDry()}
+    >
+      {face}
+    </button>
   );
 }
 
