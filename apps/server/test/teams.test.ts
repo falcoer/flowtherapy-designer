@@ -263,12 +263,14 @@ describe('équipes', () => {
     // occasions : cibles présélectionnées (média, format, variante)
     const ops = await lauris.send('PUT', '/api/teams/flowtherapy/profile', {
       operations: [
-        { id: 'concert', name: 'Concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }, { format: '' }] },
+        { id: 'concert', name: 'Concert', icon: 'occ-concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }, { format: '' }] },
+        { id: 'logo', name: 'Logo', icon: '<svg>', targets: [{ format: 'carre' }] },
         { name: '' },
       ],
     });
     expect(ops.json().profile.operations).toEqual([
-      { id: 'concert', name: 'Concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }] },
+      { id: 'concert', name: 'Concert', icon: 'occ-concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }] },
+      { id: 'logo', name: 'Logo', targets: [{ format: 'carre' }] },
     ]);
   });
 

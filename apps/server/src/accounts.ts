@@ -101,6 +101,8 @@ export interface Target {
 export interface Operation {
   id: string;
   name: string;
+  /** Icône de l'occasion (occ-concert, occ-music…) ; absente, devinée d'après le nom. */
+  icon?: string;
   targets: Target[];
 }
 
@@ -328,7 +330,8 @@ export function cleanProfile(p: ActivityProfile): ActivityProfile {
           ...(str(t?.palette, 40) ? { palette: str(t?.palette, 40) } : {}),
         }))
         .filter((t) => t.format);
-      return { id, name, targets };
+      const icon = str(o?.icon, 30);
+      return { id, name, ...(/^occ-[a-z]+$/.test(icon) ? { icon } : {}), targets };
     })
     .filter((o) => o.name);
   const keywords = (Array.isArray(p.branding?.keywords) ? p.branding!.keywords : [])

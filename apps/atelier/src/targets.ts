@@ -116,6 +116,35 @@ export const DEFAULT_OPERATIONS: Operation[] = [
   },
 ];
 
+/** Icônes proposées pour les types de projet, dans l'ordre du choix. */
+export const OCCASION_ICONS: Array<{ id: string; label: string }> = [
+  { id: 'occ-concert', label: 'Concert' },
+  { id: 'occ-ticket', label: 'Évènement' },
+  { id: 'occ-music', label: 'Musique' },
+  { id: 'occ-video', label: 'Vidéo' },
+  { id: 'occ-banner', label: 'Bannière' },
+  { id: 'occ-logo', label: 'Logo' },
+  { id: 'occ-site', label: 'Site' },
+  { id: 'occ-story', label: 'Story' },
+  { id: 'occ-news', label: 'Annonce' },
+];
+
+/** Icône d'un type de projet : celle choisie, sinon devinée d'après son nom. */
+export function occasionIcon(o?: Pick<Operation, 'id' | 'name' | 'icon'> | null): string {
+  if (!o) return 'occ-news';
+  if (o.icon && OCCASION_ICONS.some((x) => x.id === o.icon)) return o.icon;
+  const t = `${o.id} ${o.name}`.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  if (/banniere|habillage|chaine/.test(t)) return 'occ-banner';
+  if (/logo|identite/.test(t)) return 'occ-logo';
+  if (/video|clip|youtube/.test(t)) return 'occ-video';
+  if (/concert|showcase|live|tournee/.test(t)) return 'occ-concert';
+  if (/evenement|spectacle|festival|soiree|atelier/.test(t)) return 'occ-ticket';
+  if (/musique|album|single|morceau|chanson|ep\b/.test(t)) return 'occ-music';
+  if (/site|web/.test(t)) return 'occ-site';
+  if (/story/.test(t)) return 'occ-story';
+  return 'occ-news';
+}
+
 /** Types de projet de l'activité, chaque cible gardée seulement si son média existe. */
 export function operationsOf(p?: ActivityProfile | null): Operation[] {
   const chans = channelsOf(p);

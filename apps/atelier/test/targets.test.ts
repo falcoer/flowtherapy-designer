@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { blankDoc } from '../src/blank';
 import type { ActivityProfile } from '../src/server';
-import { channelsOf, colorGuide, contactsOf, DEFAULT_OPERATIONS, docForTarget, formatsFor, guidePaletteColor, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, slotColor, targetLabel } from '../src/targets';
+import { channelsOf, colorGuide, contactsOf, DEFAULT_OPERATIONS, docForTarget, formatsFor, guidePaletteColor, occasionIcon, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, slotColor, targetLabel } from '../src/targets';
 import { SITE_VARIANTS } from '../src/brand-presets';
 import { anchorsOf, docMargins, edgeLines, formatOf, pinLine, resolvePoint, setAnchorFrames, setAnchorMargin } from '../src/model';
 import { cleanCatalog } from '@ftd/core';
@@ -47,6 +47,17 @@ describe('cibles et variantes', () => {
     // une publication garde ses propres marges, côté par côté (zones mortes d'un réseau)
     const own = { top: 0.12, right: 0.05, bottom: 0.2, left: 0.05 };
     expect(docMargins(docForTarget(blankDoc(), { channel: 'affiche', format: 'a4', margins: own }, profile))).toEqual(own);
+  });
+
+  it('les types de projet ont une icône, choisie ou devinée d’après leur nom', () => {
+    expect(occasionIcon({ id: 'x', name: 'Nouvelle musique' })).toBe('occ-music');
+    expect(occasionIcon({ id: 'x', name: 'Concert, évènement' })).toBe('occ-concert');
+    expect(occasionIcon({ id: 'x', name: 'Mise à jour des bannières' })).toBe('occ-banner');
+    expect(occasionIcon({ id: 'x', name: 'Mise à jour du logo' })).toBe('occ-logo');
+    expect(occasionIcon({ id: 'chaine-youtube', name: 'Habillage de la chaîne YouTube' })).toBe('occ-banner');
+    expect(occasionIcon({ id: 'x', name: 'Divers' })).toBe('occ-news');
+    expect(occasionIcon({ id: 'x', name: 'Nouvelle musique', icon: 'occ-logo' })).toBe('occ-logo');
+    expect(occasionIcon({ id: 'x', name: 'Nouvelle musique', icon: 'inconnue' })).toBe('occ-music');
   });
 
   it('les occasions par défaut ne gardent que les cibles dont le média existe', () => {

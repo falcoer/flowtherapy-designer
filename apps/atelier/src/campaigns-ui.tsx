@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { Icon } from './icons';
 import { thumbUrl, type AtelierMeta, type Campaign, type CampaignInput, type Operation } from './server';
+import { OCCASION_ICONS, occasionIcon } from './targets';
 
 export const day = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'long' });
 const dayShort = (d: string) => {
@@ -7,6 +9,88 @@ const dayShort = (d: string) => {
   return { d: x.toLocaleDateString('fr-FR', { day: 'numeric' }), m: x.toLocaleDateString('fr-FR', { month: 'short' }), y: x.getFullYear() };
 };
 export const isEventOp = (ops: Operation[], id?: string) => !id || id === 'concert' || /concert|[ée]v[èe]nement|spectacle|festival|soir[ée]e/i.test(ops.find((o) => o.id === id)?.name ?? '');
+
+/** Liste flottante sous un bouton, posée en position fixe pour ne pas être coupée par la fenêtre qui défile. */
+function Pop(p: { anchor: HTMLElement | null; onClose: () => void; children: ReactNode; className?: string }) {
+  const r = p.anchor?.getBoundingClientRect();
+  if (!r) return null;
+  const below = window.innerHeight - r.bottom > 240;
+  const style: CSSProperties = { left: Math.max(8, Math.min(r.left, window.innerWidth - 248)), ...(below ? { top: r.bottom + 4 } : { bottom: window.innerHeight - r.top + 4 }) };
+  return (
+    <>
+      <div className="occ-back" onPointerDown={(e) => (e.stopPropagation(), p.onClose())} />
+      <div className={`occ-pop ${p.className ?? ''}`} style={style} role="listbox" onPointerDown={(e) => e.stopPropagation()}>
+        {p.children}
+      </div>
+    </>
+  );
+}
+
+/** Choix de l'occasion d'une campagne : son icône et son nom, la liste s'ouvre avec les icônes de chaque type. */
+export function OccasionPick(p: { value?: string; operations: Operation[]; onChange: (id: string | undefined) => void }) {
+  const [open, setOpen] = useState(false);
+  const btn = useRef<HTMLButtonElement>(null);
+  const cur = p.operations.find((o) => o.id === p.value);
+  const pick = (id?: string) => {
+    p.onChange(id);
+    setOpen(false);
+  };
+  return (
+    <>
+      <button ref={btn} type="button" className={`pf-input occ-pick ${cur ? '' : 'none'}`} onClick={() => setOpen(!open)} aria-haspopup="listbox" aria-expanded={open} aria-label="Occasion" title={cur ? `Occasion : ${cur.name}` : 'Sans occasion'}>
+        {cur ? <Icon name={occasionIcon(cur)} /> : <span className="occ-none">—</span>}
+        <span className="occ-name">{cur ? cur.name : 'Sans occasion'}</span>
+      </button>
+      {open && (
+        <Pop anchor={btn.current} onClose={() => setOpen(false)}>
+          <button type="button" role="option" aria-selected={!cur} className={`occ-opt ${!cur ? 'on' : ''}`} onClick={() => pick(undefined)}>
+            <span className="occ-none">—</span>
+            <span>Sans occasion</span>
+          </button>
+          {p.operations.map((o) => (
+            <button type="button" role="option" aria-selected={o.id === p.value} key={o.id} className={`occ-opt ${o.id === p.value ? 'on' : ''}`} onClick={() => pick(o.id)}>
+              <Icon name={occasionIcon(o)} />
+              <span>{o.name}</span>
+            </button>
+          ))}
+        </Pop>
+      )}
+    </>
+  );
+}
+
+/** Choix de l'icône d'un type de projet (fiche de l'activité). */
+export function OccasionIconPick(p: { op: Operation; disabled?: boolean; onChange: (icon: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const btn = useRef<HTMLButtonElement>(null);
+  const cur = occasionIcon(p.op);
+  return (
+    <>
+      <button ref={btn} type="button" className="act-icon occ-icon-btn" disabled={p.disabled} onClick={() => setOpen(!open)} title="Icône du type de projet" aria-label="Icône du type de projet" aria-expanded={open}>
+        <Icon name={cur} />
+      </button>
+      {open && (
+        <Pop anchor={btn.current} onClose={() => setOpen(false)} className="grid">
+          {OCCASION_ICONS.map((x) => (
+            <button
+              type="button"
+              key={x.id}
+              className={`occ-opt ${x.id === cur ? 'on' : ''}`}
+              title={x.label}
+              aria-label={x.label}
+              onClick={() => {
+                p.onChange(x.id);
+                setOpen(false);
+              }}
+            >
+              <Icon name={x.id} />
+            </button>
+          ))}
+        </Pop>
+      )}
+    </>
+  );
+}
 
 /** Formulaire d'une campagne : nom, occasion, date ; pour un évènement, prestation, accueil, lieu, contact réservation. */
 export function CampaignForm(p: { initial: CampaignInput & { id?: string }; operations: Operation[]; onCancel: () => void; onSubmit: (c: CampaignInput & { id?: string }) => Promise<void> }) {
@@ -26,19 +110,23 @@ export function CampaignForm(p: { initial: CampaignInput & { id?: string }; oper
       setBusy(false);
     }
   };
+  const buttons = (
+    <span className="cp-btns">
+      <button className="pf-btn" onClick={p.onCancel}>
+        Annuler
+      </button>
+      <button className="pf-btn act-primary" disabled={busy || !form.name?.trim()} onClick={() => void submit()}>
+        {form.id ? 'Enregistrer' : 'Créer'}
+      </button>
+    </span>
+  );
   return (
     <div className="cp-form">
-      <input className="pf-input" autoFocus placeholder="Nom : Concert au Plan, sortie de l’album…" value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-      <div className="cp-row">
-        <select className="pf-input" value={form.operation ?? ''} onChange={(e) => setForm({ ...form, operation: e.target.value || undefined })} aria-label="Occasion">
-          <option value="">Sans occasion</option>
-          {p.operations.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name}
-            </option>
-          ))}
-        </select>
-        <input className="pf-input" type="date" value={form.date ?? ''} onChange={(e) => setForm({ ...form, date: e.target.value || undefined })} aria-label="Date" title="Date" />
+      <div className="cp-line">
+        <input className="pf-input cp-name" autoFocus placeholder="Nom : Concert au Plan, sortie de l’album…" value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} aria-label="Nom de la campagne" />
+        <OccasionPick value={form.operation} operations={p.operations} onChange={(operation) => setForm({ ...form, operation })} />
+        <input className="pf-input cp-day" type="date" value={form.date ?? ''} onChange={(e) => setForm({ ...form, date: e.target.value || undefined })} aria-label="Date" title="Date" />
+        {buttons}
       </div>
       {isEventOp(p.operations, form.operation) && (
         <>
@@ -64,14 +152,6 @@ export function CampaignForm(p: { initial: CampaignInput & { id?: string }; oper
           </div>
         </>
       )}
-      <div className="cp-btns">
-        <button className="pf-btn" onClick={p.onCancel}>
-          Annuler
-        </button>
-        <button className="pf-btn act-primary" disabled={busy || !form.name?.trim()} onClick={() => void submit()}>
-          {form.id ? 'Enregistrer' : 'Créer la campagne'}
-        </button>
-      </div>
       {err && <p className="pf-note pf-err">{err}</p>}
     </div>
   );
