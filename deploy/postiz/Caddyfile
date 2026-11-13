@@ -1,0 +1,8 @@
+# HTTPS automatique (Let's Encrypt) devant Postiz.
+{$POSTIZ_DOMAIN:postiz.flowtherapymusic.com} {
+	encode zstd gzip
+	request_body {
+		max_size 200MB
+	}
+	reverse_proxy postiz:5000
+}

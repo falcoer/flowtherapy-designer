@@ -1,0 +1,162 @@
+# Postiz (planification des publications) sur son propre VPS.
+# Adapté du compose officiel https://github.com/gitroomhq/postiz-docker-compose :
+# secrets dans .env, version figée, ports fermés vers l'extérieur sauf Caddy (80/443),
+# Temporal sans Elasticsearch (visibilité dans Postgres) pour tenir dans 4 Go.
+name: postiz
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  caddy:
+    <<: *restart
+    image: caddy:2.8
+    environment:
+      POSTIZ_DOMAIN: ${POSTIZ_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [postiz-network]
+    depends_on: [postiz]
+
+  postiz:
+    <<: *restart
+    image: ghcr.io/gitroomhq/postiz-app:${POSTIZ_VERSION}
+    environment:
+      MAIN_URL: https://${POSTIZ_DOMAIN}
+      FRONTEND_URL: https://${POSTIZ_DOMAIN}
+      NEXT_PUBLIC_BACKEND_URL: https://${POSTIZ_DOMAIN}/api
+      BACKEND_INTERNAL_URL: http://localhost:3000
+      JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgresql://postiz:${POSTGRES_PASSWORD}@postiz-postgres:5432/postiz
+      REDIS_URL: redis://postiz-redis:6379
+      TEMPORAL_ADDRESS: temporal:7233
+      IS_GENERAL: "true"
+      DISABLE_REGISTRATION: ${DISABLE_REGISTRATION}
+      RUN_CRON: "true"
+      API_LIMIT: ${API_LIMIT}
+      STORAGE_PROVIDER: local
+      UPLOAD_DIRECTORY: /uploads
+      NEXT_PUBLIC_UPLOAD_DIRECTORY: /uploads
+      # Applications développeur des réseaux (vides tant qu'elles ne sont pas créées)
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET}
+      INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID}
+      INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET}
+      THREADS_APP_ID: ${THREADS_APP_ID}
+      THREADS_APP_SECRET: ${THREADS_APP_SECRET}
+      YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID}
+      YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET}
+      TIKTOK_CLIENT_ID: ${TIKTOK_CLIENT_ID}
+      TIKTOK_CLIENT_SECRET: ${TIKTOK_CLIENT_SECRET}
+      # Pas de Stripe : pas de facturation ni de plafonds de plan
+      STRIPE_PUBLISHABLE_KEY: ""
+      NX_ADD_PLUGINS: "false"
+    volumes:
+      - postiz-config:/config/
+      - postiz-uploads:/uploads/
+    networks: [postiz-network, temporal-network]
+    healthcheck:
+      test: ["CMD", "node", "-e", "const r=require('http').get('http://localhost:5000/',res=>process.exit(res.statusCode<500?0:1));r.on('error',()=>process.exit(1));r.setTimeout(4000,()=>{r.destroy();process.exit(1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    depends_on:
+      postiz-postgres: { condition: service_healthy }
+      postiz-redis: { condition: service_healthy }
+      temporal: { condition: service_healthy }
+
+  postiz-postgres:
+    <<: *restart
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postiz
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postiz
+    volumes:
+      - postiz-postgres:/var/lib/postgresql/data
+    networks: [postiz-network]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postiz -d postiz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postiz-redis:
+    <<: *restart
+    image: redis:7.2
+    volumes:
+      - postiz-redis:/data
+    networks: [postiz-network]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  temporal-postgresql:
+    <<: *restart
+    image: postgres:16
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: ${TEMPORAL_DB_PASSWORD}
+    volumes:
+      - temporal-postgres:/var/lib/postgresql/data
+    networks: [temporal-network]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  temporal:
+    <<: *restart
+    image: temporalio/auto-setup:1.28.1
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD}
+      POSTGRES_SEEDS: temporal-postgresql
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/production-sql.yaml
+      TEMPORAL_NAMESPACE: default
+    volumes:
+      - ./dynamicconfig:/etc/temporal/config/dynamicconfig:ro
+    networks: [temporal-network]
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "temporal:7233"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    depends_on:
+      temporal-postgresql: { condition: service_healthy }
+
+  # Interface de Temporal, seulement pour déboguer :
+  # docker compose --profile debug up -d temporal-ui, puis tunnel SSH vers 127.0.0.1:8080
+  temporal-ui:
+    profiles: [debug]
+    image: temporalio/ui:2.34.0
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks: [temporal-network]
+
+volumes:
+  caddy-data:
+  caddy-config:
+  postiz-config:
+  postiz-uploads:
+  postiz-postgres:
+  postiz-redis:
+  temporal-postgres:
+
+networks:
+  postiz-network:
+  temporal-network:
