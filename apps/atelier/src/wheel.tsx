@@ -27,7 +27,7 @@ interface Props {
    */
   pick?: { face: ReactNode; title: string; next?: () => void; choices?: (close: () => void) => ReactNode; options?: FanItem[]; onOption?: (key: string) => void };
   /** Sécher la passe fraîche (aquarelle, acrylique, bombe) : petit bouton au bord de la roue, sa jauge bleue montre la passe encore fraîche. */
-  dry?: { face: ReactNode; wet: number; title: string; onDry: () => void };
+  dry?: { face: ReactNode; wet: number; title: string; onDry: () => void; press?: boolean };
   /** Côté de l'écran où la roue est posée (et vers lequel elle s'écarte). */
   side?: 'left' | 'right';
   /** Après combien de temps sans y toucher la roue s'écarte (ms) ; absent : jamais. */
@@ -408,7 +408,7 @@ export function BrushWheel(p: Props) {
  * Sécher : une petite hélice. Elle tourne tant que le doigt est posé dessus et la passe sèche quand on
  * le lève ; elle finit son tour sur sa lancée.
  */
-function DryFan({ face, wet, title, onDry, at: [px, py] }: NonNullable<Props['dry']> & { at: [number, number] }) {
+function DryFan({ face, wet, title, onDry, press, at: [px, py] }: NonNullable<Props['dry']> & { at: [number, number] }) {
   const [spin, setSpin] = useState<'on' | 'coast' | null>(null);
   const coast = useRef(0);
   useEffect(() => () => clearTimeout(coast.current), []);
@@ -421,7 +421,7 @@ function DryFan({ face, wet, title, onDry, at: [px, py] }: NonNullable<Props['dr
   };
   return (
     <button
-      className={`bw-dry dry-btn ${wet > 0 ? 'wet' : ''} ${spin ? `spin-${spin}` : ''}`}
+      className={`bw-dry dry-btn ${press ? 'press' : ''} ${wet > 0 ? 'wet' : ''} ${spin ? `spin-${spin}` : ''}`}
       style={{ left: `${px * 100}%`, top: `${py * 100}%`, '--wet': wet } as React.CSSProperties}
       disabled={wet <= 0 && !spin}
       title={title}

@@ -1,8 +1,9 @@
 import { bevelField, distField, lightKey, seedOf, shadeBump, shadeField, skinField, soften, volumeField, type BumpLight } from './bump';
 import { burnLayers, paintStroke, paintWash, type Target } from './brush';
+import type { Flames } from './fire';
 import { paintPass, passKind } from './fresh';
 import { drawBlurred, rng } from './brush';
-import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
+import { pathToRings, ringsToPath, simplifyRing, type Ring, insideRings } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
 import { blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
@@ -488,7 +489,7 @@ export function paintFor(l: Layer, doc: Doc, f: Format, pxPerUnit: number, live?
     while (j < S.length && sameWash(S[j - 1], S[j])) j++;
     const kind = S[i]!.wash !== undefined ? passKind(S[i]) : null;
     if (kind === 'aquarelle' && j - i > 1) paintWash(ctx, S.slice(i, j), doc.guides, t);
-    else if (kind === 'acrylic' || kind === 'spray') paintPass(ctx, S.slice(i, j), doc.guides, t);
+    else if (kind === 'acrylic' || kind === 'spray' || kind === 'water') paintPass(ctx, S.slice(i, j), doc.guides, t);
     else paintStroke(ctx, S[i]!, doc.guides, t);
     c.done = j;
   }
@@ -668,15 +669,19 @@ function featherMask(l: Layer, f: Format, path: Path2D) {
 }
 let featherTmp: HTMLCanvasElement | null = null;
 const burnsOf = (l: Layer, o: DrawOptions) => [...l.strokes.filter((s) => s.brush === 'burn'), ...(o.burning?.id === l.id ? [o.burning.stroke] : [])];
-const burnCache = new Map<string, { key: string; hole: HTMLCanvasElement; edge: HTMLCanvasElement }>();
+const burnCache = new Map<string, { key: string; hole: HTMLCanvasElement; edge: HTMLCanvasElement; flame: Flames | null }>();
 function burnFor(l: Layer, f: Format, o: DrawOptions) {
   const list = burnsOf(l, o);
   if (!list.length) return null;
   const t = paintTarget(l, f, o.scale);
-  const key = JSON.stringify([t.pw, t.ph, list.map((s) => [s.seed, s.pts.length, s.grow, s.size, s.guide, s.opacity, s.char, s.hole]), burnGuides[list[list.length - 1]!.guide]]);
+  // un feu brûle tant qu'on ne l'a pas éteint
+  const live = (s: Stroke) => s.flame !== undefined && !s.out;
+  const key = JSON.stringify([t.pw, t.ph, list.map((s) => [s.seed, s.pts.length, s.grow, s.size, s.guide, s.opacity, s.char, s.hole, s.flame, s.out]), [...new Set(list.map((s) => s.guide))].map((g) => burnGuides[g])]);
   const hit = burnCache.get(l.id);
   if (hit?.key === key) return hit;
-  const r = { key, ...burnLayers(list, burnGuides, t) };
+  // seul le front qui court sur la matière de la couche porte des flammes
+  const rings = localRings(l);
+  const r = { key, ...burnLayers(list, burnGuides, t, live, (x, y) => insideRings(rings, x / t.pw, y / t.ph)) };
   if (burnCache.size > 40) burnCache.clear();
   burnCache.set(l.id, r);
   return r;
@@ -911,6 +916,20 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       if (dof > 0.4 && l.kind === 'surface') ctx.drawImage(c, 0, 0);
       drawBlurred(ctx, c, dof);
       ctx.restore();
+      if (burnt?.flame) {
+        // flammes du feu vivant : au-dessus de la couche, libres de dépasser de sa découpe
+        const fl = burnt.flame;
+        const b = layerBox(l, f);
+        ctx.save();
+        if (l.rot) {
+          ctx.translate(b.cx, b.cy);
+          ctx.rotate(l.rot);
+          ctx.translate(-b.cx, -b.cy);
+        }
+        ctx.globalAlpha = opacityOf(l);
+        ctx.drawImage(fl.c, b.cx - b.w / 2 + fl.x * b.w, b.cy - b.h / 2 + fl.y * b.h, fl.w * b.w, fl.h * b.h);
+        ctx.restore();
+      }
       if (fpath) drawGlow(ctx, l, doc, f, o, false);
       continue;
     }

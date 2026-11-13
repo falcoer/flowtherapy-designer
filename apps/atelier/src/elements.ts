@@ -7,10 +7,10 @@ import type { Ramify } from './ramify';
  * puis un jeu de paramètres, puis affine aux potards ; le moteur qui calcule (`brush`) est un détail
  * de la fiche. « Matière » reste le mot du support des objets.
  */
-export type ElementId = 'acrylic' | 'aquarelle' | 'spray' | 'water' | 'dust' | 'glitter' | 'light' | 'smoke' | 'spark' | 'burn' | 'branch' | 'bolt' | 'frost' | 'hair';
+export type ElementId = 'acrylic' | 'aquarelle' | 'spray' | 'water' | 'dust' | 'glitter' | 'light' | 'smoke' | 'spark' | 'burn' | 'branch' | 'bolt' | 'frost' | 'fire' | 'hair';
 
 /** Réglages d'un trait que les potards d'un élément peuvent porter (tous entre 0 et 1, sauf `bend` entre −1 et 1). */
-export type ParamKey = 'focus' | 'bend' | 'density' | 'pool' | 'branches' | 'converge' | 'core' | 'hairLen' | 'curl' | 'char' | 'hole';
+export type ParamKey = 'focus' | 'bend' | 'density' | 'pool' | 'branches' | 'converge' | 'core' | 'hairLen' | 'curl' | 'char' | 'hole' | 'flame';
 export type Params = Partial<Record<ParamKey, number>>;
 
 export interface KnobDef {
@@ -230,6 +230,24 @@ export const ELEMENTS: ElementDef[] = [
     ],
   },
   {
+    id: 'fire',
+    name: 'Feu',
+    family: 'Lumière et feu',
+    icon: 'matter-fire',
+    hint: 'le front brûle et porte des flammes jusqu’à ce qu’on l’éteigne',
+    brush: 'burn',
+    knobs: [
+      { key: 'flame', label: 'Flammes', main: true },
+      { key: 'char', label: 'Roussi', main: true, min: 0.02 },
+      { key: 'hole', label: 'Trous', toggle: { icon: 'burn-hole', on: 'Trous : le feu perce la couche', off: 'Sans trou : le feu roussit seulement' } },
+    ],
+    presets: [
+      { name: 'Feu de papier', values: { flame: 0.45, char: 0.3, hole: 1 } },
+      { name: 'Brasier', values: { flame: 1, char: 0.5, hole: 1 } },
+      { name: 'Braises', values: { flame: 0.12, char: 0.55, hole: 0 } },
+    ],
+  },
+  {
     id: 'burn',
     name: 'Brûlure',
     family: 'Lumière et feu',
@@ -306,7 +324,7 @@ export function strokeParams(def: ElementDef, p: Params): Partial<Stroke> {
       if (def.ramify) return { ramify: def.ramify, branches: branchCount(p.branches ?? 5 / 15), converge: p.converge ?? 0.3, grow: 0.12 };
       return { branches: branchCount(p.branches ?? 5 / 15), converge: p.converge ?? 0.3, core: p.core ?? 1, grow: 0.12 };
     case 'burn':
-      return { char: p.char ?? 0.3, hole: (p.hole ?? 1) > 0.5, grow: 0.15 };
+      return { char: p.char ?? 0.3, hole: (p.hole ?? 1) > 0.5, grow: 0.15, ...(def.id === 'fire' ? { flame: p.flame ?? 0.5 } : {}) };
     default:
       return {};
   }

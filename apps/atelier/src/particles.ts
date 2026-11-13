@@ -384,7 +384,7 @@ function streak(ax: CanvasRenderingContext2D, g: Grain, look: (u: number) => { w
   ax.globalAlpha = 1;
 }
 
-export function particles(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], full: Target) {
+export function particles(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], full: Target, wetZone?: (x: number, y: number) => boolean) {
   const matter: Matter = s.matter ?? 'glitter';
   if (matter === 'spray') return veil(dst, s, guides, full);
   const guide = guides[s.guide];
@@ -509,7 +509,7 @@ export function particles(dst: CanvasRenderingContext2D, s: Stroke, guides: Guid
       const rad = g.sz * (0.35 + 1.5 * g.lit * g.lit);
       streak(ax, g, (u) => ({ w: Math.max(0.5, rad * 0.9), a: 0.2 * shape(u), c: tone(colAt(g, u), -0.2) }));
       streak(ax, g, (u) => ({ w: Math.max(0.35, rad * 0.22), a: 0.5 * shape(u), c: 'rgb(255,255,255)' }));
-      if (mask?.taken(hx, hy)) continue;
+      if (mask?.taken(hx, hy) || wetZone?.(hx + bx, hy + by)) continue;
       if (rad < 0.9) {
         // bruine : trop fine pour avoir un reflet
         ax.fillStyle = tone(col, 0.45, 0.55);
@@ -627,4 +627,35 @@ export function particles(dst: CanvasRenderingContext2D, s: Stroke, guides: Guid
   dst.globalAlpha = matter === 'glitter' ? Math.min(1, 0.5 + 0.5 * s.opacity) : matter === 'hair' ? 1 : s.opacity;
   dst.drawImage(ink, bx, by);
   dst.restore();
+}
+
+/**
+ * Passe d'eau encore mouillée : les gouttes de tous ses traits se rejoignent. La zone mouillée est
+ * calculée sur l'ensemble des gouttes (cumul du dernier trait), posée une fois, puis chaque trait pose
+ * ses gouttes, sauf celles que la zone a déjà prises.
+ */
+export function waterPass(dst: CanvasRenderingContext2D, list: Stroke[], guides: Guide[], full: Target) {
+  const all: Grain[] = [];
+  let R = 0;
+  for (const s of list) {
+    const g = grains(s, full, 'water');
+    for (const x of g.list) all.push(x);
+    R = Math.max(R, g.R);
+  }
+  const last = list[list.length - 1]!;
+  const mask = poolMask(all, full, R, clamp(last.pool ?? 0));
+  if (mask) {
+    const c0 = guideColor(guides[last.guide], 0);
+    const lift = Math.max(1, R * 0.06);
+    // la zone mouillée de la passe, comme celle d'un trait (voir particles)
+    const { c: ink, ctx: ax } = buffer('a', full.pw, full.ph);
+    layMask(ax, mask.c, tone(c0, -0.45), 0.2);
+    layMask(ax, mask.c, tone(c0, -0.6), 0.5, [-lift, -lift]);
+    layMask(ax, mask.c, 'rgb(255,255,255)', 0.8, [lift, lift]);
+    dst.save();
+    dst.globalAlpha = last.opacity;
+    dst.drawImage(ink, 0, 0);
+    dst.restore();
+  }
+  for (const s of list) particles(dst, { ...s, pool: 0 }, guides, full, mask?.taken);
 }

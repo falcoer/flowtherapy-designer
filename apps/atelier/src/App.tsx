@@ -5036,14 +5036,31 @@ export function App() {
                     {...(tipOn(brushKind) ? { tip: brushTip, ...(brushTip !== 'round' && brushTip !== 'ears' ? { rotation: brushRot, onRotation: setBrushRot } : {}) } : {})}
                     {...(leanOn(brushKind) ? { tilt: brushTilt, onTilt: (x: number, y: number) => setBrushTilt([x, y]) } : {})}
                     pick={tipOn(brushKind) ? tipPick(brushTip, setBrushTip, BRUSH_TIPS) : { face: <Icon name="tip-round" />, title: 'Pointe ronde (seule possible pour ce pinceau)' }}
-                    {...(wetKind
+                    {...(element === 'fire'
+                      ? {
+                          dry: {
+                            face: <Icon name="snuffer" />,
+                            wet: sel?.strokes.some((x) => x.flame !== undefined && !x.out) ? 1 : 0,
+                            press: true,
+                            title: sel?.strokes.some((x) => x.flame !== undefined && !x.out)
+                              ? `Éteindre : le feu brûle encore sur « ${sel.name} ». Toucher pour l’éteindre, il ne restera que le brûlé`
+                              : 'Aucun feu ne brûle sur cet objet',
+                            onDry: () => {
+                              if (!sel) return;
+                              update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === sel.id ? { ...l, strokes: l.strokes.map((x) => (x.flame !== undefined && !x.out ? { ...x, out: true } : x)) } : l)) }));
+                              setToast('Feu éteint : il ne reste que le brûlé, un nouveau feu n’y reprend pas');
+                              setToastUndo(true);
+                            },
+                          },
+                        }
+                      : wetKind
                       ? {
                           dry: {
                             face: <Icon name="propeller" />,
                             wet: wetness,
                             title:
                               wetness > 0
-                                ? `Sécher : ${wetKind === 'aquarelle' ? 'le papier est encore mouillé, les traits s’y mêlent' : wetKind === 'acrylic' ? 'la pâte est fraîche, les traits la tirent et s’y mélangent' : 'la peinture est fraîche, chargée elle coule'}. Toucher pour figer la passe`
+                                ? `Sécher : ${wetKind === 'aquarelle' ? 'le papier est encore mouillé, les traits s’y mêlent' : wetKind === 'acrylic' ? 'la pâte est fraîche, les traits la tirent et s’y mélangent' : wetKind === 'water' ? 'l’eau est encore là, les gouttes des traits se rejoignent' : 'la peinture est fraîche, chargée elle coule'}. Toucher pour figer la passe`
                                 : 'Sec : le prochain trait commence une nouvelle passe fraîche',
                             onDry: () => {
                               dryPass();

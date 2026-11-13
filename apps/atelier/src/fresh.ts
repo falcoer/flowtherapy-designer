@@ -1,13 +1,14 @@
 import { paintStroke, rng, type Target } from './brush';
+import { waterPass } from './particles';
 import type { Guide, Stroke } from './model';
 
 /**
  * Passe fraîche des revêtements (acrylique, rouleau, bombe) : tant que la passe n'est pas sèche,
  * ses traits travaillent ensemble. Un nouveau trait d'acrylique tire la pâte encore fraîche et s'y
- * mélange ; la bombe trop chargée coule. La peinture d'avant la passe (sèche) n'est jamais touchée.
+ * mélange ; la bombe trop chargée coule ; les gouttes d'eau d'une même passe se rejoignent. La peinture d'avant la passe (sèche) n'est jamais touchée.
  * La passe sèche quand le contexte se termine (autre couche, autre élément ou outil) ou au bouton Sécher.
  */
-export type PassKind = 'aquarelle' | 'acrylic' | 'spray';
+export type PassKind = 'aquarelle' | 'acrylic' | 'spray' | 'water';
 
 /** Sorte de passe humide d'un trait : l'aquarelle a la sienne (paintWash), les revêtements celle-ci. */
 export function passKind(s: Pick<Stroke, 'brush' | 'matter'> | undefined): PassKind | null {
@@ -16,6 +17,7 @@ export function passKind(s: Pick<Stroke, 'brush' | 'matter'> | undefined): PassK
   if (b === 'aquarelle') return 'aquarelle';
   if (b === 'acrylic' || b === 'roller') return 'acrylic';
   if (b === 'glitter' && s.matter === 'spray') return 'spray';
+  if (b === 'glitter' && s.matter === 'water') return 'water';
   return null;
 }
 
@@ -42,6 +44,7 @@ function sized(c: HTMLCanvasElement, w: number, h: number) {
 export function paintPass(dst: CanvasRenderingContext2D, list: Stroke[], guides: Guide[], t: Target) {
   const kind = passKind(list[0]);
   if (list.length === 1 && kind !== 'spray') return paintStroke(dst, list[0]!, guides, t);
+  if (kind === 'water') return waterPass(dst, list, guides, t);
   const [W, H] = [Math.max(1, Math.ceil(t.pw)), Math.max(1, Math.ceil(t.ph))];
   const B = (passCanvas ??= document.createElement('canvas'));
   const bx = sized(B, W, H);
