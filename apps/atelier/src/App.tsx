@@ -1535,7 +1535,9 @@ export function App() {
   const dotAt = useRef(0);
   // --- état des gestes en cours ---
   /** Rendu de la scène déjà calculé pour ce document (la vue peut bouger sans le refaire). */
-  const lookCache = useRef<{ doc: Doc; c: HTMLCanvasElement; s: number } | null>(null);
+  const lookCache = useRef<{ doc: Doc; c: HTMLCanvasElement; s: number; t: number } | null>(null);
+  /** L'aperçu est-il demandé en ce moment (bouton, boîte Scène, plein écran) : un calcul en attente s'annule sinon. */
+  const lookWanted = useRef(false);
   const lookTimer = useRef<number | undefined>(undefined);
   /** Calcule l'aperçu de la scène pour ce document, un peu après le dernier changement (un seul calcul par arrêt). */
   const scheduleLook = (doc: Doc, ff: Format, s: number) => {
@@ -1544,7 +1546,7 @@ export function App() {
       // un doigt ou le stylet est encore posé : on attend qu'il se lève (le calcul figerait le geste)
       if ((live.current.kind && live.current.kind !== 'view') || pointers.current.size) return scheduleLook(doc, ff, s);
       const d = docRef.current;
-      if (d !== doc || !sceneOn(d)) return;
+      if (!lookWanted.current || d !== doc || !sceneOn(d)) return;
       const W = Math.max(2, Math.round(ff.width * s));
       const H = Math.max(2, Math.round(ff.height * s));
       const old = lookCache.current?.c;
@@ -1563,7 +1565,7 @@ export function App() {
       drawLampTint(bx, d, ff);
       applySceneLook(full, d, ff);
       if (old) old.width = 0;
-      lookCache.current = { doc: d, c: full, s };
+      lookCache.current = { doc: d, c: full, s, t: textEpoch() };
       redraw();
     }, 220);
   };
@@ -1734,7 +1736,8 @@ export function App() {
     const busy = !!L.kind && L.kind !== 'view';
     const hit = lookCache.current;
     const lookS = Math.min(scale * dpr, 2400 / Math.max(f.width, f.height));
-    if (look && !busy && hit?.doc === doc && hit.s === lookS)
+    lookWanted.current = look;
+    if (look && !busy && hit?.doc === doc && hit.s === lookS && hit.t === textEpoch())
       ctx.drawImage(hit.c, 0, 0, f.width, f.height);
     else if (look && !busy && hit && hit.doc.layers === doc.layers && hit.doc.guides === doc.guides && hit.doc.formatId === doc.formatId) {
       // seule la scène ou la vue a changé : l'aperçu précédent reste en place pendant que le nouveau se calcule
@@ -1746,7 +1749,10 @@ export function App() {
       drawLayers(ctx, sceneless(doc), f, { scale: scale * dpr, rot: view.rot, onImage: redraw, progressive: true, wet, burning });
       drawLampTint(ctx, doc, f);
       if (look && !busy) scheduleLook(doc, f, lookS);
-      else if (!look) lookCache.current = null;
+      else if (!look) {
+        lookCache.current = null;
+        clearTimeout(lookTimer.current);
+      }
     }
     if (rendu) return;
     const px = 1 / scale;
