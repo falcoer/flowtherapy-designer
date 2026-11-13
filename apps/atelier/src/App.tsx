@@ -5573,6 +5573,9 @@ export function App() {
                   ))}
                 </div>
               )}
+              {pubPz.err && <p className="pf-note err">Publication programmée indisponible : {pubPz.err}</p>}
+              {!pubPz.data && !pubPz.err && online && me?.team && <p className="fx-hint">Comptes de diffusion : lecture…</p>}
+              {pubPz.data && !pubPz.data.enabled && me?.admin && <p className="fx-hint">Postiz n’est pas configuré (Configuration globale › Publication).</p>}
               {pubPz.data?.enabled && !pubPlan.length && (
                 <p className="fx-hint">
                   {pubCampaign
