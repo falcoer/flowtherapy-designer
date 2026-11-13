@@ -1,12 +1,13 @@
 import type { BrushKind, Stroke } from './model';
 import type { Matter } from './particles';
+import type { Ramify } from './ramify';
 
 /**
  * Éléments : ce que l'on peint (eau, feu, poussière, acrylique). L'utilisateur choisit un élément,
  * puis un jeu de paramètres, puis affine aux potards ; le moteur qui calcule (`brush`) est un détail
  * de la fiche. « Matière » reste le mot du support des objets.
  */
-export type ElementId = 'acrylic' | 'aquarelle' | 'spray' | 'water' | 'dust' | 'glitter' | 'light' | 'smoke' | 'spark' | 'burn' | 'branch' | 'hair';
+export type ElementId = 'acrylic' | 'aquarelle' | 'spray' | 'water' | 'dust' | 'glitter' | 'light' | 'smoke' | 'spark' | 'burn' | 'branch' | 'bolt' | 'frost' | 'hair';
 
 /** Réglages d'un trait que les potards d'un élément peuvent porter (tous entre 0 et 1, sauf `bend` entre −1 et 1). */
 export type ParamKey = 'focus' | 'bend' | 'density' | 'pool' | 'branches' | 'converge' | 'core' | 'hairLen' | 'curl' | 'char' | 'hole';
@@ -42,6 +43,8 @@ export interface ElementDef {
   brush: BrushKind;
   /** Moteur des particules : comment un grain se dessine. */
   matter?: Matter;
+  /** Moteur Ramification : rendu des ramifications (électricité, givre), sinon Ramures. */
+  ramify?: Ramify;
   /** Outils qui tirent l'élément, quand il y en a plusieurs : chacun peut changer de moteur. */
   tools?: Array<{ key: string; label: string; icon: string; hint: string; brush: BrushKind }>;
   knobs: KnobDef[];
@@ -109,6 +112,24 @@ export const ELEMENTS: ElementDef[] = [
       { name: 'Embruns', values: { focus: 0.35, density: 0.6, bend: 0, pool: 0.15 } },
       { name: 'Jet d’eau', values: { focus: 0.9, density: 0.6, bend: 0.15, pool: 0 } },
       { name: 'Zone mouillée', values: { focus: 0, density: 1, bend: 0, pool: 0.8 } },
+    ],
+  },
+  {
+    id: 'frost',
+    name: 'Givre',
+    family: 'Eau',
+    icon: 'matter-frost',
+    hint: 'cristaux qui poussent en aiguilles',
+    brush: 'branch',
+    ramify: 'frost',
+    knobs: [
+      { key: 'branches', label: 'Bras', main: true, fmt: (v) => String(branchCount(v)) },
+      { key: 'converge', label: 'Désordre', main: true },
+    ],
+    presets: [
+      { name: 'Étoile', values: { branches: 5 / 15, converge: 0.05 } },
+      { name: 'Fougère', values: { branches: 0, converge: 0.15 } },
+      { name: 'Givre épais', values: { branches: 9 / 15, converge: 0.4 } },
     ],
   },
   {
@@ -189,6 +210,24 @@ export const ELEMENTS: ElementDef[] = [
     ],
   },
   {
+    id: 'bolt',
+    name: 'Électricité',
+    family: 'Lumière et feu',
+    icon: 'matter-bolt',
+    hint: 'arcs brisés qui fourchent',
+    brush: 'branch',
+    ramify: 'bolt',
+    knobs: [
+      { key: 'branches', label: 'Arcs', main: true, fmt: (v) => String(branchCount(v)) },
+      { key: 'converge', label: 'Désordre', main: true },
+    ],
+    presets: [
+      { name: 'Arc', values: { branches: 1 / 15, converge: 0.3 } },
+      { name: 'Foudre', values: { branches: 3 / 15, converge: 0.5 } },
+      { name: 'Plasma', values: { branches: 9 / 15, converge: 0.8 } },
+    ],
+  },
+  {
     id: 'burn',
     name: 'Brûlure',
     family: 'Lumière et feu',
@@ -261,6 +300,7 @@ export function strokeParams(def: ElementDef, p: Params): Partial<Stroke> {
       if (def.matter === 'hair') return { matter: 'hair', hairLen: p.hairLen ?? 0.3, curl: p.curl ?? 0, density: p.density ?? 0.5, bend: p.bend ?? 0 };
       return { matter: def.matter, focus: p.focus ?? 0, bend: p.bend ?? 0, density: p.density ?? 0.5, pool: p.pool ?? 0, grow: 0.12 };
     case 'branch':
+      if (def.ramify) return { ramify: def.ramify, branches: branchCount(p.branches ?? 5 / 15), converge: p.converge ?? 0.3, grow: 0.12 };
       return { branches: branchCount(p.branches ?? 5 / 15), converge: p.converge ?? 0.3, core: p.core ?? 1, grow: 0.12 };
     case 'burn':
       return { char: p.char ?? 0.3, hole: (p.hole ?? 1) > 0.5, grow: 0.15 };
