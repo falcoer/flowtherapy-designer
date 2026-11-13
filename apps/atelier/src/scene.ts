@@ -1585,7 +1585,7 @@ function drawGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, 
   const bw = bb.x1 - bb.x0 + 2 * pad;
   const bh = bb.y1 - bb.y0 + 2 * pad;
   const S = Math.min(quarterOctave(o.scale), 4096 / bw, 4096 / bh);
-  const key = JSON.stringify([l.id, behind, f.id, Math.round(S * 100), l.w, l.h, l.rot, cutId(l), l.trim, l.border?.width, l.border?.style, gl, guideColor(doc.guides[gl.guide], 0.5)]);
+  const key = JSON.stringify([l.id, behind, f.id, Math.round(S * 100), l.w, l.h, l.rot, cutId(l), l.trim, l.border?.width, l.border?.style, gl, doc.guides[gl.guide]]);
   let hit = glowCache.get(key);
   if (!hit) {
     const c = document.createElement('canvas');
