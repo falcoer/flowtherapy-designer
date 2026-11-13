@@ -2,7 +2,8 @@ import { FRAME_TITLES, ANCHOR_FRAMES, fontAllowed, type AnchorFrame, type Format
 import { createPortal } from 'react-dom';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive, type Target } from './brush';
-import { focusName, MATTERS, type Matter } from './particles';
+import { ELEMENTS, elementOf, presetOf, startParams, strokeParams, type ElementId } from './elements';
+import { presetThumb } from './element-thumb';
 import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
 import { steadyPath } from './steady';
 import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
@@ -277,16 +278,6 @@ const SCULPT_MODES = [
     ),
   },
 ] as const;
-const BRUSHES: Array<[BrushKind, string, string]> = [
-  ['aquarelle', 'Aquarelle', 'lavis transparent'],
-  ['acrylic', 'Acrylique pinceau', 'pâte couvrante striée'],
-  ['roller', 'Acrylique rouleau', 'bande large pochée'],
-  ['spray', 'Acrylique pistolet', 'nuage de gouttelettes'],
-  ['glitter', 'Particules', 'poussière, lumière, eau, paillettes'],
-  ['hair', 'Poils', 'brins fins effilés'],
-  ['branch', 'Ramures', 'veines, racines : la couleur se propage'],
-  ['burn', 'Brûlure', 'consume la couche, lisière de braise'],
-];
 export const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
   [null, 'Aucune', 'pas de lueur'],
   ['neon', 'Néon', 'tube lumineux'],
@@ -1173,7 +1164,6 @@ export function App() {
       window.removeEventListener('pointermove', onPen, true);
     };
   }, [penSeen]);
-  const [burnChar, setBurnChar] = useState(0.3);
   /**
    * Aquarelle sur papier mouillé : la passe en cours (couche, numéro, dernier trait). Ses traits se
    * mêlent jusqu'à ce qu'on touche « Sécher » ou qu'on peigne une autre couche.
@@ -1193,8 +1183,6 @@ export function App() {
     wetPass.current = { layer: layerId, id: now, at: now };
     return now;
   };
-  const [branchCore, setBranchCore] = useState(1);
-  const [burnHole, setBurnHole] = useState(true);
   /** Survol du stylet (ou de la souris) : un repère montre où la pointe touchera. */
   const hoverRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>({ zoom: 1, rot: 0, px: 0, py: 0 });
@@ -1232,7 +1220,15 @@ export function App() {
   const [modePick, setModePick] = useState(false);
   /** Bulle ouverte de l'outil Bords. */
   const [epop, setEpop] = useState<string | null>(null);
-  const [brushKind, setBrushKind] = useState<BrushKind>('aquarelle');
+  /** Élément peint, ses réglages (gardés élément par élément) et l'outil qui le tire quand il en a plusieurs. */
+  const [element, setElement] = useState<ElementId>('aquarelle');
+  const [elParams, setElParams] = useState(startParams);
+  const [elTool, setElTool] = useState<Partial<Record<ElementId, string>>>({});
+  const elDef = elementOf(element);
+  const elP = elParams[element];
+  const elToolDef = elDef.tools?.find((t) => t.key === elTool[element]) ?? elDef.tools?.[0];
+  /** Moteur qui calcule le trait : celui de l'élément, ou de l'outil choisi. */
+  const brushKind: BrushKind = elToolDef?.brush ?? elDef.brush;
   /** Barre latérale : réglages sur deux colonnes quand une seule ne tient pas dans la hauteur. */
   const sideRef = useRef<HTMLElement>(null);
   const paramsRef = useRef<HTMLDivElement>(null);
@@ -1269,18 +1265,6 @@ export function App() {
   const [brushRot, setBrushRot] = useState(0);
   /** Inclinaison réglée à la main sur la roue du pinceau : la touche s'allonge dans cette direction, comme un crayon couché. */
   const [brushTilt, setBrushTilt] = useState<[number, number]>([0, 0]);
-  /** Ramures : nombre de ramifications et convergence. */
-  const [branches, setBranches] = useState(6);
-  const [converge, setConverge] = useState(0.3);
-  /** Poils : longueur des brins et frisure (raide, alpaga, mouton). */
-  const [hairLen, setHairLen] = useState(0.3);
-  const [curl, setCurl] = useState(0);
-  /** Particules : matière, resserrage (nuage → traînées), courbure (−1..1), densité et cumul. */
-  const [partMatter, setPartMatter] = useState<Matter>('dust');
-  const [partFocus, setPartFocus] = useState(0);
-  const [partBend, setPartBend] = useState(0);
-  const [partDensity, setPartDensity] = useState(0.5);
-  const [partPool, setPartPool] = useState(0);
   const growTimer = useRef(0);
   /** Couleur glissée depuis la palette (position écran). */
   const [dragGuide, setDragGuide] = useState<{ i: number; x: number; y: number } | null>(null);
@@ -2666,22 +2650,17 @@ export function App() {
               seed: Math.floor(Math.random() * 1e9),
               pts: [{ ...q, p: pr, ...stampAngle(e, target) }],
             }
-          : brushKind === 'burn'
-            ? { brush: 'burn', grow: 0.15, char: burnChar, hole: burnHole, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
-            : brushKind === 'branch'
-              ? { brush: 'branch', branches, converge, core: branchCore, grow: 0.12, guide, size, opacity, seed: Math.floor(Math.random() * 1e9), pts: [{ ...q, p: pr }] }
-              : {
-                  brush: brushKind,
-                  guide,
-                  size,
-                  opacity,
-                  seed: Math.floor(Math.random() * 1e9),
-                  ...(tipOn(brushKind) ? { tip: brushTip } : {}),
-                  ...(brushKind === 'hair' ? { hairLen, curl } : {}),
-                  ...(brushKind === 'glitter' ? { matter: partMatter, focus: partFocus, bend: partBend, density: partDensity, pool: partPool, grow: 0.12 } : {}),
-                  ...(brushKind === 'aquarelle' ? { wash: washFor(target.id) } : {}),
-                  pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, target) } : {}), ...(leanOn(brushKind) ? brushLean(e, target) : {}) }],
-                },
+          : {
+              brush: brushKind,
+              guide,
+              size,
+              opacity,
+              seed: Math.floor(Math.random() * 1e9),
+              ...(tipOn(brushKind) ? { tip: brushTip } : {}),
+              ...strokeParams(elDef, elP),
+              ...(brushKind === 'aquarelle' ? { wash: washFor(target.id) } : {}),
+              pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, target) } : {}), ...(leanOn(brushKind) ? brushLean(e, target) : {}) }],
+            },
     };
     // ramures, particules : tant que la pointe reste posée, les ramifications poussent, les grains voyagent
     if (t !== 'stamp' && (brushKind === 'branch' || brushKind === 'burn' || brushKind === 'glitter')) {
@@ -4667,7 +4646,7 @@ export function App() {
               <Icon name="mold" />
             </button>
 
-            <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => pickTool('paint')} title="Peindre (B) : aquarelle, acrylique, pistolet, paillettes, poils">
+            <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => pickTool('paint')} title="Peindre (B) : choisir un élément, un outil, un jeu de paramètres">
               <Icon name="brush" />
             </button>
             <button className={`btn small ${tool === 'stamp' ? 'on' : ''}`} onClick={() => pickTool('stamp')} title="Tampons (S) : motifs à la couleur courante, intensité et rotation">
@@ -4781,11 +4760,32 @@ export function App() {
                 <>
                   <FanButton
                     dir={lefty ? 'left' : 'right'}
-                    face={<Icon name={`brush-${brushKind}`} />}
-                    title={`Pinceau : ${BRUSHES.find((x) => x[0] === brushKind)![1]}`}
-                    items={BRUSHES.map(([k, t, hint]) => ({ key: k, icon: <Icon name={`brush-${k}`} />, label: t, hint, on: brushKind === k }))}
-                    onPick={(k) => setBrushKind(k as BrushKind)}
+                    face={<Icon name={elDef.icon} />}
+                    title={`Élément : ${elDef.name} (${elDef.family})`}
+                    items={ELEMENTS.map((d) => ({ key: d.id, icon: <Icon name={d.icon} />, label: d.name, hint: `${d.family} · ${d.hint}`, on: element === d.id }))}
+                    onPick={(k) => setElement(k as ElementId)}
                   />
+                  {elDef.tools && elToolDef && (
+                    <FanButton
+                      dir={lefty ? 'left' : 'right'}
+                      face={<Icon name={elToolDef.icon} />}
+                      title={`Outil : ${elToolDef.label}`}
+                      items={elDef.tools.map((t) => ({ key: t.key, icon: <Icon name={t.icon} />, label: t.label, hint: t.hint, on: elToolDef.key === t.key }))}
+                      onPick={(k) => setElTool((all) => ({ ...all, [element]: k }))}
+                    />
+                  )}
+                  {elDef.presets.length > 0 && (
+                    <FanButton
+                      dir={lefty ? 'left' : 'right'}
+                      face={<Icon name="presets" />}
+                      title={`Jeu de paramètres : ${elDef.presets[presetOf(elDef, elP)]?.name ?? 'réglages personnels'}`}
+                      items={elDef.presets.map((ps, i) => {
+                        const thumb = presetThumb(elDef, ps.values, doc.guides[guide]);
+                        return { key: String(i), icon: thumb ? <img className="preset-thumb" src={thumb} alt="" /> : <Icon name={elDef.icon} />, label: ps.name, on: presetOf(elDef, elP) === i };
+                      })}
+                      onPick={(k) => setElParams((all) => ({ ...all, [element]: { ...all[element], ...elDef.presets[Number(k)]!.values } }))}
+                    />
+                  )}
                   <button
                     className="btn small"
                     disabled={!sel?.strokes.length}
@@ -4821,42 +4821,23 @@ export function App() {
                       </button>
                     </>
                   )}
-                  {brushKind === 'branch' && (
-                    <>
-                      <Knob label="Ramifications" fmt={(v) => String(1 + Math.round(v * 15))} value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
-                      <Knob label="Chaos" value={converge} onChange={(v) => setConverge(Math.round(v * 100) / 100)} />
-                      <Knob label="Taille noyau" value={branchCore} onChange={(v) => setBranchCore(Math.round(v * 100) / 100)} />
-                    </>
-                  )}
-                  {brushKind === 'glitter' && (
-                    <>
-                      <FanButton
-                        dir={lefty ? 'left' : 'right'}
-                        face={<Icon name={`matter-${partMatter}`} />}
-                        title={`Matière : ${MATTERS.find((m) => m[0] === partMatter)![1]}`}
-                        items={MATTERS.map(([k, label, hint]) => ({ key: k, icon: <Icon name={`matter-${k}`} />, label, hint, on: partMatter === k }))}
-                        onPick={(k) => setPartMatter(k as Matter)}
-                      />
-                      <Knob label={`Resserrage · ${focusName(partFocus)}`} value={partFocus} onChange={(v) => setPartFocus(Math.round(v * 100) / 100)} />
-                      <Knob label="Courbure" center value={(partBend + 1) / 2} onChange={(v) => setPartBend(Math.round((v * 2 - 1) * 50) / 50)} />
-                      <Knob label="Densité" value={partDensity} onChange={(v) => setPartDensity(Math.round(v * 100) / 100)} />
-                      <Knob label="Cumul" value={partPool} onChange={(v) => setPartPool(Math.round(v * 100) / 100)} />
-                    </>
-                  )}
-                  {brushKind === 'hair' && (
-                    <>
-                      <Knob label="Longueur" value={hairLen} onChange={(v) => setHairLen(Math.max(0.03, Math.round(v * 100) / 100))} />
-                      <Knob label={curl < 0.15 ? 'Frisure · raide' : curl < 0.6 ? 'Frisure · alpaga' : 'Frisure · mouton'} value={curl} onChange={(v) => setCurl(Math.round(v * 100) / 100)} />
-                    </>
-                  )}
-                  {brushKind === 'burn' && (
-                    <>
-                      <Knob label="Roussi" value={burnChar} onChange={(v) => setBurnChar(Math.max(0.02, Math.round(v * 100) / 100))} />
-                      <button className={`btn small ${burnHole ? 'on' : ''}`} onClick={() => setBurnHole(!burnHole)} title={burnHole ? 'Trous : la brûlure perce la couche' : 'Sans trou : la brûlure teinte seulement'}>
-                        <Icon name="burn-hole" />
-                      </button>
-                    </>
-                  )}
+                  {elDef.knobs
+                    .filter((k) => k.main || !simple)
+                    .map((k) => {
+                      const v = elP[k.key] ?? 0;
+                      const set = (n: number) => setElParams((all) => ({ ...all, [element]: { ...all[element], [k.key]: n } }));
+                      if (k.toggle)
+                        return (
+                          <button key={k.key} className={`btn small ${v > 0.5 ? 'on' : ''}`} onClick={() => set(v > 0.5 ? 0 : 1)} title={v > 0.5 ? k.toggle.on : k.toggle.off}>
+                            <Icon name={k.toggle.icon} />
+                          </button>
+                        );
+                      return k.center ? (
+                        <Knob key={k.key} label={k.label} glyph={k.glyph} center value={(v + 1) / 2} onChange={(n) => set(Math.round((n * 2 - 1) * 50) / 50)} />
+                      ) : (
+                        <Knob key={k.key} label={k.zone ? `${k.label} · ${k.zone(v)}` : k.label} glyph={k.glyph} fmt={k.fmt} value={v} onChange={(n) => set(Math.max(k.min ?? 0, Math.round(n * 100) / 100))} />
+                      );
+                    })}
                 </>
               )}
               {tool === 'mold' && (

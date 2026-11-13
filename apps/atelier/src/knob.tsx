@@ -31,7 +31,7 @@ const KNOB_GLYPHS: Array<[RegExp, string, boolean?]> = [
  *  le libellé et le niveau s'affichent en surbrillance à côté tant qu'on le tient.
  *  Sa jauge est celle de la roue du pinceau : des segments de 6 h à 3 h, par la gauche et le haut.
  *  Double appui : retour au neutre pour un réglage à deux sens. */
-export function Knob({ label, value, onChange, center, fmt }: { label: string; value: number; onChange: (v: number) => void; center?: boolean; fmt?: (v: number) => string }) {
+export function Knob({ label, value, onChange, center, fmt, glyph: glyphOf }: { label: string; value: number; onChange: (v: number) => void; center?: boolean; fmt?: (v: number) => string; glyph?: string }) {
   const drag = useRef<{ x: number; y: number; v: number; id: number } | null>(null);
   const lastTap = useRef(0);
   const [held, setHeld] = useState(false);
@@ -48,7 +48,7 @@ export function Knob({ label, value, onChange, center, fmt }: { label: string; v
     const [a, b] = value >= 0.5 ? [0.5, value] : [value, 0.5];
     return lo >= a - 1e-6 && hi <= b + 1e-6 ? 'on' : (lo + hi) / 2 > a && (lo + hi) / 2 < b ? 'half' : '';
   };
-  const glyph = KNOB_GLYPHS.find(([re]) => re.test(label));
+  const glyph = KNOB_GLYPHS.find(([re]) => re.test(glyphOf ?? label));
   const shown = fmt ? fmt(value) : center ? `${value >= 0.5 ? '+' : '−'}${Math.round(Math.abs(value - 0.5) * 200)}` : `${Math.round(value * 100)} %`;
   const end = () => {
     drag.current = null;
