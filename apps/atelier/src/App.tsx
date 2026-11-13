@@ -838,6 +838,8 @@ export function App() {
   const palettes = palettesOf(activity);
   const activeTarget = doc.targets?.[doc.target ?? 0];
   /** Réglages de la publication affichée ; marges et format viennent toujours du document. */
+  // sans liste de publications, la composition en a quand même une : celle qu'on voit (son format, ses marges)
+  const compPubs = (): PubTarget[] => (doc.targets?.length ? doc.targets : [currentPub]);
   const currentPub: PubTarget = {
     ...(activeTarget?.channel ? { channel: activeTarget.channel } : {}),
     format: doc.formatId,
@@ -951,7 +953,7 @@ export function App() {
   // historique du menu de la campagne : demandé au serveur pour cette campagne seulement, à l'ouverture du menu
   const [campaignFeed, setCampaignFeed] = useState<ActivityEvent[] | null>(null);
   // menu de la composition : ses publications rendues d'après le document ouvert, retouches comprises
-  const previews = useMemo(() => (bubble === 'composition' ? makeThumbs(doc) : undefined), [bubble, doc, activity]); // eslint-disable-line react-hooks/exhaustive-deps
+  const previews = useMemo(() => (bubble === 'composition' ? (makeThumbs(doc) ?? [makeThumb(doc)]) : undefined), [bubble, doc, activity]); // eslint-disable-line react-hooks/exhaustive-deps
   // menu de la composition : l'historique de sa campagne à elle
   const menuOpen = bubble === 'projects' || bubble === 'composition';
   const campaignScope = bubble === 'composition' && project ? (projects.find((x) => x.id === project.id)?.campaign ?? '') : (followed?.id ?? '');
@@ -4555,7 +4557,7 @@ export function App() {
                 showCampaign={!!(online && me?.team)}
                 title={project?.title}
                 thumb={project ? thumbUrl(projects.find((x) => x.id === project.id) ?? { id: project.id, title: project.title, updated: '' }) : undefined}
-                kind={doc.targets?.length ? `${doc.targets.length} publication${doc.targets.length > 1 ? 's' : ''}` : f.title}
+                kind={doc.targets && doc.targets.length > 1 ? `${doc.targets.length} publications` : f.title}
                 saving={online && project ? saving : undefined}
                 open={bubble === 'activity' ? 'activity' : bubble === 'projects' ? 'campaign' : bubble === 'composition' ? 'content' : null}
                 onActivity={() => {
@@ -5357,7 +5359,7 @@ export function App() {
             <CompositionMenu
               meta={project ? projects.find((x) => x.id === project.id) : undefined}
               current={project ?? undefined}
-              targets={doc.targets ?? []}
+              targets={compPubs()}
               previews={previews}
               active={doc.target ?? 0}
               campaign={followed}
@@ -5388,7 +5390,7 @@ export function App() {
               activity={activity}
               projects={projects}
               current={project ?? undefined}
-              currentTargets={doc.targets ?? []}
+              currentTargets={compPubs()}
               events={online && me?.team ? campaignFeed : null}
               me={me?.email ?? 'groupe'}
               canEdit={!me?.team || canEditTeam}

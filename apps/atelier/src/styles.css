@@ -1685,6 +1685,9 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .cm-date.none { background: none; border: 1px dashed var(--line); color: var(--muted); }
 .cm-date.small { width: 30px; height: 30px; border-radius: 9px; }
 .cm-date.small b { font-size: 12.5px; }
+.cm-date.nodate svg { width: 22px; height: 22px; }
+.cm-date.small.nodate svg { width: 16px; height: 16px; }
+.crumb .cmp-date.nodate svg { width: 18px; height: 18px; }
 .cm-date.small small { font-size: 8.5px; }
 .cm-tools { display: flex; gap: 6px; align-items: center; }
 .cm-tools .pf-btn { flex: none; display: inline-flex; align-items: center; gap: 4px; }
