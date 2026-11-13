@@ -2488,3 +2488,18 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .scene-focus { display: flex; flex-wrap: wrap; gap: 4px; max-height: 76px; overflow: auto; }
 .scene-focus .chip { font-size: 11.5px; padding: 3px 9px; }
 .scene-focus .chip.on { background: var(--accent); color: #fff; }
+
+/* Scène › Objectif : objets nets en vignettes sur une ligne, quatre potards alignés */
+.scene-focus { display: flex; flex-wrap: nowrap; gap: 6px; max-height: none; overflow-x: auto; overflow-y: hidden; padding: 2px 2px 4px; scrollbar-width: none; scroll-snap-type: x proximity; }
+.scene-focus::-webkit-scrollbar { display: none; }
+.scene-focus .scene-fx-b { flex: 0 0 64px; width: 64px; scroll-snap-align: start; }
+.scene-focus .scene-fx-b .thumb { width: 36px; height: 36px; }
+.scene-focus .scene-fx-b span { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scene-page { display: block; width: 26px; height: 34px; margin: 1px 5px; border-radius: 3px; background: var(--paper, #f7f2ea); border: 1px solid var(--line); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.scene-knobs-4 { display: grid; grid-template-columns: 1fr auto 1fr 1fr 1fr; align-items: start; gap: 2px; justify-items: center; }
+.scene-knobs-4 .cp-dial { min-width: 0; width: 100%; }
+.scene-knobs-4 .cp-dial output { font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.scene-sep { width: 1px; align-self: stretch; margin: 6px 2px 14px; background: var(--line); }
+.lamp-panel.scene-panel { width: 320px; }
+.scene-knobs-4 .cp-dial-l { letter-spacing: 0.04em; }
+@media (max-width: 540px) { .lamp-panel.scene-panel { width: min(320px, calc(100vw - 24px)); } }

@@ -6029,23 +6029,22 @@ function LampPanel({ doc, f, onChange, onScene, onClose }: { doc: Doc; f: Format
     return (
       <div className="lamp-panel scene-panel" data-tint-zone>
         {head}
-        <div className="scene-sub">Mise au point · objet net</div>
-        <div className="scene-focus">
-          {[{ id: undefined as string | undefined, name: 'Feuille' }, ...doc.layers.filter((x) => x.kind !== 'surface' && x.visible).map((x) => ({ id: x.id as string | undefined, name: x.name }))].map((x) => (
-            <button key={x.id ?? 'page'} className={`chip ${cam.focus === x.id ? 'on' : ''}`} onClick={() => setCam({ focus: x.id })}>
-              {x.name}
+        <div className="scene-sub">Mise au point</div>
+        <div className="scene-focus" role="radiogroup" aria-label="Objet net">
+          {[undefined, ...doc.layers.filter((x) => x.kind !== 'surface' && x.visible)].map((x) => (
+            <button key={x?.id ?? 'page'} role="radio" aria-checked={cam.focus === x?.id} className={`scene-fx-b ${cam.focus === x?.id ? 'on' : ''}`} onClick={() => setCam({ focus: x?.id })}>
+              {x ? <LayerThumb layer={x} doc={doc} /> : <i className="scene-page" />}
+              <span>{x ? x.name : 'Feuille'}</span>
             </button>
           ))}
         </div>
-        <div className="scene-knobs">
+        <div className="scene-knobs scene-knobs-4">
           <div className="cp-dial">
             <Knob label="Ouverture" value={cam.aperture} onChange={(v) => setCam({ aperture: r2(v) })} />
             <span className="cp-dial-l">Ouverture</span>
             <output>{cam.aperture < 0.01 ? 'tout net' : `f/${fnum(cam.aperture).toFixed(1).replace('.0', '')}`}</output>
           </div>
-        </div>
-        <div className="scene-sub">Défauts</div>
-        <div className="scene-knobs">
+          <i className="scene-sep" />
           <div className="cp-dial">
             <Knob label="Distorsion" center value={(lens.warp + 1) / 2} onChange={(v) => setLens({ warp: r2(v * 2 - 1) })} />
             <span className="cp-dial-l">Distorsion</span>
@@ -6067,7 +6066,7 @@ function LampPanel({ doc, f, onChange, onScene, onClose }: { doc: Doc; f: Format
             Objectif neutre
           </button>
         )}
-        <p className="hint">La mise au point se fait à la hauteur de l'objet choisi : plus un objet est haut ou bas par rapport à lui, plus il est flou, d'autant plus que l'ouverture est grande. Comme un objectif d'appareil : la page se bombe (barillet) ou se creuse (coussinet), les bords s'assombrissent, les franges séparent les couleurs en liserés rouge et bleu autour des formes, plus fort vers les bords.</p>
+        <p className="hint">L'objet choisi reste net ; les autres flouent selon leur écart de hauteur, d'autant plus que l'ouverture est grande.</p>
       </div>
     );
   if (tab === 'fx') {
