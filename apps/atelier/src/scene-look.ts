@@ -29,17 +29,141 @@ export function applySceneLook(c: HTMLCanvasElement, doc: Doc, f: Format, quick 
   const ctx = c.getContext('2d', { willReadFrequently: true })!;
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const pixelFx = !!(s.fx && !quick && fxOf(s.fx.id)?.pixel);
+  const withLens = lensOn(s);
+  // l'objectif passe par la carte graphique quand elle est là (quelques millisecondes au lieu d'une demi-seconde)
+  if (!pixelFx && withLens && lensGL(c, ctx, s.lens!)) return void ctx.restore();
   const img = ctx.getImageData(0, 0, c.width, c.height);
-  if (s.fx && !quick && fxOf(s.fx.id)?.pixel) {
+  if (pixelFx) {
     const li = lightAt(doc, f, f.width / 2, f.height / 2);
     const n = doc.guides.length;
     // les teintes de la transformation restent dans la palette, même raccourcie
-    const fx = { ...s.fx, guides: n ? s.fx.guides.map((g) => Math.min(Math.max(0, g), n - 1)) : [] };
+    const fx = { ...s.fx!, guides: n ? s.fx!.guides.map((g) => Math.min(Math.max(0, g), n - 1)) : [] };
     applyPixelFx(img, [fx], doc.guides, Math.min(c.width, c.height), li.lx, li.ly);
+    if (withLens) {
+      ctx.putImageData(img, 0, 0);
+      if (lensGL(c, ctx, s.lens!)) return void ctx.restore();
+    }
   }
-  const out = lensOn(s) ? lens(img, s.lens!, quick) : img;
+  const out = withLens ? lens(img, s.lens!, quick) : img;
   ctx.putImageData(out, 0, 0);
   ctx.restore();
+}
+
+/** Contexte WebGL partagé pour l'objectif ; `false` une fois qu'on sait qu'il manque (repli sur le calcul en JavaScript). */
+let gl: { c: HTMLCanvasElement; g: WebGLRenderingContext; prog: WebGLProgram; tex: WebGLTexture; u: Record<string, WebGLUniformLocation | null> } | false | null = null;
+
+const VERT = 'attribute vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }';
+// même calcul que lens() ci-dessous, pixel par pixel ; coordonnées en pixels de l'image (0 = centre du premier pixel, en haut)
+const FRAG = `precision highp float;
+uniform sampler2D img;
+uniform vec2 size;
+uniform float k, fill, fr, vig;
+vec4 at(vec2 q) { return texture2D(img, (clamp(q, vec2(0.0), size - 1.0) + 0.5) / size); }
+void main() {
+  vec2 px = vec2(gl_FragCoord.x - 0.5, size.y - 0.5 - gl_FragCoord.y);
+  vec2 c = (size - 1.0) * 0.5;
+  float R = max(length(c), 1.0);
+  vec2 uv = (px - c) / R;
+  float r2 = dot(uv, uv);
+  vec2 g = c + uv * (1.0 + k * r2) * fill * R;
+  vec4 m = at(g);
+  vec4 o = m;
+  if (fr > 0.0) {
+    float rr = sqrt(r2);
+    float d = fr * R * (0.25 + rr * rr * rr);
+    vec2 dv = uv / max(rr, 0.12) * d;
+    o.r = at(g + dv).r;
+    o.b = at(g - dv).b;
+  }
+  if (vig > 0.0) {
+    float t = clamp((sqrt(r2) - 0.35) / 0.7, 0.0, 1.0);
+    float dark = 1.0 - vig * 0.8 * t * t * (3.0 - 2.0 * t);
+    o.rgb *= dark;
+    if (o.a < 1.0) o.a = o.a + (1.0 - o.a) * (1.0 - dark) * 0.6;
+  }
+  gl_FragColor = o;
+}`;
+
+function setupGL() {
+  if (gl !== null) return gl;
+  gl = false;
+  try {
+    const c = document.createElement('canvas');
+    const g = c.getContext('webgl', { premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false });
+    if (!g) return gl;
+    const sh = (type: number, src: string) => {
+      const x = g.createShader(type)!;
+      g.shaderSource(x, src);
+      g.compileShader(x);
+      if (!g.getShaderParameter(x, g.COMPILE_STATUS)) throw new Error(g.getShaderInfoLog(x) ?? 'shader');
+      return x;
+    };
+    const prog = g.createProgram()!;
+    g.attachShader(prog, sh(g.VERTEX_SHADER, VERT));
+    g.attachShader(prog, sh(g.FRAGMENT_SHADER, FRAG));
+    g.linkProgram(prog);
+    if (!g.getProgramParameter(prog, g.LINK_STATUS)) throw new Error('link');
+    g.useProgram(prog);
+    const buf = g.createBuffer();
+    g.bindBuffer(g.ARRAY_BUFFER, buf);
+    g.bufferData(g.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), g.STATIC_DRAW);
+    const loc = g.getAttribLocation(prog, 'p');
+    g.enableVertexAttribArray(loc);
+    g.vertexAttribPointer(loc, 2, g.FLOAT, false, 0, 0);
+    const tex = g.createTexture()!;
+    g.bindTexture(g.TEXTURE_2D, tex);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE);
+    g.pixelStorei(g.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    g.pixelStorei(g.UNPACK_FLIP_Y_WEBGL, false);
+    const u = Object.fromEntries(['img', 'size', 'k', 'fill', 'fr', 'vig'].map((n) => [n, g.getUniformLocation(prog, n)]));
+    // contexte perdu (mémoire de l'iPad) : on retentera à la prochaine demande
+    c.addEventListener('webglcontextlost', () => (gl = null));
+    gl = { c, g, prog, tex, u };
+  } catch {
+    gl = false;
+  }
+  return gl;
+}
+
+/** L'objectif sur la carte graphique, posé à la place du contenu de `c` ; `false` si WebGL manque ou si l'image est trop grande. */
+function lensGL(c: HTMLCanvasElement, ctx: CanvasRenderingContext2D, L: NonNullable<SceneLook['lens']>): boolean {
+  const G = setupGL();
+  if (!G) return false;
+  const { g, u } = G;
+  if (g.isContextLost()) return false;
+  const w = c.width;
+  const h = c.height;
+  const max = g.getParameter(g.MAX_TEXTURE_SIZE) as number;
+  if (w > max || h > max) return false;
+  try {
+    if (G.c.width !== w || G.c.height !== h) {
+      G.c.width = w;
+      G.c.height = h;
+    }
+    g.viewport(0, 0, w, h);
+    g.bindTexture(g.TEXTURE_2D, G.tex);
+    g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, c);
+    const k = L.warp * 0.32;
+    g.uniform1i(u.img!, 0);
+    g.uniform2f(u.size!, w, h);
+    g.uniform1f(u.k!, k);
+    g.uniform1f(u.fill!, k > 0 ? 1 / (1 + k) : 1);
+    g.uniform1f(u.fr!, L.fringe * 0.03);
+    g.uniform1f(u.vig!, L.vignette);
+    g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
+    if (g.getError() !== g.NO_ERROR) return false;
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(G.c, 0, 0);
+    // la texture d'une grande page pèse lourd : on la vide une fois le rendu posé
+    g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, 1, 1, 0, g.RGBA, g.UNSIGNED_BYTE, null);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** L'objectif : chaque pixel va chercher sa couleur un peu plus loin (barillet) ou plus près (coussinet) du centre. */

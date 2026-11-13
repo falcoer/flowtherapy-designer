@@ -1553,7 +1553,8 @@ export function App() {
       const full = document.createElement('canvas');
       full.width = W;
       full.height = H;
-      const bx = full.getContext('2d', { willReadFrequently: true })!;
+      // sans transformation en pixels, l'objectif passe par la carte graphique : le tampon peut y rester aussi
+      const bx = full.getContext('2d', { willReadFrequently: !!lookOn(d)?.fx })!;
       bx.setTransform(W / ff.width, 0, 0, H / ff.height, 0, 0);
       drawLayers(bx, d, ff, {
         scale: s,
