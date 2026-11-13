@@ -66,7 +66,7 @@ export const ELEMENTS: ElementDef[] = [
   {
     id: 'acrylic',
     name: 'Acrylique',
-    family: 'Peintures',
+    family: 'Revêtements',
     icon: 'brush-acrylic',
     hint: 'pâte couvrante, tirée au pinceau ou au rouleau',
     brush: 'acrylic',
@@ -77,11 +77,11 @@ export const ELEMENTS: ElementDef[] = [
     knobs: [],
     presets: [],
   },
-  { id: 'aquarelle', name: 'Aquarelle', family: 'Peintures', icon: 'brush-aquarelle', hint: 'lavis transparent, les couleurs fusent dans le mouillé', brush: 'aquarelle', knobs: [], presets: [] },
+  { id: 'aquarelle', name: 'Aquarelle', family: 'Revêtements', icon: 'brush-aquarelle', hint: 'lavis transparent, les couleurs fusent dans le mouillé', brush: 'aquarelle', knobs: [], presets: [] },
   {
     id: 'spray',
     name: 'Bombe',
-    family: 'Peintures',
+    family: 'Revêtements',
     icon: 'brush-spray',
     hint: 'voile de gouttelettes, projections quand on resserre',
     brush: 'glitter',
