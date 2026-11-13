@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { MEDIA_KINDS, formatMargins, type Catalog, type MediaKind, type MediaType } from '@ftd/core';
 import { DEFAULT_FORMATS, FONT_KIND_LABELS, FONT_KINDS, FREE_FONTS, fontAllowed, type FontKind, type FontUse, type Format } from '@ftd/core';
-import { fetchCatalog, installFont, removeFont, saveCatalog } from './server';
+import type { ElementStore } from '@ftd/core';
+import { fetchCatalog, fetchElements, installFont, removeFont, saveCatalog, saveElements } from './server';
+import { ElementsTab } from './elements-ui';
+import type { Guide } from './model';
 import { ensureFont, fontFamily, fontList, loadFonts, reloadFonts, type FontInfo } from './text';
 import { FrameInsets } from './frame-insets';
 import { MediaIcon } from './targets-ui';
@@ -29,9 +32,9 @@ const fresh = (base: string, taken: string[]) => {
 };
 const size = (f: Format) => `${f.width} × ${f.height}${f.unit === 'mm' ? ' mm' : ''}`;
 
-export function CatalogPanel(p: { onClose: () => void; onSaved: (c: Catalog) => void }) {
+export function CatalogPanel(p: { onClose: () => void; onSaved: (c: Catalog) => void; onElements: (e: ElementStore) => void; guide?: Guide }) {
   const [cat, setCat] = useState<Catalog | null>(null);
-  const [tab, setTab] = useState<'media' | 'formats' | 'fonts'>('media');
+  const [tab, setTab] = useState<'media' | 'formats' | 'fonts' | 'elements'>('media');
   const [sel, setSel] = useState<string | null>(null);
   const [status, setStatus] = useState('');
   const [err, setErr] = useState<string | null>(null);
@@ -60,6 +63,36 @@ export function CatalogPanel(p: { onClose: () => void; onSaved: (c: Catalog) => 
     }
   };
   useEffect(() => () => void flush(), []);
+  // fiches des éléments : enregistrées à part, avec le même délai
+  const [els, setEls] = useState<ElementStore | null>(null);
+  const elTimer = useRef<number | undefined>(undefined);
+  const elPending = useRef<ElementStore | null>(null);
+  useEffect(() => {
+    fetchElements().then(setEls, (e: Error) => setErr(e.message));
+  }, []);
+  const flushEls = async () => {
+    window.clearTimeout(elTimer.current);
+    const e = elPending.current;
+    if (!e) return;
+    elPending.current = null;
+    setStatus('Enregistrement…');
+    try {
+      const r = await saveElements(e);
+      p.onElements(r.elements);
+      if (!elPending.current) setStatus('Enregistré');
+    } catch (x) {
+      setErr((x as Error).message);
+      setStatus('Non enregistré');
+    }
+  };
+  useEffect(() => () => void flushEls(), []);
+  const putEls = (e: ElementStore) => {
+    setEls(e);
+    elPending.current = e;
+    setStatus('Modifié…');
+    window.clearTimeout(elTimer.current);
+    elTimer.current = window.setTimeout(() => void flushEls(), 700);
+  };
   const put = (c: Catalog) => {
     setCat(c);
     pending.current = c;
@@ -94,10 +127,14 @@ export function CatalogPanel(p: { onClose: () => void; onSaved: (c: Catalog) => 
         <button role="tab" aria-selected={tab === 'fonts'} className={tab === 'fonts' ? 'on' : ''} onClick={() => setTab('fonts')}>
           Polices
         </button>
+        <button role="tab" aria-selected={tab === 'elements'} className={tab === 'elements' ? 'on' : ''} onClick={() => setTab('elements')}>
+          Éléments
+        </button>
       </div>
       {!cat && !err && <p className="pf-note">Chargement…</p>}
       {cat && tab === 'fonts' && <FontsTab uses={cat.fonts ?? {}} setUses={(fonts) => put({ ...cat, fonts })} onErr={setErr} />}
-      {cat && tab !== 'fonts' && (
+      {tab === 'elements' && els && <ElementsTab store={els} setStore={putEls} guide={p.guide} />}
+      {cat && tab !== 'fonts' && tab !== 'elements' && (
         <div className="cat-cols">
           <div className="cat-list">
             {tab === 'media'

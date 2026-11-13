@@ -1,4 +1,4 @@
-import type { Catalog, Insets, MediaKind } from '@ftd/core';
+import type { Catalog, ElementStore, Insets, MediaKind } from '@ftd/core';
 import { compact, type Blend, type Doc, type GradStyle } from './model';
 
 /** Compositions enregistrées sur le serveur du groupe (designer.flowtherapymusic.com). */
@@ -312,6 +312,8 @@ export interface ActivityProfile {
 }
 export const fetchCatalog = () => call<Catalog>('/api/catalog');
 export const saveCatalog = (c: Catalog) => call<{ catalog: Catalog }>('/api/catalog', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(c) });
+export const fetchElements = () => call<ElementStore>('/api/elements');
+export const saveElements = (e: ElementStore) => call<{ elements: ElementStore }>('/api/elements', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(e) });
 export const fetchProfile = (team: string) => call<ActivityProfile>(`/api/teams/${encodeURIComponent(team)}/profile`);
 export const saveProfile = (team: string, p: Omit<ActivityProfile, 'id' | 'logos'> & { logo?: string | null; logos?: Partial<Record<Exclude<LogoVariant, 'main'>, string | null>> }) =>
   call<{ profile: ActivityProfile }>(`/api/teams/${encodeURIComponent(team)}/profile`, {

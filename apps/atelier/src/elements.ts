@@ -1,3 +1,4 @@
+import type { ElementSheet, ElementStore } from '@ftd/core';
 import type { BrushKind, EdgeElementStyle, Stroke } from './model';
 import type { Matter } from './particles';
 import type { Ramify } from './ramify';
@@ -25,6 +26,9 @@ export interface KnobDef {
   center?: boolean;
   /** Plus petite valeur acceptée. */
   min?: number;
+  /** Bornes que le potard parcourt (par défaut 0 et 1, −1 et 1 pour un potard à deux sens). */
+  lo?: number;
+  hi?: number;
   /** Interrupteur au lieu d'un potard : icône, et bulles d'aide quand il est actif ou non. */
   toggle?: { icon: string; on: string; off: string };
   /** Mot ajouté au nom selon la valeur (« Frisure · alpaga »). */
@@ -34,7 +38,18 @@ export interface KnobDef {
 }
 
 export interface ElementDef {
-  id: ElementId;
+  /** Identifiant : celui d'une fiche d'origine, ou celui d'une copie faite dans la Configuration globale. */
+  id: string;
+  /** Fiche d'origine : elle donne le moteur et le rendu (une copie ne peut pas en inventer). */
+  base: ElementId;
+  /** Copie faite par un gérant (on peut la modifier et la retirer). */
+  copy?: boolean;
+  /** Réglages figés : leurs potards sont cachés, la valeur est toujours celle-ci. */
+  fixed?: Params;
+  /** Passe vivante : false pour une copie qui sèche aussitôt. */
+  pass?: boolean;
+  /** Déborder : false pour une copie qui reste toujours dans la forme. */
+  spill?: boolean;
   name: string;
   family: string;
   icon: string;
@@ -65,7 +80,7 @@ const jet = (focus: string, density: string, bend: string, pool: string | null, 
   ...(pool ? [{ key: 'pool' as const, label: pool, glyph: 'cumul', main: mainPool }] : []),
 ];
 
-export const ELEMENTS: ElementDef[] = [
+const BUILTIN: Array<Omit<ElementDef, 'id' | 'base'> & { id: ElementId }> = [
   {
     id: 'acrylic',
     name: 'Acrylique',
@@ -304,16 +319,86 @@ export const ELEMENTS: ElementDef[] = [
   },
 ];
 
-export const elementOf = (id: ElementId) => ELEMENTS.find((e) => e.id === id)!;
+/** Fiches d'origine : elles vivent dans le code, on peut les cacher mais pas les retirer. */
+export const ELEMENTS: ElementDef[] = BUILTIN.map((e) => ({ ...e, base: e.id }));
+const ORIGIN = new Map<string, ElementDef>(ELEMENTS.map((e) => [e.id, e]));
+export const isBuiltin = (id: string): id is ElementId => ORIGIN.has(id);
+
+/** Bornes que parcourt un potard. */
+export const knobRange = (k: KnobDef): [number, number] => [k.lo ?? (k.center ? -1 : 0), k.hi ?? 1];
+
+/** Réglages ramenés dans les bornes des potards (une copie peut les avoir resserrées). */
+export function clampParams(def: ElementDef, p: Params): Params {
+  const out: Params = { ...p };
+  for (const k of def.knobs) {
+    const v = out[k.key];
+    if (v === undefined || k.toggle) continue;
+    const [lo, hi] = knobRange(k);
+    out[k.key] = Math.max(lo, Math.min(hi, v));
+  }
+  return out;
+}
+
+/**
+ * Fiche d'un élément tirée d'une copie rangée sur le serveur : moteur, rendu, outils et potards
+ * viennent de la fiche d'origine, la copie choisit ce qu'elle montre et sous quel nom.
+ */
+export function elementFrom(sh: ElementSheet): ElementDef | null {
+  const o = ORIGIN.get(sh.base);
+  if (!o || ORIGIN.has(sh.id)) return null;
+  const fixed: Params = { ...o.fixed };
+  const knobs: KnobDef[] = [];
+  for (const k of o.knobs) {
+    const c = sh.knobs.find((x) => x.key === k.key);
+    if (c?.fixed !== undefined) {
+      fixed[k.key] = c.fixed;
+      continue;
+    }
+    const [lo, hi] = c?.lo !== undefined && c.hi !== undefined ? [c.lo, c.hi] : knobRange(k);
+    knobs.push({ ...k, ...(c?.label ? { label: c.label } : {}), ...(c?.main !== undefined ? { main: c.main } : {}), lo, hi, ...(k.min !== undefined ? { min: Math.max(k.min, lo) } : {}) });
+  }
+  const keys = new Set<string>(o.knobs.map((k) => k.key));
+  const tools = sh.tools && o.tools ? o.tools.filter((t) => sh.tools!.includes(t.key)) : o.tools;
+  const def: ElementDef = {
+    ...o,
+    id: sh.id,
+    base: o.base,
+    copy: true,
+    name: sh.name,
+    family: sh.family,
+    icon: sh.icon,
+    hint: sh.hint,
+    knobs,
+    ...(Object.keys(fixed).length ? { fixed } : {}),
+    tools: tools?.length ? tools : undefined,
+    presets: sh.presets.map((p) => ({ name: p.name, values: Object.fromEntries(Object.entries(p.values).filter(([k]) => keys.has(k))) as Params })),
+    ...(sh.pass !== undefined ? { pass: sh.pass } : {}),
+    ...(sh.spill !== undefined ? { spill: sh.spill } : {}),
+  };
+  // les jeux restent dans les bornes de la copie
+  def.presets = def.presets.map((p) => ({ ...p, values: clampParams(def, p.values) }));
+  return def;
+}
+
+/** Toutes les fiches : celles d'origine, puis les copies des gérants (cachées comprises). */
+export const elementList = (store: ElementStore | null | undefined): ElementDef[] => [...ELEMENTS, ...(store?.sheets ?? []).map(elementFrom).filter((d): d is ElementDef => !!d)];
+
+/** La fiche d'un élément ; une copie retirée entre-temps revient à l'aquarelle. */
+export const elementOf = (id: string, list: ElementDef[] = ELEMENTS) => list.find((e) => e.id === id) ?? ORIGIN.get(id) ?? ORIGIN.get('aquarelle')!;
 
 /** Réglages de départ de chaque élément : son premier jeu de paramètres. */
-export const startParams = () => Object.fromEntries(ELEMENTS.map((e) => [e.id, { ...(e.presets[0]?.values ?? {}) }])) as Record<ElementId, Params>;
+export const startParams = (): Record<string, Params> => Object.fromEntries(ELEMENTS.map((e) => [e.id, { ...(e.presets[0]?.values ?? {}) }]));
+
+/** Réglages en cours d'un élément (ceux de départ s'il n'a pas encore servi). */
+export const paramsOf = (all: Record<string, Params>, def: ElementDef): Params => (all[def.id] && def.copy ? clampParams(def, all[def.id]!) : (all[def.id] ?? { ...(def.presets[0]?.values ?? {}) }));
 
 /** Jeu de paramètres en cours : celui dont toutes les valeurs sont celles des potards, sinon aucun. */
 export const presetOf = (def: ElementDef, p: Params) => def.presets.findIndex((s) => Object.entries(s.values).every(([k, v]) => Math.abs((p[k as ParamKey] ?? 0) - v) < 0.005));
 
 /** Ce que les réglages de l'élément écrivent dans le trait. */
-export function strokeParams(def: ElementDef, p: Params): Partial<Stroke> {
+export function strokeParams(def: ElementDef, params: Params): Partial<Stroke> {
+  const inBounds = def.copy ? clampParams(def, params) : params;
+  const p: Params = def.fixed ? { ...inBounds, ...def.fixed } : inBounds;
   switch (def.brush) {
     case 'glitter':
       // les poils ne poussent pas : le brin est entier dès qu'il est planté
@@ -324,7 +409,7 @@ export function strokeParams(def: ElementDef, p: Params): Partial<Stroke> {
       if (def.ramify) return { ramify: def.ramify, branches: branchCount(p.branches ?? 5 / 15), converge: p.converge ?? 0.3, grow: 0.12 };
       return { branches: branchCount(p.branches ?? 5 / 15), converge: p.converge ?? 0.3, core: p.core ?? 1, grow: 0.12 };
     case 'burn':
-      return { char: p.char ?? 0.3, hole: (p.hole ?? 1) > 0.5, grow: 0.15, ...(def.id === 'fire' ? { flame: p.flame ?? 0.5 } : {}) };
+      return { char: p.char ?? 0.3, hole: (p.hole ?? 1) > 0.5, grow: 0.15, ...(def.base === 'fire' ? { flame: p.flame ?? 0.5 } : {}) };
     default:
       return {};
   }
@@ -348,7 +433,7 @@ export const EDGE_ELEMENTS: Record<EdgeElementStyle, { element: ElementId; prese
 /** Le trait qu'une lueur d'élément pose le long d'un contour (points en fractions de la cible). */
 export function edgeStroke(style: EdgeElementStyle, pts: Array<{ x: number; y: number }>, guide: number, width: number, seed: number): Stroke {
   const ee = EDGE_ELEMENTS[style];
-  const def = elementOf(ee.element);
+  const def = ORIGIN.get(ee.element)!;
   const values = def.presets.find((p) => p.name === ee.preset)?.values ?? def.presets[0]?.values ?? {};
   return { brush: def.brush, guide, size: ee.size * (0.4 + 1.6 * width), opacity: 1, seed, pts: pts.map((q) => ({ x: q.x, y: q.y, p: 0.7 })), ...strokeParams(def, values), grow: 1 };
 }
