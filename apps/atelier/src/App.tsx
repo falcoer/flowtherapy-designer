@@ -2675,7 +2675,7 @@ export function App() {
             },
     };
     // ramures, particules : tant que la pointe reste posée, les ramifications poussent, les grains voyagent
-    if (t !== 'stamp' && (brushKind === 'branch' || brushKind === 'burn' || brushKind === 'glitter')) {
+    if (t !== 'stamp' && (brushKind === 'branch' || brushKind === 'burn' || (brushKind === 'glitter' && elDef.matter !== 'hair'))) {
       const L0 = live.current;
       const t0 = performance.now();
       const tick = () => {

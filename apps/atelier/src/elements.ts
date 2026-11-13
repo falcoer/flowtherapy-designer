@@ -6,7 +6,7 @@ import type { Matter } from './particles';
  * puis un jeu de paramètres, puis affine aux potards ; le moteur qui calcule (`brush`) est un détail
  * de la fiche. « Matière » reste le mot du support des objets.
  */
-export type ElementId = 'acrylic' | 'aquarelle' | 'spray' | 'water' | 'dust' | 'glitter' | 'light' | 'burn' | 'branch' | 'hair';
+export type ElementId = 'acrylic' | 'aquarelle' | 'spray' | 'water' | 'dust' | 'glitter' | 'light' | 'smoke' | 'spark' | 'burn' | 'branch' | 'hair';
 
 /** Réglages d'un trait que les potards d'un élément peuvent porter (tous entre 0 et 1, sauf `bend` entre −1 et 1). */
 export type ParamKey = 'focus' | 'bend' | 'density' | 'pool' | 'branches' | 'converge' | 'core' | 'hairLen' | 'curl' | 'char' | 'hole';
@@ -53,11 +53,13 @@ const BRANCH_MAX = 16;
 /** Ramifications : le potard va de 0 à 1, le trait en compte de 1 à 16. */
 export const branchCount = (v: number) => 1 + Math.round(v * (BRANCH_MAX - 1));
 
-const jet = (focus: string, density: string, bend: string, pool: string, mainPool: boolean): KnobDef[] => [
-  { key: 'focus', label: focus, glyph: 'resserrage', main: true, zone: (v) => (v < 0.3 ? 'nuage' : v < 0.7 ? 'comètes' : 'traînées') },
+const ZONES = ['nuage', 'comètes', 'traînées'];
+/** Potards du moteur Jet, avec les mots de l'élément ; sans nom de cumul, l'élément n'en a pas. */
+const jet = (focus: string, density: string, bend: string, pool: string | null, mainPool: boolean, zones = ZONES): KnobDef[] => [
+  { key: 'focus', label: focus, glyph: 'resserrage', main: true, zone: (v) => zones[v < 0.3 ? 0 : v < 0.7 ? 1 : 2]! },
   { key: 'density', label: density, glyph: 'densité', main: true },
   { key: 'bend', label: bend, glyph: 'courbure', center: true, main: !mainPool },
-  { key: 'pool', label: pool, glyph: 'cumul', main: mainPool },
+  ...(pool ? [{ key: 'pool' as const, label: pool, glyph: 'cumul', main: mainPool }] : []),
 ];
 
 export const ELEMENTS: ElementDef[] = [
@@ -76,7 +78,22 @@ export const ELEMENTS: ElementDef[] = [
     presets: [],
   },
   { id: 'aquarelle', name: 'Aquarelle', family: 'Peintures', icon: 'brush-aquarelle', hint: 'lavis transparent, les couleurs fusent dans le mouillé', brush: 'aquarelle', knobs: [], presets: [] },
-  { id: 'spray', name: 'Bombe', family: 'Peintures', icon: 'brush-spray', hint: 'voile de gouttelettes', brush: 'spray', knobs: [], presets: [] },
+  {
+    id: 'spray',
+    name: 'Bombe',
+    family: 'Peintures',
+    icon: 'brush-spray',
+    hint: 'voile de gouttelettes, projections quand on resserre',
+    brush: 'glitter',
+    matter: 'spray',
+    knobs: jet('Projection', 'Débit', 'Courbure', null, false, ['voile', 'éclaboussures', 'jet']),
+    presets: [
+      { name: 'Voile', values: { focus: 0, density: 0.5, bend: 0 } },
+      { name: 'Voile dense', values: { focus: 0, density: 0.95, bend: 0 } },
+      { name: 'Éclaboussures', values: { focus: 0.55, density: 0.45, bend: 0 } },
+      { name: 'Jet', values: { focus: 0.95, density: 0.6, bend: 0.1 } },
+    ],
+  },
   {
     id: 'water',
     name: 'Eau',
@@ -141,6 +158,36 @@ export const ELEMENTS: ElementDef[] = [
     ],
   },
   {
+    id: 'smoke',
+    name: 'Fumée',
+    family: 'Lumière et feu',
+    icon: 'matter-smoke',
+    hint: 'volutes pâles qui montent',
+    brush: 'glitter',
+    matter: 'smoke',
+    knobs: jet('Resserrage', 'Épaisseur', 'Volutes', null, false, ['brume', 'volutes', 'filet']),
+    presets: [
+      { name: 'Brume', values: { focus: 0, density: 0.5, bend: 0 } },
+      { name: 'Volutes', values: { focus: 0.45, density: 0.55, bend: 0.6 } },
+      { name: 'Filet', values: { focus: 0.9, density: 0.4, bend: 0.25 } },
+    ],
+  },
+  {
+    id: 'spark',
+    name: 'Étincelles',
+    family: 'Lumière et feu',
+    icon: 'matter-spark',
+    hint: 'traits brûlants qui retombent',
+    brush: 'glitter',
+    matter: 'spark',
+    knobs: jet('Resserrage', 'Densité', 'Courbure', null, false, ['éparses', 'gerbe', 'traits']),
+    presets: [
+      { name: 'Gerbe', values: { focus: 0.55, density: 0.5, bend: 0 } },
+      { name: 'Pluie de feu', values: { focus: 0.2, density: 0.75, bend: 0 } },
+      { name: 'Traits', values: { focus: 1, density: 0.35, bend: 0 } },
+    ],
+  },
+  {
     id: 'burn',
     name: 'Brûlure',
     family: 'Lumière et feu',
@@ -179,16 +226,20 @@ export const ELEMENTS: ElementDef[] = [
     name: 'Poils',
     family: 'Vivant',
     icon: 'brush-hair',
-    hint: 'brins fins effilés',
-    brush: 'hair',
+    hint: 'brins fins couchés dans le sens du geste',
+    brush: 'glitter',
+    matter: 'hair',
     knobs: [
       { key: 'hairLen', label: 'Longueur', main: true, min: 0.03 },
       { key: 'curl', label: 'Frisure', main: true, zone: (v) => (v < 0.15 ? 'raide' : v < 0.6 ? 'alpaga' : 'mouton') },
+      { key: 'density', label: 'Densité', glyph: 'densité' },
+      { key: 'bend', label: 'Couchage', glyph: 'courbure', center: true },
     ],
     presets: [
-      { name: 'Raides', values: { hairLen: 0.3, curl: 0 } },
-      { name: 'Alpaga', values: { hairLen: 0.4, curl: 0.45 } },
-      { name: 'Mouton', values: { hairLen: 0.3, curl: 0.9 } },
+      { name: 'Raides', values: { hairLen: 0.3, curl: 0, density: 0.5, bend: 0 } },
+      { name: 'Coiffés', values: { hairLen: 0.4, curl: 0, density: 0.6, bend: 0.5 } },
+      { name: 'Alpaga', values: { hairLen: 0.4, curl: 0.45, density: 0.5, bend: 0 } },
+      { name: 'Mouton', values: { hairLen: 0.3, curl: 0.9, density: 0.5, bend: 0 } },
     ],
   },
 ];
@@ -205,11 +256,11 @@ export const presetOf = (def: ElementDef, p: Params) => def.presets.findIndex((s
 export function strokeParams(def: ElementDef, p: Params): Partial<Stroke> {
   switch (def.brush) {
     case 'glitter':
+      // les poils ne poussent pas : le brin est entier dès qu'il est planté
+      if (def.matter === 'hair') return { matter: 'hair', hairLen: p.hairLen ?? 0.3, curl: p.curl ?? 0, density: p.density ?? 0.5, bend: p.bend ?? 0 };
       return { matter: def.matter, focus: p.focus ?? 0, bend: p.bend ?? 0, density: p.density ?? 0.5, pool: p.pool ?? 0, grow: 0.12 };
     case 'branch':
       return { branches: branchCount(p.branches ?? 5 / 15), converge: p.converge ?? 0.3, core: p.core ?? 1, grow: 0.12 };
-    case 'hair':
-      return { hairLen: p.hairLen ?? 0.3, curl: p.curl ?? 0 };
     case 'burn':
       return { char: p.char ?? 0.3, hole: (p.hole ?? 1) > 0.5, grow: 0.15 };
     default:

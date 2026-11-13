@@ -19,7 +19,7 @@ export function presetThumb(def: ElementDef, values: Params, guide: Guide | unde
   c.height = H;
   const x = c.getContext('2d')!;
   // la lumière se lit sur un fond sombre
-  if (def.matter === 'light') {
+  if (def.matter === 'light' || def.matter === 'spark') {
     x.fillStyle = '#17161b';
     x.fillRect(0, 0, W, H);
   }

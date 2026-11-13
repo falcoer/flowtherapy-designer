@@ -178,7 +178,7 @@ export interface Target {
 /** Allongement de la touche d'un pinceau couché, à inclinaison maximale (0.9) : presque deux fois plus longue. */
 export const LEAN = 1.2;
 /** Étire un décalage (dx, dy) dans la direction d, du facteur 1 + K. */
-function stretch(dx: number, dy: number, K: number, d: number): [number, number] {
+export function stretch(dx: number, dy: number, K: number, d: number): [number, number] {
   if (!K) return [dx, dy];
   const c = Math.cos(d);
   const s = Math.sin(d);
@@ -1344,7 +1344,6 @@ function spray(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Tar
   let cap = 4096;
   let D = new Float32Array(cap * 7);
   let n = 0;
-  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
   for (let i = 0; i < st.length; i += 1) {
     const q = st[i]!;
     const R = q.r * 1.4;
@@ -1376,13 +1375,26 @@ function spray(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Tar
       D[o + 5] = cg;
       D[o + 6] = cb;
       n++;
-      if (x - d < x0) x0 = x - d;
-      if (y - d < y0) y0 = y - d;
-      if (x + d > x1) x1 = x + d;
-      if (y + d > y1) y1 = y + d;
     }
   }
+  rasterDrops(dst, D, n, t);
+}
+
+/**
+ * Gouttelettes (x, y, rayon, opacité, r, g, b par goutte, `n` gouttes) posées pixel par pixel, carreau par carreau :
+ * des centaines de milliers de disques minuscules coûtent bien moins cher ainsi qu'en tracés du canevas.
+ */
+export function rasterDrops(dst: CanvasRenderingContext2D, D: Float32Array, n: number, t: Target) {
   if (!n) return;
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < n; i++) {
+    const o = i * 7;
+    const d = D[o + 2]!;
+    if (D[o]! - d < x0) x0 = D[o]! - d;
+    if (D[o + 1]! - d < y0) y0 = D[o + 1]! - d;
+    if (D[o]! + d > x1) x1 = D[o]! + d;
+    if (D[o + 1]! + d > y1) y1 = D[o + 1]! + d;
+  }
   // carreaux touchés, en gardant l'ordre des gouttelettes dans chacun
   const tx0 = Math.floor(Math.max(-TILE, x0) / TILE);
   const ty0 = Math.floor(Math.max(-TILE, y0) / TILE);
