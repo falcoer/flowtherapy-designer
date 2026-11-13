@@ -218,13 +218,15 @@ export const ELEMENTS: ElementDef[] = [
     brush: 'branch',
     ramify: 'bolt',
     knobs: [
+      { key: 'focus', label: 'Resserrage', glyph: 'resserrage', main: true, zone: (v) => (v < 0.3 ? 'plasma' : v < 0.75 ? 'gerbe' : 'foudre') },
       { key: 'branches', label: 'Arcs', main: true, fmt: (v) => String(branchCount(v)) },
-      { key: 'converge', label: 'Désordre', main: true },
+      { key: 'converge', label: 'Désordre' },
     ],
     presets: [
-      { name: 'Arc', values: { branches: 1 / 15, converge: 0.3 } },
-      { name: 'Foudre', values: { branches: 3 / 15, converge: 0.5 } },
-      { name: 'Plasma', values: { branches: 9 / 15, converge: 0.8 } },
+      { name: 'Foudre', values: { focus: 1, branches: 1 / 15, converge: 0.45 } },
+      { name: 'Orage', values: { focus: 0.85, branches: 4 / 15, converge: 0.6 } },
+      { name: 'Arc', values: { focus: 0.6, branches: 1 / 15, converge: 0.3 } },
+      { name: 'Plasma', values: { focus: 0, branches: 9 / 15, converge: 0.8 } },
     ],
   },
   {
@@ -300,6 +302,7 @@ export function strokeParams(def: ElementDef, p: Params): Partial<Stroke> {
       if (def.matter === 'hair') return { matter: 'hair', hairLen: p.hairLen ?? 0.3, curl: p.curl ?? 0, density: p.density ?? 0.5, bend: p.bend ?? 0 };
       return { matter: def.matter, focus: p.focus ?? 0, bend: p.bend ?? 0, density: p.density ?? 0.5, pool: p.pool ?? 0, grow: 0.12 };
     case 'branch':
+      if (def.ramify === 'bolt') return { ramify: 'bolt', focus: p.focus ?? 1, branches: branchCount(p.branches ?? 1 / 15), converge: p.converge ?? 0.45, grow: 0.12 };
       if (def.ramify) return { ramify: def.ramify, branches: branchCount(p.branches ?? 5 / 15), converge: p.converge ?? 0.3, grow: 0.12 };
       return { branches: branchCount(p.branches ?? 5 / 15), converge: p.converge ?? 0.3, core: p.core ?? 1, grow: 0.12 };
     case 'burn':
