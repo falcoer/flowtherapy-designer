@@ -2073,6 +2073,8 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .act-conn-body .pf-input { width: 100%; box-sizing: border-box; }
 .act-conns > .act-add { align-self: flex-start; }
 @media (max-width: 520px) { .act-conn-body { grid-template-columns: 1fr; } }
+.pz-pic { width: 32px; height: 32px; font-size: 14px; object-fit: cover; }
+.pz-acct.off { opacity: 0.6; }
 .cat-font-name { font-size: 16px; font-weight: 400; }
 .cat-font-sample { font-size: 34px; line-height: 1.15; padding: 14px 4px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 .cat-font-add { display: flex; flex-wrap: wrap; gap: 8px; }

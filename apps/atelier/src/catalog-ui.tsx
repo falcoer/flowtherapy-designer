@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { PostizTab } from './postiz-ui';
 import { MEDIA_KINDS, formatMargins, type Catalog, type MediaKind, type MediaType } from '@ftd/core';
 import { DEFAULT_FORMATS, FONT_KIND_LABELS, FONT_KINDS, FREE_FONTS, fontAllowed, type FontKind, type FontUse, type Format } from '@ftd/core';
 import type { ElementStore } from '@ftd/core';
@@ -34,7 +35,7 @@ const size = (f: Format) => `${f.width} × ${f.height}${f.unit === 'mm' ? ' mm' 
 
 export function CatalogPanel(p: { onClose: () => void; onSaved: (c: Catalog) => void; onElements: (e: ElementStore) => void; guide?: Guide }) {
   const [cat, setCat] = useState<Catalog | null>(null);
-  const [tab, setTab] = useState<'media' | 'formats' | 'fonts' | 'elements'>('media');
+  const [tab, setTab] = useState<'media' | 'formats' | 'fonts' | 'elements' | 'postiz'>('media');
   const [sel, setSel] = useState<string | null>(null);
   const [status, setStatus] = useState('');
   const [err, setErr] = useState<string | null>(null);
@@ -130,11 +131,15 @@ export function CatalogPanel(p: { onClose: () => void; onSaved: (c: Catalog) => 
         <button role="tab" aria-selected={tab === 'elements'} className={tab === 'elements' ? 'on' : ''} onClick={() => setTab('elements')}>
           Éléments
         </button>
+        <button role="tab" aria-selected={tab === 'postiz'} className={tab === 'postiz' ? 'on' : ''} onClick={() => setTab('postiz')}>
+          Publication
+        </button>
       </div>
       {!cat && !err && <p className="pf-note">Chargement…</p>}
       {cat && tab === 'fonts' && <FontsTab uses={cat.fonts ?? {}} setUses={(fonts) => put({ ...cat, fonts })} onErr={setErr} />}
       {tab === 'elements' && els && <ElementsTab store={els} setStore={putEls} guide={p.guide} />}
-      {cat && tab !== 'fonts' && tab !== 'elements' && (
+      {tab === 'postiz' && <PostizTab />}
+      {cat && tab !== 'fonts' && tab !== 'elements' && tab !== 'postiz' && (
         <div className="cat-cols">
           <div className="cat-list">
             {tab === 'media'

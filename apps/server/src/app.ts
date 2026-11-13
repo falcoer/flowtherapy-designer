@@ -11,6 +11,7 @@ import { invitationMail, proposalMail, reviewMail, type Mail, type Mailer } from
 import { Library } from './library.js';
 import { FontInstaller, installedFonts } from './fonts.js';
 import { CACHE_PROFILES, type CacheProfile } from './media.js';
+import { Postiz, PostizError, POSTIZ_PROVIDERS, settlePending, type PostizConfig } from './postiz.js';
 
 export interface AppOptions {
   libraryRoot: string;
@@ -42,6 +43,8 @@ export interface AppOptions {
   mailer?: Mailer | null;
   /** Adresse publique pour les liens des e-mails ; par défaut celle de la connexion externe. */
   publicUrl?: string;
+  /** Postiz par défaut (variables d'environnement) ; la configuration globale l'emporte. */
+  postiz?: PostizConfig;
 }
 
 declare module 'fastify' {
@@ -228,6 +231,87 @@ export async function buildApp(opts: AppOptions) {
   // --- catalogue du site : formats et types de diffusion, réglés par les administrateurs ---
   app.get('/api/catalog', async () => accounts.catalog());
   app.put<{ Body: unknown }>('/api/catalog', { preHandler: adminOnly }, async (req) => ({ ok: true, catalog: accounts.setCatalog(req.body, req.user?.email) }));
+  // --- Postiz : moteur de diffusion caché ; les activités y relient leurs comptes depuis le volet Médias ---
+  const postizCfg = (): PostizConfig => {
+    const saved = accounts.postizConfig();
+    return { url: saved.url ?? opts.postiz?.url, key: saved.key ?? opts.postiz?.key };
+  };
+  const postiz = () => {
+    const c = postizCfg();
+    return c.url && c.key ? new Postiz({ url: c.url, key: c.key }, opts.fetch) : null;
+  };
+  const postizFail = (reply: FastifyReply, err: unknown) => {
+    if (err instanceof PostizError) return reply.code(err.status).send({ error: err.message });
+    throw err;
+  };
+  app.get('/api/postiz/config', { preHandler: adminOnly }, async () => {
+    const c = postizCfg();
+    return { url: c.url ?? '', keySet: !!c.key, providers: POSTIZ_PROVIDERS };
+  });
+  app.put<{ Body: { url?: string; key?: string | null } }>('/api/postiz/config', { preHandler: adminOnly }, async (req, reply) => {
+    try {
+      accounts.setPostizConfig(req.body ?? {}, req.user?.email);
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+    const c = postizCfg();
+    return { ok: true, url: c.url ?? '', keySet: !!c.key };
+  });
+  /** Les comptes reliés par l'activité, par type de diffusion ; rattache ceux d'une connexion qui vient d'aboutir. */
+  app.get('/api/postiz/accounts', { preHandler: needs('viewer') }, async (req, reply) => {
+    const pz = postiz();
+    if (!pz) return { enabled: false, providers: POSTIZ_PROVIDERS, accounts: [] };
+    const team = req.team!.id;
+    try {
+      const list = await pz.integrations();
+      const cur = accounts.postizTeam(team);
+      const next = settlePending(cur, list, accounts.postizTaken(team));
+      // un compte détaché dans Postiz disparaît aussi de l'activité
+      const known = new Set(list.map((x) => x.id));
+      for (const id of Object.keys(next.accounts)) if (!known.has(id)) delete next.accounts[id];
+      if (JSON.stringify(next) !== JSON.stringify(cur)) accounts.setPostizTeam(team, next);
+      return {
+        enabled: true,
+        providers: POSTIZ_PROVIDERS,
+        ...(next.pending ? { pending: next.pending.channel } : {}),
+        accounts: list.filter((x) => next.accounts[x.id]).map((x) => ({ ...x, channel: next.accounts[x.id] })),
+      };
+    } catch (err) {
+      return postizFail(reply, err);
+    }
+  });
+  /** Lien vers l'autorisation du réseau ; au retour, le compte apparaît dans la liste de l'activité. */
+  app.post<{ Body: { channel?: string } }>('/api/postiz/connect', { preHandler: needs('owner') }, async (req, reply) => {
+    const pz = postiz();
+    if (!pz) return reply.code(409).send({ error: 'Postiz n’est pas configuré (configuration globale)' });
+    const channel = String(req.body?.channel ?? '');
+    const provider = POSTIZ_PROVIDERS[channel];
+    if (!provider) return reply.code(400).send({ error: 'Ce type de diffusion ne se publie pas par Postiz' });
+    const team = req.team!.id;
+    try {
+      const before = (await pz.integrations()).map((x) => x.id);
+      const url = await pz.connectLink(provider, `${publicUrl}/?equipe=${encodeURIComponent(team)}&postiz=${encodeURIComponent(channel)}`);
+      accounts.setPostizTeam(team, { ...accounts.postizTeam(team), pending: { channel, provider, before, at: new Date().toISOString() } }, req.user?.email);
+      return { url };
+    } catch (err) {
+      return postizFail(reply, err);
+    }
+  });
+  app.delete<{ Params: { id: string } }>('/api/postiz/accounts/:id', { preHandler: needs('owner') }, async (req, reply) => {
+    const pz = postiz();
+    if (!pz) return reply.code(409).send({ error: 'Postiz n’est pas configuré' });
+    const team = req.team!.id;
+    const cur = accounts.postizTeam(team);
+    if (!cur.accounts[req.params.id]) return reply.code(404).send({ error: 'Compte introuvable dans cette activité' });
+    try {
+      await pz.remove(req.params.id);
+    } catch (err) {
+      return postizFail(reply, err);
+    }
+    delete cur.accounts[req.params.id];
+    accounts.setPostizTeam(team, cur, req.user?.email);
+    return { ok: true };
+  });
   // --- fiches des éléments : copies et fiches cachées, réglées par les administrateurs ---
   app.get('/api/elements', async () => accounts.elements());
   app.put<{ Body: unknown }>('/api/elements', { preHandler: adminOnly }, async (req) => ({ ok: true, elements: accounts.setElements(req.body, req.user?.email) }));

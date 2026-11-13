@@ -31,8 +31,14 @@ Temporal tourne sans Elasticsearch (visibilité dans sa base Postgres) pour teni
    sed -i 's/^DISABLE_REGISTRATION=.*/DISABLE_REGISTRATION=true/' /opt/postiz/.env
    cd /opt/postiz && docker compose up -d
    ```
-4. **Clé API** : dans Postiz, Réglages › API publique, copier la clé de l'organisation.
-   Elle se range ensuite dans la fiche de l'activité du Designer (jamais dans le dépôt).
+4. **Clé API** : dans Postiz, Settings › Public API, copier la clé de l'organisation.
+5. **Brancher le Designer** : en admin, menu utilisateur › Configuration globale ›
+   Publication, poser l'adresse `https://postiz.flowtherapymusic.com` et la clé. Le serveur
+   la garde (table `settings` de comptes.sqlite) et ne la renvoie jamais. À défaut,
+   `FTD_POSTIZ_URL` / `FTD_POSTIZ_KEY` dans `/etc/ft-designer.env` servent de repli.
+6. **Relier les comptes** : chaque responsable d'activité, dans sa fiche › Médias, touche
+   « Relier un compte Facebook » (ou Instagram, YouTube…). Il passe par l'autorisation du
+   réseau puis revient au Designer, sans voir Postiz.
 
 ## Applications des réseaux
 
