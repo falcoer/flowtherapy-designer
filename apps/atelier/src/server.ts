@@ -312,6 +312,31 @@ export interface ActivityProfile {
 }
 export const fetchCatalog = () => call<Catalog>('/api/catalog');
 export const saveCatalog = (c: Catalog) => call<{ catalog: Catalog }>('/api/catalog', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(c) });
+/** Postiz, moteur de diffusion caché : comptes reliés par l'activité, réglage du site (admin). */
+export interface PostizAccount {
+  id: string;
+  name: string;
+  identifier: string;
+  picture?: string;
+  disabled?: boolean;
+  profile?: string;
+  /** Type de diffusion de l'activité auquel le compte est rattaché. */
+  channel: string;
+}
+export interface PostizAccounts {
+  enabled: boolean;
+  /** Type de diffusion → fournisseur Postiz. */
+  providers: Record<string, string>;
+  /** Type dont une connexion est en cours. */
+  pending?: string;
+  accounts: PostizAccount[];
+}
+export const fetchPostizAccounts = () => call<PostizAccounts>('/api/postiz/accounts');
+export const postizConnect = (channel: string) => call<{ url: string }>('/api/postiz/connect', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ channel }) });
+export const postizRemove = (id: string) => call<{ ok: true }>(`/api/postiz/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const fetchPostizConfig = () => call<{ url: string; keySet: boolean }>('/api/postiz/config');
+export const savePostizConfig = (c: { url?: string; key?: string | null }) =>
+  call<{ url: string; keySet: boolean }>('/api/postiz/config', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(c) });
 export const fetchElements = () => call<ElementStore>('/api/elements');
 export const saveElements = (e: ElementStore) => call<{ elements: ElementStore }>('/api/elements', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(e) });
 export const fetchMyPresets = () => call<UserPresets>('/api/me/presets');

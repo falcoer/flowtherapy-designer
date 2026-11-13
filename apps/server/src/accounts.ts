@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import type { PostizConfig, PostizTeamState } from './postiz.js';
 import { cleanCatalog, cleanElementStore, cleanUserPresets, type Catalog, type ElementStore, type UserPresets } from '@ftd/core';
 
 /**
@@ -455,6 +456,64 @@ export class Accounts {
     } catch {
       return cleanCatalog({});
     }
+  }
+
+  /* ---------- Postiz : réglage du site, comptes reliés par activité ---------- */
+
+  private setting(key: string): unknown {
+    const r = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as Row | undefined;
+    try {
+      return r?.value ? JSON.parse(String(r.value)) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private putSetting(key: string, value: unknown, by?: string) {
+    this.db
+      .prepare('INSERT INTO settings (key, value, updated, by) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated, by = excluded.by')
+      .run(key, JSON.stringify(value), new Date().toISOString(), by ?? null);
+  }
+
+  /** Adresse et clé de Postiz enregistrées par les administrateurs (la clé ne sort jamais du serveur). */
+  postizConfig(): PostizConfig {
+    const v = (this.setting('postiz') ?? {}) as PostizConfig;
+    return { ...(str(v.url, 300) ? { url: str(v.url, 300) } : {}), ...(str(v.key, 500) ? { key: str(v.key, 500) } : {}) };
+  }
+
+  /** `key` absente = gardée, null = effacée ; `url` vide = effacée. */
+  setPostizConfig(raw: { url?: unknown; key?: unknown }, by?: string): PostizConfig {
+    const cur = this.postizConfig();
+    const url = raw.url === undefined ? cur.url : str(raw.url, 300).replace(/\/+$/, '');
+    if (url && !/^https?:\/\//.test(url)) throw new Error('L’adresse de Postiz doit commencer par https://');
+    const key = raw.key === undefined ? cur.key : raw.key === null ? undefined : str(raw.key, 500) || cur.key;
+    const next = { ...(url ? { url } : {}), ...(key ? { key } : {}) };
+    this.putSetting('postiz', next, by);
+    return next;
+  }
+
+  postizTeam(team: string): PostizTeamState {
+    const v = (this.setting(`postiz:team:${team}`) ?? {}) as Partial<PostizTeamState>;
+    return { accounts: v.accounts && typeof v.accounts === 'object' ? { ...v.accounts } : {}, ...(v.pending ? { pending: v.pending } : {}) };
+  }
+
+  setPostizTeam(team: string, state: PostizTeamState, by?: string) {
+    this.putSetting(`postiz:team:${team}`, state, by);
+  }
+
+  /** Comptes Postiz déjà pris par une activité (sauf `except`). */
+  postizTaken(except?: string): Set<string> {
+    const rows = this.db.prepare("SELECT key, value FROM settings WHERE key LIKE 'postiz:team:%'").all() as Row[];
+    const out = new Set<string>();
+    for (const r of rows) {
+      if (String(r.key) === `postiz:team:${except}`) continue;
+      try {
+        for (const id of Object.keys((JSON.parse(String(r.value)) as PostizTeamState).accounts ?? {})) out.add(id);
+      } catch {
+        /* ligne illisible : ignorée */
+      }
+    }
+    return out;
   }
 
   setCatalog(raw: unknown, by?: string): Catalog {
