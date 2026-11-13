@@ -1012,6 +1012,15 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .dry-btn { position: relative; overflow: hidden; }
 .dry-btn.wet::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--wet) * 100%); background: color-mix(in srgb, #5aa7e6 28%, transparent); transition: height 0.25s linear; pointer-events: none; }
 .dry-btn.wet { color: #2f7fc4; }
+/* Sécher, sur la roue du pinceau : un petit disque au bout de la jauge */
+.bw-dry { position: absolute; width: var(--disc, 16.7%); height: auto; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; display: grid; place-items: center; background: var(--chrome-solid); border: 1px solid var(--line); box-shadow: var(--shadow); color: var(--muted); touch-action: manipulation; }
+.bw-dry svg { width: 18px; height: 18px; position: relative; }
+.bw-dry:disabled { opacity: 0.55; }
+@media (pointer: coarse) and (min-width: 600px) { .bw-dry svg { width: 21px; height: 21px; } }
+.bw-dry.spin-on svg { animation: propeller 0.32s linear infinite; }
+.bw-dry.spin-coast svg { animation: propeller 0.7s cubic-bezier(0.2, 0.6, 0.4, 1) 1; }
+@keyframes propeller { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .bw-dry.spin-on svg, .bw-dry.spin-coast svg { animation: none; } }
 /* un éventail ou un menu ouvert depuis la barre d'outils passe devant la barre du haut et sa pastille (téléphone) */
 .side:has(.fan-at, .mode-pop) { z-index: 6; }
 
@@ -1116,9 +1125,9 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
    et la perspective, de même taille) ; plus de place perdue à gauche et en bas */
 
 .brush-wheel.side-right { translate: 3% 3%; }
-.bw-pick { width: 19.7%; height: auto; aspect-ratio: 1; }
-@media (pointer: coarse) and (min-width: 600px) { .bw-pick { width: 19.7%; height: auto; } }
-@media (max-width: 560px) { .bw-pick { width: 19.7%; height: auto; } }
+.bw-pick { width: var(--disc, 19.7%); height: auto; aspect-ratio: 1; }
+@media (pointer: coarse) and (min-width: 600px) { .bw-pick { width: var(--disc, 19.7%); height: auto; } }
+@media (max-width: 560px) { .bw-pick { width: var(--disc, 19.7%); height: auto; } }
 .brush-wheel .bw-groove { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.45; pointer-events: none; }
 .brush-wheel.side-left { translate: -9% 3%; }
 /* enveloppe de la roue : même face, même filet, même ombre que les barres d'outils */

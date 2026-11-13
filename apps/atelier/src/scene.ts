@@ -1,5 +1,6 @@
 import { bevelField, distField, lightKey, seedOf, shadeBump, shadeField, skinField, soften, volumeField, type BumpLight } from './bump';
 import { burnLayers, paintStroke, paintWash, type Target } from './brush';
+import { paintPass, passKind } from './fresh';
 import { drawBlurred, rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
@@ -272,8 +273,8 @@ function boxOrigin(l: Layer, f: Format): { x: number; y: number; w0: number; h0:
   const [w0, h0] = [b.w / (fr[2] - fr[0] || 1), b.h / (fr[3] - fr[1] || 1)];
   return { x: fr[0] * w0, y: fr[1] * h0, w0, h0 };
 }
-/** Deux traits d'aquarelle consécutifs de la même passe humide se peignent ensemble. */
-const sameWash = (a: Stroke | undefined, b: Stroke | undefined) => !!a && !!b && a.wash !== undefined && a.wash === b.wash && (a.brush ?? 'aquarelle') === 'aquarelle' && (b.brush ?? 'aquarelle') === 'aquarelle';
+/** Deux traits consécutifs de la même passe fraîche (aquarelle, acrylique ou bombe) se peignent ensemble. */
+const sameWash = (a: Stroke | undefined, b: Stroke | undefined) => !!a && !!b && a.wash !== undefined && a.wash === b.wash && passKind(a) !== null && passKind(a) === passKind(b);
 /**
  * Par couche, une peinture par taille (la plus récente d'abord) : la vignette de l'enregistrement
  * automatique, la Vue 3D ou l'export peignent à une autre taille sans effacer celle de l'écran,
@@ -485,7 +486,9 @@ export function paintFor(l: Layer, doc: Doc, f: Format, pxPerUnit: number, live?
     }
     let j = i + 1;
     while (j < S.length && sameWash(S[j - 1], S[j])) j++;
-    if (j - i > 1) paintWash(ctx, S.slice(i, j), doc.guides, t);
+    const kind = S[i]!.wash !== undefined ? passKind(S[i]) : null;
+    if (kind === 'aquarelle' && j - i > 1) paintWash(ctx, S.slice(i, j), doc.guides, t);
+    else if (kind === 'acrylic' || kind === 'spray') paintPass(ctx, S.slice(i, j), doc.guides, t);
     else paintStroke(ctx, S[i]!, doc.guides, t);
     c.done = j;
   }

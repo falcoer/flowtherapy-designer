@@ -86,12 +86,13 @@ export const ELEMENTS: ElementDef[] = [
     hint: 'voile de gouttelettes, projections quand on resserre',
     brush: 'glitter',
     matter: 'spray',
-    knobs: jet('Projection', 'Débit', 'Courbure', null, false, ['voile', 'éclaboussures', 'jet']),
+    knobs: jet('Projection', 'Débit', 'Courbure', 'Coulures', false, ['voile', 'éclaboussures', 'jet']),
     presets: [
-      { name: 'Voile', values: { focus: 0, density: 0.5, bend: 0 } },
-      { name: 'Voile dense', values: { focus: 0, density: 0.95, bend: 0 } },
-      { name: 'Éclaboussures', values: { focus: 0.55, density: 0.45, bend: 0 } },
-      { name: 'Jet', values: { focus: 0.95, density: 0.6, bend: 0.1 } },
+      { name: 'Voile', values: { focus: 0, density: 0.5, bend: 0, pool: 0 } },
+      { name: 'Voile dense', values: { focus: 0, density: 0.95, bend: 0, pool: 0.25 } },
+      { name: 'Coulures', values: { focus: 0.2, density: 1, bend: 0, pool: 0.75 } },
+      { name: 'Éclaboussures', values: { focus: 0.55, density: 0.45, bend: 0, pool: 0 } },
+      { name: 'Jet', values: { focus: 0.95, density: 0.6, bend: 0.1, pool: 0 } },
     ],
   },
   {
