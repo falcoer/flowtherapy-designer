@@ -1,6 +1,6 @@
 import { bevelField, distField, lightKey, seedOf, shadeBump, shadeField, skinField, soften, volumeField, type BumpLight } from './bump';
 import { burnLayers, paintStroke, paintWash, type Target } from './brush';
-import { rng } from './brush';
+import { drawBlurred, rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
@@ -682,6 +682,17 @@ let burnGuides: Guide[] = [];
 
 /** Dessine les couches ; le contexte est déjà transformé en unités du format. */
 /** Hauteur effective : positive au-dessus de la feuille, négative quand la couche est creusée. */
+/** Rayon du flou de profondeur de champ d'une couche, en pixels du canevas (0 = nette). */
+export function dofRadius(l: Layer, doc: Doc, f: Format, scale: number): number {
+  const cam = doc.scene?.camera;
+  if (!cam || cam.aperture < 0.01) return 0;
+  const h = (x: Layer) => (x.kind === 'surface' ? 0 : x.height - (x.inner ?? 0));
+  const target = cam.focus ? doc.layers.find((x) => x.id === cam.focus) : undefined;
+  const hf = target ? h(target) : 0;
+  const dh = Math.abs(h(l) - hf);
+  return cam.aperture * dh * 0.035 * Math.min(f.width, f.height) * scale;
+}
+
 export const levelOf = (l: Layer) => (l.kind === 'surface' ? -Infinity : l.height - (l.inner ?? 0));
 
 /**
@@ -839,7 +850,9 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     // couche translucide ou brûlée : rendue à part, puis posée d'un bloc (son ombre ne transparaît pas)
     const burnt = !flattening.has(l.id) && l.kind !== 'surface' ? ((burnGuides = doc.guides), burnFor(l, f, o)) : null;
     const feather = !flattening.has(l.id) && l.kind !== 'surface' && (l.trim?.blur ?? 0) > 0.01;
-    if (opacityOf(l) < 1 || burnt || feather) {
+    // profondeur de champ : hors de la hauteur mise au point, la couche se floute (rayon en pixels du canevas)
+    const dof = flattening.has(l.id) ? 0 : dofRadius(l, doc, f, o.scale);
+    if (opacityOf(l) < 1 || burnt || feather || dof > 0.4) {
       const c = (layerBuffers[depth] ??= document.createElement('canvas'));
       c.width = ctx.canvas.width;
       c.height = ctx.canvas.height;
@@ -891,7 +904,9 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = opacityOf(l);
-      ctx.drawImage(c, 0, 0);
+      // un fond flou garde ses bords pleins : la version nette dessous, la floue par-dessus
+      if (dof > 0.4 && l.kind === 'surface') ctx.drawImage(c, 0, 0);
+      drawBlurred(ctx, c, dof);
       ctx.restore();
       if (fpath) drawGlow(ctx, l, doc, f, o, false);
       continue;

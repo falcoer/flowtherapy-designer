@@ -5993,8 +5993,12 @@ function LampPanel({ doc, f, onChange, onScene, onClose }: { doc: Doc; f: Format
   const lens = sc.lens ?? NO_LENS;
   const tidy = (x: SceneLook): SceneLook | undefined => {
     const l = x.lens && (x.lens.warp || x.lens.vignette || x.lens.fringe) ? x.lens : undefined;
-    return x.fx || l ? { ...(x.fx ? { fx: x.fx } : {}), ...(l ? { lens: l } : {}) } : undefined;
+    const c = x.camera && (x.camera.aperture > 0 || x.camera.focus) ? x.camera : undefined;
+    return x.fx || l || c ? { ...(x.fx ? { fx: x.fx } : {}), ...(l ? { lens: l } : {}), ...(c ? { camera: c } : {}) } : undefined;
   };
+  const cam = sc.camera ?? { aperture: 0 };
+  const setCam = (p: Partial<typeof cam>) => onScene(tidy({ ...sc, camera: { ...cam, ...p } }));
+  const fnum = (a: number) => 16 * Math.pow(1.4 / 16, a);
   const setLens = (p: Partial<typeof lens>) => onScene(tidy({ ...sc, lens: { ...lens, ...p } }));
   const setFx = (fx: Fx | undefined) => onScene(tidy({ ...sc, fx }));
   const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -6025,6 +6029,22 @@ function LampPanel({ doc, f, onChange, onScene, onClose }: { doc: Doc; f: Format
     return (
       <div className="lamp-panel scene-panel" data-tint-zone>
         {head}
+        <div className="scene-sub">Mise au point · objet net</div>
+        <div className="scene-focus">
+          {[{ id: undefined as string | undefined, name: 'Feuille' }, ...doc.layers.filter((x) => x.kind !== 'surface' && x.visible).map((x) => ({ id: x.id as string | undefined, name: x.name }))].map((x) => (
+            <button key={x.id ?? 'page'} className={`chip ${cam.focus === x.id ? 'on' : ''}`} onClick={() => setCam({ focus: x.id })}>
+              {x.name}
+            </button>
+          ))}
+        </div>
+        <div className="scene-knobs">
+          <div className="cp-dial">
+            <Knob label="Ouverture" value={cam.aperture} onChange={(v) => setCam({ aperture: r2(v) })} />
+            <span className="cp-dial-l">Ouverture</span>
+            <output>{cam.aperture < 0.01 ? 'tout net' : `f/${fnum(cam.aperture).toFixed(1).replace('.0', '')}`}</output>
+          </div>
+        </div>
+        <div className="scene-sub">Défauts</div>
         <div className="scene-knobs">
           <div className="cp-dial">
             <Knob label="Distorsion" center value={(lens.warp + 1) / 2} onChange={(v) => setLens({ warp: r2(v * 2 - 1) })} />
@@ -6042,12 +6062,12 @@ function LampPanel({ doc, f, onChange, onScene, onClose }: { doc: Doc; f: Format
             <output>{Math.round(lens.fringe * 100)}</output>
           </div>
         </div>
-        {sc.lens && (
-          <button className="chip scene-reset" onClick={() => onScene(tidy({ ...sc, lens: undefined }))}>
+        {(sc.lens || sc.camera) && (
+          <button className="chip scene-reset" onClick={() => onScene(tidy({ ...sc, lens: undefined, camera: undefined }))}>
             Objectif neutre
           </button>
         )}
-        <p className="hint">Comme un objectif d'appareil : la page se bombe (barillet) ou se creuse (coussinet), les bords s'assombrissent, les franges séparent les couleurs en liserés rouge et bleu autour des formes, plus fort vers les bords.</p>
+        <p className="hint">La mise au point se fait à la hauteur de l'objet choisi : plus un objet est haut ou bas par rapport à lui, plus il est flou, d'autant plus que l'ouverture est grande. Comme un objectif d'appareil : la page se bombe (barillet) ou se creuse (coussinet), les bords s'assombrissent, les franges séparent les couleurs en liserés rouge et bleu autour des formes, plus fort vers les bords.</p>
       </div>
     );
   if (tab === 'fx') {
