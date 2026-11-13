@@ -5073,7 +5073,7 @@ export function App() {
                               : 'Aucun feu ne brûle sur cet objet',
                             onDry: () => {
                               if (!sel) return;
-                              update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === sel.id ? { ...l, strokes: l.strokes.map((x) => (x.flame !== undefined && !x.out ? { ...x, out: true } : x)) } : l)) }));
+                              update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === sel.id ? { ...l, strokes: l.strokes.map((x) => ((x.flame !== undefined || x.over) && !x.out ? { ...x, out: true } : x)) } : l)) }));
                               setToast('Feu éteint : il ne reste que le brûlé, un nouveau feu n’y reprend pas');
                               setToastUndo(true);
                             },

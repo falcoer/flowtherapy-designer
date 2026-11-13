@@ -398,7 +398,10 @@ export function extraStrokes(def: ElementDef, s: Stroke, params: Params): Stroke
   const o = ex && ORIGIN.get(ex.element);
   if (!ex || !o || !EXTRA_OK(o.id)) return [];
   const p = { ...clampParams(def, params), ...def.fixed };
-  const v = ex.dose ? (p[ex.dose as ParamKey] ?? 0) : 1;
+  // le dosage suit la course du potard (une copie peut l'avoir resserrée) : 0 en bas, 1 en haut
+  const knob = def.knobs.find((x) => x.key === ex.dose) ?? ORIGIN.get(def.base)?.knobs.find((x) => x.key === ex.dose);
+  const [lo, hi] = knob ? knobRange(knob) : [0, 1];
+  const v = ex.dose ? ((p[ex.dose as ParamKey] ?? lo) - lo) / Math.max(1e-3, hi - lo) : 1;
   const from = ex.from ?? 0;
   const k = ex.dose ? Math.max(0, Math.min(1, (v - from) / Math.max(0.05, 1 - from))) : 1;
   if (k <= 0.01) return [];

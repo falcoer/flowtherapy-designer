@@ -69,6 +69,11 @@ describe('fiches des éléments', () => {
     expect(extraStrokes(d, s, { flame: 0.4 })).toEqual([]);
     const [e] = extraStrokes(d, s, { flame: 0.75 });
     expect(e).toMatchObject({ brush: 'glitter', matter: 'spark', guide: 2, size: 0.05, opacity: 0.5, focus: 1 });
+    expect(e!.over).toBe(true);
+    // une course de potard resserrée : le dosage va de son bas à son haut
+    const tight = elementFrom({ ...sh, knobs: [{ key: 'flame', lo: 0, hi: 0.4 }] })!;
+    expect(extraStrokes(tight, s, { flame: 0.4 })[0]!.opacity).toBe(1);
+    expect(extraStrokes(tight, s, { flame: 0.1 })).toEqual([]);
     // une brûlure ne peut pas servir de second moteur : elle ne peint pas
     expect(elementFrom({ ...sh, extra: { element: 'burn', size: 1 } })!.extra).toBeUndefined();
   });

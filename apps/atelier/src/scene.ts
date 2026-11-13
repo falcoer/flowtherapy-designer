@@ -678,7 +678,7 @@ function burnFor(l: Layer, f: Format, o: DrawOptions) {
   // un feu brûle tant qu'on ne l'a pas éteint
   const live = (s: Stroke) => s.flame !== undefined && !s.out;
   // second moteur des feux (étincelles, fumée) : peint avec les flammes
-  const over = l.strokes.filter((s) => s.over);
+  const over = l.strokes.filter((s) => s.over && !s.out);
   const key = JSON.stringify([t.pw, t.ph, list.map((s) => [s.seed, s.pts.length, s.grow, s.size, s.guide, s.opacity, s.char, s.hole, s.flame, s.out]), [...new Set([...list, ...over].map((s) => s.guide))].map((g) => burnGuides[g]), over.map((s) => [s.seed, s.size, s.opacity, s.matter, s.focus])]);
   const hit = burnCache.get(l.id);
   if (hit?.key === key) return hit;
