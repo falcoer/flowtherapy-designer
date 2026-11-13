@@ -431,6 +431,9 @@ describe('équipes', () => {
       { id: 'feu-doux', base: 'fire', name: 'Feu doux', family: 'Lumière et feu', icon: 'matter-fire', hint: 'petites flammes', knobs: [{ key: 'flame', label: 'Flammèches', lo: 0, hi: 0.4 }, { key: 'hole', fixed: 0 }, { key: 'char' }], presets: [{ name: 'Doux', values: { flame: 0.2, char: 1 } }], pass: false },
     ]);
     expect((await jenni.get('/api/elements')).json().sheets[0].name).toBe('Feu doux');
+    // second moteur : un élément, sa taille relative bornée, un dosage facultatif
+    const two = await lauris.send('PUT', '/api/elements', { hidden: [], sheets: [{ id: 'feu-vif', base: 'fire', name: 'Feu vif', knobs: [], presets: [], extra: { element: 'spark', size: 9, dose: 'flame', from: 2 } }] });
+    expect(two.json().elements.sheets[0].extra).toEqual({ element: 'spark', size: 3, dose: 'flame', from: 0.95 });
   });
 
   it('le secret d’une délégation d’accès est gardé sans jamais être relu, branchement par branchement', async () => {

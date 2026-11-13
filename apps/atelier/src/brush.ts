@@ -295,6 +295,8 @@ function tipShape(ctx: CanvasRenderingContext2D, tip: Stroke['tip'], x: number, 
 
 /** Rend un trait dans le canevas de peinture d'une couche, selon son mode de projection. */
 export function paintStroke(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
+  // posé au-dessus de la couche avec les flammes du feu (voir flames)
+  if (s.over) return;
   switch (s.brush) {
     case 'acrylic':
       return acrylic(dst, s, guides, t);
@@ -992,7 +994,7 @@ function mixHex(a: string, b: string, t: number) {
  * Les brûlures d'une couche : chaque réglage de roussi garde sa propre marge. `live` dit si un trait
  * de feu brûle encore (pas éteint) : ses braises restent vives et des flammes montent du front.
  */
-export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target, live: (s: Stroke) => boolean = () => false, on: (x: number, y: number) => boolean = () => true) {
+export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target, live: (s: Stroke) => boolean = () => false, on: (x: number, y: number) => boolean = () => true, over: Stroke[] = []) {
   const groups = new Map<string, Stroke[]>();
   for (const s of strokes) {
     const k = `${s.char ?? 0.3}|${s.hole !== false}|${s.flame === undefined ? '' : live(s) ? 'feu' : 'éteint'}`;
@@ -1012,7 +1014,7 @@ export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target, live: 
     // sans trou, la brûlure ne fait que teinter : la couche reste entière
     if (list[0]!.hole !== false) hx.drawImage(r.hole, 0, 0);
   }
-  return { hole, edge, flame: flames(strokes, live, guides, t, on) };
+  return { hole, edge, flame: flames(strokes, live, guides, t, on, over) };
 }
 
 /** Aperçu en direct pendant le geste : tampons translucides, sans liseré. */

@@ -137,6 +137,8 @@ export interface Stroke {
   /** Élément Feu : hauteur des flammes sur le front (0..1). Présent = la brûlure est un feu ; il brûle (braises, flammes) jusqu'à ce qu'on l'éteigne (`out`). */
   flame?: number;
   out?: boolean;
+  /** Second moteur d'un feu (étincelles, fumée) : peint au-dessus de la couche avec les flammes, tant que le feu brûle. */
+  over?: boolean;
 }
 
 export type BorderStyle = 'round' | 'straight' | 'torn' | 'stamp' | 'burst' | 'double';

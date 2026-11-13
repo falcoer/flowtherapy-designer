@@ -1,4 +1,4 @@
-import { BURN_N, burnShapes, drawBlurred, rng, type BurnShape, type Target } from './brush';
+import { BURN_N, burnShapes, drawBlurred, paintStroke, rng, type BurnShape, type Target } from './brush';
 import { guideColor, type Guide, type Stroke } from './model';
 
 /**
@@ -53,7 +53,7 @@ export interface Flames {
 }
 
 /** Flammes et braises des feux encore vivants d'une couche ; null s'il n'y en a pas. */
-export function flames(all: Stroke[], live: (s: Stroke) => boolean, guides: Guide[], t: Target, on: (x: number, y: number) => boolean = () => true): Flames | null {
+export function flames(all: Stroke[], live: (s: Stroke) => boolean, guides: Guide[], t: Target, on: (x: number, y: number) => boolean = () => true, over: Stroke[] = []): Flames | null {
   const lit = all.filter((s) => s.flame !== undefined && live(s));
   if (!lit.length) return null;
   const { shapes } = burnShapes(all, t);
@@ -156,5 +156,11 @@ export function flames(all: Stroke[], live: (s: Stroke) => boolean, guides: Guid
   x.globalAlpha = 1;
   x.globalCompositeOperation = 'source-over';
   glow.width = glow.height = 0;
+  // second moteur du feu (étincelles, fumée) : au-dessus des flammes, libre de sortir de la couche
+  if (over.length) {
+    x.translate(padX, padT);
+    for (const s of over) paintStroke(x, { ...s, over: undefined }, guides, t);
+    x.setTransform(1, 0, 0, 1, 0, 0);
+  }
   return { c, x: -padX / t.pw, y: -padT / t.ph, w: W / t.pw, h: H / t.ph };
 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ElementSheet, ElementStore, KnobSheet } from '@ftd/core';
 import { burnLayers, paintStroke } from './brush';
-import { ELEMENTS, elementList, knobRange, presetOf, strokeParams, type ElementDef, type KnobDef, type Params } from './elements';
+import { ELEMENTS, EXTRA_OK, elementList, extraStrokes, knobRange, presetOf, strokeParams, type ElementDef, type KnobDef, type Params } from './elements';
 import { passKind } from './fresh';
 import { Icon } from './icons';
 import type { Guide, Stroke } from './model';
@@ -253,6 +253,7 @@ function SheetEditor(p: { def: ElementDef; sheet: ElementSheet; families: string
           </div>
         </div>
       )}
+      <ExtraField sheet={sheet} base={base} set={set} />
       <div className="act-field">
         <span className="pf-group">Jeux de paramètres</span>
         {sheet.presets.length === 0 && <p className="pf-note">Aucun : règle les potards dans la zone d’essai, puis garde-les en jeu.</p>}
@@ -269,6 +270,72 @@ function SheetEditor(p: { def: ElementDef; sheet: ElementSheet; families: string
         ))}
       </div>
     </>
+  );
+}
+
+/** Second moteur d'une copie : un autre élément posé sur le même geste, dosé ou non par un potard. */
+function ExtraField(p: { sheet: ElementSheet; base: ElementDef; set: (patch: Partial<ElementSheet>) => void }) {
+  const { sheet, base, set } = p;
+  const ex = sheet.extra;
+  const choices = ELEMENTS.filter((e) => EXTRA_OK(e.id) && e.id !== base.id);
+  const el = ex && ELEMENTS.find((e) => e.id === ex.element);
+  const doses = base.knobs.filter((k) => !k.toggle);
+  const put = (patch: Partial<NonNullable<ElementSheet['extra']>>) => ex && set({ extra: { ...ex, ...patch } });
+  return (
+    <div className="act-field">
+      <span className="pf-group">Second moteur</span>
+      <div className="act-checks">
+        <button className={`act-check ${!ex ? 'on' : ''}`} onClick={() => set({ extra: undefined })}>
+          Aucun
+        </button>
+        {choices.map((e) => (
+          <button key={e.id} className={`act-check ${ex?.element === e.id ? 'on' : ''}`} onClick={() => set({ extra: { element: e.id, size: ex?.size ?? 1, ...(ex?.dose ? { dose: ex.dose, from: ex.from ?? 0 } : {}) } })}>
+            {e.name}
+          </button>
+        ))}
+      </div>
+      {ex && el && (
+        <>
+          {el.presets.length > 1 && (
+            <div className="act-checks">
+              {el.presets.map((ps, i) => (
+                <button key={ps.name} className={`act-check ${(ex.preset ?? el.presets[0]!.name) === ps.name ? 'on' : ''}`} onClick={() => put({ preset: i === 0 ? undefined : ps.name })}>
+                  {ps.name}
+                </button>
+              ))}
+            </div>
+          )}
+          <label className="el-range">
+            <span>Taille</span>
+            <input type="range" min={0.2} max={3} step={0.05} value={ex.size} onChange={(e) => put({ size: Number(e.target.value) })} />
+            <span>{pct(ex.size)}</span>
+          </label>
+          {doses.length > 0 && (
+            <div className="act-checks">
+              <span className="pf-note">Dosé par</span>
+              <button className={`act-check ${!ex.dose ? 'on' : ''}`} onClick={() => put({ dose: undefined, from: undefined })}>
+                toujours entier
+              </button>
+              {doses.map((k) => (
+                <button key={k.key} className={`act-check ${ex.dose === k.key ? 'on' : ''}`} onClick={() => put({ dose: k.key, from: ex.from ?? 0 })}>
+                  {sheet.knobs.find((x) => x.key === k.key)?.label ?? k.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {ex.dose && (
+            <label className="el-range">
+              <span>À partir de</span>
+              <input type="range" min={0} max={0.95} step={0.01} value={ex.from ?? 0} onChange={(e) => put({ from: Number(e.target.value) })} />
+              <span>{pct(ex.from ?? 0)}</span>
+            </label>
+          )}
+          <p className="pf-note">
+            {el.name} est posé sur le même geste{ex.dose ? ', de plus en plus fort au-delà du seuil' : ''}. Il apparaît quand le trait est fini.
+          </p>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -294,6 +361,7 @@ function TestArea(p: { def: ElementDef; guide?: Guide; onKeep?: (values: Params)
     const t = { pw: c.width, ph: c.height, pxPerMin: c.height };
     x.clearRect(0, 0, c.width, c.height);
     const list = [...strokes, ...(cur.current ? [cur.current] : [])].map((s) => ({ ...s, ...strokeParams(def, vals), grow: 1 }));
+    const extras = list.flatMap((s) => extraStrokes(def, s, vals));
     if (def.brush === 'burn') {
       // la brûlure consume la couche : une feuille de papier à brûler
       x.fillStyle = dark ? '#17161b' : '#fff';
@@ -301,7 +369,8 @@ function TestArea(p: { def: ElementDef; guide?: Guide; onKeep?: (values: Params)
       x.fillStyle = '#efe6d3';
       x.fillRect(10, 10, c.width - 20, c.height - 20);
       if (!list.length) return;
-      const b = burnLayers(list, [guide], t, () => true, (px, py) => px > 10 && py > 10 && px < c.width - 10 && py < c.height - 10);
+      // le second moteur d'un feu vole avec les flammes, au-dessus de la feuille
+      const b = burnLayers(list, [guide], t, () => true, (px, py) => px > 10 && py > 10 && px < c.width - 10 && py < c.height - 10, extras);
       x.drawImage(b.edge, 0, 0);
       x.save();
       x.globalCompositeOperation = 'destination-out';
@@ -317,7 +386,7 @@ function TestArea(p: { def: ElementDef; guide?: Guide; onKeep?: (values: Params)
       x.fillStyle = '#17161b';
       x.fillRect(0, 0, c.width, c.height);
     }
-    for (const s of list) paintStroke(x, s, [guide], t);
+    for (const s of [...list, ...extras]) paintStroke(x, s, [guide], t);
   };
   useEffect(draw);
   const at = (e: React.PointerEvent<HTMLCanvasElement>) => {

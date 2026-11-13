@@ -36,6 +36,25 @@ export interface ElementSheet {
   pass?: boolean;
   /** Déborder permis ; absent, comme la fiche d'origine. */
   spill?: boolean;
+  /** Second moteur : le même geste pose aussi le trait d'un autre élément d'origine. */
+  extra?: ExtraEngine;
+}
+
+/**
+ * Second moteur d'une fiche (Feu qui jette des étincelles, Eau qui fume) : un élément d'origine et un de
+ * ses jeux, posés sur le même geste. Un potard de la fiche peut le doser : rien sous le seuil, puis de
+ * plus en plus jusqu'au bout de sa course.
+ */
+export interface ExtraEngine {
+  element: string;
+  /** Nom du jeu de paramètres de cet élément ; absent, son premier. */
+  preset?: string;
+  /** Taille de la pointe, relative à celle du trait (0.2 à 3). */
+  size: number;
+  /** Potard de la fiche qui dose le second moteur ; absent, toujours entier. */
+  dose?: string;
+  /** Seuil du dosage (0 à 0.95). */
+  from?: number;
 }
 
 export interface ElementStore {
@@ -57,6 +76,16 @@ function cleanValues(raw: unknown): Record<string, number> {
     if (kk && n !== undefined) out[kk] = n;
   }
   return out;
+}
+
+function cleanExtra(raw: unknown): ExtraEngine | null {
+  const e = raw as Partial<ExtraEngine> | undefined;
+  const element = key(e?.element);
+  if (!element) return null;
+  const preset = str(e?.preset, 40);
+  const dose = key(e?.dose);
+  const from = num(e?.from, 0, 0.95);
+  return { element, ...(preset ? { preset } : {}), size: num(e?.size, 0.2, 3) ?? 1, ...(dose ? { dose, from: from ?? 0 } : {}) };
 }
 
 /** Garde ce qui est attendu d'un jeu de fiches envoyé par un gérant. */
@@ -102,6 +131,7 @@ export function cleanElementStore(raw: unknown): ElementStore {
       ...(tools ? { tools } : {}),
       ...(typeof s.pass === 'boolean' ? { pass: s.pass } : {}),
       ...(typeof s.spill === 'boolean' ? { spill: s.spill } : {}),
+      ...(cleanExtra(s.extra) ? { extra: cleanExtra(s.extra)! } : {}),
     });
   }
   const hidden = [...new Set(Array.isArray(r.hidden) ? r.hidden.map(key).filter(Boolean) : [])].slice(0, 120);

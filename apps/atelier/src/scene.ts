@@ -677,12 +677,14 @@ function burnFor(l: Layer, f: Format, o: DrawOptions) {
   const t = paintTarget(l, f, o.scale);
   // un feu brûle tant qu'on ne l'a pas éteint
   const live = (s: Stroke) => s.flame !== undefined && !s.out;
-  const key = JSON.stringify([t.pw, t.ph, list.map((s) => [s.seed, s.pts.length, s.grow, s.size, s.guide, s.opacity, s.char, s.hole, s.flame, s.out]), [...new Set(list.map((s) => s.guide))].map((g) => burnGuides[g])]);
+  // second moteur des feux (étincelles, fumée) : peint avec les flammes
+  const over = l.strokes.filter((s) => s.over);
+  const key = JSON.stringify([t.pw, t.ph, list.map((s) => [s.seed, s.pts.length, s.grow, s.size, s.guide, s.opacity, s.char, s.hole, s.flame, s.out]), [...new Set([...list, ...over].map((s) => s.guide))].map((g) => burnGuides[g]), over.map((s) => [s.seed, s.size, s.opacity, s.matter, s.focus])]);
   const hit = burnCache.get(l.id);
   if (hit?.key === key) return hit;
   // seul le front qui court sur la matière de la couche porte des flammes
   const rings = localRings(l);
-  const r = { key, ...burnLayers(list, burnGuides, t, live, (x, y) => insideRings(rings, x / t.pw, y / t.ph)) };
+  const r = { key, ...burnLayers(list, burnGuides, t, live, (x, y) => insideRings(rings, x / t.pw, y / t.ph), over) };
   if (burnCache.size > 40) burnCache.clear();
   burnCache.set(l.id, r);
   return r;

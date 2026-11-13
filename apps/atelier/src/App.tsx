@@ -2,7 +2,7 @@ import { FRAME_TITLES, ANCHOR_FRAMES, fontAllowed, type AnchorFrame, type Elemen
 import { createPortal } from 'react-dom';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive, type Target } from './brush';
-import { elementList, elementOf, knobRange, paramsOf, presetOf, startParams, strokeParams, type ElementId } from './elements';
+import { elementList, elementOf, extraStrokes, knobRange, paramsOf, presetOf, startParams, strokeParams, type ElementId } from './elements';
 import { passKind } from './fresh';
 import { presetThumb } from './element-thumb';
 import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
@@ -3326,7 +3326,9 @@ export function App() {
       const grown = L.win && L.wet && l0 && canSpill(s) ? growPatch({ ...l0, strokes: [...l0.strokes, s] }, f, inkRings(l0, f, s, doc.guides, scale * dpr, L.wet, L.win)) : {};
       // le canevas du geste (jusqu'à 2048 px quand l'encre déborde) n'est plus montré : sa mémoire est rendue
       if (L.wet) L.wet.width = L.wet.height = 0;
-      update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, strokes: [...l.strokes, s], ...grown } : l)) }));
+      // second moteur de la fiche : le même geste pose aussi son trait (étincelles d'un feu…)
+      const extra = s.brush === 'stamp' ? [] : extraStrokes(elDef, s, elP);
+      update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, strokes: [...l.strokes, s, ...extra], ...grown } : l)) }));
       return;
     }
     if (L.kind === 'subject' && L.lasso) {
