@@ -125,6 +125,9 @@ services:
       POSTGRES_SEEDS: temporal-postgresql
       DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/production-sql.yaml
       TEMPORAL_NAMESPACE: default
+      # Sans Elasticsearch, Temporal n'accepte que 3 attributs de recherche Text ;
+      # Postiz en crée 2 (postId, organizationId) : ne pas ajouter ceux d'exemple.
+      SKIP_ADD_CUSTOM_SEARCH_ATTRIBUTES: "true"
     volumes:
       - ./dynamicconfig:/etc/temporal/config/dynamicconfig:ro
     networks: [temporal-network]
