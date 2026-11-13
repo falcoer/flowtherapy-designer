@@ -1876,6 +1876,10 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .cm-item > .cm-row { grid-column: 1; grid-row: 1; }
 .cm-item > .cm-line { grid-column: 1; grid-row: 2; }
 .cm-item > .cm-fan { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; padding: 6px 14px 6px 0; cursor: pointer; }
+/* toute la ligne se choisit (texte, ligne d'état, éventail) : le survol l'éclaire en entier, pas seulement le titre */
+.cm-swipe .cm-item { cursor: pointer; }
+.cm-swipe .cm-item .cm-row:hover { background: none; }
+.cm-swipe .cm-item:not(.sel):hover { background: color-mix(in srgb, var(--accent) 8%, var(--chrome-solid)); }
 .cm-del-sel:not(:disabled):hover { color: #d64541; }
 .pub-card img { -webkit-user-drag: none; }
 

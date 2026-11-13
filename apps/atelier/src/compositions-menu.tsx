@@ -415,7 +415,13 @@ export function CompositionsMenu(p: {
                     <PubFan m={m} pubs={pubsOf(m, targetsOf(m), c, suggested)} activity={p.activity} size={64} />
                   </span>
                   {/* une ligne alignée : où en est la composition, ses voix, modèle */}
-                  <div className="cm-line">
+                  <div
+                    className="cm-line"
+                    onClick={(e) => {
+                      // la ligne d'état fait partie de la ligne : hors de ses boutons, elle choisit aussi la composition
+                      if (!(e.target as HTMLElement).closest('button')) tap(m);
+                    }}
+                  >
                     {st && <span className={`proj-badge st-${st.kind}`}>{st.label} le {dmy(st.at)}</span>}
                     {p.canVote ? (
                       <VoteButton votes={m.votes ?? []} voted={!!m.voted} onVote={() => p.onVote(m)} />
