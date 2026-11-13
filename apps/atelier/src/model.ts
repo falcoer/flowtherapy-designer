@@ -250,6 +250,8 @@ export interface Lamp {
   y: number;
   z: number;
   color: string;
+  /** Teinte de la palette d'où vient la couleur (absente = lumière blanche ou couleur libre). */
+  guide?: number;
 }
 
 export interface Target {

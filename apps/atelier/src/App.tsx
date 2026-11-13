@@ -6009,14 +6009,14 @@ function LayerThumb({ layer, doc }: { layer: Layer; doc: Doc }) {
   return <canvas ref={ref} className="thumb" />;
 }
 
-const LAMP_COLORS: Array<[string, string]> = [
-  ['#ffffff', 'Blanche'],
-  ['#ffe9c4', 'Soleil'],
-  ['#ffb86b', 'Bougie'],
-  ['#ff8f6b', 'Couchant'],
-  ['#c9d8ff', 'Lune'],
-  ['#ff8ad8', 'Néon rose'],
-];
+/** Couleur de lampe en #rrggbb (les teintes de la palette peuvent venir en rgb()). */
+function lampHex(c: string): string {
+  if (/^#[0-9a-f]{6}$/i.test(c)) return c;
+  const m = c.match(/\d+(\.\d+)?/g);
+  if (!m || m.length < 3) return '#ffffff';
+  return '#' + m.slice(0, 3).map((v) => Math.max(0, Math.min(255, Math.round(Number(v)))).toString(16).padStart(2, '0')).join('');
+}
+
 
 /**
  * Lampe au-dessus de la feuille, en petit panneau en haut à gauche : la page reste visible.
@@ -6093,6 +6093,13 @@ function LampPanel({
   const setLens = (p: Partial<typeof lens>) => onScene(tidy({ ...sc, lens: { ...lens, ...p } }));
   const setFx = (fx: Fx | undefined) => onScene(tidy({ ...sc, fx }));
   const r2 = (v: number) => Math.round(v * 100) / 100;
+  // Réinitialiser : l'onglet ouvert revient à zéro (lumière par défaut, objectif neutre, sans transformation)
+  const resetable = tab === 'light' ? !!doc.lamp : tab === 'lens' ? !!(sc.lens || sc.camera) : !!sc.fx;
+  const reset = () => {
+    if (tab === 'light') onChange(lampOf({ ...doc, lamp: undefined }));
+    else if (tab === 'lens') onScene(tidy({ ...sc, lens: undefined, camera: undefined }));
+    else onScene(tidy({ ...sc, fx: undefined }));
+  };
   const tabs: Array<[SceneTab, string, boolean]> = [
     ['light', 'Lumière', !!doc.lamp],
     ['lens', 'Objectif', !!sc.lens],
@@ -6102,8 +6109,8 @@ function LampPanel({
     <>
       <div className="lamp-head">
         <span className="b-title">Scène</span>
-        <button className="lamp-close" onClick={onClose} aria-label="Fermer">
-          ×
+        <button className="chip scene-reset-h" disabled={!resetable} onClick={reset} title={`Réinitialiser ${tab === 'light' ? 'la lumière' : tab === 'lens' ? "l'objectif" : 'la transformation'}`}>
+          Réinitialiser
         </button>
       </div>
       <div className="scene-tabs" role="tablist">
@@ -6170,11 +6177,6 @@ function LampPanel({
             <output>{Math.round(lens.fringe * 100)}</output>
           </div>
         </div>
-        {(sc.lens || sc.camera) && (
-          <button className="chip scene-reset" onClick={() => onScene(tidy({ ...sc, lens: undefined, camera: undefined }))}>
-            Objectif neutre
-          </button>
-        )}
         <p className="hint">L'ouverture règle la profondeur de champ : plus elle est grande (f/1.4), plus la zone nette est courte et plus les objets plus hauts ou plus bas que l'objet net flouent.</p>
       </div>
     );
@@ -6240,36 +6242,35 @@ function LampPanel({
   return (
     <div className="lamp-panel scene-panel" data-tint-zone>
       {head}
-      <svg
-        ref={ref}
-        viewBox={`0 0 ${W} ${H}`}
-        className="lamp-map"
-        style={{ aspectRatio: `${W} / ${H}` }}
-        onPointerDown={(e) => {
-          (e.target as Element).setPointerCapture(e.pointerId);
-          set(e);
-        }}
-        onPointerMove={(e) => e.buttons && set(e)}
-      >
-        <rect x={ox} y={oy} width={pw} height={ph} rx="2" className="lamp-page" />
-        <rect x={cx - pw * 0.18 + shx} y={cy - pw * 0.18 + shy} width={pw * 0.36} height={pw * 0.36} rx="3" className="dial-shadow" />
-        <rect x={cx - pw * 0.18} y={cy - pw * 0.18} width={pw * 0.36} height={pw * 0.36} rx="3" className="dial-card" />
-        <line x1={cx} y1={cy} x2={sx} y2={sy} className="dial-ray" />
-        <circle cx={sx} cy={sy} r={7 + lp.z * 6} className="dial-sun" style={{ fill: lp.color }} />
-      </svg>
-      <label className="lamp-row">
-        <span>Hauteur</span>
-        <input type="range" min={0} max={1} step={0.01} value={lp.z} onChange={(e) => onChange({ ...lp, z: Number(e.target.value) })} />
-      </label>
-      <div className="lamp-colors">
-        {LAMP_COLORS.map(([c, name]) => (
-          <button key={c} className={`sw ${lp.color.toLowerCase() === c ? 'on' : ''}`} style={{ background: c }} title={name} onClick={() => onChange({ ...lp, color: c })} />
-        ))}
-        <label className="sw custom" title="Autre couleur" style={{ background: LAMP_COLORS.some(([c]) => c === lp.color.toLowerCase()) ? undefined : lp.color }}>
-          <input type="color" value={lp.color} onChange={(e) => onChange({ ...lp, color: e.target.value })} />
-        </label>
+      <div className="lamp-stage">
+        <svg
+          ref={ref}
+          viewBox={`0 0 ${W} ${H}`}
+          className="lamp-map"
+          style={{ aspectRatio: `${W} / ${H}` }}
+          onPointerDown={(e) => {
+            (e.target as Element).setPointerCapture(e.pointerId);
+            set(e);
+          }}
+          onPointerMove={(e) => e.buttons && set(e)}
+        >
+          <rect x={ox} y={oy} width={pw} height={ph} rx="2" className="lamp-page" />
+          <rect x={cx - pw * 0.18 + shx} y={cy - pw * 0.18 + shy} width={pw * 0.36} height={pw * 0.36} rx="3" className="dial-shadow" />
+          <rect x={cx - pw * 0.18} y={cy - pw * 0.18} width={pw * 0.36} height={pw * 0.36} rx="3" className="dial-card" />
+          <line x1={cx} y1={cy} x2={sx} y2={sy} className="dial-ray" />
+          <circle cx={sx} cy={sy} r={7 + lp.z * 6} className="dial-sun" style={{ fill: lp.color }} />
+        </svg>
+        <div className="lamp-side">
+          <VSlider label="Hauteur" value={lp.z} onChange={(v) => onChange({ ...lp, z: Math.round(v * 100) / 100 })} />
+          <Dots
+            label="Couleur"
+            value={lp.guide !== undefined && lp.guide < doc.guides.length ? lp.guide : -1}
+            doc={doc}
+            onPick={(i) => onChange({ ...lp, guide: i, color: lampHex(guideColor(doc.guides[i], 0.5)) })}
+          />
+        </div>
       </div>
-      <p className="hint">Glisse le soleil sur la carte, ou directement sur la feuille. Plus la lampe est basse, plus les ombres s'allongent et la lumière tombe vite.</p>
+      <p className="hint">Glisse le soleil sur la carte, ou directement sur la feuille. Plus la lampe est basse, plus les ombres s'allongent. La couleur vient de la palette : sans couleur, la lumière est blanche.</p>
     </div>
   );
 }
