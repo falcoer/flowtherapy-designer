@@ -4784,7 +4784,7 @@ export function App() {
                     dir={lefty ? 'left' : 'right'}
                     face={<Icon name={elDef.icon} />}
                     title={`Élément : ${elDef.name} (${elDef.family})`}
-                    items={ELEMENTS.map((d) => ({ key: d.id, icon: <Icon name={d.icon} />, label: d.name, hint: `${d.family} · ${d.hint}`, on: element === d.id }))}
+                    items={ELEMENTS.map((d) => ({ key: d.id, icon: <Icon name={d.icon} />, label: d.name, hint: d.hint, group: d.family, on: element === d.id }))}
                     onPick={(k) => {
                       setElement(k as ElementId);
                       if (tool === 'stamp' && !STAMPABLE.includes(k as ElementId)) setTool('paint');
