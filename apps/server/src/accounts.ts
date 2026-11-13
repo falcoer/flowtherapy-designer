@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { PostizConfig, PostizTeamState } from './postiz.js';
+import type { PlanPostiz, PostizConfig, PostizTeamState } from './postiz.js';
 import { cleanCatalog, cleanElementStore, cleanUserPresets, type Catalog, type ElementStore, type UserPresets } from '@ftd/core';
 
 /**
@@ -751,7 +751,7 @@ export class Accounts {
     const base = teamIdFrom(name) || 'campagne';
     let id = base;
     for (let n = 2; this.campaign(team, id); n++) id = `${base}-${n}`;
-    this.db.prepare('INSERT INTO campaigns (team, id, name, data, created, by) VALUES (?, ?, ?, ?, ?, ?)').run(team, id, name, JSON.stringify(cleanCampaign(input)), new Date().toISOString(), by ?? null);
+    this.db.prepare('INSERT INTO campaigns (team, id, name, data, created, by) VALUES (?, ?, ?, ?, ?, ?)').run(team, id, name, JSON.stringify(cleanCampaign({ ...input, plan: input.plan?.map(({ postiz: _p, ...it }) => it) })), new Date().toISOString(), by ?? null);
     return this.campaign(team, id)!;
   }
 
@@ -760,9 +760,27 @@ export class Accounts {
     if (!cur) throw new Error('Campagne introuvable');
     const name = str(input.name, 80) || cur.name;
     const { id: _i, name: _n, created: _c, by: _b, closed: _x, ...prev } = cur;
+    // le suivi Postiz ne vient que du serveur : celui envoyé par le navigateur est remplacé par le nôtre
+    const kept = new Map((cur.plan ?? []).filter((it) => it.postiz).map((it) => [it.id, it.postiz!]));
+    if (input.plan) input = { ...input, plan: input.plan.map(({ postiz: _p, ...it }) => (kept.has(it.id) ? { ...it, postiz: kept.get(it.id) } : it)) };
     const data = cleanCampaign({ ...prev, ...input });
     const closed = input.closed === undefined ? (cur.closed ?? null) : input.closed ? (cur.closed ?? new Date().toISOString()) : null;
     this.db.prepare('UPDATE campaigns SET name = ?, data = ?, closed = ? WHERE team = ? AND id = ?').run(name, JSON.stringify(data), closed, team, id);
+    return this.campaign(team, id)!;
+  }
+
+  /** Met à jour un élément du plan côté serveur (suivi Postiz, parution). `postiz: null` l'efface. */
+  setPlanItem(team: string, id: string, item: string, patch: Partial<Omit<PlanItem, 'postiz'>> & { postiz?: PlanPostiz | null }): Campaign {
+    const cur = this.campaign(team, id);
+    if (!cur) throw new Error('Campagne introuvable');
+    if (!cur.plan?.some((it) => it.id === item)) throw new Error('Élément du plan introuvable');
+    const { id: _i, name: _n, created: _c, by: _b, closed: _x, ...prev } = cur;
+    const plan = cur.plan.map((it) => {
+      if (it.id !== item) return it;
+      const { postiz, ...rest } = { ...it, ...patch };
+      return postiz ? { ...rest, postiz } : rest;
+    });
+    this.db.prepare('UPDATE campaigns SET data = ? WHERE team = ? AND id = ?').run(JSON.stringify(cleanCampaign({ ...prev, plan })), team, id);
     return this.campaign(team, id)!;
   }
 
@@ -958,6 +976,8 @@ export interface PlanItem {
   /** publiée : quand, et le lien de la publication */
   published?: string;
   link?: string;
+  /** confiée à Postiz : écrit par le serveur seulement */
+  postiz?: PlanPostiz;
 }
 export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'templates' | 'plan'>>;
 
@@ -986,6 +1006,7 @@ function cleanCampaign(c: CampaignInput) {
       ...(/^[a-z0-9][a-z0-9-]{0,63}$/.test(str(x.composition, 64)) ? { composition: str(x.composition, 64) } : {}),
       ...(str(x.published, 30) ? { published: str(x.published, 30) } : {}),
       ...(/^https?:\/\/\S+$/.test(str(x.link, 300)) ? { link: str(x.link, 300) } : {}),
+      ...(cleanPlanPostiz(x.postiz) ? { postiz: cleanPlanPostiz(x.postiz)! } : {}),
     }));
   return {
     ...(str(c.operation, 40) ? { operation: str(c.operation, 40) } : {}),
@@ -998,6 +1019,12 @@ function cleanCampaign(c: CampaignInput) {
     ...(templates.length ? { templates } : {}),
     ...(plan.length ? { plan } : {}),
   };
+}
+
+function cleanPlanPostiz(v: unknown): PlanPostiz | undefined {
+  const p = v as Partial<PlanPostiz> | undefined;
+  if (!p || typeof p !== 'object' || !str(p.post, 80) || !str(p.account, 80) || !['queue', 'published', 'error'].includes(String(p.state))) return undefined;
+  return { post: str(p.post, 80), account: str(p.account, 80), at: str(p.at, 30), state: p.state as PlanPostiz['state'], ...(str(p.error, 300) ? { error: str(p.error, 300) } : {}) };
 }
 
 function campaignOf(r: Row): Campaign {

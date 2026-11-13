@@ -11,7 +11,7 @@ import { invitationMail, proposalMail, reviewMail, type Mail, type Mailer } from
 import { Library } from './library.js';
 import { FontInstaller, installedFonts } from './fonts.js';
 import { CACHE_PROFILES, type CacheProfile } from './media.js';
-import { Postiz, PostizError, POSTIZ_PROVIDERS, settlePending, type PostizConfig } from './postiz.js';
+import { Postiz, PostizError, POSTIZ_PROVIDERS, postizOutcome, settlePending, type PostizConfig, type PostizMedia } from './postiz.js';
 
 export interface AppOptions {
   libraryRoot: string;
@@ -45,6 +45,8 @@ export interface AppOptions {
   publicUrl?: string;
   /** Postiz par défaut (variables d'environnement) ; la configuration globale l'emporte. */
   postiz?: PostizConfig;
+  /** Intervalle de relecture des publications chez Postiz (0 : jamais ; 10 min par défaut). */
+  postizSyncMs?: number;
 }
 
 declare module 'fastify' {
@@ -312,6 +314,110 @@ export async function buildApp(opts: AppOptions) {
     accounts.setPostizTeam(team, cur, req.user?.email);
     return { ok: true };
   });
+  /**
+   * Confie à Postiz un élément du plan : les images rendues par l'atelier, le texte, le compte et la date.
+   * Formulaire : campaign, item, account, when ('now' ou date ISO), caption, puis les images (image).
+   */
+  app.post('/api/postiz/publish', { preHandler: needs('owner') }, async (req, reply) => {
+    const pz = postiz();
+    if (!pz) return reply.code(409).send({ error: 'Postiz n’est pas configuré (configuration globale)' });
+    const team = req.team!.id;
+    const f: Record<string, string> = {};
+    const files: { data: Buffer; name: string; type: string }[] = [];
+    try {
+      for await (const part of req.parts()) {
+        if (part.type === 'file') {
+          if (!/^image\/(png|jpeg)$/.test(part.mimetype)) return reply.code(400).send({ error: 'Images PNG ou JPEG attendues' });
+          files.push({ data: await part.toBuffer(), name: part.filename || 'publication.png', type: part.mimetype });
+        } else f[part.fieldname] = String(part.value ?? '');
+      }
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+    const camp = accounts.campaign(team, f.campaign ?? '');
+    const item = camp?.plan?.find((it) => it.id === f.item);
+    if (!camp || !item) return reply.code(404).send({ error: 'Élément du plan introuvable' });
+    if (item.published) return reply.code(409).send({ error: 'Déjà publiée' });
+    if (item.postiz?.state === 'queue') return reply.code(409).send({ error: 'Déjà programmée : annule d’abord la programmation' });
+    const channel = accounts.postizTeam(team).accounts[f.account ?? ''];
+    if (!channel) return reply.code(404).send({ error: 'Compte introuvable dans cette activité' });
+    if (item.channel && channel !== item.channel) return reply.code(400).send({ error: 'Ce compte ne publie pas sur ce réseau' });
+    const when = f.when === 'now' ? 'now' : f.when ?? '';
+    if (when !== 'now') {
+      const t = Date.parse(when);
+      if (!Number.isFinite(t)) return reply.code(400).send({ error: 'Date de publication attendue' });
+      if (t < Date.now() - 60_000) return reply.code(400).send({ error: 'Cette date est déjà passée' });
+    }
+    const caption = (f.caption ?? '').slice(0, 5000);
+    if (!files.length && !caption.trim()) return reply.code(400).send({ error: 'Rien à publier : ni image ni texte' });
+    try {
+      const images: PostizMedia[] = [];
+      for (const x of files) images.push(await pz.upload(x.data, x.name, x.type));
+      const provider = POSTIZ_PROVIDERS[channel] ?? channel;
+      const post = await pz.schedule({ integration: f.account!, provider, when, content: caption, images });
+      const at = when === 'now' ? new Date().toISOString() : new Date(when).toISOString();
+      const campaign = accounts.setPlanItem(team, camp.id, item.id, {
+        postiz: { post, account: f.account!, at, state: 'queue' },
+        ...(/^[a-z0-9][a-z0-9-]{0,63}$/.test(f.composition ?? '') && !item.composition ? { composition: f.composition } : {}),
+      });
+      return { ok: true, campaign };
+    } catch (err) {
+      return postizFail(reply, err);
+    }
+  });
+  /** Annule une programmation pas encore parue. */
+  app.delete<{ Params: { campaign: string; item: string } }>('/api/postiz/publish/:campaign/:item', { preHandler: needs('owner') }, async (req, reply) => {
+    const pz = postiz();
+    if (!pz) return reply.code(409).send({ error: 'Postiz n’est pas configuré' });
+    const team = req.team!.id;
+    const item = accounts.campaign(team, req.params.campaign)?.plan?.find((it) => it.id === req.params.item);
+    if (!item?.postiz) return reply.code(404).send({ error: 'Rien de programmé ici' });
+    if (item.postiz.state === 'published') return reply.code(409).send({ error: 'Déjà parue : retire-la depuis le réseau' });
+    try {
+      await pz.unschedule(item.postiz.post);
+    } catch (err) {
+      // déjà effacée chez Postiz : on oublie la programmation quand même
+      if (!(err instanceof PostizError && /404/.test(err.message))) return postizFail(reply, err);
+    }
+    return { ok: true, campaign: accounts.setPlanItem(team, req.params.campaign, req.params.item, { postiz: null }) };
+  });
+  /** Relit chez Postiz l'état des publications programmées de l'activité : parues (avec leur lien) ou en échec. */
+  const syncPostiz = async (pz: Postiz, team: string) => {
+    const queued = accounts.campaigns(team).flatMap((c) => (c.plan ?? []).filter((it) => it.postiz?.state === 'queue').map((it) => ({ c, it })));
+    if (!queued.length) return 0;
+    const times = queued.map(({ it }) => Date.parse(it.postiz!.at)).filter(Number.isFinite);
+    const day = 86_400_000;
+    const list = await pz.posts(new Date(Math.min(...times, Date.now()) - day), new Date(Math.max(...times, Date.now()) + day));
+    const byId = new Map(list.map((x) => [x.id, x]));
+    let changed = 0;
+    for (const { c, it } of queued) {
+      const out = postizOutcome(it.postiz!, byId.get(it.postiz!.post));
+      if (!out) continue;
+      accounts.setPlanItem(team, c.id, it.id, out);
+      changed++;
+    }
+    return changed;
+  };
+  app.post('/api/postiz/sync', { preHandler: needs('viewer') }, async (req, reply) => {
+    const pz = postiz();
+    if (!pz) return { ok: true, changed: 0 };
+    try {
+      const changed = await syncPostiz(pz, req.team!.id);
+      return { ok: true, changed, campaigns: accounts.campaigns(req.team!.id) };
+    } catch (err) {
+      return postizFail(reply, err);
+    }
+  });
+  // relecture de fond : les publications parues passent « publiées » même si personne n'ouvre l'atelier
+  if (opts.postizSyncMs !== 0) {
+    const timer = setInterval(() => {
+      const pz = postiz();
+      if (!pz) return;
+      for (const t of accounts.teams()) void syncPostiz(pz, t.id).catch((err) => app.log.warn({ err, team: t.id }, 'postiz sync'));
+    }, opts.postizSyncMs ?? 10 * 60_000);
+    timer.unref();
+    app.addHook('onClose', async () => clearInterval(timer));
+  }
   // --- fiches des éléments : copies et fiches cachées, réglées par les administrateurs ---
   app.get('/api/elements', async () => accounts.elements());
   app.put<{ Body: unknown }>('/api/elements', { preHandler: adminOnly }, async (req) => ({ ok: true, elements: accounts.setElements(req.body, req.user?.email) }));
