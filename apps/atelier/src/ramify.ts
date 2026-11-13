@@ -92,8 +92,10 @@ export function ramifyInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guid
 }
 
 /**
- * Électricité : touché, des arcs partent du point dans toutes les directions (boule de plasma) ;
- * tracé, le geste devient un éclair brisé d'où partent des fourches. Chaque arc garde son cap mais
+ * Électricité : touché, des arcs partent du point ; tracé, le geste devient un éclair brisé d'où
+ * partent des fourches. Le resserrage (`focus`) dit où vont les arcs : 0 = dans toutes les
+ * directions (boule de plasma), 1 = la foudre tombe du point touché et les fourches suivent le geste.
+ * Chaque arc garde son cap mais
  * zigzague (plus fort avec le désordre), se divise, s'amincit. Rendu : halo flou de la couleur,
  * corps coloré, cœur presque blanc.
  */
@@ -105,6 +107,7 @@ function bolt(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Targ
   const w0 = Math.max(0.8, s.size * t.pxPerMin * 0.12);
   const nb = Math.max(1, Math.round(s.branches ?? 5));
   const chaos = clamp(s.converge ?? 0.3);
+  const foc = clamp(s.focus ?? 0);
   const { pts, seeds, total } = gesture(s, t, R * 0.45);
   const segs: Seg[] = [];
   const seg = () => R * (0.035 + 0.045 * r());
@@ -113,7 +116,9 @@ function bolt(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Targ
     let d = 0;
     let head = a;
     while (d < len && segs.length < 12000) {
-      head += (r() - 0.5) * 0.18;
+      // resserré, l'arc serpente davantage mais revient vers son cap : il ne s'enroule pas
+      head += (r() - 0.5) * (0.18 + 0.45 * foc);
+      head += Math.atan2(Math.sin(a - head), Math.cos(a - head)) * 0.18 * foc;
       const l = Math.min(seg(), len - d);
       const aa = head + (r() - 0.5) * zig;
       const nx = x + Math.cos(aa) * l;
@@ -125,7 +130,7 @@ function bolt(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Targ
       d += l;
       if (depth < 3 && r() < 0.06 + 0.08 * chaos) {
         const side = r() < 0.5 ? -1 : 1;
-        arc(x, y, head + side * (0.3 + 0.6 * r()), (len - d) * (0.35 + 0.35 * r()), w * (1 - 0.6 * k) * 0.55, depth + 1, f0 + (1 - f0) * k);
+        arc(x, y, head + side * (0.3 + 0.6 * r()) * (1 - 0.5 * foc), (len - d) * (0.35 + 0.35 * r()), w * (1 - 0.6 * k) * 0.55, depth + 1, f0 + (1 - f0) * k);
       }
     }
   };
@@ -146,13 +151,19 @@ function bolt(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Targ
     for (const sd of seeds.slice(1)) {
       for (let k = 0; k < Math.max(1, nb - 1); k++) {
         const side = r() < 0.5 ? -1 : 1;
-        arc(sd.x, sd.y, sd.a + side * (0.35 + 0.8 * r()), R * (0.3 + 0.45 * r()) * grow * (1 + 0.5 * chaos), w0 * (0.6 + 0.4 * sd.p), 1, 0.3);
+        arc(sd.x, sd.y, sd.a + side * (0.35 + 0.8 * r()) * (1 - 0.6 * foc), R * (0.3 + 0.45 * r()) * grow * (1 + 0.5 * chaos), w0 * (0.6 + 0.4 * sd.p), 1, 0.3);
       }
     }
   } else {
+    // touché : les arcs s'ouvrent en éventail autour du bas, du cercle entier (plasma) à la chute droite (foudre)
     const sd = seeds[0]!;
-    const a0 = r() * Math.PI * 2;
-    for (let k = 0; k < nb; k++) arc(sd.x, sd.y, a0 + (k / nb) * Math.PI * 2 + (r() - 0.5) * 0.9, R * (0.55 + 0.45 * r()) * grow * (1 + 0.5 * chaos), w0 * (0.8 + 0.5 * sd.p), 0, 0);
+    const spread = Math.PI * 2 * (1 - foc) ** 1.5;
+    const a0 = foc < 0.05 ? r() * Math.PI * 2 : Math.PI / 2;
+    for (let k = 0; k < nb; k++) {
+      // les traits d'avant le resserrage (sans `focus`) gardent leurs angles d'origine
+      const a = s.focus === undefined ? a0 + (k / nb) * Math.PI * 2 + (r() - 0.5) * 0.9 : a0 + ((k + 0.5) / nb - 0.5) * spread + (r() - 0.5) * (0.9 * (1 - foc) + 0.35);
+      arc(sd.x, sd.y, a, R * (0.55 + 0.45 * r()) * (1 + 0.8 * foc) * grow * (1 + 0.5 * chaos), w0 * (0.8 + 0.5 * sd.p), 0, 0);
+    }
   }
   if (!segs.length) return;
   const { c: buf, ctx: bx } = buffer('a', t.pw, t.ph);

@@ -1019,6 +1019,11 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 @media (pointer: coarse) and (min-width: 600px) { .bw-dry svg { width: 21px; height: 21px; } }
 .bw-dry.spin-on svg { animation: propeller 0.32s linear infinite; }
 .bw-dry.spin-coast svg { animation: propeller 0.7s cubic-bezier(0.2, 0.6, 0.4, 1) 1; }
+/* Éteindre : l'éteignoir s'abaisse tant que le doigt est posé, au lieu de tourner */
+.bw-dry.press.spin-on svg, .bw-dry.press.spin-coast svg { animation: none; transition: transform 0.15s; }
+.bw-dry.press.spin-on svg { transform: translateY(3px) scale(0.88); }
+.dry-btn.press.wet::before { background: color-mix(in srgb, #e8742c 28%, transparent); }
+.dry-btn.press.wet { color: #c4561f; }
 @keyframes propeller { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .bw-dry.spin-on svg, .bw-dry.spin-coast svg { animation: none; } }
 /* un éventail ou un menu ouvert depuis la barre d'outils passe devant la barre du haut et sa pastille (téléphone) */

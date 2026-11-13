@@ -7,10 +7,10 @@ import type { Ramify } from './ramify';
  * puis un jeu de paramètres, puis affine aux potards ; le moteur qui calcule (`brush`) est un détail
  * de la fiche. « Matière » reste le mot du support des objets.
  */
-export type ElementId = 'acrylic' | 'aquarelle' | 'spray' | 'water' | 'dust' | 'glitter' | 'light' | 'smoke' | 'spark' | 'burn' | 'branch' | 'bolt' | 'frost' | 'hair';
+export type ElementId = 'acrylic' | 'aquarelle' | 'spray' | 'water' | 'dust' | 'glitter' | 'light' | 'smoke' | 'spark' | 'burn' | 'branch' | 'bolt' | 'frost' | 'fire' | 'hair';
 
 /** Réglages d'un trait que les potards d'un élément peuvent porter (tous entre 0 et 1, sauf `bend` entre −1 et 1). */
-export type ParamKey = 'focus' | 'bend' | 'density' | 'pool' | 'branches' | 'converge' | 'core' | 'hairLen' | 'curl' | 'char' | 'hole';
+export type ParamKey = 'focus' | 'bend' | 'density' | 'pool' | 'branches' | 'converge' | 'core' | 'hairLen' | 'curl' | 'char' | 'hole' | 'flame';
 export type Params = Partial<Record<ParamKey, number>>;
 
 export interface KnobDef {
@@ -218,13 +218,33 @@ export const ELEMENTS: ElementDef[] = [
     brush: 'branch',
     ramify: 'bolt',
     knobs: [
+      { key: 'focus', label: 'Resserrage', glyph: 'resserrage', main: true, zone: (v) => (v < 0.3 ? 'plasma' : v < 0.75 ? 'gerbe' : 'foudre') },
       { key: 'branches', label: 'Arcs', main: true, fmt: (v) => String(branchCount(v)) },
-      { key: 'converge', label: 'Désordre', main: true },
+      { key: 'converge', label: 'Désordre' },
     ],
     presets: [
-      { name: 'Arc', values: { branches: 1 / 15, converge: 0.3 } },
-      { name: 'Foudre', values: { branches: 3 / 15, converge: 0.5 } },
-      { name: 'Plasma', values: { branches: 9 / 15, converge: 0.8 } },
+      { name: 'Foudre', values: { focus: 1, branches: 1 / 15, converge: 0.45 } },
+      { name: 'Orage', values: { focus: 0.85, branches: 4 / 15, converge: 0.6 } },
+      { name: 'Arc', values: { focus: 0.6, branches: 1 / 15, converge: 0.3 } },
+      { name: 'Plasma', values: { focus: 0, branches: 9 / 15, converge: 0.8 } },
+    ],
+  },
+  {
+    id: 'fire',
+    name: 'Feu',
+    family: 'Lumière et feu',
+    icon: 'matter-fire',
+    hint: 'le front brûle et porte des flammes jusqu’à ce qu’on l’éteigne',
+    brush: 'burn',
+    knobs: [
+      { key: 'flame', label: 'Flammes', main: true },
+      { key: 'char', label: 'Roussi', main: true, min: 0.02 },
+      { key: 'hole', label: 'Trous', toggle: { icon: 'burn-hole', on: 'Trous : le feu perce la couche', off: 'Sans trou : le feu roussit seulement' } },
+    ],
+    presets: [
+      { name: 'Feu de papier', values: { flame: 0.45, char: 0.3, hole: 1 } },
+      { name: 'Brasier', values: { flame: 1, char: 0.5, hole: 1 } },
+      { name: 'Braises', values: { flame: 0.12, char: 0.55, hole: 0 } },
     ],
   },
   {
@@ -300,10 +320,11 @@ export function strokeParams(def: ElementDef, p: Params): Partial<Stroke> {
       if (def.matter === 'hair') return { matter: 'hair', hairLen: p.hairLen ?? 0.3, curl: p.curl ?? 0, density: p.density ?? 0.5, bend: p.bend ?? 0 };
       return { matter: def.matter, focus: p.focus ?? 0, bend: p.bend ?? 0, density: p.density ?? 0.5, pool: p.pool ?? 0, grow: 0.12 };
     case 'branch':
+      if (def.ramify === 'bolt') return { ramify: 'bolt', focus: p.focus ?? 1, branches: branchCount(p.branches ?? 1 / 15), converge: p.converge ?? 0.45, grow: 0.12 };
       if (def.ramify) return { ramify: def.ramify, branches: branchCount(p.branches ?? 5 / 15), converge: p.converge ?? 0.3, grow: 0.12 };
       return { branches: branchCount(p.branches ?? 5 / 15), converge: p.converge ?? 0.3, core: p.core ?? 1, grow: 0.12 };
     case 'burn':
-      return { char: p.char ?? 0.3, hole: (p.hole ?? 1) > 0.5, grow: 0.15 };
+      return { char: p.char ?? 0.3, hole: (p.hole ?? 1) > 0.5, grow: 0.15, ...(def.id === 'fire' ? { flame: p.flame ?? 0.5 } : {}) };
     default:
       return {};
   }

@@ -134,6 +134,9 @@ export interface Stroke {
   char?: number;
   /** Pinceau Brûlure : false = la couche n'est pas percée, seule la marge la teinte. */
   hole?: boolean;
+  /** Élément Feu : hauteur des flammes sur le front (0..1). Présent = la brûlure est un feu ; il brûle (braises, flammes) jusqu'à ce qu'on l'éteigne (`out`). */
+  flame?: number;
+  out?: boolean;
 }
 
 export type BorderStyle = 'round' | 'straight' | 'torn' | 'stamp' | 'burst' | 'double';

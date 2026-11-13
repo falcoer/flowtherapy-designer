@@ -2,6 +2,7 @@ import { guideColor, type Guide, type Pt, type Stroke } from './model';
 import { stampOf, stampPaths, type StampDef } from './stamps';
 import { particles } from './particles';
 import { ramifyInk } from './ramify';
+import { flames } from './fire';
 import { earPrints, isComposite, partLanes, partPolygon, tipParts, type TipPart } from './tips';
 
 /**
@@ -864,11 +865,12 @@ function branchInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t:
  * repère de la peinture : le trou, la zone roussie et carbonisée autour, et la lisière
  * de braise (couleur du guide). Le bord est irrégulier et le feu avance avec `grow`.
  */
-function burnGroup(strokes: Stroke[], guides: Guide[], t: Target) {
-  // contours du feu : un polygone irrégulier par point, centré sur le départ
-  type Shape = { cx: number; cy: number; rr: number; m: Float32Array };
-  const shapes: Shape[] = [];
-  const n = 120;
+export type BurnShape = { cx: number; cy: number; rr: number; m: Float32Array; s: Stroke };
+export const BURN_N = 120;
+/** Contours du feu : un polygone irrégulier par point (un sur deux), centré sur le départ ; `m` module le rayon selon l'angle. */
+export function burnShapes(strokes: Stroke[], t: Target) {
+  const shapes: BurnShape[] = [];
+  const n = BURN_N;
   let big = 0;
   for (const s of strokes) {
     const r = rng(s.seed);
@@ -885,9 +887,15 @@ function burnGroup(strokes: Stroke[], guides: Guide[], t: Target) {
         m[k] = 1 + 0.12 * Math.sin(a * 3 + ph[0]!) + 0.06 * Math.sin(a * 7 + ph[1]!) + 0.03 * Math.sin(a * 17 + ph[2]! + i) + 0.025 * (r() - 0.5);
       }
       m[n] = m[0]!;
-      shapes.push({ cx: p.x * t.pw, cy: p.y * t.ph, rr: R * (0.75 + 0.35 * (p.p ?? 0.7)) * (0.85 + 0.3 * r()), m });
+      shapes.push({ cx: p.x * t.pw, cy: p.y * t.ph, rr: R * (0.75 + 0.35 * (p.p ?? 0.7)) * (0.85 + 0.3 * r()), m, s });
     });
   }
+  return { shapes, big };
+}
+
+function burnGroup(strokes: Stroke[], guides: Guide[], t: Target, live = false) {
+  const n = BURN_N;
+  const { shapes, big } = burnShapes(strokes, t);
   const fillAll = (x: CanvasRenderingContext2D, scale: number) => {
     x.beginPath();
     for (const sh of shapes) {
@@ -961,10 +969,11 @@ function burnGroup(strokes: Stroke[], guides: Guide[], t: Target) {
     ox.globalCompositeOperation = 'source-over';
   }
   if (holed) {
-    // braise : un liseré fin à la couleur de départ du guide, contre le trou
-    ox.filter = `blur(${Math.max(1, big * 0.012)}px)`;
-    ox.globalAlpha = Math.min(1, op * 1.1);
-    ox.fillStyle = guideColor(g, 0);
+    // braise : un liseré fin à la couleur de départ du guide, contre le trou ; un feu éteint laisse un bord de charbon
+    const out = last?.flame !== undefined && !live;
+    ox.filter = `blur(${Math.max(1, big * (out ? 0.02 : 0.012))}px)`;
+    ox.globalAlpha = Math.min(1, op * (out ? 1.3 : 1.1));
+    ox.fillStyle = out ? '#1d1712' : guideColor(g, 0);
     fillAll(ox, 1.03);
     ox.filter = 'none';
     ox.globalAlpha = 1;
@@ -979,11 +988,14 @@ function mixHex(a: string, b: string, t: number) {
   return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
 }
 
-/** Les brûlures d'une couche : chaque réglage de roussi garde sa propre marge. */
-export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target) {
+/**
+ * Les brûlures d'une couche : chaque réglage de roussi garde sa propre marge. `live` dit si un trait
+ * de feu brûle encore (pas éteint) : ses braises restent vives et des flammes montent du front.
+ */
+export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target, live: (s: Stroke) => boolean = () => false, on: (x: number, y: number) => boolean = () => true) {
   const groups = new Map<string, Stroke[]>();
   for (const s of strokes) {
-    const k = `${s.char ?? 0.3}|${s.hole !== false}`;
+    const k = `${s.char ?? 0.3}|${s.hole !== false}|${s.flame === undefined ? '' : live(s) ? 'feu' : 'éteint'}`;
     groups.set(k, [...(groups.get(k) ?? []), s]);
   }
   const hole = document.createElement('canvas');
@@ -995,12 +1007,12 @@ export function burnLayers(strokes: Stroke[], guides: Guide[], t: Target) {
   const ex = edge.getContext('2d')!;
   const hx = hole.getContext('2d')!;
   for (const list of groups.values()) {
-    const r = burnGroup(list, guides, t);
+    const r = burnGroup(list, guides, t, list[0]!.flame !== undefined && live(list[0]!));
     ex.drawImage(r.edge, 0, 0);
     // sans trou, la brûlure ne fait que teinter : la couche reste entière
     if (list[0]!.hole !== false) hx.drawImage(r.hole, 0, 0);
   }
-  return { hole, edge };
+  return { hole, edge, flame: flames(strokes, live, guides, t, on) };
 }
 
 /** Aperçu en direct pendant le geste : tampons translucides, sans liseré. */
