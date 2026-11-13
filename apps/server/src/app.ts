@@ -191,6 +191,16 @@ export async function buildApp(opts: AppOptions) {
     }
     return { name: opts.password ? 'Accès partagé' : 'Accès local', admin: true, mode: opts.password ? 'mot-de-passe' : 'local', team, teams, mail: mailOn };
   });
+  // Mes réglages : chacun garde ses jeux de paramètres d'éléments (sans comptes, ceux de l'accès local)
+  const presetsOwner = (req: FastifyRequest) => (opts.auth ? req.user?.email.toLowerCase() : 'local');
+  app.get('/api/me/presets', async (req, reply) => {
+    const who = presetsOwner(req);
+    return who ? accounts.userPresets(who) : reply.code(401).send({ error: 'Connexion requise' });
+  });
+  app.put<{ Body: unknown }>('/api/me/presets', async (req, reply) => {
+    const who = presetsOwner(req);
+    return who ? { ok: true, presets: accounts.setUserPresets(who, req.body) } : reply.code(401).send({ error: 'Connexion requise' });
+  });
   app.post<{ Body: { team?: string } }>('/api/me/team', async (req, reply) => {
     const t = teamsOfReq(req).find((x) => x.id === req.body?.team);
     if (!t) return reply.code(404).send({ error: 'Équipe introuvable' });

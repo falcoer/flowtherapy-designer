@@ -1,4 +1,4 @@
-import type { ElementSheet, ElementStore } from '@ftd/core';
+import type { ElementSheet, ElementStore, ExtraEngine } from '@ftd/core';
 import type { BrushKind, EdgeElementStyle, Stroke } from './model';
 import type { Matter } from './particles';
 import type { Ramify } from './ramify';
@@ -44,6 +44,8 @@ export interface ElementDef {
   base: ElementId;
   /** Copie faite par un gérant (on peut la modifier et la retirer). */
   copy?: boolean;
+  /** Second moteur : le même geste pose aussi le trait d'un autre élément. */
+  extra?: ExtraEngine;
   /** Réglages figés : leurs potards sont cachés, la valeur est toujours celle-ci. */
   fixed?: Params;
   /** Passe vivante : false pour une copie qui sèche aussitôt. */
@@ -374,10 +376,37 @@ export function elementFrom(sh: ElementSheet): ElementDef | null {
     presets: sh.presets.map((p) => ({ name: p.name, values: Object.fromEntries(Object.entries(p.values).filter(([k]) => keys.has(k))) as Params })),
     ...(sh.pass !== undefined ? { pass: sh.pass } : {}),
     ...(sh.spill !== undefined ? { spill: sh.spill } : {}),
+    ...(sh.extra && EXTRA_OK(sh.extra.element) && sh.extra.element !== o.id ? { extra: sh.extra } : {}),
   };
   // les jeux restent dans les bornes de la copie
   def.presets = def.presets.map((p) => ({ ...p, values: clampParams(def, p.values) }));
   return def;
+}
+
+/** Éléments qui peuvent servir de second moteur : ceux qui peignent (la brûlure consume, elle ne peint pas). */
+export const EXTRA_OK = (id: string) => {
+  const d = ORIGIN.get(id);
+  return !!d && d.brush !== 'burn' && !d.tools;
+};
+
+/**
+ * Traits du second moteur posés avec un trait de l'élément : même geste, autre graine, pointe à
+ * l'échelle, intensité dosée par le potard choisi (rien sous le seuil).
+ */
+export function extraStrokes(def: ElementDef, s: Stroke, params: Params): Stroke[] {
+  const ex = def.extra;
+  const o = ex && ORIGIN.get(ex.element);
+  if (!ex || !o || !EXTRA_OK(o.id)) return [];
+  const p = { ...clampParams(def, params), ...def.fixed };
+  // le dosage suit la course du potard (une copie peut l'avoir resserrée) : 0 en bas, 1 en haut
+  const knob = def.knobs.find((x) => x.key === ex.dose) ?? ORIGIN.get(def.base)?.knobs.find((x) => x.key === ex.dose);
+  const [lo, hi] = knob ? knobRange(knob) : [0, 1];
+  const v = ex.dose ? ((p[ex.dose as ParamKey] ?? lo) - lo) / Math.max(1e-3, hi - lo) : 1;
+  const from = ex.from ?? 0;
+  const k = ex.dose ? Math.max(0, Math.min(1, (v - from) / Math.max(0.05, 1 - from))) : 1;
+  if (k <= 0.01) return [];
+  const values = o.presets.find((x) => x.name === ex.preset)?.values ?? o.presets[0]?.values ?? {};
+  return [{ brush: o.brush, guide: s.guide, size: s.size * ex.size, opacity: s.opacity * k, seed: (s.seed ^ 0x2f6b9d) >>> 0, pts: s.pts.map((q) => ({ ...q })), ...strokeParams(o, values), grow: 1, ...(def.base === 'fire' ? { over: true } : {}) }];
 }
 
 /** Toutes les fiches : celles d'origine, puis les copies des gérants (cachées comprises). */

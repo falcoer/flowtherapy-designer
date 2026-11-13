@@ -431,6 +431,20 @@ describe('équipes', () => {
       { id: 'feu-doux', base: 'fire', name: 'Feu doux', family: 'Lumière et feu', icon: 'matter-fire', hint: 'petites flammes', knobs: [{ key: 'flame', label: 'Flammèches', lo: 0, hi: 0.4 }, { key: 'hole', fixed: 0 }, { key: 'char' }], presets: [{ name: 'Doux', values: { flame: 0.2, char: 1 } }], pass: false },
     ]);
     expect((await jenni.get('/api/elements')).json().sheets[0].name).toBe('Feu doux');
+    // second moteur : un élément, sa taille relative bornée, un dosage facultatif
+    const two = await lauris.send('PUT', '/api/elements', { hidden: [], sheets: [{ id: 'feu-vif', base: 'fire', name: 'Feu vif', knobs: [], presets: [], extra: { element: 'spark', size: 9, dose: 'flame', from: 2 } }] });
+    expect(two.json().elements.sheets[0].extra).toEqual({ element: 'spark', size: 3, dose: 'flame', from: 0.95 });
+  });
+
+  it('mes réglages : chacun garde les siens', async () => {
+    const { login, as } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    await lauris.send('POST', '/api/teams/flowtherapy/members', { email: 'jenni@example.org', role: 'editor' });
+    const jenni = as((await login('jenni@example.org'))!);
+    const put = await jenni.send('PUT', '/api/me/presets', { fire: [{ name: 'Mon feu', values: { flame: 0.7, char: 4 } }, { name: '', values: { flame: 1 } }], 'x y': 'rien' });
+    expect(put.json().presets).toEqual({ fire: [{ name: 'Mon feu', values: { flame: 0.7, char: 1 } }] });
+    expect((await jenni.get('/api/me/presets')).json().fire[0].name).toBe('Mon feu');
+    expect((await lauris.get('/api/me/presets')).json()).toEqual({});
   });
 
   it('le secret d’une délégation d’accès est gardé sans jamais être relu, branchement par branchement', async () => {

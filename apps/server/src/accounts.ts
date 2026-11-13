@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { cleanCatalog, cleanElementStore, type Catalog, type ElementStore } from '@ftd/core';
+import { cleanCatalog, cleanElementStore, cleanUserPresets, type Catalog, type ElementStore, type UserPresets } from '@ftd/core';
 
 /**
  * Comptes et équipes : qui peut entrer, dans quelles équipes, avec quel rôle.
@@ -480,6 +480,24 @@ export class Accounts {
     this.db
       .prepare("INSERT INTO settings (key, value, updated, by) VALUES ('elements', ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated, by = excluded.by")
       .run(JSON.stringify(c), new Date().toISOString(), by ?? null);
+    return c;
+  }
+
+  /** Mes réglages : les jeux de paramètres qu'une personne garde pour ses éléments (`who` : son adresse, ou « local »). */
+  userPresets(who: string): UserPresets {
+    const r = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(`presets:${who}`) as Row | undefined;
+    try {
+      return cleanUserPresets(r?.value ? JSON.parse(String(r.value)) : {});
+    } catch {
+      return {};
+    }
+  }
+
+  setUserPresets(who: string, raw: unknown): UserPresets {
+    const c = cleanUserPresets(raw);
+    this.db
+      .prepare('INSERT INTO settings (key, value, updated, by) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated, by = excluded.by')
+      .run(`presets:${who}`, JSON.stringify(c), new Date().toISOString(), who);
     return c;
   }
 
