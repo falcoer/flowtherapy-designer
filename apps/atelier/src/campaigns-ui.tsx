@@ -14,8 +14,14 @@ export const isEventOp = (ops: Operation[], id?: string) => !id || id === 'conce
 function Pop(p: { anchor: HTMLElement | null; onClose: () => void; children: ReactNode; className?: string }) {
   const r = p.anchor?.getBoundingClientRect();
   if (!r) return null;
-  const below = window.innerHeight - r.bottom > 240;
-  const style: CSSProperties = { left: Math.max(8, Math.min(r.left, window.innerWidth - 248)), ...(below ? { top: r.bottom + 4 } : { bottom: window.innerHeight - r.top + 4 }) };
+  // du côté où il y a le plus de place, et jamais plus haute que cette place
+  const room = { below: window.innerHeight - r.bottom - 12, above: r.top - 12 };
+  const below = room.below >= 240 || room.below >= room.above;
+  const style: CSSProperties = {
+    left: Math.max(8, Math.min(r.left, window.innerWidth - 248)),
+    maxHeight: Math.max(80, Math.min(300, below ? room.below : room.above)),
+    ...(below ? { top: r.bottom + 4 } : { bottom: window.innerHeight - r.top + 4 }),
+  };
   return (
     <>
       <div className="occ-back" onPointerDown={(e) => (e.stopPropagation(), p.onClose())} />
