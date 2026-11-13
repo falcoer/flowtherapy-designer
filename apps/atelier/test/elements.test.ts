@@ -47,6 +47,14 @@ describe('fiches des éléments', () => {
     expect(elementOf('retiree', list).id).toBe('aquarelle');
   });
 
+  it('les jeux et les réglages restent dans les bornes de la copie', () => {
+    const d = elementOf('feu-doux', elementList(store));
+    const big = elementFrom({ ...store.sheets[0]!, presets: [{ name: 'Brasier', values: { flame: 1, char: 0.5 } }] })!;
+    expect(big.presets[0]!.values).toEqual({ flame: 0.4, char: 0.5 });
+    expect(strokeParams(d, { flame: 0.9, char: 0.5 }).flame).toBe(0.4);
+    expect(paramsOf({ 'feu-doux': { flame: 0.8 } }, d)).toEqual({ flame: 0.4 });
+  });
+
   it('une copie part de son premier jeu de paramètres', () => {
     const d = elementOf('feu-doux', elementList(store));
     expect(paramsOf(startParams(), d)).toEqual({ flame: 0.2, char: 0.4 });

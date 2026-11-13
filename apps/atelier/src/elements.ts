@@ -327,6 +327,18 @@ export const isBuiltin = (id: string): id is ElementId => ORIGIN.has(id);
 /** Bornes que parcourt un potard. */
 export const knobRange = (k: KnobDef): [number, number] => [k.lo ?? (k.center ? -1 : 0), k.hi ?? 1];
 
+/** Réglages ramenés dans les bornes des potards (une copie peut les avoir resserrées). */
+export function clampParams(def: ElementDef, p: Params): Params {
+  const out: Params = { ...p };
+  for (const k of def.knobs) {
+    const v = out[k.key];
+    if (v === undefined || k.toggle) continue;
+    const [lo, hi] = knobRange(k);
+    out[k.key] = Math.max(lo, Math.min(hi, v));
+  }
+  return out;
+}
+
 /**
  * Fiche d'un élément tirée d'une copie rangée sur le serveur : moteur, rendu, outils et potards
  * viennent de la fiche d'origine, la copie choisit ce qu'elle montre et sous quel nom.
@@ -347,7 +359,7 @@ export function elementFrom(sh: ElementSheet): ElementDef | null {
   }
   const keys = new Set<string>(o.knobs.map((k) => k.key));
   const tools = sh.tools && o.tools ? o.tools.filter((t) => sh.tools!.includes(t.key)) : o.tools;
-  return {
+  const def: ElementDef = {
     ...o,
     id: sh.id,
     base: o.base,
@@ -363,6 +375,9 @@ export function elementFrom(sh: ElementSheet): ElementDef | null {
     ...(sh.pass !== undefined ? { pass: sh.pass } : {}),
     ...(sh.spill !== undefined ? { spill: sh.spill } : {}),
   };
+  // les jeux restent dans les bornes de la copie
+  def.presets = def.presets.map((p) => ({ ...p, values: clampParams(def, p.values) }));
+  return def;
 }
 
 /** Toutes les fiches : celles d'origine, puis les copies des gérants (cachées comprises). */
@@ -375,14 +390,15 @@ export const elementOf = (id: string, list: ElementDef[] = ELEMENTS) => list.fin
 export const startParams = (): Record<string, Params> => Object.fromEntries(ELEMENTS.map((e) => [e.id, { ...(e.presets[0]?.values ?? {}) }]));
 
 /** Réglages en cours d'un élément (ceux de départ s'il n'a pas encore servi). */
-export const paramsOf = (all: Record<string, Params>, def: ElementDef): Params => all[def.id] ?? { ...(def.presets[0]?.values ?? {}) };
+export const paramsOf = (all: Record<string, Params>, def: ElementDef): Params => (all[def.id] && def.copy ? clampParams(def, all[def.id]!) : (all[def.id] ?? { ...(def.presets[0]?.values ?? {}) }));
 
 /** Jeu de paramètres en cours : celui dont toutes les valeurs sont celles des potards, sinon aucun. */
 export const presetOf = (def: ElementDef, p: Params) => def.presets.findIndex((s) => Object.entries(s.values).every(([k, v]) => Math.abs((p[k as ParamKey] ?? 0) - v) < 0.005));
 
 /** Ce que les réglages de l'élément écrivent dans le trait. */
 export function strokeParams(def: ElementDef, params: Params): Partial<Stroke> {
-  const p: Params = def.fixed ? { ...params, ...def.fixed } : params;
+  const inBounds = def.copy ? clampParams(def, params) : params;
+  const p: Params = def.fixed ? { ...inBounds, ...def.fixed } : inBounds;
   switch (def.brush) {
     case 'glitter':
       // les poils ne poussent pas : le brin est entier dès qu'il est planté
