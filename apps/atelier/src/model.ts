@@ -193,8 +193,13 @@ export interface Layer {
   extrude?: number;
   /** Volume de la forme, tiré de son contour (indépendant du matériau). */
   volume?: Volume;
-  /** Profil du biseau : arrondi (par défaut) ou chanfrein. */
+  /** Profil du biseau : arrondi (par défaut) ou chanfrein. Remplacé par `bevelSoft`, lu quand celui-ci manque. */
   bevelProfile?: 'round' | 'chamfer';
+  /** Douceur du biseau (0 = chanfrein, 0,5 = arrondi, 1 = très doux). */
+  bevelSoft?: number;
+  /** Orientation du biseau : 'vertical' = arêtes verticales (pentes à gauche et à droite, comme une colonne),
+   *  'horizontal' = pentes en haut et en bas ; absent = tout autour. */
+  bevelAxis?: 'vertical' | 'horizontal';
   /** Le biseau commence au bord ajouté (et non à la découpe). */
   bevelBorder?: boolean;
   /** Rotation autour du centre de la boîte, en radians. */
@@ -684,3 +689,8 @@ export function exportSize(f: Format, width?: number): { w: number; h: number } 
   }
   return { w: Math.round(f.width), h: Math.round(f.height) };
 }
+
+/** Douceur du biseau, avec l'ancien profil pour les compositions d'avant. */
+export const bevelSoftOf = (l: { bevelSoft?: number; bevelProfile?: 'round' | 'chamfer' }) => l.bevelSoft ?? (l.bevelProfile === 'chamfer' ? 0 : 0.5);
+/** Nom du profil du biseau : « Chanfrein », « Arrondi », « Très doux ». */
+export const bevelSoftName = (s: number) => (s < 0.2 ? 'Chanfrein' : s < 0.75 ? 'Arrondi' : 'Très doux');

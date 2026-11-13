@@ -273,17 +273,55 @@ export function soften(H: Float32Array, w: number, h: number, passes: number): F
 }
 
 /**
- * Profil du biseau : à partir de la distance au bord, une hauteur qui monte sur `width` pixels
- * (arrondi : quart de rond ; chanfrein : pente droite).
+ * Profil du biseau : à partir de la distance au bord, une hauteur qui monte sur `width` pixels.
+ * `soft` : 0 = chanfrein (pente droite), 0,5 = arrondi (quart de rond), 1 = très doux (pente adoucie aux deux bouts).
  */
-export function bevelField(w: number, h: number, D: Float32Array, width: number, profile: 'round' | 'chamfer'): Float32Array {
+export function bevelField(w: number, h: number, D: Float32Array, width: number, soft: number | 'round' | 'chamfer'): Float32Array {
+  const s = soft === 'round' ? 0.5 : soft === 'chamfer' ? 0 : Math.min(1, Math.max(0, soft));
   const W = Math.max(1, width);
   const out = new Float32Array(w * h);
   for (let n = 0; n < D.length; n++) {
     const t = Math.min(1, D[n]! / W);
     if (t <= 0) continue;
-    out[n] = W * (profile === 'chamfer' ? t * 0.8 : 1 - (1 - t) * (1 - t));
+    out[n] = W * bevelProfile(t, s);
   }
+  return out;
+}
+
+/** Hauteur (0..1) du biseau à la fraction t de sa largeur, selon sa douceur s. */
+export function bevelProfile(t: number, s: number): number {
+  const chamfer = t * 0.8;
+  const round = 1 - (1 - t) * (1 - t);
+  // très doux : départ à plat au bord, arrivée à plat en haut (demi-sinus)
+  const gentle = 0.5 - 0.5 * Math.cos(Math.PI * t);
+  return s <= 0.5 ? chamfer + (round - chamfer) * (s * 2) : round + (gentle - round) * ((s - 0.5) * 2);
+}
+
+/**
+ * Distance au bord dans une seule direction : 'h' = au bord le plus proche sur la même ligne
+ * (pentes à gauche et à droite), 'v' = sur la même colonne (en haut et en bas).
+ * Même convention que distField : le bord doux du masque prolonge la distance d'une fraction de pixel.
+ */
+export function axisDist(w: number, h: number, mask: Float32Array, axis: 'h' | 'v'): Float32Array {
+  const out = new Float32Array(w * h);
+  const [len, lines] = axis === 'h' ? [w, h] : [h, w];
+  const at = (line: number, i: number) => (axis === 'h' ? line * w + i : i * w + line);
+  for (let line = 0; line < lines; line++) {
+    // aller puis retour : le nombre de pixels jusqu'au dehors, de chaque côté
+    let d = 0;
+    for (let i = 0; i < len; i++) {
+      const n = at(line, i);
+      d = mask[n]! >= 0.5 ? d + 1 : 0;
+      out[n] = d;
+    }
+    d = 0;
+    for (let i = len - 1; i >= 0; i--) {
+      const n = at(line, i);
+      d = mask[n]! >= 0.5 ? d + 1 : 0;
+      if (d < out[n]!) out[n] = d;
+    }
+  }
+  for (let n = 0; n < out.length; n++) if (out[n]! > 0) out[n] = Math.max(0, out[n]! - 0.5 + mask[n]!);
   return out;
 }
 
@@ -481,4 +519,124 @@ export function seedOf(id: string): number {
   let x = 2166136261;
   for (let n = 0; n < id.length; n++) x = Math.imul(x ^ id.charCodeAt(n), 16777619);
   return (x >>> 0) % 100000;
+}
+
+/**
+ * Flou de boîte séparable, deux fois (presque gaussien), sur une carte de hauteurs ou de distances.
+ * Sert au biseau large : la distance au bord a une arête sur l'axe médian et des marches (rayons, stries)
+ * que le seul lissage 3×3 n'efface pas quand le biseau gagne le milieu de la forme.
+ */
+export function blurField(H: Float32Array, w: number, h: number, r: number): Float32Array {
+  const R = Math.max(1, Math.round(r));
+  let a = Float32Array.from(H);
+  let b = new Float32Array(H.length);
+  const pass = (src: Float32Array, dst: Float32Array, horiz: boolean) => {
+    const [len, lines] = horiz ? [w, h] : [h, w];
+    const at = (line: number, i: number) => (horiz ? line * w + i : i * w + line);
+    for (let line = 0; line < lines; line++) {
+      let s = 0;
+      let k = 0;
+      for (let i = 0; i < Math.min(R, len); i++) {
+        s += src[at(line, i)]!;
+        k++;
+      }
+      for (let i = 0; i < len; i++) {
+        const add = i + R;
+        if (add < len) {
+          s += src[at(line, add)]!;
+          k++;
+        }
+        const rem = i - R - 1;
+        if (rem >= 0) {
+          s -= src[at(line, rem)]!;
+          k--;
+        }
+        dst[at(line, i)] = s / k;
+      }
+    }
+  };
+  for (let it = 0; it < 2; it++) {
+    pass(a, b, true);
+    pass(b, a, false);
+  }
+  return a;
+}
+
+/**
+ * Biseau qui gagne le milieu : pour chaque point, la fraction T (0 au bord, 1 au sommet) et l'échelle S (pixels)
+ * d'un bombé entier, sans l'arête que la distance au bord laisse sur l'axe médian.
+ * Orienté ('h', 'v') : chaque tranche de la forme est un demi-cercle à elle (colonne, cylindre).
+ * Tout autour : la forme gonflée (équation de Poisson, comme une membrane sous pression) ; sur un disque,
+ * T vaut exactement la distance au bord divisée par le rayon.
+ */
+export function fullField(w: number, h: number, mask: Float32Array, axis?: 'h' | 'v'): { T: Float32Array; S: Float32Array } {
+  const T = new Float32Array(w * h);
+  const S = new Float32Array(w * h);
+  if (axis) {
+    const [len, lines] = axis === 'h' ? [w, h] : [h, w];
+    const at = (line: number, i: number) => (axis === 'h' ? line * w + i : i * w + line);
+    for (let line = 0; line < lines; line++) {
+      let i = 0;
+      while (i < len) {
+        if (mask[at(line, i)]! < 0.5) {
+          i++;
+          continue;
+        }
+        let e = i;
+        while (e < len && mask[at(line, e)]! >= 0.5) e++;
+        // la tranche [i, e) : bords doux du masque compris
+        const a = i - (i > 0 ? mask[at(line, i - 1)]! : 0);
+        const b = e + (e < len ? mask[at(line, e)]! : 0);
+        const half = Math.max(0.5, (b - a) / 2);
+        for (let k = i; k < e; k++) {
+          const d = Math.min(k + 0.5 - a, b - (k + 0.5));
+          T[at(line, k)] = Math.min(1, Math.max(0, d / half));
+          S[at(line, k)] = half;
+        }
+        i = e;
+      }
+    }
+    return { T, S };
+  }
+  // gonflement calculé petit (≤ 80 de côté), puis agrandi
+  const q = Math.max(1, Math.ceil(Math.max(w, h) / 80));
+  const [mw, mh] = [Math.ceil(w / q), Math.ceil(h / q)];
+  const m = new Float32Array(mw * mh);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) m[((j / q) | 0) * mw + ((i / q) | 0)] += mask[j * w + i]! / (q * q);
+  const P = new Float32Array(mw * mh);
+  const it = Math.min(600, 4 * Math.max(mw, mh));
+  for (let k = 0; k < it; k++)
+    for (let j = 0; j < mh; j++)
+      for (let i = 0; i < mw; i++) {
+        const n = j * mw + i;
+        if (m[n]! < 0.5) continue;
+        const g = (x: number, y: number) => (x < 0 || y < 0 || x >= mw || y >= mh ? 0 : P[y * mw + x]!);
+        const v = (g(i - 1, j) + g(i + 1, j) + g(i, j - 1) + g(i, j + 1) + 1) / 4;
+        P[n] = P[n]! + 1.85 * (v - P[n]!);
+      }
+  let pmax = 0;
+  for (let n = 0; n < P.length; n++) if (P[n]! > pmax) pmax = P[n]!;
+  let R = 0;
+  const D = distField(w, h, mask);
+  for (let n = 0; n < D.length; n++) if (D[n]! > R) R = D[n]!;
+  if (pmax <= 0) return { T, S };
+  for (let j = 0; j < h; j++)
+    for (let i = 0; i < w; i++) {
+      const n = j * w + i;
+      if (mask[n]! < 0.5) continue;
+      // lecture bilinéaire de la petite carte, centres des cases
+      const x = Math.min(mw - 1, Math.max(0, (i + 0.5) / q - 0.5));
+      const y = Math.min(mh - 1, Math.max(0, (j + 0.5) / q - 0.5));
+      const [x0, y0] = [Math.floor(x), Math.floor(y)];
+      const [x1, y1] = [Math.min(mw - 1, x0 + 1), Math.min(mh - 1, y0 + 1)];
+      const [fx, fy] = [x - x0, y - y0];
+      const p = (P[y0 * mw + x0]! * (1 - fx) + P[y0 * mw + x1]! * fx) * (1 - fy) + (P[y1 * mw + x0]! * (1 - fx) + P[y1 * mw + x1]! * fx) * fy;
+      // près du bord, la petite carte manque de finesse : la vraie distance prend le relais
+      const tp = 1 - Math.sqrt(Math.max(0, 1 - p / pmax));
+      const td = D[n]! / R;
+      const near = Math.min(1, D[n]! / (2 * q));
+      T[n] = Math.min(1, td + (tp - td) * near);
+      S[n] = R;
+    }
+  return { T, S };
 }

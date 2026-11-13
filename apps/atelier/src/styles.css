@@ -2527,3 +2527,11 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 /* jeux de paramètres d'un élément : un petit trait d'exemple par jeu */
 .fan-ico:has(.preset-thumb) { width: 52px; }
 .preset-thumb { width: 52px; height: 32px; border-radius: 8px; object-fit: cover; display: block; }
+/* Volume › Biseau : orientation en trois petits pictogrammes */
+.cp-seg .ap-axis { padding: 3px 8px; display: inline-flex; align-items: center; justify-content: center; }
+.cp-seg .ap-axis svg { display: block; }
+/* Scène › Objectif : la mise au point suit l'objet sélectionné */
+.scene-aim { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; font-size: 12.5px; padding: 6px 10px; background: var(--accent); color: #fff; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.scene-aim svg { width: 16px; height: 16px; flex: none; }
+.scene-aim-note { margin: 0; font-size: 11.5px; color: var(--muted); line-height: 1.3; }
+.scene-focus .scene-fx-b.sel:not(.on) { border-style: dashed; border-color: var(--accent); }
