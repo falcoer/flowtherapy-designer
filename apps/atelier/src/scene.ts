@@ -1,4 +1,4 @@
-import { bevelField, distField, lightKey, seedOf, shadeBump, shadeField, skinField, soften, volumeField, type BumpLight } from './bump';
+import { axisDist, bevelField, bevelProfile, blurField, fullField, distField, lightKey, seedOf, shadeBump, shadeField, skinField, soften, volumeField, type BumpLight } from './bump';
 import { burnLayers, paintStroke, paintWash, type Target } from './brush';
 import type { Flames } from './fire';
 import { paintPass, passKind } from './fresh';
@@ -7,7 +7,7 @@ import { pathToRings, ringsToPath, simplifyRing, type Ring, insideRings } from '
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
 import { EDGE_ELEMENTS, edgeStroke } from './elements';
-import { blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
+import { bevelSoftOf, blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { keepLinks, type LinkShapes } from './links';
 import { shapedFill } from './gradient';
@@ -2059,7 +2059,10 @@ const bevelCache = new Map<string, { key: string; c: HTMLCanvasElement; W: numbe
 function bevelFor(l: Layer, doc: Doc, f: Format, path: Path2D, b: { cx: number; cy: number; w: number; h: number }) {
   const minSide = Math.min(f.width, f.height);
   const out = l.bevelBorder ? borderOut(l, f) : 0;
-  const width = (l.bevel ?? 0) > 0.001 ? 0.18 * (l.bevel ?? 0) * minSide : 0;
+  // largeur du biseau : jusqu'à 0,8 comme avant, puis elle gagne le milieu de la forme (bombé entier)
+  const bv = l.bevel ?? 0;
+  const width = bv > 0.001 ? 0.18 * Math.min(bv, 0.8) * minSide : 0;
+  const toCenter = Math.max(0, (bv - 0.8) / 0.2);
   const [W, H] = [b.w + 2 * out + 0.01 * minSide, b.h + 2 * out + 0.01 * minSide];
   // une peau (plis, fissures) demande une grille plus fine que le seul bombé
   const skin = l.volume?.skin && l.volume.skin.depth > 0.001 ? l.volume.skin : undefined;
@@ -2068,8 +2071,9 @@ function bevelFor(l: Layer, doc: Doc, f: Format, path: Path2D, b: { cx: number; 
   const li = lightAt(doc, f, b.cx, b.cy);
   const r = -(l.rot ?? 0);
   const L: BumpLight = { lx: li.lx * Math.cos(r) - li.ly * Math.sin(r), ly: li.lx * Math.sin(r) + li.ly * Math.cos(r), ...surfaceLight(l, doc, li.k) };
-  const profile = l.bevelProfile ?? 'round';
-  const key = JSON.stringify([cutId(l), b.w, b.h, l.rot ?? 0, l.trim, out, l.border?.style, width.toFixed(4), profile, l.volume, gw, gh, lightKey(L)]);
+  const soft = bevelSoftOf(l);
+  const axis = l.bevelAxis;
+  const key = JSON.stringify([cutId(l), b.w, b.h, l.rot ?? 0, l.trim, out, l.border?.style, width.toFixed(4), toCenter.toFixed(3), soft, axis, l.volume, gw, gh, lightKey(L)]);
   let hit = bevelCache.get(l.id);
   if (hit?.key !== key) {
     const m = document.createElement('canvas');
@@ -2089,7 +2093,30 @@ function bevelFor(l: Layer, doc: Doc, f: Format, path: Path2D, b: { cx: number; 
     const mask = new Float32Array(gw * gh);
     for (let n = 0; n < mask.length; n++) mask[n] = px[n * 4 + 3]! / 255;
     const D = distField(gw, gh, mask);
-    const Hf = width > 0 ? bevelField(gw, gh, D, width * s, profile) : new Float32Array(gw * gh);
+    let Hf: Float32Array;
+    if (width > 0) {
+      // orienté : la distance au bord sur la ligne (pentes à gauche et à droite) ou sur la colonne
+      const DB = axis ? axisDist(gw, gh, mask, axis === 'vertical' ? 'h' : 'v') : D;
+      const wpx = width * s;
+      // biseau large : la distance lissée, sans arête au milieu ni stries ; hors de la découpe, rien
+      let DS = DB;
+      if (wpx > 10) {
+        DS = blurField(DB, gw, gh, Math.min(24, wpx * 0.12));
+        for (let n = 0; n < DS.length; n++) DS[n] = mask[n]! < 0.5 ? 0 : Math.min(DS[n]!, DB[n]! + wpx * 0.05);
+      }
+      Hf = bevelField(gw, gh, DS, wpx, soft);
+      if (toCenter > 0) {
+        // au-delà de 80 : vers le bombé entier (dôme, coussin, colonne), sans arête au milieu
+        const { T, S } = fullField(gw, gh, mask, axis ? (axis === 'vertical' ? 'h' : 'v') : undefined);
+        for (let n = 0; n < Hf.length; n++) {
+          const full = T[n]! > 0 ? S[n]! * bevelProfile(T[n]!, soft) : 0;
+          Hf[n] = Hf[n]! + (full - Hf[n]!) * toCenter;
+        }
+        // les tranches calculées une à une laissent des stries : un léger flou, toujours nul hors de la découpe
+        const B = blurField(Hf, gw, gh, axis ? 5 : 2.5);
+        for (let n = 0; n < Hf.length; n++) Hf[n] = mask[n]! < 0.5 ? 0 : Hf[n]! + (Math.min(B[n]!, Hf[n]! + 2) - Hf[n]!) * toCenter;
+      }
+    } else Hf = new Float32Array(gw * gh);
     let Hk: Float32Array | null = null;
     if (volumeOn(l.volume)) {
       // le volume ne prend que la découpe : le bord ajouté reste à plat (sauf biseau)

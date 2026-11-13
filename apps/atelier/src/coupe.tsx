@@ -5,7 +5,7 @@ import { BORDER_TYPES, fxPreview, GLOW_TYPES, Knob, swatch } from './App';
 import { FX, fxGuides, fxKnobs, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
-import { GEN_DEFAULTS, SKINS, VOLUMES, volumeName, type Doc, type Layer } from './model';
+import { GEN_DEFAULTS, SKINS, VOLUMES, bevelSoftName, bevelSoftOf, volumeName, type Doc, type Layer } from './model';
 import { ensureFont, fontFamily, fontsFor, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { AlignGlyph, TextContent, useLazyText, WarpGlyph, weightName } from './textbar';
 import { TiltPad } from './tilt';
@@ -178,7 +178,7 @@ export function itemsOf(l: Layer, doc: Doc): Item[] {
 /** Ce qu'on retire quand on touche la croix d'un élément. */
 export function removal(l: Layer, key: string): Partial<Layer> {
   if (key === 'border') return { border: undefined };
-  if (key === 'bevel') return { bevel: 0, bevelProfile: undefined, bevelBorder: undefined };
+  if (key === 'bevel') return { bevel: 0, bevelProfile: undefined, bevelSoft: undefined, bevelAxis: undefined, bevelBorder: undefined };
   if (key === 'extrude') return { extrude: undefined };
   if (key === 'trim') return { trim: undefined };
   if (key === 'volume') return { volume: undefined };
@@ -235,12 +235,11 @@ export function choicesOf(l: Layer, sec: Section, doc?: Doc): Array<{ id: string
       .filter((d) => d.id !== l.material?.id && !(d.transparent && l.kind === 'surface'))
       .map((d) => ({ id: d.id, name: d.name, patch: { material: newFx(d.id), ...(d.transparent ? { opacity: d.transparent } : {}) }, focus: 'material' }));
   if (sec === 'depth')
-    // le volume supplémentaire : un seul, au choix (biseau et extrusion ont leurs propres encarts)
+    // le relief : un seul, au choix (biseau et extrusion ont leurs propres encarts)
     return l.kind === 'surface'
       ? []
       : [
-          ...VOLUMES.filter(([kind]) => kind !== 'flat' && !(l.volume?.kind === kind && !l.volume.skin)).map(([kind, name]) => ({ id: `v-${kind}`, name: `Volume ${name.toLowerCase()}`, patch: { volume: { kind, amount: kind === 'cone' ? 0.5 : 0.7 }, bump: undefined } as Partial<Layer>, focus: 'volume' })),
-          // plis et fissures : posés à plat, la forme se choisit ensuite dans le réglage
+          // les bombés (dôme, coussin, cylindre, cône) se font maintenant avec le biseau : reste le relief de surface
           ...SKINS.filter(([kind]) => l.volume?.skin?.kind !== kind).map(([kind, name]) => ({ id: `v-${kind}`, name, patch: { volume: { kind: 'flat', amount: 0.7, skin: { kind, depth: 0.6, density: 0.4 } }, bump: undefined } as Partial<Layer>, focus: 'volume' })),
         ];
   return imageChoices(l);
@@ -654,7 +653,7 @@ export function CoupePanel({
           'bevel',
           'Biseau',
           <DepthGlyph k="bevel" />,
-          bevelOn ? ((l.bevelProfile ?? 'round') === 'round' ? 'Arrondi' : 'Chanfrein') : 'Sans effet',
+          bevelOn ? `${bevelSoftName(bevelSoftOf(l))}${l.bevelAxis ? (l.bevelAxis === 'vertical' ? ' · vertical' : ' · horizontal') : ''}` : 'Sans effet',
           bevelOn,
           <Attrs bare layer={l} doc={doc} item={{ sec: 'depth', key: 'bevel', name: '', bg: '', removable: false }} patch={patch} />,
         )}
@@ -668,7 +667,7 @@ export function CoupePanel({
         )}
         {plate(
           'extra',
-          'Volume en plus',
+          'Relief',
           extra ? <span className="ap-dglyph" style={{ background: extra.bg }} /> : <span className="ap-plus">＋</span>,
           extra ? extra.name : 'Facultatif',
           !!extra,
@@ -703,7 +702,7 @@ export function CoupePanel({
           ) : extra ? (
             <Attrs bare layer={l} doc={doc} item={extra} patch={patch} onSculpt={onSculpt} />
           ) : (
-            <p className="ap-hint">Un seul au choix : bombé, cylindre, plis, fissures… ou un relief sculpté. Touche le carré.</p>
+            <p className="ap-hint">Un seul au choix : draperie, froissure, craquelure ou relief sculpté. Les bombés se font avec le biseau. Touche le carré.</p>
           ),
           extra && (
             <button
@@ -896,6 +895,30 @@ function TextTab({
 }
 
 /** Petits dessins des encarts du volume. */
+/** Orientation du biseau : bandes d'ombre verticales, horizontales, ou tout autour. */
+function AxisGlyph({ axis }: { axis?: 'vertical' | 'horizontal' }) {
+  const id = `ax-${axis ?? 'all'}`;
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <defs>
+        {axis ? (
+          <linearGradient id={id} x1="0" y1="0" x2={axis === 'vertical' ? 1 : 0} y2={axis === 'vertical' ? 0 : 1}>
+            <stop offset="0" stopColor="currentColor" stopOpacity="0.75" />
+            <stop offset="0.5" stopColor="currentColor" stopOpacity="0.08" />
+            <stop offset="1" stopColor="currentColor" stopOpacity="0.75" />
+          </linearGradient>
+        ) : (
+          <radialGradient id={id}>
+            <stop offset="0.35" stopColor="currentColor" stopOpacity="0.08" />
+            <stop offset="1" stopColor="currentColor" stopOpacity="0.75" />
+          </radialGradient>
+        )}
+      </defs>
+      <rect x="3" y="3" width="18" height="18" rx="5" fill={`url(#${id})`} stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
 function DepthGlyph({ k }: { k: 'bevel' | 'extrude' }) {
   return (
     <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" aria-hidden>
@@ -1218,22 +1241,36 @@ export function Attrs({
   else if (item.key === 'bevel')
     body = (
       <>
-        <Range label="Largeur" value={l.bevel ?? 0} onChange={(v) => live({ bevel: v < 0.01 ? 0 : Math.round(v * 100) / 100 })} />
+        <Range
+          label="Largeur"
+          value={l.bevel ?? 0}
+          display={(l.bevel ?? 0) >= 0.995 ? 'tout' : undefined}
+          onChange={(v) => live({ bevel: v < 0.01 ? 0 : Math.round(v * 100) / 100 })}
+        />
+        <Range label="Douceur" value={bevelSoftOf(l)} display={bevelSoftName(bevelSoftOf(l))} onChange={(v) => live({ bevelSoft: Math.round(v * 100) / 100, bevelProfile: undefined })} />
         <label className="cp-row">
-          <span>Profil</span>
+          <span>Orientation</span>
           <span className="seg cp-seg">
             {(
               [
-                ['round', 'Arrondi'],
-                ['chamfer', 'Chanfrein'],
+                ['vertical', 'Verticale'],
+                ['horizontal', 'Horizontale'],
+                [undefined, 'Les deux'],
               ] as const
             ).map(([v, name]) => (
-              <button key={v} className={(l.bevelProfile ?? 'round') === v ? 'on' : ''} onClick={() => patch({ bevelProfile: v === 'round' ? undefined : v })}>
-                {name}
+              <button
+                key={name}
+                className={`ap-axis ${l.bevelAxis === v ? 'on' : ''}`}
+                onClick={() => patch({ bevelAxis: v })}
+                title={`${name} : ${v === 'vertical' ? 'pentes à gauche et à droite, comme une colonne' : v === 'horizontal' ? 'pentes en haut et en bas' : 'tout autour'}`}
+                aria-label={name}
+              >
+                <AxisGlyph axis={v} />
               </button>
             ))}
           </span>
         </label>
+        {(l.bevel ?? 0) > 0.8 && <p className="cp-note">Au-delà de 80, la forme se bombe en entier.</p>}
         {l.border && (
           <label className="cp-row">
             <span>Inclure le bord</span>
@@ -1257,6 +1294,7 @@ export function Attrs({
     const sk = v.skin;
     body = (
       <>
+        {v.kind !== 'flat' && (
         <label className="cp-row">
           <span>Forme</span>
           <span className="seg cp-seg">
@@ -1267,6 +1305,7 @@ export function Attrs({
             ))}
           </span>
         </label>
+        )}
         {v.kind !== 'flat' && <Range label="Force" value={v.amount} onChange={(x) => live({ volume: { ...v, amount: Math.max(0.05, Math.round(x * 100) / 100) } })} />}
         {v.kind === 'cylinder' && (
           <Range
@@ -1279,9 +1318,11 @@ export function Attrs({
         <label className="cp-row">
           <span>Surface</span>
           <span className="seg cp-seg">
-            <button className={!sk ? 'on' : ''} onClick={() => patch({ volume: { ...v, skin: undefined, kind: v.kind === 'flat' ? 'dome' : v.kind } })}>
-              Lisse
-            </button>
+            {v.kind !== 'flat' && (
+              <button className={!sk ? 'on' : ''} onClick={() => patch({ volume: { ...v, skin: undefined } })}>
+                Lisse
+              </button>
+            )}
             {SKINS.map(([k, name]) => (
               <button key={k} className={sk?.kind === k ? 'on' : ''} onClick={() => patch({ volume: { ...v, skin: { depth: 0.6, density: 0.4, ...sk, kind: k } } })}>
                 {name}

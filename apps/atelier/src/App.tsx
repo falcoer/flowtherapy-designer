@@ -3747,11 +3747,11 @@ export function App() {
   };
 
   // --- ajout de couches ---
-  /** Volume léger posé d'office sur une forme : il se change ou se retire dans Forme. */
-  const defaultVolume = (sh: string): Volume => {
+  /** Léger bombé posé d'office sur une forme, par le biseau : il se règle ou s'annule dans Volume. */
+  const defaultBevel = (sh: string): Partial<Layer> => {
     const dome = ['circle', 'oval', 'drop', 'blob', 'moon', 'semicircle', 'arch'];
     const cone = ['star', 'diamond', 'leaf'];
-    return { kind: dome.includes(sh) ? 'dome' : cone.includes(sh) ? 'cone' : 'cushion', amount: cone.includes(sh) ? 0.3 : 0.4 };
+    return dome.includes(sh) ? { bevel: 0.6, bevelSoft: 0.8 } : cone.includes(sh) ? { bevel: 0.4, bevelSoft: 0 } : { bevel: 0.35, bevelSoft: 0.65 };
   };
   /** Objet en pièces : une couche par pièce, toutes dans la même boîte, solidaires. */
   const addKit = (kit: Kit) => {
@@ -3832,7 +3832,7 @@ export function App() {
       cut: opts.cut,
       ref: opts.ref,
       height: 0,
-      ...(kind === 'shape' && opts.shape ? { volume: defaultVolume(opts.shape) } : {}),
+      ...(kind === 'shape' && opts.shape ? defaultBevel(opts.shape) : {}),
       visible: true,
       strokes: [],
     };
@@ -5779,7 +5779,7 @@ export function App() {
 
           {dragGuide && <span className="drag-dot" style={{ left: dragGuide.x, top: dragGuide.y, background: swatch(doc.guides[dragGuide.i]) }} />}
 
-          {bubble === 'light' && <LampPanel doc={doc} f={f} onChange={(lamp) => setDoc((d) => ({ ...d, lamp }))} onScene={(scene) => setDoc((d) => ({ ...d, scene }))} onClose={() => setBubble(null)} />}
+          {bubble === 'light' && <LampPanel doc={doc} f={f} selected={sel?.id} onSelect={setSelected} onChange={(lamp) => setDoc((d) => ({ ...d, lamp }))} onScene={(scene) => setDoc((d) => ({ ...d, scene }))} onClose={() => setBubble(null)} />}
 
           {tool === 'edge' && (!sel || sel.kind === 'surface') && <div className="status">Sélectionne une photo ou une forme pour régler ses bords</div>}
           {tool === 'material' && !sel && <div className="status">Sélectionne une photo ou une forme pour choisir sa matière</div>}
@@ -6043,7 +6043,24 @@ function SceneGlyph({ color, on }: { color: string; on: boolean }) {
 }
 
 /** La scène vue par l'appareil : lumière, objectif, transformation de tout le rendu. */
-function LampPanel({ doc, f, onChange, onScene, onClose }: { doc: Doc; f: Format; onChange: (l: Lamp) => void; onScene: (s: SceneLook | undefined) => void; onClose: () => void }) {
+function LampPanel({
+  doc,
+  f,
+  selected,
+  onSelect,
+  onChange,
+  onScene,
+  onClose,
+}: {
+  doc: Doc;
+  f: Format;
+  /** Objet sélectionné sur la page : la mise au point peut s'y faire d'un geste. */
+  selected?: string;
+  onSelect: (id: string | null) => void;
+  onChange: (l: Lamp) => void;
+  onScene: (s: SceneLook | undefined) => void;
+  onClose: () => void;
+}) {
   const ref = useRef<SVGSVGElement>(null);
   const [tab, setTabS] = useState<SceneTab>(() => {
     try {
@@ -6071,6 +6088,8 @@ function LampPanel({ doc, f, onChange, onScene, onClose }: { doc: Doc; f: Format
   const cam = sc.camera ?? { aperture: 0 };
   const setCam = (p: Partial<typeof cam>) => onScene(tidy({ ...sc, camera: { ...cam, ...p } }));
   const fnum = (a: number) => 16 * Math.pow(1.4 / 16, a);
+  const selLayer = selected ? doc.layers.find((x) => x.id === selected) : undefined;
+  const selTarget = selLayer && selLayer.kind !== 'surface' && selLayer.visible ? selLayer : undefined;
   const setLens = (p: Partial<typeof lens>) => onScene(tidy({ ...sc, lens: { ...lens, ...p } }));
   const setFx = (fx: Fx | undefined) => onScene(tidy({ ...sc, fx }));
   const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -6101,23 +6120,40 @@ function LampPanel({ doc, f, onChange, onScene, onClose }: { doc: Doc; f: Format
     return (
       <div className="lamp-panel scene-panel" data-tint-zone>
         {head}
-        <div className="scene-sub">Mise au point · objet net</div>
-        <div className="scene-focus">
-          {[{ id: undefined as string | undefined, name: 'Feuille' }, ...doc.layers.filter((x) => x.kind !== 'surface' && x.visible).map((x) => ({ id: x.id as string | undefined, name: x.name }))].map((x) => (
-            <button key={x.id ?? 'page'} className={`chip ${cam.focus === x.id ? 'on' : ''}`} onClick={() => setCam({ focus: x.id })}>
-              {x.name}
+        <div className="scene-sub">Mise au point</div>
+        {selTarget && cam.focus !== selTarget.id ? (
+          <button className="chip scene-aim" onClick={() => setCam({ focus: selTarget.id })}>
+            <Icon name="target" /> Mise au point sur « {selTarget.name} »
+          </button>
+        ) : (
+          <p className="scene-aim-note">{selTarget ? `Net sur « ${selTarget.name} », l'objet sélectionné.` : 'Sélectionne un objet sur la page pour y faire la mise au point, ou choisis-le ici.'}</p>
+        )}
+        <div className="scene-focus" role="radiogroup" aria-label="Objet net">
+          {[undefined, ...doc.layers.filter((x) => x.kind !== 'surface' && x.visible)].map((x) => (
+            <button
+              key={x?.id ?? 'page'}
+              ref={x && x.id === selected ? (el) => el?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) : undefined}
+              role="radio"
+              aria-checked={cam.focus === x?.id}
+              className={`scene-fx-b ${cam.focus === x?.id ? 'on' : ''} ${x && x.id === selected ? 'sel' : ''}`}
+              onClick={() => {
+                setCam({ focus: x?.id });
+                // le choix ici sélectionne aussi l'objet sur la page
+                if (x) onSelect(x.id);
+              }}
+            >
+              {x ? <LayerThumb layer={x} doc={doc} /> : <i className="scene-page" />}
+              <span>{x ? x.name : 'Feuille'}</span>
             </button>
           ))}
         </div>
-        <div className="scene-knobs">
+        <div className="scene-knobs scene-knobs-4">
           <div className="cp-dial">
             <Knob label="Ouverture" value={cam.aperture} onChange={(v) => setCam({ aperture: r2(v) })} />
             <span className="cp-dial-l">Ouverture</span>
             <output>{cam.aperture < 0.01 ? 'tout net' : `f/${fnum(cam.aperture).toFixed(1).replace('.0', '')}`}</output>
           </div>
-        </div>
-        <div className="scene-sub">Défauts</div>
-        <div className="scene-knobs">
+          <i className="scene-sep" />
           <div className="cp-dial">
             <Knob label="Distorsion" center value={(lens.warp + 1) / 2} onChange={(v) => setLens({ warp: r2(v * 2 - 1) })} />
             <span className="cp-dial-l">Distorsion</span>
@@ -6139,7 +6175,7 @@ function LampPanel({ doc, f, onChange, onScene, onClose }: { doc: Doc; f: Format
             Objectif neutre
           </button>
         )}
-        <p className="hint">La mise au point se fait à la hauteur de l'objet choisi : plus un objet est haut ou bas par rapport à lui, plus il est flou, d'autant plus que l'ouverture est grande. Comme un objectif d'appareil : la page se bombe (barillet) ou se creuse (coussinet), les bords s'assombrissent, les franges séparent les couleurs en liserés rouge et bleu autour des formes, plus fort vers les bords.</p>
+        <p className="hint">L'ouverture règle la profondeur de champ : plus elle est grande (f/1.4), plus la zone nette est courte et plus les objets plus hauts ou plus bas que l'objet net flouent.</p>
       </div>
     );
   if (tab === 'fx') {
