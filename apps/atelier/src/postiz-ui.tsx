@@ -257,7 +257,7 @@ export function PostizPlanActions(p: {
     ) : (
       <small className="pub-done">publiée</small>
     );
-  if (busy) return <small className="fx-hint">{busy}</small>;
+  if (busy) return <small className="fx-hint pz-note">{busy}</small>;
   if (it.postiz?.state === 'queue')
     return (
       <span className="pz-state">
@@ -272,7 +272,7 @@ export function PostizPlanActions(p: {
       </span>
     );
   if (!p.owner) return it.postiz?.state === 'error' ? <small className="pf-note err">échec</small> : null;
-  if (!p.accounts.length) return <small className="fx-hint">aucun compte relié</small>;
+  if (!p.accounts.length) return <small className="fx-hint pz-note">aucun compte relié</small>;
   if (!open)
     return (
       <span className="pz-state">
@@ -298,7 +298,7 @@ export function PostizPlanActions(p: {
           ))}
         </select>
       )}
-      {p.accounts.length === 1 && <small className="fx-hint">sur {p.accounts[0].name}</small>}
+      {p.accounts.length === 1 && <small className="fx-hint pz-note">sur {p.accounts[0].name}</small>}
       <input className="pf-input" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
       <div className="pz-sched-acts">
         <button className="ab-link" onClick={() => (setOpen(false), setConfirmNow(false))}>

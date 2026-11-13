@@ -5545,7 +5545,7 @@ export function App() {
                         {it.date ? ` · ${new Date(`${it.date}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}` : ''}
                       </span>
                       {pubPz.data?.enabled && !it.published && !it.postiz && it.composition && it.composition !== project?.id ? (
-                        <small className="fx-hint" title="Ouvre la composition prévue pour la programmer">
+                        <small className="fx-hint pz-note" title="Ouvre la composition prévue pour la programmer">
                           prévue pour une autre composition
                         </small>
                       ) : pubPz.data?.enabled && pubPz.data.providers[it.channel ?? ''] && (it.postiz || pubPz.data.accounts.some((a) => a.channel === it.channel)) ? (
@@ -5574,16 +5574,16 @@ export function App() {
                 </div>
               )}
               {pubPz.err && <p className="pf-note err">Publication programmée indisponible : {pubPz.err}</p>}
-              {!pubPz.data && !pubPz.err && online && me?.team && <p className="fx-hint">Comptes de diffusion : lecture…</p>}
-              {pubPz.data && !pubPz.data.enabled && me?.admin && <p className="fx-hint">Postiz n’est pas configuré (Configuration globale › Publication).</p>}
+              {!pubPz.data && !pubPz.err && online && me?.team && <p className="fx-hint pz-note">Comptes de diffusion : lecture…</p>}
+              {pubPz.data && !pubPz.data.enabled && me?.admin && <p className="fx-hint pz-note">Postiz n’est pas configuré (Configuration globale › Publication).</p>}
               {pubPz.data?.enabled && !pubPlan.length && (
-                <p className="fx-hint">
+                <p className="fx-hint pz-note">
                   {pubCampaign
                     ? 'Pour programmer cette publication, ajoute-la au plan de la campagne (le réseau et le format cochés ci-dessus).'
                     : 'Pour programmer une publication, range la composition dans une campagne et ajoute-la à son plan.'}
                 </p>
               )}
-              {pubPz.data?.enabled && pubPlan.length > 0 && !pubPz.data.accounts.length && <p className="fx-hint">Relie d’abord un compte du réseau dans la fiche de l’activité › Médias.</p>}
+              {pubPz.data?.enabled && pubPlan.length > 0 && !pubPz.data.accounts.length && <p className="fx-hint pz-note">Relie d’abord un compte du réseau dans la fiche de l’activité › Médias.</p>}
             </div>
           )}
 
