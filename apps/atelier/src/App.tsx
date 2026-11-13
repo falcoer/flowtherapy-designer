@@ -32,11 +32,12 @@ import { GradientOverlay } from './gradient-ui';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
+import { PostizPlanActions, usePostizAccounts } from './postiz-ui';
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
 import { CatalogPanel } from './catalog-ui';
-import { fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
+import { fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, postizSync, type PlanItem, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
 import { channelsOf, setCatalog, contactsOf, CONTACT_KINDS, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
 import { Knob } from './knob';
 import { MediaIcon, PublicationsPanel, VariantBar, VariantPick } from './targets-ui';
@@ -950,6 +951,28 @@ export function App() {
   const bgTap = useRef<{ id: number; x: number; y: number; t: number } | null>(null);
   const bgLeave = useRef(0);
   const [bubble, setBubble] = useState<Bubble>(null);
+  // Publier : les comptes reliés par l'activité, et l'état des programmations relu chez Postiz à l'ouverture
+  const pubPz = usePostizAccounts(bubble === 'export' && !!online && !!me?.team);
+  useEffect(() => {
+    if (bubble !== 'export' || !online || !me?.team) return;
+    let live = true;
+    postizSync().then(
+      (r) => live && r.changed > 0 && r.campaigns && setCampaigns(r.campaigns),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bubble, online, me?.team?.id]);
+  /** L'image d'un élément du plan : le rendu de la composition pour ce réseau et ce format, en JPEG. */
+  const renderPlanItem = async (it: PlanItem): Promise<Blob | null> => {
+    const d0 = docRef.current;
+    const t = d0.targets?.find((x) => (x.channel ?? '') === (it.channel ?? '') && x.format === it.format);
+    if (!t) return null;
+    const c = await renderDoc(docForTarget(d0, t, activity), formatOf(t.format), 4096, t.width);
+    return new Promise((ok, ko) => c.toBlob((b) => (b ? ok(b) : ko(new Error('Rendu impossible'))), 'image/jpeg', 0.92));
+  };
   // historique du menu de la campagne : demandé au serveur pour cette campagne seulement, à l'ouverture du menu
   const [campaignFeed, setCampaignFeed] = useState<ActivityEvent[] | null>(null);
   // menu de la composition : ses publications rendues d'après le document ouvert, retouches comprises
@@ -5521,7 +5544,23 @@ export function App() {
                         {it.label ? ` · ${it.label}` : ''}
                         {it.date ? ` · ${new Date(`${it.date}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}` : ''}
                       </span>
-                      {it.published ? (
+                      {pubPz.data?.enabled && !it.published && !it.postiz && it.composition && it.composition !== project?.id ? (
+                        <small className="fx-hint" title="Ouvre la composition prévue pour la programmer">
+                          prévue pour une autre composition
+                        </small>
+                      ) : pubPz.data?.enabled && pubPz.data.providers[it.channel ?? ''] && (it.postiz || pubPz.data.accounts.some((a) => a.channel === it.channel)) ? (
+                        <PostizPlanActions
+                          campaign={pubCampaign!.id}
+                          item={it}
+                          accounts={pubPz.data.accounts.filter((a) => a.channel === it.channel && !a.disabled)}
+                          owner={me?.team?.role === 'owner'}
+                          caption={doc.caption ?? ''}
+                          composition={project?.id}
+                          render={() => renderPlanItem(it)}
+                          onCampaign={(x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y)))}
+                          toast={setToast}
+                        />
+                      ) : it.published ? (
                         <small className="pub-done">publiée</small>
                       ) : (
                         canEditTeam && (
@@ -5534,10 +5573,14 @@ export function App() {
                   ))}
                 </div>
               )}
-              <button className="pf-btn pub-schedule" disabled title="Bientôt : relier les comptes Facebook et Instagram de l’activité">
-                Programmer la publication
-              </button>
-              <p className="fx-hint">La publication programmée viendra quand les comptes Facebook et Instagram de l’activité seront reliés.</p>
+              {pubPz.data?.enabled && !pubPlan.length && (
+                <p className="fx-hint">
+                  {pubCampaign
+                    ? 'Pour programmer cette publication, ajoute-la au plan de la campagne (le réseau et le format cochés ci-dessus).'
+                    : 'Pour programmer une publication, range la composition dans une campagne et ajoute-la à son plan.'}
+                </p>
+              )}
+              {pubPz.data?.enabled && pubPlan.length > 0 && !pubPz.data.accounts.length && <p className="fx-hint">Relie d’abord un compte du réseau dans la fiche de l’activité › Médias.</p>}
             </div>
           )}
 

@@ -99,6 +99,8 @@ export interface PlanItem extends Target {
   /** publiée : quand, et le lien de la publication */
   published?: string;
   link?: string;
+  /** confiée à Postiz (écrit par le serveur) */
+  postiz?: { post: string; account: string; at: string; state: 'queue' | 'published' | 'error'; error?: string };
 }
 export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'templates' | 'plan'>> & { closed?: boolean };
 export const listCampaigns = () => call<Campaign[]>('/api/campaigns');
@@ -334,6 +336,16 @@ export interface PostizAccounts {
 export const fetchPostizAccounts = () => call<PostizAccounts>('/api/postiz/accounts');
 export const postizConnect = (channel: string) => call<{ url: string }>('/api/postiz/connect', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ channel }) });
 export const postizRemove = (id: string) => call<{ ok: true }>(`/api/postiz/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+/** Confie un élément du plan à Postiz : `when` = 'now' ou une date ISO. */
+export function postizPublish(p: { campaign: string; item: string; account: string; when: string; caption: string; composition?: string; image?: Blob }) {
+  const fd = new FormData();
+  for (const k of ['campaign', 'item', 'account', 'when', 'caption', 'composition'] as const) if (p[k] !== undefined) fd.append(k, p[k]!);
+  if (p.image) fd.append('image', p.image, p.image.type === 'image/png' ? 'publication.png' : 'publication.jpg');
+  return call<{ campaign: Campaign }>('/api/postiz/publish', { method: 'POST', body: fd }).then((r) => r.campaign);
+}
+export const postizUnschedule = (campaign: string, item: string) =>
+  call<{ campaign: Campaign }>(`/api/postiz/publish/${encodeURIComponent(campaign)}/${encodeURIComponent(item)}`, { method: 'DELETE' }).then((r) => r.campaign);
+export const postizSync = () => call<{ changed: number; campaigns?: Campaign[] }>('/api/postiz/sync', { method: 'POST' });
 export const fetchPostizConfig = () => call<{ url: string; keySet: boolean }>('/api/postiz/config');
 export const savePostizConfig = (c: { url?: string; key?: string | null }) =>
   call<{ url: string; keySet: boolean }>('/api/postiz/config', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(c) });
