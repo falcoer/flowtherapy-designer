@@ -2606,3 +2606,4 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .fr-ap-mark { position: absolute; top: 2px; width: 0; margin-left: -5px; border: 5px solid transparent; border-top-color: var(--accent); pointer-events: none; }
 .fr-ap-out { display: flex; flex-direction: column; font-size: 12.5px; font-weight: 600; color: var(--ink); line-height: 1.15; font-variant-numeric: tabular-nums; }
 .fr-ap-out small { font-size: 10px; font-weight: 400; color: var(--muted); }
+.fr-ring:focus-visible, .fr-stops:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

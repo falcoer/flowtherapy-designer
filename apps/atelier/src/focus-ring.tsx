@@ -97,6 +97,21 @@ export function FocusRing({ doc, cam, selected, onCam, onSelect, thumb }: { doc:
         aria-valuetext={label}
         aria-valuenow={Math.round(fh * 1000) / 1000}
         style={{ backgroundPositionX: `${-(fh / span) * 400}px` }}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          // clavier : flèches = pile voisine (plus basse / plus haute), Début / Fin = butées
+          const order = [...marks].sort((a, b) => a.h - b.h);
+          let m: (typeof marks)[number] | undefined;
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') m = [...order].reverse().find((x) => x.h < fh - 0.0005);
+          else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') m = order.find((x) => x.h > fh + 0.0005);
+          else if (e.key === 'Home') m = order[0];
+          else if (e.key === 'End') m = order[order.length - 1];
+          else return;
+          e.preventDefault();
+          if (!m) return;
+          const l = pick(m);
+          onCam({ focus: l?.id, at: l ? undefined : 0, follow: false });
+        }}
         onPointerDown={(e) => {
           (e.currentTarget as Element).setPointerCapture(e.pointerId);
           drag.current = { x: e.clientX, w: e.currentTarget.getBoundingClientRect().width, h0: fh, moved: false };
@@ -204,6 +219,19 @@ function Aperture({ value, onChange }: { value: number; onChange: (a: number) =>
         className="fr-stops"
         role="slider"
         aria-label="Ouverture"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          // clavier : flèches = cran voisin, Début / Fin = f/16 / f/1.4
+          const stops = F_STOPS.map(apOf);
+          let a: number | undefined;
+          if (e.key === 'ArrowRight' || e.key === 'ArrowUp') a = stops.find((x) => x > value + 0.01);
+          else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') a = [...stops].reverse().find((x) => x < value - 0.01);
+          else if (e.key === 'Home') a = 0;
+          else if (e.key === 'End') a = 1;
+          else return;
+          e.preventDefault();
+          if (a !== undefined) onChange(Math.round(a * 1000) / 1000);
+        }}
         aria-valuetext={value < 0.01 ? 'f/16, tout net' : `f/${f.toFixed(1).replace('.0', '')}`}
         onPointerDown={(e) => {
           (e.currentTarget as Element).setPointerCapture(e.pointerId);
