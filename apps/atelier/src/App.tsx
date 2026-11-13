@@ -4648,8 +4648,8 @@ export function App() {
               <Icon name="plus" />
             </button>
             <span className="side-sep" />
-            <button className={`btn small ${tool === 'cut' || tool === 'mold' ? 'on' : ''}`} onClick={() => (tool === 'cut' || tool === 'mold' ? leaveTool() : setTool(lastShape.current))} title="Forme (C, G) : découper ou modeler le contour de l'objet">
-              <Icon name={tool === 'mold' || (tool !== 'cut' && lastShape.current === 'mold') ? 'mold' : 'scissors'} />
+            <button className={`btn small ${tool === 'cut' || tool === 'mold' ? 'on' : ''}`} onClick={() => (tool === 'cut' || tool === 'mold' ? leaveTool() : setTool(lastShape.current))} title="Forme (C, G) : ciseaux, scalpel ou modelage du contour de l'objet">
+              <Icon name={tool === 'mold' || (tool !== 'cut' && lastShape.current === 'mold') ? 'mold' : blade} />
             </button>
             <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => pickTool(lastEdit.current)} title="Matériau (T) : le support de l'objet, ses bords, son vernis, son volume">
               <Icon name="matter" />
@@ -4764,13 +4764,18 @@ export function App() {
               {(tool === 'cut' || tool === 'mold') && (
                 <FanButton
                   dir={lefty ? 'left' : 'right'}
-                  face={<Icon name={tool === 'cut' ? 'scissors' : 'mold'} />}
-                  title={`Outil de forme : ${tool === 'cut' ? 'Découper' : 'Modeler'}`}
+                  face={<Icon name={tool === 'cut' ? blade : 'mold'} />}
+                  title={`Outil de forme : ${tool === 'mold' ? 'Modeler' : blade === 'scalpel' ? 'Scalpel' : 'Ciseaux'}`}
                   items={[
-                    { key: 'cut', icon: <Icon name="scissors" />, label: 'Découper', hint: 'Trace un contour au stylet', on: tool === 'cut' },
+                    { key: 'scissors', icon: <Icon name="scissors" />, label: 'Ciseaux', hint: 'Trace un contour : le morceau se détache', on: tool === 'cut' && blade === 'scissors' },
+                    { key: 'scalpel', icon: <Icon name="scalpel" />, label: 'Scalpel', hint: 'Trace un contour : le morceau reste en place, lié à son objet', on: tool === 'cut' && blade === 'scalpel' },
                     { key: 'mold', icon: <Icon name="mold" />, label: 'Modeler', hint: 'Tirer ou repousser le contour, à la plume ou au doigt de glaise', on: tool === 'mold' },
                   ]}
-                  onPick={(k) => setTool(k as 'cut' | 'mold')}
+                  onPick={(k) => {
+                    if (k === 'mold') return setTool('mold');
+                    setBlade(k as 'scissors' | 'scalpel');
+                    setTool('cut');
+                  }}
                 />
               )}
               {(tool === 'paint' || tool === 'stamp') && (
@@ -4953,13 +4958,6 @@ export function App() {
               )}
               {tool === 'cut' && (
                 <>
-                  <button
-                    className="btn small"
-                    onClick={() => setBlade(blade === 'scissors' ? 'scalpel' : 'scissors')}
-                    title={blade === 'scalpel' ? 'Scalpel : le morceau reste en place, lié à son objet (toucher pour les ciseaux)' : 'Ciseaux : le morceau se détache (toucher pour le scalpel)'}
-                  >
-                    <Icon name={blade} />
-                  </button>
                   <button
                     className={`btn small ${subjectOn ? 'on' : ''}`}
                     onClick={() => {
