@@ -140,7 +140,9 @@ export interface Stroke {
 }
 
 export type BorderStyle = 'round' | 'straight' | 'torn' | 'stamp' | 'burst' | 'double';
-export type GlowStyle = 'neon' | 'laser' | 'electric' | 'particles' | 'smoke' | 'halo' | 'aura' | 'fire';
+export type GlowStyle = 'neon' | 'laser' | 'electric' | 'particles' | 'smoke' | 'halo' | 'aura' | 'fire' | EdgeElementStyle;
+/** Lueurs tirées des éléments : le moteur de l'élément suit le contour de l'objet (voir EDGE_ELEMENTS). */
+export type EdgeElementStyle = 'bolt' | 'frost' | 'sparks' | 'dust' | 'glitter' | 'drops' | 'veins' | 'fur';
 export type LayerKind = 'surface' | 'support' | 'photo' | 'shape' | 'text';
 export type ShapeKind = 'star' | 'circle' | 'arch' | 'blob' | 'rounded' | 'triangle' | import('./silhouettes').SilhouetteKind;
 
