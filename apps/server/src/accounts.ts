@@ -762,7 +762,12 @@ export class Accounts {
     const { id: _i, name: _n, created: _c, by: _b, closed: _x, ...prev } = cur;
     // le suivi Postiz ne vient que du serveur : celui envoyé par le navigateur est remplacé par le nôtre
     const kept = new Map((cur.plan ?? []).filter((it) => it.postiz).map((it) => [it.id, it.postiz!]));
-    if (input.plan) input = { ...input, plan: input.plan.map(({ postiz: _p, ...it }) => (kept.has(it.id) ? { ...it, postiz: kept.get(it.id) } : it)) };
+    if (input.plan) {
+      // une publication programmée chez Postiz ne quitte pas le plan sans être annulée : elle paraîtrait sans suivi
+      const ids = new Set(input.plan.map((it) => it.id));
+      if ([...kept].some(([id, p]) => p.state === 'queue' && !ids.has(id))) throw new Error('Une publication programmée ne se retire pas du plan : annule d’abord sa programmation');
+      input = { ...input, plan: input.plan.map(({ postiz: _p, ...it }) => (kept.has(it.id) ? { ...it, postiz: kept.get(it.id) } : it)) };
+    }
     const data = cleanCampaign({ ...prev, ...input });
     const closed = input.closed === undefined ? (cur.closed ?? null) : input.closed ? (cur.closed ?? new Date().toISOString()) : null;
     this.db.prepare('UPDATE campaigns SET name = ?, data = ?, closed = ? WHERE team = ? AND id = ?').run(name, JSON.stringify(data), closed, team, id);

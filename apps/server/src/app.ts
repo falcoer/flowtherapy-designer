@@ -318,6 +318,7 @@ export async function buildApp(opts: AppOptions) {
    * Confie à Postiz un élément du plan : les images rendues par l'atelier, le texte, le compte et la date.
    * Formulaire : campaign, item, account, when ('now' ou date ISO), caption, puis les images (image).
    */
+  const publishing = new Set<string>();
   app.post('/api/postiz/publish', { preHandler: needs('owner') }, async (req, reply) => {
     const pz = postiz();
     if (!pz) return reply.code(409).send({ error: 'Postiz n’est pas configuré (configuration globale)' });
@@ -339,6 +340,10 @@ export async function buildApp(opts: AppOptions) {
     if (!camp || !item) return reply.code(404).send({ error: 'Élément du plan introuvable' });
     if (item.published) return reply.code(409).send({ error: 'Déjà publiée' });
     if (item.postiz?.state === 'queue') return reply.code(409).send({ error: 'Déjà programmée : annule d’abord la programmation' });
+    if (item.composition && f.composition !== item.composition) return reply.code(409).send({ error: 'Cet élément du plan est prévu pour une autre composition' });
+    // deux envois simultanés du même élément : le second attend que le premier soit fini
+    const lock = `${team}/${camp.id}/${item.id}`;
+    if (publishing.has(lock)) return reply.code(409).send({ error: 'Programmation déjà en cours' });
     const channel = accounts.postizTeam(team).accounts[f.account ?? ''];
     if (!channel) return reply.code(404).send({ error: 'Compte introuvable dans cette activité' });
     if (item.channel && channel !== item.channel) return reply.code(400).send({ error: 'Ce compte ne publie pas sur ce réseau' });
@@ -350,6 +355,7 @@ export async function buildApp(opts: AppOptions) {
     }
     const caption = (f.caption ?? '').slice(0, 5000);
     if (!files.length && !caption.trim()) return reply.code(400).send({ error: 'Rien à publier : ni image ni texte' });
+    publishing.add(lock);
     try {
       const images: PostizMedia[] = [];
       for (const x of files) images.push(await pz.upload(x.data, x.name, x.type));
@@ -363,6 +369,8 @@ export async function buildApp(opts: AppOptions) {
       return { ok: true, campaign };
     } catch (err) {
       return postizFail(reply, err);
+    } finally {
+      publishing.delete(lock);
     }
   });
   /** Annule une programmation pas encore parue. */
@@ -746,7 +754,8 @@ export async function buildApp(opts: AppOptions) {
     try {
       return { ok: true, campaign: accounts.updateCampaign(req.team!.id, req.params.id, req.body ?? {}) };
     } catch (err) {
-      return reply.code(404).send({ error: (err as Error).message });
+      const msg = (err as Error).message;
+      return reply.code(/programmée/.test(msg) ? 409 : 404).send({ error: msg });
     }
   });
   // copier une composition (modèle de campagne, ou import depuis une autre campagne)

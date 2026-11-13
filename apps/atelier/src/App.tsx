@@ -5544,7 +5544,11 @@ export function App() {
                         {it.label ? ` · ${it.label}` : ''}
                         {it.date ? ` · ${new Date(`${it.date}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}` : ''}
                       </span>
-                      {pubPz.data?.enabled && pubPz.data.providers[it.channel ?? ''] && (it.postiz || pubPz.data.accounts.some((a) => a.channel === it.channel)) ? (
+                      {pubPz.data?.enabled && !it.published && !it.postiz && it.composition && it.composition !== project?.id ? (
+                        <small className="fx-hint" title="Ouvre la composition prévue pour la programmer">
+                          prévue pour une autre composition
+                        </small>
+                      ) : pubPz.data?.enabled && pubPz.data.providers[it.channel ?? ''] && (it.postiz || pubPz.data.accounts.some((a) => a.channel === it.channel)) ? (
                         <PostizPlanActions
                           campaign={pubCampaign!.id}
                           item={it}

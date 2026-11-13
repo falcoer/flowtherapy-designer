@@ -151,6 +151,10 @@ describe('Postiz', () => {
     // le navigateur ne peut pas réécrire le suivi
     await app.inject({ method: 'PATCH', url: `/api/campaigns/${camp.id}`, payload: { plan: [{ id: 'a1', channel: 'facebook', format: 'fb-post' }] } });
     expect((await app.inject('/api/campaigns')).json()[0].plan[0].postiz.post).toBe('p1');
+    // ni la retirer du plan tant qu'elle est programmée
+    const drop = await app.inject({ method: 'PATCH', url: `/api/campaigns/${camp.id}`, payload: { plan: [] } });
+    expect(drop.statusCode).toBe(409);
+    expect((await app.inject('/api/campaigns')).json()[0].plan).toHaveLength(1);
     // une seconde programmation est refusée
     expect((await app.inject({ method: 'POST', url: '/api/postiz/publish', ...form({ campaign: camp.id, item: 'a1', account: 'page-ft', when }) })).statusCode).toBe(409);
 
@@ -173,6 +177,10 @@ describe('Postiz', () => {
     const post = (fields: Record<string, string>) =>
       app.inject({ method: 'POST', url: '/api/postiz/publish', payload: Object.entries(fields).map(([k, v]) => `------x\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`).join('') + '------x--\r\n', headers: { 'content-type': 'multipart/form-data; boundary=----x' } });
     expect((await post({ campaign: camp.id, item: 'a1', account: 'insta', when: 'now', caption: 'x' })).statusCode).toBe(400);
+    // un élément prévu pour une autre composition
+    await app.inject({ method: 'PATCH', url: `/api/campaigns/${camp.id}`, payload: { plan: [{ id: 'a1', channel: 'facebook', format: 'fb-post' }, { id: 'b1', channel: 'instagram', format: 'ig-post', composition: 'affiche-a' }] } });
+    expect((await post({ campaign: camp.id, item: 'b1', account: 'insta', when: 'now', caption: 'x', composition: 'affiche-b' })).statusCode).toBe(409);
+    await app.inject({ method: 'PATCH', url: `/api/campaigns/${camp.id}`, payload: { plan: [{ id: 'a1', channel: 'facebook', format: 'fb-post' }, { id: 'b1', channel: 'instagram', format: 'ig-post' }] } });
     expect((await post({ campaign: camp.id, item: 'b1', account: 'insta', when: '2020-01-01T10:00:00Z', caption: 'x' })).statusCode).toBe(400);
     const ok = await post({ campaign: camp.id, item: 'b1', account: 'insta', when: 'now', caption: 'Bonsoir' });
     expect(ok.statusCode).toBe(200);
