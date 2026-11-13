@@ -2,6 +2,7 @@ import { FRAME_TITLES, ANCHOR_FRAMES, fontAllowed, type AnchorFrame, type Format
 import { createPortal } from 'react-dom';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive, type Target } from './brush';
+import { focusName, MATTERS, type Matter } from './particles';
 import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
 import { steadyPath } from './steady';
 import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
@@ -281,7 +282,7 @@ const BRUSHES: Array<[BrushKind, string, string]> = [
   ['acrylic', 'Acrylique pinceau', 'pâte couvrante striée'],
   ['roller', 'Acrylique rouleau', 'bande large pochée'],
   ['spray', 'Acrylique pistolet', 'nuage de gouttelettes'],
-  ['glitter', 'Paillettes', 'éclats qui scintillent'],
+  ['glitter', 'Particules', 'poussière, lumière, eau, paillettes'],
   ['hair', 'Poils', 'brins fins effilés'],
   ['branch', 'Ramures', 'veines, racines : la couleur se propage'],
   ['burn', 'Brûlure', 'consume la couche, lisière de braise'],
@@ -1274,6 +1275,12 @@ export function App() {
   /** Poils : longueur des brins et frisure (raide, alpaga, mouton). */
   const [hairLen, setHairLen] = useState(0.3);
   const [curl, setCurl] = useState(0);
+  /** Particules : matière, resserrage (nuage → traînées), courbure (−1..1), densité et cumul. */
+  const [partMatter, setPartMatter] = useState<Matter>('dust');
+  const [partFocus, setPartFocus] = useState(0);
+  const [partBend, setPartBend] = useState(0);
+  const [partDensity, setPartDensity] = useState(0.5);
+  const [partPool, setPartPool] = useState(0);
   const growTimer = useRef(0);
   /** Couleur glissée depuis la palette (position écran). */
   const [dragGuide, setDragGuide] = useState<{ i: number; x: number; y: number } | null>(null);
@@ -2625,7 +2632,7 @@ export function App() {
     // peinture : dans la couche sélectionnée, sinon celle sous le stylet
     const under = layerAt(p.x, p.y);
     // Déborder : parti du fond tout près, le trait reste à l'objet choisi
-    const spills = spill && (t === 'stamp' || brushKind === 'hair' || brushKind === 'branch');
+    const spills = spill && (t === 'stamp' || brushKind === 'hair' || brushKind === 'branch' || brushKind === 'glitter');
     const target = sel && insideRings(maskRings(sel, f), p.x, p.y) ? sel : spills && sel && sel.kind !== 'surface' && (!under || under.kind === 'surface') ? sel : under;
     if (!target) return;
     if (target.id !== selected) setSelected(target.id);
@@ -2671,12 +2678,13 @@ export function App() {
                   seed: Math.floor(Math.random() * 1e9),
                   ...(tipOn(brushKind) ? { tip: brushTip } : {}),
                   ...(brushKind === 'hair' ? { hairLen, curl } : {}),
+                  ...(brushKind === 'glitter' ? { matter: partMatter, focus: partFocus, bend: partBend, density: partDensity, pool: partPool, grow: 0.12 } : {}),
                   ...(brushKind === 'aquarelle' ? { wash: washFor(target.id) } : {}),
                   pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, target) } : {}), ...(leanOn(brushKind) ? brushLean(e, target) : {}) }],
                 },
     };
-    // ramures : tant que la pointe reste posée, les ramifications poussent
-    if (t !== 'stamp' && (brushKind === 'branch' || brushKind === 'burn')) {
+    // ramures, particules : tant que la pointe reste posée, les ramifications poussent, les grains voyagent
+    if (t !== 'stamp' && (brushKind === 'branch' || brushKind === 'burn' || brushKind === 'glitter')) {
       const L0 = live.current;
       const t0 = performance.now();
       const tick = () => {
@@ -2976,6 +2984,8 @@ export function App() {
       const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
       const stamping = L.stroke.brush === 'stamp';
       const branching = L.stroke.brush === 'branch';
+      // ramures et particules se repeignent en entier à chaque image
+      const whole = branching || L.stroke.brush === 'glitter';
       const had = L.stroke.pts.length;
       for (const ev of events) {
         // le stylet n'écrit qu'au contact
@@ -3001,8 +3011,8 @@ export function App() {
         const tg = L.wtg ?? paintTarget(l, f, scale * dpr);
         const ws = L.win ? inWin(L.stroke, L.win) : L.stroke;
         if (stamping) L.ink = previewStampInk(L.wet!.getContext('2d')!, ws, doc.guides, tg, L.ink);
-        else if (branching) {
-          // les ramures se repeignent en entier : au plus une fois par image
+        else if (whole) {
+          // au plus une fois par image
           L.branchFrame ||= requestAnimationFrame(() => {
             L.branchFrame = 0;
             if (live.current !== L) return;
@@ -4789,7 +4799,7 @@ export function App() {
                   >
                     <Icon name="paint-reset" />
                   </button>
-                  {(brushKind === 'hair' || brushKind === 'branch') && (
+                  {(brushKind === 'hair' || brushKind === 'branch' || brushKind === 'glitter') && (
                     <button className={`btn small ${spill ? 'on' : ''}`} onClick={toggleSpill} title={spill ? 'Déborder : l’encre sort de la forme et repousse son contour, comme le modelage (« Revenir à la forme » le rend). Toucher pour rester dans la forme' : 'Dans la forme : l’encre reste dans la découpe. Toucher pour la laisser déborder et repousser le contour'}>
                       <Icon name="spill" />
                     </button>
@@ -4816,6 +4826,21 @@ export function App() {
                       <Knob label="Ramifications" fmt={(v) => String(1 + Math.round(v * 15))} value={(branches - 1) / 15} onChange={(v) => setBranches(1 + Math.round(v * 15))} />
                       <Knob label="Chaos" value={converge} onChange={(v) => setConverge(Math.round(v * 100) / 100)} />
                       <Knob label="Taille noyau" value={branchCore} onChange={(v) => setBranchCore(Math.round(v * 100) / 100)} />
+                    </>
+                  )}
+                  {brushKind === 'glitter' && (
+                    <>
+                      <FanButton
+                        dir={lefty ? 'left' : 'right'}
+                        face={<Icon name={`matter-${partMatter}`} />}
+                        title={`Matière : ${MATTERS.find((m) => m[0] === partMatter)![1]}`}
+                        items={MATTERS.map(([k, label, hint]) => ({ key: k, icon: <Icon name={`matter-${k}`} />, label, hint, on: partMatter === k }))}
+                        onPick={(k) => setPartMatter(k as Matter)}
+                      />
+                      <Knob label={`Resserrage · ${focusName(partFocus)}`} value={partFocus} onChange={(v) => setPartFocus(Math.round(v * 100) / 100)} />
+                      <Knob label="Courbure" center value={(partBend + 1) / 2} onChange={(v) => setPartBend(Math.round((v * 2 - 1) * 50) / 50)} />
+                      <Knob label="Densité" value={partDensity} onChange={(v) => setPartDensity(Math.round(v * 100) / 100)} />
+                      <Knob label="Cumul" value={partPool} onChange={(v) => setPartPool(Math.round(v * 100) / 100)} />
                     </>
                   )}
                   {brushKind === 'hair' && (

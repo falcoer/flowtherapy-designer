@@ -12,7 +12,7 @@ import { contours } from './text';
 export type Win = [number, number, number, number];
 
 /** Pinceaux qui peuvent déborder. */
-export const canSpill = (s: Pick<Stroke, 'brush'>) => s.brush === 'stamp' || s.brush === 'hair' || s.brush === 'branch';
+export const canSpill = (s: Pick<Stroke, 'brush'>) => s.brush === 'stamp' || s.brush === 'hair' || s.brush === 'branch' || s.brush === 'glitter';
 
 /** Cible de peinture d'une fenêtre de la boîte, à la résolution `step` (pixels par unité du format) au plus. */
 function winTarget(l: Layer, f: Format, win: Win, step: number): Target {

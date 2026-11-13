@@ -20,6 +20,8 @@ const KNOB_GLYPHS: Array<[RegExp, string, boolean?]> = [
   [/^distance/i, 'M6 6h4v4H6zM2.5 2.5h3M10.5 2.5h3M2.5 13.5h3M10.5 13.5h3M2.5 2.5v3M2.5 10.5v3M13.5 2.5v3M13.5 10.5v3'],
   [/^largeur/i, 'M2 8h12M4 5.5 1.5 8 4 10.5M12 5.5 14.5 8 12 10.5M8 4v8'],
   [/^graisse/i, 'M4 3h4.5a2.5 2.5 0 0 1 0 5H4zM4 8h5a2.5 2.5 0 0 1 0 5H4zM6 3v10'],
+  [/^resserrage/i, 'M2 3.5 8 8l-6 4.5M8 8h6M10.5 5.5l3.5-1M10.5 10.5l3.5 1'],
+  [/^cumul/i, 'M5 5h.01M9.5 3.5h.01M12 6.5h.01M7.5 7.5h.01M3 13c0-2 2.2-3.5 5-3.5s5 1.5 5 3.500z'],
   [/^courbure/i, 'M2 11Q8 3 14 11'],
   [/^espacement/i, 'M5 3v10M11 3v10M1.5 8h2M12.5 8h2M7 8h2'],
   [/^interligne/i, 'M3 4h10M3 12h10M8 6v4M6.5 7.2 8 5.8l1.5 1.4M6.5 8.8 8 10.2l1.5-1.4'],
