@@ -109,6 +109,8 @@ import {
   tracePath,
 } from './scene';
 
+/** Éléments qu'un tampon peut imprimer. */
+const STAMPABLE: ElementId[] = ['acrylic', 'aquarelle'];
 type Tool = 'cut' | 'paint' | 'mold' | 'stamp' | 'filter' | 'transform' | 'material' | 'coat' | 'edge' | 'move';
 /** Les cinq sections du mode Modifier l'objet, dans l'ordre de la barre. */
 type EditTool = 'filter' | 'transform' | 'material' | 'coat' | 'edge';
@@ -899,8 +901,13 @@ export function App() {
   const listTap = useRef<{ id: string; t: number } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [listDrag, setListDrag] = useState<{ id: string; over?: string; above?: boolean } | null>(null);
+  /** Le menu principal entre par ce sur quoi on agit : Forme garde le dernier de Découper / Modeler, Éléments le dernier de Peindre / Tampon. */
+  const lastShape = useRef<'cut' | 'mold'>('cut');
+  const lastDeposit = useRef<'paint' | 'stamp'>('paint');
   const setTool = (t: Tool) => {
     if (isEdit(t)) lastEdit.current = t;
+    if (t === 'cut' || t === 'mold') lastShape.current = t;
+    if (t === 'paint' || t === 'stamp') lastDeposit.current = t;
     setToolState(t);
   };
   /** Ranger l'outil en cours : plus aucun outil actif, le stylet déplace et choisit les objets. */
@@ -1229,6 +1236,11 @@ export function App() {
   const elToolDef = elDef.tools?.find((t) => t.key === elTool[element]) ?? elDef.tools?.[0];
   /** Moteur qui calcule le trait : celui de l'élément, ou de l'outil choisi. */
   const brushKind: BrushKind = elToolDef?.brush ?? elDef.brush;
+  /** Outils de dépôt de l'élément : ses pinceaux, plus le tampon pour les peintures qui s'impriment. */
+  const depositTools: Array<{ key: string; icon: string; label: string; hint?: string }> = [
+    ...(elDef.tools?.map((t) => ({ key: t.key, icon: t.icon, label: t.label, hint: t.hint })) ?? [{ key: 'brush', icon: 'brush', label: 'Pinceau' }]),
+    ...(STAMPABLE.includes(element) ? [{ key: 'stamp', icon: 'stamp', label: 'Tampon', hint: 'Imprimer ou semer un motif' }] : []),
+  ];
   /** Barre latérale : réglages sur deux colonnes quand une seule ne tient pas dans la hauteur. */
   const sideRef = useRef<HTMLElement>(null);
   const paramsRef = useRef<HTMLDivElement>(null);
@@ -4636,21 +4648,14 @@ export function App() {
               <Icon name="plus" />
             </button>
             <span className="side-sep" />
-            <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => pickTool(lastEdit.current)} title="Créateur de matériaux (T) : forme, bords, vernis, image, transformations, support">
+            <button className={`btn small ${tool === 'cut' || tool === 'mold' ? 'on' : ''}`} onClick={() => (tool === 'cut' || tool === 'mold' ? leaveTool() : setTool(lastShape.current))} title="Forme (C, G) : découper ou modeler le contour de l'objet">
+              <Icon name={tool === 'mold' || (tool !== 'cut' && lastShape.current === 'mold') ? 'mold' : 'scissors'} />
+            </button>
+            <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => pickTool(lastEdit.current)} title="Matériau (T) : le support de l'objet, ses bords, son vernis, son volume">
               <Icon name="matter" />
             </button>
-            <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => pickTool('cut')} title="Découper (C) : trace un contour au stylet">
-              <Icon name="scissors" />
-            </button>
-            <button className={`btn small ${tool === 'mold' ? 'on' : ''}`} onClick={() => pickTool('mold')} title="Modeler (G) : tirer ou repousser le contour de l'objet, à la plume ou au doigt de glaise">
-              <Icon name="mold" />
-            </button>
-
-            <button className={`btn small ${tool === 'paint' ? 'on' : ''}`} onClick={() => pickTool('paint')} title="Peindre (B) : choisir un élément, un outil, un jeu de paramètres">
+            <button className={`btn small ${tool === 'paint' || tool === 'stamp' ? 'on' : ''}`} onClick={() => (tool === 'paint' || tool === 'stamp' ? leaveTool() : setTool(lastDeposit.current))} title="Éléments (B, S) : ce qu'on dépose sur l'objet, choisir un élément, un outil, un jeu de paramètres">
               <Icon name="brush" />
-            </button>
-            <button className={`btn small ${tool === 'stamp' ? 'on' : ''}`} onClick={() => pickTool('stamp')} title="Tampons (S) : motifs à la couleur courante, intensité et rotation">
-              <Icon name="stamp" />
             </button>
           </aside>
 
@@ -4756,24 +4761,47 @@ export function App() {
             className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][1 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'filter' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0)] : ''}`}
           >
             <div ref={paramsRef} className={`side-params ${sideTwo ? 'two' : ''} ${sideOdd ? 'odd' : ''}`}>
-              {tool === 'paint' && (
+              {(tool === 'cut' || tool === 'mold') && (
+                <FanButton
+                  dir={lefty ? 'left' : 'right'}
+                  face={<Icon name={tool === 'cut' ? 'scissors' : 'mold'} />}
+                  title={`Outil de forme : ${tool === 'cut' ? 'Découper' : 'Modeler'}`}
+                  items={[
+                    { key: 'cut', icon: <Icon name="scissors" />, label: 'Découper', hint: 'Trace un contour au stylet', on: tool === 'cut' },
+                    { key: 'mold', icon: <Icon name="mold" />, label: 'Modeler', hint: 'Tirer ou repousser le contour, à la plume ou au doigt de glaise', on: tool === 'mold' },
+                  ]}
+                  onPick={(k) => setTool(k as 'cut' | 'mold')}
+                />
+              )}
+              {(tool === 'paint' || tool === 'stamp') && (
                 <>
                   <FanButton
                     dir={lefty ? 'left' : 'right'}
                     face={<Icon name={elDef.icon} />}
                     title={`Élément : ${elDef.name} (${elDef.family})`}
                     items={ELEMENTS.map((d) => ({ key: d.id, icon: <Icon name={d.icon} />, label: d.name, hint: `${d.family} · ${d.hint}`, on: element === d.id }))}
-                    onPick={(k) => setElement(k as ElementId)}
+                    onPick={(k) => {
+                      setElement(k as ElementId);
+                      if (tool === 'stamp' && !STAMPABLE.includes(k as ElementId)) setTool('paint');
+                    }}
                   />
-                  {elDef.tools && elToolDef && (
+                  {depositTools.length > 1 && (
                     <FanButton
                       dir={lefty ? 'left' : 'right'}
-                      face={<Icon name={elToolDef.icon} />}
-                      title={`Outil : ${elToolDef.label}`}
-                      items={elDef.tools.map((t) => ({ key: t.key, icon: <Icon name={t.icon} />, label: t.label, hint: t.hint, on: elToolDef.key === t.key }))}
-                      onPick={(k) => setElTool((all) => ({ ...all, [element]: k }))}
+                      face={<Icon name={tool === 'stamp' ? 'stamp' : (elToolDef?.icon ?? 'brush')} />}
+                      title={`Outil : ${tool === 'stamp' ? 'Tampon' : (elToolDef?.label ?? 'Pinceau')}`}
+                      items={depositTools.map((t) => ({ ...t, icon: <Icon name={t.icon} />, on: t.key === 'stamp' ? tool === 'stamp' : tool === 'paint' && (elToolDef?.key ?? 'brush') === t.key }))}
+                      onPick={(k) => {
+                        if (k === 'stamp') return setTool('stamp');
+                        if (elDef.tools) setElTool((all) => ({ ...all, [element]: k }));
+                        setTool('paint');
+                      }}
                     />
                   )}
+                </>
+              )}
+              {tool === 'paint' && (
+                <>
                   {elDef.presets.length > 0 && (
                     <FanButton
                       dir={lefty ? 'left' : 'right'}
