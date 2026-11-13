@@ -2488,3 +2488,7 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .scene-focus { display: flex; flex-wrap: wrap; gap: 4px; max-height: 76px; overflow: auto; }
 .scene-focus .chip { font-size: 11.5px; padding: 3px 9px; }
 .scene-focus .chip.on { background: var(--accent); color: #fff; }
+
+/* jeux de paramètres d'un élément : un petit trait d'exemple par jeu */
+.fan-ico:has(.preset-thumb) { width: 52px; }
+.preset-thumb { width: 52px; height: 32px; border-radius: 8px; object-fit: cover; display: block; }

@@ -115,6 +115,16 @@ export interface Stroke {
   grow?: number;
   /** Pinceau Ramures : taille du noyau de couleur au point de départ (0 = aucun, 1 = plein). */
   core?: number;
+  /**
+   * Pinceau Particules (ancien Paillettes) : matière des grains, resserrage (0 = nuage, 1 = traînées),
+   * courbure des trajectoires (−1..1), densité (0..1) et cumul (0 = grains séparés, 1 = ils fusionnent en se posant).
+   * La poussée (`grow`) allonge les trajectoires tant que la pointe reste posée.
+   */
+  matter?: import('./particles').Matter;
+  focus?: number;
+  bend?: number;
+  density?: number;
+  pool?: number;
   /** Pinceau Poils : longueur des brins (0..1, 0.3 par défaut) et frisure (0 = raides, 0.5 = ondulés comme l'alpaga, 1 = bouclés comme le mouton). */
   hairLen?: number;
   curl?: number;

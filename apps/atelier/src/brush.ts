@@ -1,5 +1,6 @@
 import { guideColor, type Guide, type Pt, type Stroke } from './model';
 import { stampOf, stampPaths, type StampDef } from './stamps';
+import { particles } from './particles';
 import { earPrints, isComposite, partLanes, partPolygon, tipParts, type TipPart } from './tips';
 
 /**
@@ -150,7 +151,7 @@ function blurSmall(x: CanvasRenderingContext2D, sw: number, sh: number, passes: 
   x.putImageData(img, 0, 0);
 }
 
-function buffer(key: 'a' | 'b' | 'c' | 'd', w: number, h: number) {
+export function buffer(key: 'a' | 'b' | 'c' | 'd', w: number, h: number) {
   let c = scratch[key];
   if (!c) c = scratch[key] = document.createElement('canvas');
   if (c.width !== w || c.height !== h) {
@@ -177,7 +178,7 @@ export interface Target {
 /** Allongement de la touche d'un pinceau couché, à inclinaison maximale (0.9) : presque deux fois plus longue. */
 export const LEAN = 1.2;
 /** Étire un décalage (dx, dy) dans la direction d, du facteur 1 + K. */
-function stretch(dx: number, dy: number, K: number, d: number): [number, number] {
+export function stretch(dx: number, dy: number, K: number, d: number): [number, number] {
   if (!K) return [dx, dy];
   const c = Math.cos(d);
   const s = Math.sin(d);
@@ -300,7 +301,7 @@ export function paintStroke(dst: CanvasRenderingContext2D, s: Stroke, guides: Gu
     case 'spray':
       return spray(dst, s, guides, t);
     case 'glitter':
-      return glitter(dst, s, guides, t);
+      return particles(dst, s, guides, t);
     case 'hair':
       return hair(dst, s, guides, t);
     case 'stamp':
@@ -1343,7 +1344,6 @@ function spray(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Tar
   let cap = 4096;
   let D = new Float32Array(cap * 7);
   let n = 0;
-  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
   for (let i = 0; i < st.length; i += 1) {
     const q = st[i]!;
     const R = q.r * 1.4;
@@ -1375,13 +1375,26 @@ function spray(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Tar
       D[o + 5] = cg;
       D[o + 6] = cb;
       n++;
-      if (x - d < x0) x0 = x - d;
-      if (y - d < y0) y0 = y - d;
-      if (x + d > x1) x1 = x + d;
-      if (y + d > y1) y1 = y + d;
     }
   }
+  rasterDrops(dst, D, n, t);
+}
+
+/**
+ * Gouttelettes (x, y, rayon, opacité, r, g, b par goutte, `n` gouttes) posées pixel par pixel, carreau par carreau :
+ * des centaines de milliers de disques minuscules coûtent bien moins cher ainsi qu'en tracés du canevas.
+ */
+export function rasterDrops(dst: CanvasRenderingContext2D, D: Float32Array, n: number, t: Target) {
   if (!n) return;
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < n; i++) {
+    const o = i * 7;
+    const d = D[o + 2]!;
+    if (D[o]! - d < x0) x0 = D[o]! - d;
+    if (D[o + 1]! - d < y0) y0 = D[o + 1]! - d;
+    if (D[o]! + d > x1) x1 = D[o]! + d;
+    if (D[o + 1]! + d > y1) y1 = D[o + 1]! + d;
+  }
   // carreaux touchés, en gardant l'ordre des gouttelettes dans chacun
   const tx0 = Math.floor(Math.max(-TILE, x0) / TILE);
   const ty0 = Math.floor(Math.max(-TILE, y0) / TILE);
@@ -1498,54 +1511,6 @@ function spray(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Tar
     tile.height = H;
     tile.getContext('2d')!.putImageData(img, -u0, -v0, u0, v0, W, H);
     dst.drawImage(tile, 0, 0, W, H, bx + u0, by + v0, W, H);
-  }
-  dst.restore();
-}
-
-/** Paillettes : petits éclats plats de tailles et d'angles variés, quelques-uns scintillent. */
-function glitter(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
-  const g = guides[s.guide];
-  const st = stamps(s, t);
-  const r = rng(s.seed ^ 0x99);
-  dst.save();
-  for (let i = 0; i < st.length; i += 2) {
-    const q = st[i]!;
-    const n = Math.round(3 + q.r * 0.25);
-    for (let k = 0; k < n; k++) {
-      const a = r() * Math.PI * 2;
-      const rad = Math.sqrt(r()) * q.r;
-      const [ox, oy] = stretch(Math.cos(a) * rad, Math.sin(a) * rad, q.K, q.d);
-      const x = q.x + ox;
-      const y = q.y + oy;
-      const sz = Math.max(1, q.r * (0.06 + r() * 0.1));
-      const base = guideColor(g, q.t);
-      // chaque éclat accroche la lumière différemment
-      const lit = r();
-      dst.fillStyle = lit > 0.85 ? shade(base, 0.75, 1) : lit < 0.3 ? shade(base, -0.35, 1) : shade(base, (lit - 0.5) * 0.5, 1);
-      dst.globalAlpha = Math.min(1, 0.5 + 0.5 * s.opacity);
-      dst.save();
-      dst.translate(x, y);
-      dst.rotate(r() * Math.PI);
-      if (r() < 0.5) dst.fillRect(-sz / 2, -sz / 2, sz, sz);
-      else {
-        dst.beginPath();
-        for (let h = 0; h < 6; h++) dst.lineTo(Math.cos((h * Math.PI) / 3) * sz * 0.6, Math.sin((h * Math.PI) / 3) * sz * 0.6);
-        dst.fill();
-      }
-      dst.restore();
-      // scintillement : une petite croix de lumière
-      if (lit > 0.965) {
-        const L = sz * 2.6;
-        dst.strokeStyle = 'rgba(255,255,255,0.9)';
-        dst.lineWidth = Math.max(0.6, sz * 0.18);
-        dst.beginPath();
-        dst.moveTo(x - L, y);
-        dst.lineTo(x + L, y);
-        dst.moveTo(x, y - L);
-        dst.lineTo(x, y + L);
-        dst.stroke();
-      }
-    }
   }
   dst.restore();
 }
