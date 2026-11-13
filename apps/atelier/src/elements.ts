@@ -406,7 +406,7 @@ export function extraStrokes(def: ElementDef, s: Stroke, params: Params): Stroke
   const k = ex.dose ? Math.max(0, Math.min(1, (v - from) / Math.max(0.05, 1 - from))) : 1;
   if (k <= 0.01) return [];
   const values = o.presets.find((x) => x.name === ex.preset)?.values ?? o.presets[0]?.values ?? {};
-  return [{ brush: o.brush, guide: s.guide, size: s.size * ex.size, opacity: s.opacity * k, seed: (s.seed ^ 0x2f6b9d) >>> 0, pts: s.pts.map((q) => ({ ...q })), ...strokeParams(o, values), grow: 1, ...(def.brush === 'burn' ? { over: true } : {}) }];
+  return [{ brush: o.brush, guide: s.guide, size: s.size * ex.size, opacity: s.opacity * k, seed: (s.seed ^ 0x2f6b9d) >>> 0, pts: s.pts.map((q) => ({ ...q })), ...strokeParams(o, values), grow: 1, ...(def.base === 'fire' ? { over: true } : {}) }];
 }
 
 /** Toutes les fiches : celles d'origine, puis les copies des gérants (cachées comprises). */

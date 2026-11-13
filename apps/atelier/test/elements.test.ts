@@ -74,6 +74,9 @@ describe('fiches des éléments', () => {
     const tight = elementFrom({ ...sh, knobs: [{ key: 'flame', lo: 0, hi: 0.4 }] })!;
     expect(extraStrokes(tight, s, { flame: 0.4 })[0]!.opacity).toBe(1);
     expect(extraStrokes(tight, s, { flame: 0.1 })).toEqual([]);
+    // une brûlure sans flammes : son second moteur peint dans la couche, il n'attend pas de feu
+    const burnt = elementFrom({ ...sh, id: 'brulure-vive', base: 'burn', extra: { element: 'spark', size: 1 } })!;
+    expect(extraStrokes(burnt, { ...s, flame: undefined }, {})[0]!.over).toBeUndefined();
     // une brûlure ne peut pas servir de second moteur : elle ne peint pas
     expect(elementFrom({ ...sh, extra: { element: 'burn', size: 1 } })!.extra).toBeUndefined();
   });
