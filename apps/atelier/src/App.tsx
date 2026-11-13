@@ -1,8 +1,8 @@
-import { FRAME_TITLES, ANCHOR_FRAMES, fontAllowed, type AnchorFrame, type ElementStore, type Format } from '@ftd/core';
+import { FRAME_TITLES, ANCHOR_FRAMES, fontAllowed, type AnchorFrame, type ElementStore, type Format, type UserPresets } from '@ftd/core';
 import { createPortal } from 'react-dom';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive, type Target } from './brush';
-import { elementList, elementOf, extraStrokes, knobRange, paramsOf, presetOf, startParams, strokeParams, type ElementId } from './elements';
+import { elementList, elementOf, extraStrokes, knobRange, paramsOf, presetOf, startParams, strokeParams, type ElementId, type Params } from './elements';
 import { passKind } from './fresh';
 import { presetThumb } from './element-thumb';
 import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
@@ -36,7 +36,7 @@ import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
 import { CatalogPanel } from './catalog-ui';
-import { fetchActivity, fetchCatalog, fetchElements, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
+import { fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
 import { channelsOf, setCatalog, contactsOf, CONTACT_KINDS, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
 import { Knob } from './knob';
 import { MediaIcon, PublicationsPanel, VariantBar, VariantPick } from './targets-ui';
@@ -494,6 +494,18 @@ export function App() {
     if (online) fetchElements().then(setElStore, () => {});
   }, [online]);
   const elements = useMemo(() => elementList(elStore), [elStore]);
+  // Mes réglages : les jeux de paramètres que chacun garde pour ses éléments
+  const [myPresets, setMyPresets] = useState<UserPresets>({});
+  useEffect(() => {
+    if (online) fetchMyPresets().then(setMyPresets, () => {});
+  }, [online, me?.email]);
+  const putMyPresets = (next: UserPresets) => {
+    setMyPresets(next);
+    saveMyPresets(next).then(
+      (r) => setMyPresets(r.presets),
+      (e: Error) => setToast(`Mes réglages ne sont pas enregistrés : ${e.message}`),
+    );
+  };
   // fiche de l'activité : canaux, palettes (pour partir d'un canal)
   const [activity, setActivity] = useState<ActivityProfile | null>(null);
   const loadActivity = () => {
@@ -4839,18 +4851,55 @@ export function App() {
               )}
               {tool === 'paint' && (
                 <>
-                  {elDef.presets.length > 0 && (
-                    <FanButton
-                      dir={lefty ? 'left' : 'right'}
-                      face={<Icon name="presets" />}
-                      title={`Jeu de paramètres : ${elDef.presets[presetOf(elDef, elP)]?.name ?? 'réglages personnels'}`}
-                      items={elDef.presets.map((ps, i) => {
-                        const thumb = presetThumb(elDef, ps.values, doc.guides[guide]);
-                        return { key: String(i), icon: thumb ? <img className="preset-thumb" src={thumb} alt="" /> : <Icon name={elDef.icon} />, label: ps.name, on: presetOf(elDef, elP) === i };
-                      })}
-                      onPick={(k) => setElParams((all) => ({ ...all, [elDef.id]: { ...paramsOf(all, elDef), ...elDef.presets[Number(k)]!.values } }))}
-                    />
-                  )}
+                  {(elDef.presets.length > 0 || elDef.knobs.length > 0) &&
+                    (() => {
+                      // jeux de la fiche, puis Mes réglages (gardés sur le compte) ; le dernier bouton garde ou retire
+                      const mine = myPresets[elDef.id] ?? [];
+                      const iSheet = presetOf(elDef, elP);
+                      const iMine = presetOf({ ...elDef, presets: mine.map((m) => ({ name: m.name, values: m.values as Params })) }, elP);
+                      const thumbOf = (values: Params) => presetThumb(elDef, values, doc.guides[guide]);
+                      const face = (values: Params) => {
+                        const t = thumbOf(values);
+                        return t ? <img className="preset-thumb" src={t} alt="" /> : <Icon name={elDef.icon} />;
+                      };
+                      const groups = mine.length > 0 || online;
+                      return (
+                        <FanButton
+                          dir={lefty ? 'left' : 'right'}
+                          face={<Icon name="presets" />}
+                          title={`Jeu de paramètres : ${elDef.presets[iSheet]?.name ?? mine[iMine]?.name ?? 'réglages personnels'}`}
+                          items={[
+                            ...elDef.presets.map((ps, i) => ({ key: `p${i}`, icon: face(ps.values), label: ps.name, on: iSheet === i, ...(groups ? { group: 'De l’élément' } : {}) })),
+                            ...mine.map((ps, i) => ({ key: `m${i}`, icon: face(ps.values as Params), label: ps.name, on: iSheet < 0 && iMine === i, group: 'Mes réglages' })),
+                            ...(online
+                              ? iMine >= 0
+                                ? [{ key: 'del', icon: <Icon name="trash" />, label: 'Retirer', hint: `« ${mine[iMine]!.name} » quitte Mes réglages`, group: 'Mes réglages' }]
+                                : iSheet < 0
+                                  ? [{ key: 'add', icon: <Icon name="plus" />, label: 'Garder ces réglages', hint: 'dans Mes réglages', group: 'Mes réglages' }]
+                                  : []
+                              : []),
+                          ]}
+                          onPick={(k) => {
+                            if (k === 'add') {
+                              const name = window.prompt('Nom de ce réglage', `Mon ${elDef.name.toLowerCase()} ${mine.length + 1}`)?.trim();
+                              if (!name) return;
+                              const values = Object.fromEntries(Object.entries(elP).filter(([, v]) => typeof v === 'number')) as Record<string, number>;
+                              putMyPresets({ ...myPresets, [elDef.id]: [...mine, { name, values }] });
+                              setToast(`« ${name} » rejoint Mes réglages`);
+                              return;
+                            }
+                            if (k === 'del') {
+                              const gone = mine[iMine]!;
+                              putMyPresets({ ...myPresets, [elDef.id]: mine.filter((_, j) => j !== iMine) });
+                              setToast(`« ${gone.name} » retiré de Mes réglages`);
+                              return;
+                            }
+                            const values = k[0] === 'm' ? (mine[Number(k.slice(1))]?.values as Params) : elDef.presets[Number(k.slice(1))]?.values;
+                            if (values) setElParams((all) => ({ ...all, [elDef.id]: { ...paramsOf(all, elDef), ...values } }));
+                          }}
+                        />
+                      );
+                    })()}
                   <button
                     className="btn small"
                     disabled={!sel?.strokes.length}

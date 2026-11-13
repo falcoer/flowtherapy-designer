@@ -137,3 +137,21 @@ export function cleanElementStore(raw: unknown): ElementStore {
   const hidden = [...new Set(Array.isArray(r.hidden) ? r.hidden.map(key).filter(Boolean) : [])].slice(0, 120);
   return { hidden, sheets };
 }
+
+/** Réglages gardés par une personne : par élément, ses propres jeux de paramètres (Mes réglages). */
+export type UserPresets = Record<string, Array<{ name: string; values: Record<string, number> }>>;
+
+export function cleanUserPresets(raw: unknown): UserPresets {
+  const out: UserPresets = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [id, list] of Object.entries(raw).slice(0, 80)) {
+    const k = key(id);
+    if (!k || !Array.isArray(list)) continue;
+    const kept = list
+      .slice(0, 24)
+      .map((p) => ({ name: str(p?.name, 40), values: cleanValues(p?.values) }))
+      .filter((p) => p.name && Object.keys(p.values).length);
+    if (kept.length) out[k] = kept;
+  }
+  return out;
+}

@@ -436,6 +436,17 @@ describe('équipes', () => {
     expect(two.json().elements.sheets[0].extra).toEqual({ element: 'spark', size: 3, dose: 'flame', from: 0.95 });
   });
 
+  it('mes réglages : chacun garde les siens', async () => {
+    const { login, as } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    await lauris.send('POST', '/api/teams/flowtherapy/members', { email: 'jenni@example.org', role: 'editor' });
+    const jenni = as((await login('jenni@example.org'))!);
+    const put = await jenni.send('PUT', '/api/me/presets', { fire: [{ name: 'Mon feu', values: { flame: 0.7, char: 4 } }, { name: '', values: { flame: 1 } }], 'x y': 'rien' });
+    expect(put.json().presets).toEqual({ fire: [{ name: 'Mon feu', values: { flame: 0.7, char: 1 } }] });
+    expect((await jenni.get('/api/me/presets')).json().fire[0].name).toBe('Mon feu');
+    expect((await lauris.get('/api/me/presets')).json()).toEqual({});
+  });
+
   it('le secret d’une délégation d’accès est gardé sans jamais être relu, branchement par branchement', async () => {
     const { login, as } = await setup();
     const lauris = as((await login('lauris@example.org'))!);
