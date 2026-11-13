@@ -1216,6 +1216,9 @@ export function App() {
   const viewRef = useRef(view);
   viewRef.current = view;
   const [rendu, setRendu] = useState(false);
+  /** Aperçu de la scène (objectif, transformation, mise au point) : éteint, l'édition reste nette et rapide ; l'export l'applique toujours. */
+  const [preview, setPreview] = useState(false);
+  const sceneShown = preview || rendu || bubble === 'light';
   /** Vue 3D : les couches en plaques, à leur hauteur. */
   const [view3d, setView3d] = useState<false | { start?: [number, number] }>(false);
   const [magnet, setMagnet] = useState(true);
@@ -1532,8 +1535,41 @@ export function App() {
   const dotAt = useRef(0);
   // --- état des gestes en cours ---
   /** Rendu de la scène déjà calculé pour ce document (la vue peut bouger sans le refaire). */
-  const lookCache = useRef<{ doc: Doc; c: HTMLCanvasElement } | null>(null);
+  const lookCache = useRef<{ doc: Doc; c: HTMLCanvasElement; s: number; t: number } | null>(null);
+  /** L'aperçu est-il demandé en ce moment (bouton, boîte Scène, plein écran) : un calcul en attente s'annule sinon. */
+  const lookWanted = useRef(false);
   const lookTimer = useRef<number | undefined>(undefined);
+  /** Calcule l'aperçu de la scène pour ce document, un peu après le dernier changement (un seul calcul par arrêt). */
+  const scheduleLook = (doc: Doc, ff: Format, s: number) => {
+    clearTimeout(lookTimer.current);
+    lookTimer.current = window.setTimeout(() => {
+      // un doigt ou le stylet est encore posé : on attend qu'il se lève (le calcul figerait le geste)
+      if ((live.current.kind && live.current.kind !== 'view') || pointers.current.size) return scheduleLook(doc, ff, s);
+      const d = docRef.current;
+      if (!lookWanted.current || d !== doc || !sceneOn(d)) return;
+      const W = Math.max(2, Math.round(ff.width * s));
+      const H = Math.max(2, Math.round(ff.height * s));
+      const old = lookCache.current?.c;
+      const full = document.createElement('canvas');
+      full.width = W;
+      full.height = H;
+      // sans transformation en pixels, l'objectif passe par la carte graphique : le tampon peut y rester aussi
+      const bx = full.getContext('2d', { willReadFrequently: !!lookOn(d)?.fx })!;
+      bx.setTransform(W / ff.width, 0, 0, H / ff.height, 0, 0);
+      drawLayers(bx, d, ff, {
+        scale: s,
+        onImage: () => {
+          lookCache.current = null;
+          redraw();
+        },
+      });
+      drawLampTint(bx, d, ff);
+      applySceneLook(full, d, ff);
+      if (old) old.width = 0;
+      lookCache.current = { doc: d, c: full, s, t: textEpoch() };
+      redraw();
+    }, 220);
+  };
   const live = useRef<{
     kind: 'paint' | 'cut' | 'subject' | 'move' | 'resize' | 'rotate' | 'pivot' | 'view' | 'swash' | 'mold' | 'bump' | null;
     /** Relief en cours de sculpture : hauteurs de travail et dernière touche (pixels de la carte). */
@@ -1697,57 +1733,27 @@ export function App() {
     const L = live.current;
     const wet = L.kind === 'paint' && L.wet && L.layer ? { id: L.layer, canvas: L.wet, win: L.win } : undefined;
     const burning = L.kind === 'paint' && L.stroke?.brush === 'burn' && L.layer ? { id: L.layer, stroke: L.stroke } : undefined;
-    const look = lookOn(doc);
-    if (look) {
-      // rendu de la scène : la page entière passe par l'appareil photo (transformation, objectif),
-      // dans un tampon à plat ; la vue (zoom, rotation) le pose ensuite comme une image
-      const s = Math.min(scale * dpr, 2400 / Math.max(f.width, f.height));
-      const W = Math.max(2, Math.round(f.width * s));
-      const H = Math.max(2, Math.round(f.height * s));
-      const busy = !!L.kind && L.kind !== 'view';
-      const hit = lookCache.current;
-      if (hit && !busy && hit.doc === doc && hit.c.width === W && hit.c.height === H) ctx.drawImage(hit.c, 0, 0, f.width, f.height);
-      else {
-        const b = document.createElement('canvas');
-        b.width = W;
-        b.height = H;
-        const bx = b.getContext('2d', { willReadFrequently: true })!;
-        bx.setTransform(W / f.width, 0, 0, H / f.height, 0, 0);
-        const late = () => {
-          lookCache.current = null;
-          redraw();
-        };
-        drawLayers(bx, doc, f, { scale: s, onImage: late, progressive: true, wet, burning });
-        drawLampTint(bx, doc, f);
-        // la transformation coûte : pendant un geste, ou juste après un changement, l'objectif seul ;
-        // la scène complète se calcule quand on s'arrête
-        const heavy = !!look.fx;
-        applySceneLook(b, doc, f, heavy);
-        ctx.drawImage(b, 0, 0, f.width, f.height);
-        if (!heavy && !busy) lookCache.current = { doc, c: b };
-        if (heavy) {
-          clearTimeout(lookTimer.current);
-          lookTimer.current = window.setTimeout(() => {
-            if (live.current.kind && live.current.kind !== 'view') return;
-            const d = docRef.current;
-            if (d !== doc) return;
-            const full = document.createElement('canvas');
-            full.width = W;
-            full.height = H;
-            const fx = full.getContext('2d', { willReadFrequently: true })!;
-            fx.setTransform(W / f.width, 0, 0, H / f.height, 0, 0);
-            drawLayers(fx, d, f, { scale: s, onImage: late });
-            drawLampTint(fx, d, f);
-            applySceneLook(full, d, f);
-            lookCache.current = { doc: d, c: full };
-            redraw();
-          }, 260);
-        }
-      }
+    const look = sceneShown && sceneOn(doc);
+    const busy = !!L.kind && L.kind !== 'view';
+    const hit = lookCache.current;
+    const lookS = Math.min(scale * dpr, 2400 / Math.max(f.width, f.height));
+    lookWanted.current = look;
+    if (look && !busy && hit?.doc === doc && hit.s === lookS && hit.t === textEpoch())
+      ctx.drawImage(hit.c, 0, 0, f.width, f.height);
+    else if (look && !busy && hit && hit.doc.layers === doc.layers && hit.doc.guides === doc.guides && hit.doc.formatId === doc.formatId) {
+      // seule la scène ou la vue a changé : l'aperçu précédent reste en place pendant que le nouveau se calcule
+      ctx.drawImage(hit.c, 0, 0, f.width, f.height);
+      scheduleLook(doc, f, lookS);
     } else {
-      lookCache.current = null;
-      drawLayers(ctx, doc, f, { scale: scale * dpr, rot: view.rot, onImage: redraw, progressive: true, wet, burning });
+      // édition : la page nette, sans objectif, transformation ni flou de mise au point ;
+      // l'aperçu (s'il est allumé) se calcule une fois le geste fini
+      drawLayers(ctx, sceneless(doc), f, { scale: scale * dpr, rot: view.rot, onImage: redraw, progressive: true, wet, burning });
       drawLampTint(ctx, doc, f);
+      if (look && !busy) scheduleLook(doc, f, lookS);
+      else if (!look) {
+        lookCache.current = null;
+        clearTimeout(lookTimer.current);
+      }
     }
     if (rendu) return;
     const px = 1 / scale;
@@ -4570,8 +4576,19 @@ export function App() {
                 )}
               </button>
               <button className={`btn ${bubble === 'light' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'light' ? null : 'light')} title="Scène : lumière, objectif, transformation" aria-label="Scène">
-                <SceneGlyph color={lampOf(doc).color} on={!!lookOn(doc)} />
+                <SceneGlyph color={lampOf(doc).color} on={sceneOn(doc)} />
               </button>
+              {sceneOn(doc) && (
+                <button
+                  className={`btn ${sceneShown ? 'on' : ''}`}
+                  onClick={() => setPreview(!preview)}
+                  title={preview ? 'Aperçu de la scène allumé : objectif, transformation et mise au point (touche pour revenir à l’édition rapide)' : 'Aperçu de la scène : objectif, transformation et mise au point. Éteint, l’édition reste rapide ; l’export les applique toujours.'}
+                  aria-label="Aperçu de la scène"
+                  aria-pressed={preview}
+                >
+                  <Icon name="eye" />
+                </button>
+              )}
               <button
                 ref={guideBtn}
                 className={`btn guide-btn ${bubble === 'palette' ? 'on' : ''}`}
@@ -6289,6 +6306,17 @@ function LampPanel({
       <p className="hint">Glisse le soleil sur la carte, ou directement sur la feuille. Plus la lampe est basse, plus les ombres s'allongent. La couleur vient de la palette : sans couleur, la lumière est blanche.</p>
     </div>
   );
+}
+
+/** Le document sans flou de mise au point : ce que l'atelier montre pendant l'édition (l'aperçu et l'export gardent l'appareil). */
+const bareDocs = new WeakMap<Doc, Doc>();
+/** La scène a-t-elle quelque chose à montrer en aperçu : objectif, transformation ou flou de mise au point. */
+const sceneOn = (doc: Doc) => !!lookOn(doc) || (doc.scene?.camera?.aperture ?? 0) >= 0.01;
+function sceneless(doc: Doc): Doc {
+  if (!doc.scene?.camera) return doc;
+  let d = bareDocs.get(doc);
+  if (!d) bareDocs.set(doc, (d = { ...doc, scene: { ...doc.scene, camera: undefined } }));
+  return d;
 }
 
 /** Vignette de la page entière, passée par une transformation (une seule image de base par document). */
