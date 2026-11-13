@@ -244,7 +244,14 @@ export interface SceneLook {
   /** Objectif : distorsion −1 (coussinet) … +1 (barillet), vignettage et franges colorées 0..1. */
   lens?: { warp: number; vignette: number; fringe: number };
   /** Appareil : mise au point sur un objet (absent = sur la feuille) et ouverture 0 (tout net) … 1 (f/1.4, flou fort). */
-  camera?: { focus?: string; aperture: number };
+  camera?: {
+    focus?: string;
+    /** Hauteur mise au point quand la bague est tournée entre deux objets (sans objet visé). */
+    at?: number;
+    aperture: number;
+    /** Mise au point automatique : l'objet sélectionné devient l'objet net. */
+    follow?: boolean;
+  };
 }
 
 export interface Lamp {
