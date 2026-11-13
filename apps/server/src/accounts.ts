@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { cleanCatalog, type Catalog } from '@ftd/core';
+import { cleanCatalog, cleanElementStore, type Catalog, type ElementStore } from '@ftd/core';
 
 /**
  * Comptes et équipes : qui peut entrer, dans quelles équipes, avec quel rôle.
@@ -461,6 +461,24 @@ export class Accounts {
     const c = cleanCatalog(raw);
     this.db
       .prepare("INSERT INTO settings (key, value, updated, by) VALUES ('catalog', ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated, by = excluded.by")
+      .run(JSON.stringify(c), new Date().toISOString(), by ?? null);
+    return c;
+  }
+
+  /** Fiches des éléments réglées par les gérants : copies des fiches d'origine et fiches cachées. */
+  elements(): ElementStore {
+    const r = this.db.prepare("SELECT value FROM settings WHERE key = 'elements'").get() as Row | undefined;
+    try {
+      return cleanElementStore(r?.value ? JSON.parse(String(r.value)) : {});
+    } catch {
+      return cleanElementStore({});
+    }
+  }
+
+  setElements(raw: unknown, by?: string): ElementStore {
+    const c = cleanElementStore(raw);
+    this.db
+      .prepare("INSERT INTO settings (key, value, updated, by) VALUES ('elements', ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated, by = excluded.by")
       .run(JSON.stringify(c), new Date().toISOString(), by ?? null);
     return c;
   }

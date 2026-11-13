@@ -188,7 +188,7 @@ export function UserMenu(p: { me: Me | null; onPrefs: () => void; onCatalog: () 
         <button className="row" onClick={p.onCatalog}>
           <Icon name="settings" />
           <span>Configuration globale</span>
-          <small>formats, diffusion, polices</small>
+          <small>formats, diffusion, polices, éléments</small>
         </button>
       )}
       {/* toujours en bas du menu ; sans compte (accès local ou mot de passe), il n'y a pas de session à fermer */}

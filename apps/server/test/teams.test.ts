@@ -410,6 +410,29 @@ describe('équipes', () => {
     expect((await jenni.get('/api/catalog')).json().media[0].id).toBe('flyer');
   });
 
+  it('les fiches des éléments : les administrateurs les règlent, les membres les lisent', async () => {
+    const { login, as } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    await lauris.send('POST', '/api/teams/flowtherapy/members', { email: 'jenni@example.org', role: 'owner' });
+    const jenni = as((await login('jenni@example.org'))!);
+    expect((await jenni.get('/api/elements')).json()).toEqual({ hidden: [], sheets: [] });
+    expect((await jenni.send('PUT', '/api/elements', { hidden: ['burn'], sheets: [] })).statusCode).toBe(403);
+    const put = await lauris.send('PUT', '/api/elements', {
+      hidden: ['burn', 'burn', 'x y'],
+      sheets: [
+        { id: 'feu-doux', base: 'fire', name: 'Feu doux', family: 'Lumière et feu', icon: 'matter-fire', hint: 'petites flammes', knobs: [{ key: 'flame', lo: 0, hi: 0.4, label: 'Flammèches' }, { key: 'hole', fixed: 0 }, { key: 'char', lo: 0.5, hi: 0.2 }], presets: [{ name: 'Doux', values: { flame: 0.2, char: 9 } }], pass: false },
+        { id: 'feu-doux', base: 'fire', name: 'Doublon', knobs: [], presets: [] },
+        { id: 'sans-nom', base: 'fire', knobs: [], presets: [] },
+      ],
+    });
+    const els = put.json().elements;
+    expect(els.hidden).toEqual(['burn', 'xy']);
+    expect(els.sheets).toEqual([
+      { id: 'feu-doux', base: 'fire', name: 'Feu doux', family: 'Lumière et feu', icon: 'matter-fire', hint: 'petites flammes', knobs: [{ key: 'flame', label: 'Flammèches', lo: 0, hi: 0.4 }, { key: 'hole', fixed: 0 }, { key: 'char' }], presets: [{ name: 'Doux', values: { flame: 0.2, char: 1 } }], pass: false },
+    ]);
+    expect((await jenni.get('/api/elements')).json().sheets[0].name).toBe('Feu doux');
+  });
+
   it('le secret d’une délégation d’accès est gardé sans jamais être relu, branchement par branchement', async () => {
     const { login, as } = await setup();
     const lauris = as((await login('lauris@example.org'))!);

@@ -218,6 +218,9 @@ export async function buildApp(opts: AppOptions) {
   // --- catalogue du site : formats et types de diffusion, réglés par les administrateurs ---
   app.get('/api/catalog', async () => accounts.catalog());
   app.put<{ Body: unknown }>('/api/catalog', { preHandler: adminOnly }, async (req) => ({ ok: true, catalog: accounts.setCatalog(req.body, req.user?.email) }));
+  // --- fiches des éléments : copies et fiches cachées, réglées par les administrateurs ---
+  app.get('/api/elements', async () => accounts.elements());
+  app.put<{ Body: unknown }>('/api/elements', { preHandler: adminOnly }, async (req) => ({ ok: true, elements: accounts.setElements(req.body, req.user?.email) }));
 
   // --- polices : celles livrées avec l'atelier (son index), plus celles installées par les administrateurs ---
   const fonts = new FontInstaller(lib, opts.fetch);

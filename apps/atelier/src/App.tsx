@@ -1,8 +1,8 @@
-import { FRAME_TITLES, ANCHOR_FRAMES, fontAllowed, type AnchorFrame, type Format } from '@ftd/core';
+import { FRAME_TITLES, ANCHOR_FRAMES, fontAllowed, type AnchorFrame, type ElementStore, type Format } from '@ftd/core';
 import { createPortal } from 'react-dom';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive, type Target } from './brush';
-import { ELEMENTS, elementOf, presetOf, startParams, strokeParams, type ElementId } from './elements';
+import { elementList, elementOf, knobRange, paramsOf, presetOf, startParams, strokeParams, type ElementId } from './elements';
 import { passKind } from './fresh';
 import { presetThumb } from './element-thumb';
 import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
@@ -36,7 +36,7 @@ import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
 import { CatalogPanel } from './catalog-ui';
-import { fetchActivity, fetchCatalog, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
+import { fetchActivity, fetchCatalog, fetchElements, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
 import { channelsOf, setCatalog, contactsOf, CONTACT_KINDS, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
 import { Knob } from './knob';
 import { MediaIcon, PublicationsPanel, VariantBar, VariantPick } from './targets-ui';
@@ -488,6 +488,12 @@ export function App() {
         () => {},
       );
   }, [online]);
+  // fiches des éléments : celles d'origine, plus les copies des gérants (Configuration globale › Éléments)
+  const [elStore, setElStore] = useState<ElementStore | null>(null);
+  useEffect(() => {
+    if (online) fetchElements().then(setElStore, () => {});
+  }, [online]);
+  const elements = useMemo(() => elementList(elStore), [elStore]);
   // fiche de l'activité : canaux, palettes (pour partir d'un canal)
   const [activity, setActivity] = useState<ActivityProfile | null>(null);
   const loadActivity = () => {
@@ -1242,21 +1248,21 @@ export function App() {
   /** Bulle ouverte de l'outil Bords. */
   const [epop, setEpop] = useState<string | null>(null);
   /** Élément peint, ses réglages (gardés élément par élément) et l'outil qui le tire quand il en a plusieurs. */
-  const [element, setElement] = useState<ElementId>('aquarelle');
+  const [element, setElement] = useState<string>('aquarelle');
   const [elParams, setElParams] = useState(startParams);
-  const [elTool, setElTool] = useState<Partial<Record<ElementId, string>>>({});
-  const elDef = elementOf(element);
-  const elP = elParams[element];
-  const elToolDef = elDef.tools?.find((t) => t.key === elTool[element]) ?? elDef.tools?.[0];
+  const [elTool, setElTool] = useState<Partial<Record<string, string>>>({});
+  const elDef = elementOf(element, elements);
+  const elP = paramsOf(elParams, elDef);
+  const elToolDef = elDef.tools?.find((t) => t.key === elTool[elDef.id]) ?? elDef.tools?.[0];
   /** Moteur qui calcule le trait : celui de l'élément, ou de l'outil choisi. */
   const brushKind: BrushKind = elToolDef?.brush ?? elDef.brush;
   /** Passe fraîche de l'élément en cours (aquarelle, acrylique, bombe), et son contexte : changer d'élément ou d'outil la sèche. */
-  const wetKind = passKind({ brush: brushKind, matter: elDef.matter });
-  const wetCtx = `${element}|${elToolDef?.key ?? ''}`;
+  const wetKind = elDef.pass === false ? null : passKind({ brush: brushKind, matter: elDef.matter });
+  const wetCtx = `${elDef.id}|${elToolDef?.key ?? ''}`;
   /** Outils de dépôt de l'élément : ses pinceaux, plus le tampon pour les peintures qui s'impriment. */
   const depositTools: Array<{ key: string; icon: string; label: string; hint?: string }> = [
     ...(elDef.tools?.map((t) => ({ key: t.key, icon: t.icon, label: t.label, hint: t.hint })) ?? [{ key: 'brush', icon: 'brush', label: 'Pinceau' }]),
-    ...(STAMPABLE.includes(element) ? [{ key: 'stamp', icon: 'stamp', label: 'Tampon', hint: 'Imprimer ou semer un motif' }] : []),
+    ...(STAMPABLE.includes(elDef.base) ? [{ key: 'stamp', icon: 'stamp', label: 'Tampon', hint: 'Imprimer ou semer un motif' }] : []),
   ];
   /** Barre latérale : réglages sur deux colonnes quand une seule ne tient pas dans la hauteur. */
   const sideRef = useRef<HTMLElement>(null);
@@ -2645,7 +2651,7 @@ export function App() {
     // peinture : dans la couche sélectionnée, sinon celle sous le stylet
     const under = layerAt(p.x, p.y);
     // Déborder : parti du fond tout près, le trait reste à l'objet choisi
-    const spills = spill && (t === 'stamp' || brushKind === 'hair' || brushKind === 'branch' || brushKind === 'glitter');
+    const spills = spill && (t === 'stamp' || (elDef.spill !== false && (brushKind === 'hair' || brushKind === 'branch' || brushKind === 'glitter')));
     const target = sel && insideRings(maskRings(sel, f), p.x, p.y) ? sel : spills && sel && sel.kind !== 'surface' && (!under || under.kind === 'surface') ? sel : under;
     if (!target) return;
     if (target.id !== selected) setSelected(target.id);
@@ -4808,10 +4814,10 @@ export function App() {
                     dir={lefty ? 'left' : 'right'}
                     face={<Icon name={elDef.icon} />}
                     title={`Élément : ${elDef.name} (${elDef.family})`}
-                    items={ELEMENTS.map((d) => ({ key: d.id, icon: <Icon name={d.icon} />, label: d.name, hint: d.hint, group: d.family, on: element === d.id }))}
+                    items={elements.filter((d) => d.id === elDef.id || !elStore?.hidden.includes(d.id)).map((d) => ({ key: d.id, icon: <Icon name={d.icon} />, label: d.name, hint: d.hint, group: d.family, on: elDef.id === d.id }))}
                     onPick={(k) => {
-                      setElement(k as ElementId);
-                      if (tool === 'stamp' && !STAMPABLE.includes(k as ElementId)) setTool('paint');
+                      setElement(k);
+                      if (tool === 'stamp' && !STAMPABLE.includes(elementOf(k, elements).base)) setTool('paint');
                     }}
                   />
                   {depositTools.length > 1 && (
@@ -4822,7 +4828,7 @@ export function App() {
                       items={depositTools.map((t) => ({ ...t, icon: <Icon name={t.icon} />, on: t.key === 'stamp' ? tool === 'stamp' : tool === 'paint' && (elToolDef?.key ?? 'brush') === t.key }))}
                       onPick={(k) => {
                         if (k === 'stamp') return setTool('stamp');
-                        if (elDef.tools) setElTool((all) => ({ ...all, [element]: k }));
+                        if (elDef.tools) setElTool((all) => ({ ...all, [elDef.id]: k }));
                         setTool('paint');
                       }}
                     />
@@ -4840,7 +4846,7 @@ export function App() {
                         const thumb = presetThumb(elDef, ps.values, doc.guides[guide]);
                         return { key: String(i), icon: thumb ? <img className="preset-thumb" src={thumb} alt="" /> : <Icon name={elDef.icon} />, label: ps.name, on: presetOf(elDef, elP) === i };
                       })}
-                      onPick={(k) => setElParams((all) => ({ ...all, [element]: { ...all[element], ...elDef.presets[Number(k)]!.values } }))}
+                      onPick={(k) => setElParams((all) => ({ ...all, [elDef.id]: { ...paramsOf(all, elDef), ...elDef.presets[Number(k)]!.values } }))}
                     />
                   )}
                   <button
@@ -4856,7 +4862,7 @@ export function App() {
                   >
                     <Icon name="paint-reset" />
                   </button>
-                  {(brushKind === 'hair' || brushKind === 'branch' || brushKind === 'glitter') && (
+                  {elDef.spill !== false && (brushKind === 'hair' || brushKind === 'branch' || brushKind === 'glitter') && (
                     <button className={`btn small ${spill ? 'on' : ''}`} onClick={toggleSpill} title={spill ? 'Déborder : l’encre sort de la forme et repousse son contour, comme le modelage (« Revenir à la forme » le rend). Toucher pour rester dans la forme' : 'Dans la forme : l’encre reste dans la découpe. Toucher pour la laisser déborder et repousser le contour'}>
                       <Icon name="spill" />
                     </button>
@@ -4865,7 +4871,10 @@ export function App() {
                     .filter((k) => k.main || !simple)
                     .map((k) => {
                       const v = elP[k.key] ?? 0;
-                      const set = (n: number) => setElParams((all) => ({ ...all, [element]: { ...all[element], [k.key]: n } }));
+                      const set = (n: number) => setElParams((all) => ({ ...all, [elDef.id]: { ...paramsOf(all, elDef), [k.key]: n } }));
+                      // le potard parcourt les bornes de la fiche (une copie peut les resserrer)
+                      const [lo, hi] = knobRange(k);
+                      const at = (n: number) => lo + n * (hi - lo);
                       if (k.toggle)
                         return (
                           <button key={k.key} className={`btn small ${v > 0.5 ? 'on' : ''}`} onClick={() => set(v > 0.5 ? 0 : 1)} title={v > 0.5 ? k.toggle.on : k.toggle.off}>
@@ -4873,9 +4882,16 @@ export function App() {
                           </button>
                         );
                       return k.center ? (
-                        <Knob key={k.key} label={k.label} glyph={k.glyph} center value={(v + 1) / 2} onChange={(n) => set(Math.round((n * 2 - 1) * 50) / 50)} />
+                        <Knob key={k.key} label={k.label} glyph={k.glyph} center value={(v - lo) / (hi - lo)} onChange={(n) => set(Math.round(at(n) * 50) / 50)} />
                       ) : (
-                        <Knob key={k.key} label={k.zone ? `${k.label} · ${k.zone(v)}` : k.label} glyph={k.glyph} fmt={k.fmt} value={v} onChange={(n) => set(Math.max(k.min ?? 0, Math.round(n * 100) / 100))} />
+                        <Knob
+                          key={k.key}
+                          label={k.zone ? `${k.label} · ${k.zone(v)}` : k.label}
+                          glyph={k.glyph}
+                          fmt={k.fmt ? (n) => k.fmt!(at(n)) : lo !== 0 || hi !== 1 ? (n) => `${Math.round(at(n) * 100)} %` : undefined}
+                          value={(v - lo) / (hi - lo)}
+                          onChange={(n) => set(Math.max(k.min ?? lo, Math.round(at(n) * 100) / 100))}
+                        />
                       );
                     })}
                 </>
@@ -5044,7 +5060,7 @@ export function App() {
                     {...(tipOn(brushKind) ? { tip: brushTip, ...(brushTip !== 'round' && brushTip !== 'ears' ? { rotation: brushRot, onRotation: setBrushRot } : {}) } : {})}
                     {...(leanOn(brushKind) ? { tilt: brushTilt, onTilt: (x: number, y: number) => setBrushTilt([x, y]) } : {})}
                     pick={tipOn(brushKind) ? tipPick(brushTip, setBrushTip, BRUSH_TIPS) : { face: <Icon name="tip-round" />, title: 'Pointe ronde (seule possible pour ce pinceau)' }}
-                    {...(element === 'fire'
+                    {...(elDef.base === 'fire'
                       ? {
                           dry: {
                             face: <Icon name="snuffer" />,
@@ -5466,7 +5482,7 @@ export function App() {
             />
           )}
           {bubble === 'user' && <UserMenu me={me} onPrefs={() => setBubble('prefs')} onCatalog={() => setBubble('catalog')} />}
-          {bubble === 'catalog' && me?.admin && online && <CatalogPanel onClose={() => setBubble(null)} onSaved={(c) => (setCatalog(c), setCatalogTick((n) => n + 1))} />}
+          {bubble === 'catalog' && me?.admin && online && <CatalogPanel onClose={() => setBubble(null)} onSaved={(c) => (setCatalog(c), setCatalogTick((n) => n + 1))} onElements={setElStore} guide={doc.guides[guide]} />}
           {bubble === 'prefs' && (
             <PrefsPanel
               online={online}

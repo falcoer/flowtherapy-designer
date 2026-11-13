@@ -2006,6 +2006,30 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .cat-size { display: flex; align-items: center; gap: 6px; }
 .cat-size .pf-input { width: 96px; }
 .cat-size .seg { width: 110px; }
+/* Configuration globale › Éléments : liste par famille, zone d'essai, fiche d'une copie */
+.el-fam { display: flex; flex-direction: column; gap: 2px; }
+.el-fam + .el-fam { margin-top: 6px; }
+.el-ico { flex: none; width: 26px; height: 26px; display: grid; place-items: center; }
+.el-ico svg { width: 22px; height: 22px; }
+.act-row.el-hidden { opacity: 0.5; }
+.el-test { display: contents; }
+.el-test-top { position: sticky; top: 0; z-index: 2; display: flex; flex-direction: column; gap: 6px; padding-bottom: 6px; background: var(--chrome-solid); }
+.el-bounds > .act-check { justify-self: start; }
+.el-test-canvas { width: 100%; aspect-ratio: 560 / 200; border: 1px solid var(--line); border-radius: 10px; background: #fff; touch-action: none; cursor: crosshair; }
+.el-test-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.el-test-bar .pf-note { margin: 0 auto 0 0; }
+.el-bounds { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 12px; }
+.el-range { display: grid; grid-template-columns: minmax(60px, auto) 1fr 3.2em; align-items: center; gap: 8px; font-size: 12px; }
+.el-range input { width: 100%; min-width: 0; }
+.el-range span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.el-knob { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; }
+.el-knob-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.el-knob-head .pf-input { flex: 1 1 120px; min-width: 0; }
+.el-knob-head .seg { flex: none; }
+.el-icons { display: flex; flex-wrap: wrap; gap: 4px; }
+.el-preset { display: flex; gap: 6px; align-items: center; }
+.el-preset .pf-input { flex: 1; min-width: 0; }
+.act-field > .pf-input + .pf-input { margin-top: 4px; }
 @media (max-width: 600px) {
   .cat-cols { flex-direction: column; }
   .cat-list { width: auto; border-right: 0; padding-right: 0; max-height: 30dvh; }

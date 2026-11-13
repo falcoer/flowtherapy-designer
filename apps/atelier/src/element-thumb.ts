@@ -10,7 +10,7 @@ const cache = new Map<string, string>();
  */
 export function presetThumb(def: ElementDef, values: Params, guide: Guide | undefined): string | null {
   if (def.brush === 'burn' || !guide) return null;
-  const key = `${def.id}|${JSON.stringify(values)}|${JSON.stringify(guide)}`;
+  const key = `${def.brush}|${JSON.stringify(strokeParams(def, values))}|${JSON.stringify(guide)}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const [W, H] = [156, 96];
