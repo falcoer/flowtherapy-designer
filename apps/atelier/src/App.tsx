@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { LEAN, paintStroke, previewStampInk, previewStamps, type InkLive, type Target } from './brush';
 import { ELEMENTS, elementOf, presetOf, startParams, strokeParams, type ElementId } from './elements';
+import { passKind } from './fresh';
 import { presetThumb } from './element-thumb';
 import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
 import { steadyPath } from './steady';
@@ -1172,23 +1173,28 @@ export function App() {
     };
   }, [penSeen]);
   /**
-   * Aquarelle sur papier mouillé : la passe en cours (couche, numéro, dernier trait). Ses traits se
-   * mêlent jusqu'à ce qu'on touche « Sécher » ou qu'on peigne une autre couche.
+   * Passe fraîche (aquarelle sur papier mouillé, acrylique, bombe) : couche, numéro, dernier trait, et
+   * contexte (élément et outil). Ses traits travaillent ensemble jusqu'à ce que le contexte se termine
+   * (autre couche, autre élément ou outil, sortie de l'outil) ou qu'on touche « Sécher » ; jamais au temps.
    */
-  const wetPass = useRef<{ layer: string; id: number; at: number } | null>(null);
-  /** Papier mouillé (1) ou sec (0), pour la jauge du bouton Sécher. */
+  const wetPass = useRef<{ layer: string; id: number; at: number; ctx: string } | null>(null);
+  /** Passe fraîche (1) ou sèche (0), pour le bouton Sécher de la roue. */
   const [wetness, setWetness] = useState(0);
-  /** La passe humide d'un nouveau trait d'aquarelle sur cette couche : on la rejoint tant qu'on n'a pas séché ni changé de couche. */
-  const washFor = (layerId: string) => {
+  /** La passe fraîche d'un nouveau trait sur cette couche : on la rejoint tant que le contexte dure. */
+  const washFor = (layerId: string, ctx: string) => {
     const w = wetPass.current;
     const now = Date.now();
     setWetness(1);
-    if (w && w.layer === layerId) {
+    if (w && w.layer === layerId && w.ctx === ctx) {
       w.at = now;
       return w.id;
     }
-    wetPass.current = { layer: layerId, id: now, at: now };
+    wetPass.current = { layer: layerId, id: now, at: now, ctx };
     return now;
+  };
+  const dryPass = () => {
+    wetPass.current = null;
+    setWetness(0);
   };
   /** Survol du stylet (ou de la souris) : un repère montre où la pointe touchera. */
   const hoverRef = useRef<HTMLDivElement>(null);
@@ -1236,6 +1242,9 @@ export function App() {
   const elToolDef = elDef.tools?.find((t) => t.key === elTool[element]) ?? elDef.tools?.[0];
   /** Moteur qui calcule le trait : celui de l'élément, ou de l'outil choisi. */
   const brushKind: BrushKind = elToolDef?.brush ?? elDef.brush;
+  /** Passe fraîche de l'élément en cours (aquarelle, acrylique, bombe), et son contexte : changer d'élément ou d'outil la sèche. */
+  const wetKind = passKind({ brush: brushKind, matter: elDef.matter });
+  const wetCtx = `${element}|${elToolDef?.key ?? ''}`;
   /** Outils de dépôt de l'élément : ses pinceaux, plus le tampon pour les peintures qui s'impriment. */
   const depositTools: Array<{ key: string; icon: string; label: string; hint?: string }> = [
     ...(elDef.tools?.map((t) => ({ key: t.key, icon: t.icon, label: t.label, hint: t.hint })) ?? [{ key: 'brush', icon: 'brush', label: 'Pinceau' }]),
@@ -2670,7 +2679,7 @@ export function App() {
               seed: Math.floor(Math.random() * 1e9),
               ...(tipOn(brushKind) ? { tip: brushTip } : {}),
               ...strokeParams(elDef, elP),
-              ...(brushKind === 'aquarelle' ? { wash: washFor(target.id) } : {}),
+              ...(wetKind ? { wash: washFor(target.id, wetCtx) } : {}),
               pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, target) } : {}), ...(leanOn(brushKind) ? brushLean(e, target) : {}) }],
             },
     };
@@ -3903,6 +3912,13 @@ export function App() {
   const swashFrame = useRef(0);
   // Prolonger se range quand on change de texte ou d'outil
   useEffect(() => setSwash((s) => (s.on ? { ...s, on: false } : s)), [selected, tool]);
+  // fin du contexte : quitter la peinture, changer d'élément ou d'outil, choisir un autre objet sèche la passe fraîche
+  useEffect(() => {
+    const w = wetPass.current;
+    if (!w) return;
+    if (tool !== 'paint' || w.ctx !== wetCtx || (selected && selected !== w.layer)) dryPass();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool, wetCtx, selected]);
   useEffect(() => {
     if (swash.on) {
       setToast(
@@ -4784,7 +4800,7 @@ export function App() {
                     dir={lefty ? 'left' : 'right'}
                     face={<Icon name={elDef.icon} />}
                     title={`Élément : ${elDef.name} (${elDef.family})`}
-                    items={ELEMENTS.map((d) => ({ key: d.id, icon: <Icon name={d.icon} />, label: d.name, hint: `${d.family} · ${d.hint}`, on: element === d.id }))}
+                    items={ELEMENTS.map((d) => ({ key: d.id, icon: <Icon name={d.icon} />, label: d.name, hint: d.hint, group: d.family, on: element === d.id }))}
                     onPick={(k) => {
                       setElement(k as ElementId);
                       if (tool === 'stamp' && !STAMPABLE.includes(k as ElementId)) setTool('paint');
@@ -4836,23 +4852,6 @@ export function App() {
                     <button className={`btn small ${spill ? 'on' : ''}`} onClick={toggleSpill} title={spill ? 'Déborder : l’encre sort de la forme et repousse son contour, comme le modelage (« Revenir à la forme » le rend). Toucher pour rester dans la forme' : 'Dans la forme : l’encre reste dans la découpe. Toucher pour la laisser déborder et repousser le contour'}>
                       <Icon name="spill" />
                     </button>
-                  )}
-                  {brushKind === 'aquarelle' && (
-                    <>
-                      <button
-                        className={`btn small dry-btn ${wetness > 0 ? 'wet' : ''}`}
-                        style={{ '--wet': wetness } as React.CSSProperties}
-                        disabled={wetness <= 0}
-                        onClick={() => {
-                          wetPass.current = null;
-                          setWetness(0);
-                          setToast('Papier séché : les traits suivants se posent en glacis par-dessus');
-                        }}
-                        title={wetness > 0 ? 'Sécher : le papier est encore mouillé, les traits s’y mêlent. Toucher pour figer la passe' : 'Papier sec : le prochain trait commence une nouvelle passe humide'}
-                      >
-                        <Icon name="dry" />
-                      </button>
-                    </>
                   )}
                   {elDef.knobs
                     .filter((k) => k.main || !simple)
@@ -5037,6 +5036,22 @@ export function App() {
                     {...(tipOn(brushKind) ? { tip: brushTip, ...(brushTip !== 'round' && brushTip !== 'ears' ? { rotation: brushRot, onRotation: setBrushRot } : {}) } : {})}
                     {...(leanOn(brushKind) ? { tilt: brushTilt, onTilt: (x: number, y: number) => setBrushTilt([x, y]) } : {})}
                     pick={tipOn(brushKind) ? tipPick(brushTip, setBrushTip, BRUSH_TIPS) : { face: <Icon name="tip-round" />, title: 'Pointe ronde (seule possible pour ce pinceau)' }}
+                    {...(wetKind
+                      ? {
+                          dry: {
+                            face: <Icon name="propeller" />,
+                            wet: wetness,
+                            title:
+                              wetness > 0
+                                ? `Sécher : ${wetKind === 'aquarelle' ? 'le papier est encore mouillé, les traits s’y mêlent' : wetKind === 'acrylic' ? 'la pâte est fraîche, les traits la tirent et s’y mélangent' : 'la peinture est fraîche, chargée elle coule'}. Toucher pour figer la passe`
+                                : 'Sec : le prochain trait commence une nouvelle passe fraîche',
+                            onDry: () => {
+                              dryPass();
+                              setToast('Passe séchée : les traits suivants se posent par-dessus');
+                            },
+                          },
+                        }
+                      : {})}
                   />
                 ),
                 tool === 'stamp' && (

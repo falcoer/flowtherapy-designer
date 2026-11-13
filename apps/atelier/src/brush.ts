@@ -1,6 +1,7 @@
 import { guideColor, type Guide, type Pt, type Stroke } from './model';
 import { stampOf, stampPaths, type StampDef } from './stamps';
 import { particles } from './particles';
+import { ramifyInk } from './ramify';
 import { earPrints, isComposite, partLanes, partPolygon, tipParts, type TipPart } from './tips';
 
 /**
@@ -732,6 +733,7 @@ export function previewStampInk(dst: CanvasRenderingContext2D, s: Stroke, guides
  * d'où partent les ramifications. La couleur suit le guide du cœur vers les extrémités.
  */
 function branchInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Target) {
+  if (s.ramify) return ramifyInk(dst, s, guides, t);
   const r = rng(s.seed);
   const g = guides[s.guide];
   const grow = Math.max(0.05, Math.min(1, s.grow ?? 1));
