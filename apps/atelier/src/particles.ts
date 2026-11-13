@@ -90,9 +90,15 @@ function grains(s: Stroke, t: Target, matter: Matter) {
   const r0 = rng(s.seed ^ 0x5bd1);
   const rays = 5 + Math.floor(r0() * 4);
   const rayAt = Array.from({ length: rays }, (_, j) => r0() * 0.5 + (j / rays) * Math.PI * 2);
+  // budget de grains : un geste très long garde tous ses départs, chacun lâche moins de grains
+  // (les premiers de chaque départ restent les mêmes : le trait s'éclaircit sans se redistribuer)
+  const typical = (12 - 6 * trail) * (0.3 + 1.4 * density) * 1.3 * COUNT[matter] * clamp(R / 36, 0.3, 1.6) ** 0.7;
+  const thin = Math.min(1, MAX_GRAINS / (starts * Math.max(1, typical)));
+  const stride = Math.max(1, Math.ceil(starts / MAX_GRAINS));
   const out: Grain[] = [];
   const emits: Array<{ x: number; y: number; p: number }> = [];
   for (let k = 0; k < starts && out.length < MAX_GRAINS; k++) {
+    if (k % stride) continue;
     const e = at(k * sp);
     emits.push(e);
     const r = rng((s.seed ^ Math.imul(k + 1, 0x9e3779b1)) >>> 0);
@@ -105,7 +111,7 @@ function grains(s: Stroke, t: Target, matter: Matter) {
     } else if (e.K > 0.06) dir = e.d;
     const base = (12 - 6 * trail) * (0.3 + 1.4 * density) * (0.5 + 0.8 * e.p) * COUNT[matter] * clamp(R / 36, 0.3, 1.6) ** 0.7;
     // à l'arrêt, la pointe continue de lâcher des grains tant qu'elle reste posée
-    const n = Math.max(1, Math.round(moving ? base : base * 8 * (0.3 + 0.7 * grow)));
+    const n = Math.max(1, Math.round(moving ? base * thin : base * 8 * (0.3 + 0.7 * grow)));
     const steps = 4 + Math.round(10 * trail + 6 * Math.abs(bend));
     for (let i = 0; i < n && out.length < MAX_GRAINS; i++) {
       const oa = r() * Math.PI * 2;
