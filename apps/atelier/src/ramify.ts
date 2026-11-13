@@ -94,7 +94,8 @@ export function ramifyInk(dst: CanvasRenderingContext2D, s: Stroke, guides: Guid
 /**
  * Électricité : touché, des arcs partent du point ; tracé, le geste devient un éclair brisé d'où
  * partent des fourches. Le resserrage (`focus`) dit où vont les arcs : 0 = dans toutes les
- * directions (boule de plasma), 1 = la foudre tombe du point touché et les fourches suivent le geste. Chaque arc garde son cap mais
+ * directions (boule de plasma), 1 = la foudre tombe du point touché et les fourches suivent le geste.
+ * Chaque arc garde son cap mais
  * zigzague (plus fort avec le désordre), se divise, s'amincit. Rendu : halo flou de la couleur,
  * corps coloré, cœur presque blanc.
  */
@@ -159,7 +160,8 @@ function bolt(dst: CanvasRenderingContext2D, s: Stroke, guides: Guide[], t: Targ
     const spread = Math.PI * 2 * (1 - foc) ** 1.5;
     const a0 = foc < 0.05 ? r() * Math.PI * 2 : Math.PI / 2;
     for (let k = 0; k < nb; k++) {
-      const a = a0 + ((k + 0.5) / nb - 0.5) * spread + (r() - 0.5) * (0.9 * (1 - foc) + 0.35);
+      // les traits d'avant le resserrage (sans `focus`) gardent leurs angles d'origine
+      const a = s.focus === undefined ? a0 + (k / nb) * Math.PI * 2 + (r() - 0.5) * 0.9 : a0 + ((k + 0.5) / nb - 0.5) * spread + (r() - 0.5) * (0.9 * (1 - foc) + 0.35);
       arc(sd.x, sd.y, a, R * (0.55 + 0.45 * r()) * (1 + 0.8 * foc) * grow * (1 + 0.5 * chaos), w0 * (0.8 + 0.5 * sd.p), 0, 0);
     }
   }
