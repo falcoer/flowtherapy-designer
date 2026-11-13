@@ -291,6 +291,14 @@ export const GLOW_TYPES: Array<[GlowStyle | null, string, string]> = [
   ['halo', 'Halo lumineux', 'lueur large et diffuse'],
   ['aura', 'Énergie', 'aura de flammes'],
   ['fire', 'Flammes', 'langues de feu qui montent'],
+  ['bolt', 'Foudre', 'arcs brisés le long du bord'],
+  ['frost', 'Givre', 'cristaux qui poussent du bord'],
+  ['sparks', 'Étincelles', 'gerbes qui partent du bord'],
+  ['dust', 'Poussière', 'grains qui s’en échappent'],
+  ['glitter', 'Paillettes', 'éclats qui brillent autour'],
+  ['drops', 'Gouttes', 'embruns sur le bord'],
+  ['veins', 'Ramures', 'veines qui partent du bord'],
+  ['fur', 'Poils', 'fourrure le long du bord'],
 ];
 export { swatch };
 const EDGE_MODES: Array<[EdgeMode, string, string]> = [

@@ -6,7 +6,8 @@ import { drawBlurred, rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring, insideRings } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
-import { blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
+import { EDGE_ELEMENTS, edgeStroke } from './elements';
+import { blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { keepLinks, type LinkShapes } from './links';
 import { shapedFill } from './gradient';
@@ -1654,10 +1655,29 @@ function paintGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format,
     }
     return p;
   };
+  const mid = dist + w / 2;
+  if (gl.style in EDGE_ELEMENTS) {
+    // lueur d'élément : le contour, décalé, devient le geste du moteur ; rien ne se pose sur l'objet lui-même
+    const T = ctx.getTransform();
+    const [W, H] = [ctx.canvas.width, ctx.canvas.height];
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    lines.forEach(({ pts, nr }, i) => {
+      const P = pts.map((q, k) => ({ x: (T.a * (q.x + nr[k]!.x * mid) + T.c * (q.y + nr[k]!.y * mid) + T.e) / W, y: (T.b * (q.x + nr[k]!.x * mid) + T.d * (q.y + nr[k]!.y * mid) + T.f) / H }));
+      P.push(P[0]!);
+      paintStroke(ctx, edgeStroke(gl.style as EdgeElementStyle, P, gl.guide, gl.width, (seed + i * 7919) >>> 0), doc.guides, { pw: W, ph: H, pxPerMin: minSide * S });
+    });
+    ctx.setTransform(T);
+    ctx.globalCompositeOperation = 'destination-out';
+    const inner = new Path2D();
+    for (const r of rings) r.forEach((q, k) => (k ? inner.lineTo(q.x, q.y) : inner.moveTo(q.x, q.y)));
+    ctx.fill(inner, 'evenodd');
+    ctx.restore();
+    return;
+  }
   ctx.save();
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  const mid = dist + w / 2;
   switch (gl.style) {
     case 'neon': {
       const p = offset(mid);

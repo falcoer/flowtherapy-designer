@@ -1,4 +1,4 @@
-import type { BrushKind, Stroke } from './model';
+import type { BrushKind, EdgeElementStyle, Stroke } from './model';
 import type { Matter } from './particles';
 import type { Ramify } from './ramify';
 
@@ -328,4 +328,27 @@ export function strokeParams(def: ElementDef, p: Params): Partial<Stroke> {
     default:
       return {};
   }
+}
+
+/**
+ * Lueurs de bord tirées des éléments : le contour de l'objet devient le geste. Chaque lueur nomme un
+ * élément, un de ses jeux de paramètres et une taille de pointe (multipliée par l'épaisseur de la lueur).
+ */
+export const EDGE_ELEMENTS: Record<EdgeElementStyle, { element: ElementId; preset: string; size: number }> = {
+  bolt: { element: 'bolt', preset: 'Arc', size: 0.045 },
+  frost: { element: 'frost', preset: 'Givre épais', size: 0.05 },
+  sparks: { element: 'spark', preset: 'Gerbe', size: 0.05 },
+  dust: { element: 'dust', preset: '', size: 0.06 },
+  glitter: { element: 'glitter', preset: '', size: 0.05 },
+  drops: { element: 'water', preset: 'Embruns', size: 0.05 },
+  veins: { element: 'branch', preset: 'Veines', size: 0.04 },
+  fur: { element: 'hair', preset: 'Raides', size: 0.05 },
+};
+
+/** Le trait qu'une lueur d'élément pose le long d'un contour (points en fractions de la cible). */
+export function edgeStroke(style: EdgeElementStyle, pts: Array<{ x: number; y: number }>, guide: number, width: number, seed: number): Stroke {
+  const ee = EDGE_ELEMENTS[style];
+  const def = elementOf(ee.element);
+  const values = def.presets.find((p) => p.name === ee.preset)?.values ?? def.presets[0]?.values ?? {};
+  return { brush: def.brush, guide, size: ee.size * (0.4 + 1.6 * width), opacity: 1, seed, pts: pts.map((q) => ({ x: q.x, y: q.y, p: 0.7 })), ...strokeParams(def, values), grow: 1 };
 }
