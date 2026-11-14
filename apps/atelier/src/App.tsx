@@ -32,13 +32,15 @@ import { GradientOverlay } from './gradient-ui';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
+import { PostizPlanActions, usePostizAccounts } from './postiz-ui';
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
 import { CatalogPanel } from './catalog-ui';
-import { fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
+import { fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, postizSync, type PlanItem, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
 import { channelsOf, setCatalog, contactsOf, CONTACT_KINDS, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
 import { Knob } from './knob';
+import { FocusRing } from './focus-ring';
 import { MediaIcon, PublicationsPanel, VariantBar, VariantPick } from './targets-ui';
 import { CampaignDialog } from './campaigns-ui';
 import { NewCompositionDialog } from './compositions-ui';
@@ -585,25 +587,34 @@ export function App() {
     applySceneLook(c, d, ff);
     return c.toDataURL('image/png');
   };
-  /** Une vignette par publication : le document tel qu'il s'affiche sur chacune (format, marges, couleurs). */
-  const makeThumbs = (d: Doc) => {
+  /** Une vignette par publication : le document tel qu'il s'affiche sur chacune (format, marges, couleurs).
+   *  Une à une, en rendant la main entre deux : l'atelier reste fluide pendant l'enregistrement. */
+  const makeThumbs = async (d: Doc) => {
     if (!d.targets?.length) return undefined;
-    try {
-      return d.targets.map((_, i) => {
-        // les ancrages se résolvent avec les marges de cette publication
-        const x = docAtTarget(d, i, activity);
-        setAnchorFrames(x);
-        return makeThumb(x);
-      });
-    } finally {
-      setAnchorFrames(docRef.current);
+    const out: string[] = [];
+    for (let i = 0; i < d.targets.length; i++) {
+      await new Promise((ok) => setTimeout(ok, 0));
+      // les ancrages se résolvent avec les marges de cette publication
+      const x = docAtTarget(d, i, activity);
+      setAnchorFrames(x);
+      try {
+        out.push(makeThumb(x));
+      } finally {
+        setAnchorFrames(docRef.current);
+      }
     }
+    return out;
   };
   const saveNow = async (p = project, d = docRef.current) => {
     if (!p || !online) return;
     setSaving('saving');
     try {
-      await saveAtelier(p.id, p.title, d, makeThumb(d), makeThumbs(d));
+      const thumb = makeThumb(d);
+      const thumbs = await makeThumbs(d);
+      const meta = await saveAtelier(p.id, p.title, d, thumb, thumbs);
+      // le menu de la composition montre aussitôt ce qui vient d'être enregistré, sans rien redemander au serveur
+      setSavedThumbs({ id: p.id, urls: thumbs ?? [thumb] });
+      setProjects((l) => l.map((x) => (x.id === meta.id ? { ...x, ...meta } : x)));
       setSaving(docRef.current === d ? 'saved' : 'dirty');
       if (docRef.current === d) setPending(null);
     } catch (err) {
@@ -646,6 +657,7 @@ export function App() {
       past.current = [];
       future.current = [];
       firstDoc.current = true;
+      setSavedThumbs(null);
       setDoc(migrate(r.doc));
       setPending(null);
       setSelected(null);
@@ -950,10 +962,71 @@ export function App() {
   const bgTap = useRef<{ id: number; x: number; y: number; t: number } | null>(null);
   const bgLeave = useRef(0);
   const [bubble, setBubble] = useState<Bubble>(null);
+  // Publier : les comptes reliés par l'activité, et l'état des programmations relu chez Postiz à l'ouverture
+  const pubPz = usePostizAccounts(bubble === 'export' && !!online && !!me?.team);
+  useEffect(() => {
+    if (bubble !== 'export' || !online || !me?.team) return;
+    let live = true;
+    postizSync().then(
+      (r) => live && r.changed > 0 && r.campaigns && setCampaigns(r.campaigns),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bubble, online, me?.team?.id]);
+  /** L'image d'un élément du plan : le rendu de la composition pour ce réseau et ce format, en JPEG. */
+  const renderPlanItem = async (it: PlanItem): Promise<Blob | null> => {
+    const d0 = docRef.current;
+    const t = d0.targets?.find((x) => (x.channel ?? '') === (it.channel ?? '') && x.format === it.format);
+    if (!t) return null;
+    const c = await renderDoc(docForTarget(d0, t, activity), formatOf(t.format), 4096, t.width);
+    return new Promise((ok, ko) => c.toBlob((b) => (b ? ok(b) : ko(new Error('Rendu impossible'))), 'image/jpeg', 0.92));
+  };
   // historique du menu de la campagne : demandé au serveur pour cette campagne seulement, à l'ouverture du menu
   const [campaignFeed, setCampaignFeed] = useState<ActivityEvent[] | null>(null);
   // menu de la composition : ses publications rendues d'après le document ouvert, retouches comprises
-  const previews = useMemo(() => (bubble === 'composition' ? (makeThumbs(doc) ?? [makeThumb(doc)]) : undefined), [bubble, doc, activity]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Menu de la composition : les vignettes enregistrées avec elle (serveur, ou celles du dernier enregistrement
+  // de cette séance), affichées aussitôt ; l'enregistrement automatique les refait quelques secondes après
+  // une retouche. Seule une page jamais enregistrée fait ses cartes ici, une à une, hors du geste.
+  const [savedThumbs, setSavedThumbs] = useState<{ id: string; urls: string[] } | null>(null);
+  const stored = !!project && projects.some((x) => x.id === project.id);
+  const [livePreviews, setLivePreviews] = useState<string[] | undefined>(undefined);
+  useEffect(() => {
+    if (bubble !== 'composition' || stored) return void setLivePreviews(undefined);
+    const n = doc.targets?.length || 1;
+    let stop = false;
+    const made: string[] = [];
+    const step = (i: number) => {
+      if (stop || i >= n) return;
+      let x = doc;
+      if (doc.targets?.length) {
+        x = docAtTarget(doc, i, activity);
+        setAnchorFrames(x);
+      }
+      try {
+        made[i] = makeThumb(x);
+      } finally {
+        setAnchorFrames(docRef.current);
+      }
+      const u = made[i];
+      // les cartes déjà faites restent jusqu'à leur remplaçante
+      setLivePreviews((l) => {
+        const next = (l ?? []).slice(0, n);
+        next[i] = u;
+        return next;
+      });
+      t = window.setTimeout(() => step(i + 1), 16);
+    };
+    // juste après une retouche, on attend que le geste se calme
+    let t = window.setTimeout(() => step(0), 400);
+    return () => {
+      stop = true;
+      clearTimeout(t);
+    };
+  }, [bubble, doc, activity, stored]); // eslint-disable-line react-hooks/exhaustive-deps
+  const previews = stored ? (savedThumbs?.id === project?.id ? savedThumbs?.urls : undefined) : livePreviews;
   // menu de la composition : l'historique de sa campagne à elle
   const menuOpen = bubble === 'projects' || bubble === 'composition';
   const campaignScope = bubble === 'composition' && project ? (projects.find((x) => x.id === project.id)?.campaign ?? '') : (followed?.id ?? '');
@@ -1056,6 +1129,17 @@ export function App() {
     }
   };
   const [selected, setSelected] = useState<string | null>('arche');
+  // Scène › AF sélection : l'objet sélectionné devient l'objet net (sans pas d'annulation : c'est la sélection qui bouge)
+  const afFollow = !!doc.scene?.camera?.follow;
+  useEffect(() => {
+    if (!afFollow || !selected) return;
+    setDoc((d) => {
+      const cam = d.scene?.camera;
+      const l = d.layers.find((x) => x.id === selected);
+      if (!cam?.follow || !l || l.kind === 'surface' || !l.visible || cam.focus === l.id) return d;
+      return { ...d, scene: { ...d.scene, camera: { ...cam, focus: l.id, at: undefined } } };
+    });
+  }, [afFollow, selected]);
   // le bandeau des attributs ouvert : la roue du pinceau et le menu de gauche se posent au-dessus
   useEffect(() => {
     if (!(isEdit(tool) && selected)) return setBandH(0);
@@ -5521,7 +5605,23 @@ export function App() {
                         {it.label ? ` · ${it.label}` : ''}
                         {it.date ? ` · ${new Date(`${it.date}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}` : ''}
                       </span>
-                      {it.published ? (
+                      {pubPz.data?.enabled && !it.published && !it.postiz && it.composition && it.composition !== project?.id ? (
+                        <small className="fx-hint pz-note" title="Ouvre la composition prévue pour la programmer">
+                          prévue pour une autre composition
+                        </small>
+                      ) : pubPz.data?.enabled && pubPz.data.providers[it.channel ?? ''] && (it.postiz || pubPz.data.accounts.some((a) => a.channel === it.channel)) ? (
+                        <PostizPlanActions
+                          campaign={pubCampaign!.id}
+                          item={it}
+                          accounts={pubPz.data.accounts.filter((a) => a.channel === it.channel && !a.disabled)}
+                          owner={me?.team?.role === 'owner'}
+                          caption={doc.caption ?? ''}
+                          composition={project?.id}
+                          render={() => renderPlanItem(it)}
+                          onCampaign={(x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y)))}
+                          toast={setToast}
+                        />
+                      ) : it.published ? (
                         <small className="pub-done">publiée</small>
                       ) : (
                         canEditTeam && (
@@ -5534,10 +5634,17 @@ export function App() {
                   ))}
                 </div>
               )}
-              <button className="pf-btn pub-schedule" disabled title="Bientôt : relier les comptes Facebook et Instagram de l’activité">
-                Programmer la publication
-              </button>
-              <p className="fx-hint">La publication programmée viendra quand les comptes Facebook et Instagram de l’activité seront reliés.</p>
+              {pubPz.err && <p className="pf-note err">Publication programmée indisponible : {pubPz.err}</p>}
+              {!pubPz.data && !pubPz.err && online && me?.team && <p className="fx-hint pz-note">Comptes de diffusion : lecture…</p>}
+              {pubPz.data && !pubPz.data.enabled && me?.admin && <p className="fx-hint pz-note">Postiz n’est pas configuré (Configuration globale › Publication).</p>}
+              {pubPz.data?.enabled && !pubPlan.length && (
+                <p className="fx-hint pz-note">
+                  {pubCampaign
+                    ? 'Pour programmer cette publication, ajoute-la au plan de la campagne (le réseau et le format cochés ci-dessus).'
+                    : 'Pour programmer une publication, range la composition dans une campagne et ajoute-la à son plan.'}
+                </p>
+              )}
+              {pubPz.data?.enabled && pubPlan.length > 0 && !pubPz.data.accounts.length && <p className="fx-hint pz-note">Relie d’abord un compte du réseau dans la fiche de l’activité › Médias.</p>}
             </div>
           )}
 
@@ -6168,14 +6275,11 @@ function LampPanel({
   const lens = sc.lens ?? NO_LENS;
   const tidy = (x: SceneLook): SceneLook | undefined => {
     const l = x.lens && (x.lens.warp || x.lens.vignette || x.lens.fringe) ? x.lens : undefined;
-    const c = x.camera && (x.camera.aperture > 0 || x.camera.focus) ? x.camera : undefined;
+    const c = x.camera && (x.camera.aperture > 0 || x.camera.focus || x.camera.at || x.camera.follow) ? x.camera : undefined;
     return x.fx || l || c ? { ...(x.fx ? { fx: x.fx } : {}), ...(l ? { lens: l } : {}), ...(c ? { camera: c } : {}) } : undefined;
   };
   const cam = sc.camera ?? { aperture: 0 };
   const setCam = (p: Partial<typeof cam>) => onScene(tidy({ ...sc, camera: { ...cam, ...p } }));
-  const fnum = (a: number) => 16 * Math.pow(1.4 / 16, a);
-  const selLayer = selected ? doc.layers.find((x) => x.id === selected) : undefined;
-  const selTarget = selLayer && selLayer.kind !== 'surface' && selLayer.visible ? selLayer : undefined;
   const setLens = (p: Partial<typeof lens>) => onScene(tidy({ ...sc, lens: { ...lens, ...p } }));
   const setFx = (fx: Fx | undefined) => onScene(tidy({ ...sc, fx }));
   const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -6214,39 +6318,9 @@ function LampPanel({
       <div className="lamp-panel scene-panel" data-tint-zone>
         {head}
         <div className="scene-sub">Mise au point</div>
-        {selTarget && cam.focus !== selTarget.id ? (
-          <button className="chip scene-aim" onClick={() => setCam({ focus: selTarget.id })}>
-            <Icon name="target" /> Mise au point sur « {selTarget.name} »
-          </button>
-        ) : (
-          <p className="scene-aim-note">{selTarget ? `Net sur « ${selTarget.name} », l'objet sélectionné.` : 'Sélectionne un objet sur la page pour y faire la mise au point, ou choisis-le ici.'}</p>
-        )}
-        <div className="scene-focus" role="radiogroup" aria-label="Objet net">
-          {[undefined, ...doc.layers.filter((x) => x.kind !== 'surface' && x.visible)].map((x) => (
-            <button
-              key={x?.id ?? 'page'}
-              ref={x && x.id === selected ? (el) => el?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) : undefined}
-              role="radio"
-              aria-checked={cam.focus === x?.id}
-              className={`scene-fx-b ${cam.focus === x?.id ? 'on' : ''} ${x && x.id === selected ? 'sel' : ''}`}
-              onClick={() => {
-                setCam({ focus: x?.id });
-                // le choix ici sélectionne aussi l'objet sur la page
-                if (x) onSelect(x.id);
-              }}
-            >
-              {x ? <LayerThumb layer={x} doc={doc} /> : <i className="scene-page" />}
-              <span>{x ? x.name : 'Feuille'}</span>
-            </button>
-          ))}
-        </div>
-        <div className="scene-knobs scene-knobs-4">
-          <div className="cp-dial">
-            <Knob label="Ouverture" value={cam.aperture} onChange={(v) => setCam({ aperture: r2(v) })} />
-            <span className="cp-dial-l">Ouverture</span>
-            <output>{cam.aperture < 0.01 ? 'tout net' : `f/${fnum(cam.aperture).toFixed(1).replace('.0', '')}`}</output>
-          </div>
-          <i className="scene-sep" />
+        <FocusRing doc={doc} cam={cam} selected={selected} onCam={setCam} onSelect={onSelect} thumb={(l) => <LayerThumb layer={l} doc={doc} />} />
+        <div className="scene-sub">Optique</div>
+        <div className="scene-knobs scene-knobs-3">
           <div className="cp-dial">
             <Knob label="Distorsion" center value={(lens.warp + 1) / 2} onChange={(v) => setLens({ warp: r2(v * 2 - 1) })} />
             <span className="cp-dial-l">Distorsion</span>
@@ -6263,7 +6337,6 @@ function LampPanel({
             <output>{Math.round(lens.fringe * 100)}</output>
           </div>
         </div>
-        <p className="hint">L'ouverture règle la profondeur de champ : plus elle est grande (f/1.4), plus la zone nette est courte et plus les objets plus hauts ou plus bas que l'objet net flouent.</p>
       </div>
     );
   if (tab === 'fx') {

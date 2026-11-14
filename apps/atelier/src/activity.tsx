@@ -30,6 +30,7 @@ import { SITE_VARIANTS } from './brand-presets';
 import { ColorDialog, swatch } from './color-dialog';
 import { MediaIcon, VariantBar } from './targets-ui';
 import { OccasionIconPick } from './campaigns-ui';
+import { PostizAccountsEditor, usePostizAccounts } from './postiz-ui';
 
 /**
  * L'activité (le groupe, l'association, le lieu…) pour laquelle tout l'outil existe :
@@ -559,6 +560,8 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
   const [kindOther, setKindOther] = useState(false);
   const [adding, setAdding] = useState<SourceKind | null>(null);
   const [src, setSrc] = useState({ name: '', url: '' });
+  // comptes des réseaux publiés par Postiz : relus quand on ouvre le volet Médias
+  const pz = usePostizAccounts(tab === 'media');
   const dirty = useRef<{ prof: ActivityProfile; logos: Partial<Record<LogoVariant, string | null>> } | null>(null);
   const timer = useRef<number | undefined>(undefined);
 
@@ -863,7 +866,9 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
                           </select>
                         </Field>
                       )}
-                      {(m.fields.account || m.fields.api || m.fields.folder) && (
+                      {pz.data?.enabled && pz.data.providers[m.id] ? (
+                        <PostizAccountsEditor channel={m.id} name={m.name} data={pz.data} edit={edit} reload={pz.reload} />
+                      ) : (m.fields.account || m.fields.api || m.fields.folder) && (
                         <ConnectionsEditor
                           media={m}
                           list={connectionsOf(pk)}

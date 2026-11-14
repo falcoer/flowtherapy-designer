@@ -99,6 +99,8 @@ export interface PlanItem extends Target {
   /** publiée : quand, et le lien de la publication */
   published?: string;
   link?: string;
+  /** confiée à Postiz (écrit par le serveur) */
+  postiz?: { post: string; account: string; at: string; state: 'queue' | 'published' | 'error'; error?: string };
 }
 export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'templates' | 'plan'>> & { closed?: boolean };
 export const listCampaigns = () => call<Campaign[]>('/api/campaigns');
@@ -314,6 +316,41 @@ export interface ActivityProfile {
 }
 export const fetchCatalog = () => call<Catalog>('/api/catalog');
 export const saveCatalog = (c: Catalog) => call<{ catalog: Catalog }>('/api/catalog', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(c) });
+/** Postiz, moteur de diffusion caché : comptes reliés par l'activité, réglage du site (admin). */
+export interface PostizAccount {
+  id: string;
+  name: string;
+  identifier: string;
+  picture?: string;
+  disabled?: boolean;
+  profile?: string;
+  /** Type de diffusion de l'activité auquel le compte est rattaché. */
+  channel: string;
+}
+export interface PostizAccounts {
+  enabled: boolean;
+  /** Type de diffusion → fournisseur Postiz. */
+  providers: Record<string, string>;
+  /** Type dont une connexion est en cours. */
+  pending?: string;
+  accounts: PostizAccount[];
+}
+export const fetchPostizAccounts = () => call<PostizAccounts>('/api/postiz/accounts');
+export const postizConnect = (channel: string) => call<{ url: string }>('/api/postiz/connect', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ channel }) });
+export const postizRemove = (id: string) => call<{ ok: true }>(`/api/postiz/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+/** Confie un élément du plan à Postiz : `when` = 'now' ou une date ISO. */
+export function postizPublish(p: { campaign: string; item: string; account: string; when: string; caption: string; composition?: string; image?: Blob }) {
+  const fd = new FormData();
+  for (const k of ['campaign', 'item', 'account', 'when', 'caption', 'composition'] as const) if (p[k] !== undefined) fd.append(k, p[k]!);
+  if (p.image) fd.append('image', p.image, p.image.type === 'image/png' ? 'publication.png' : 'publication.jpg');
+  return call<{ campaign: Campaign }>('/api/postiz/publish', { method: 'POST', body: fd }).then((r) => r.campaign);
+}
+export const postizUnschedule = (campaign: string, item: string) =>
+  call<{ campaign: Campaign }>(`/api/postiz/publish/${encodeURIComponent(campaign)}/${encodeURIComponent(item)}`, { method: 'DELETE' }).then((r) => r.campaign);
+export const postizSync = () => call<{ changed: number; campaigns?: Campaign[] }>('/api/postiz/sync', { method: 'POST' });
+export const fetchPostizConfig = () => call<{ url: string; keySet: boolean }>('/api/postiz/config');
+export const savePostizConfig = (c: { url?: string; key?: string | null }) =>
+  call<{ url: string; keySet: boolean }>('/api/postiz/config', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(c) });
 export const fetchElements = () => call<ElementStore>('/api/elements');
 export const saveElements = (e: ElementStore) => call<{ elements: ElementStore }>('/api/elements', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(e) });
 export const fetchMyPresets = () => call<UserPresets>('/api/me/presets');

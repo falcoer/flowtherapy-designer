@@ -699,7 +699,7 @@ export function dofRadius(l: Layer, doc: Doc, f: Format, scale: number): number 
   if (!cam || cam.aperture < 0.01) return 0;
   const h = (x: Layer) => (x.kind === 'surface' ? 0 : x.height - (x.inner ?? 0));
   const target = cam.focus ? doc.layers.find((x) => x.id === cam.focus) : undefined;
-  const hf = target ? h(target) : 0;
+  const hf = target ? h(target) : (cam.at ?? 0);
   const dh = Math.abs(h(l) - hf);
   return cam.aperture * dh * 0.035 * Math.min(f.width, f.height) * scale;
 }

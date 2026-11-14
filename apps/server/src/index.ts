@@ -48,6 +48,7 @@ const app = await buildApp({
   password: process.env.FTD_PASSWORD,
   mailer: mailerFromEnv(),
   publicUrl: process.env.FTD_PUBLIC_URL,
+  postiz: { url: process.env.FTD_POSTIZ_URL, key: process.env.FTD_POSTIZ_KEY },
 });
 
 const port = Number(process.env.PORT ?? 4310);
