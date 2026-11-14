@@ -756,6 +756,8 @@ export function TopCrumbs(p: {
   /** seul l'échec d'enregistrement se signale (point d'exclamation) */
   saving?: keyof typeof SAVE_LABELS;
   open: 'activity' | 'campaign' | 'content' | null;
+  /** la section présentée à l'écran, éclairée dans le fil */
+  here: 'activity' | 'campaign' | 'content';
   onActivity: () => void;
   onCampaign: () => void;
   onContent: () => void;
@@ -768,12 +770,12 @@ export function TopCrumbs(p: {
   const alert = late ? `${late} rendu${late > 1 ? 's' : ''} en retard` : '';
   return (
     <nav className="crumbs" aria-label="Activité, campagne, contenu">
-      <button className={`crumb first ${p.open === 'activity' ? 'on' : ''}`} onClick={p.onActivity} title={p.team ? `${p.team.name} : activité` : 'Activité'}>
+      <button className={`crumb first ${p.open === 'activity' ? 'on' : ''} ${p.here === 'activity' ? 'current' : ''}`} aria-current={p.here === 'activity' ? 'page' : undefined} onClick={p.onActivity} title={p.team ? `${p.team.name} : activité` : 'Activité'}>
         <ActivityMark team={p.team} size={24} />
         <span className="crumb-txt crumb-act">{p.team?.name ?? 'Atelier'}</span>
       </button>
       {p.showCampaign && (
-        <button className={`crumb ${c ? '' : 'none'} ${p.open === 'campaign' ? 'on' : ''}`} onClick={p.onCampaign} title={c ? `${c.name}${c.date ? ` · ${day(c.date)}` : ' · pas encore de date'}${alert ? ` · ${alert}` : ''}` : `${mid} : choisir une campagne`}>
+        <button className={`crumb ${c ? '' : 'none'} ${p.open === 'campaign' ? 'on' : ''} ${p.here === 'campaign' ? 'current' : ''}`} aria-current={p.here === 'campaign' ? 'page' : undefined} onClick={p.onCampaign} title={c ? `${c.name}${c.date ? ` · ${day(c.date)}` : ' · pas encore de date'}${alert ? ` · ${alert}` : ''}` : `${mid} : choisir une campagne`}>
           <span className="crumb-icon">
             <span className={`cmp-date ${d ? '' : 'none'} ${c && !d ? 'nodate' : ''}`}>
               {d ? (
@@ -796,7 +798,7 @@ export function TopCrumbs(p: {
           <span className="crumb-txt">{mid}</span>
         </button>
       )}
-      <button className={`crumb last current ${p.open === 'content' ? 'on' : ''}`} onClick={p.onContent} title={`${p.title ?? 'Page non enregistrée'} · ${p.kind}`}>
+      <button className={`crumb last ${p.here === 'content' ? 'current' : ''} ${p.open === 'content' ? 'on' : ''}`} aria-current={p.here === 'content' ? 'page' : undefined} onClick={p.onContent} title={`${p.title ?? 'Page non enregistrée'} · ${p.kind}`}>
         {p.thumb && <img className="crumb-thumb" src={p.thumb} alt="" />}
         <span className="crumb-txt crumb-two">
           <b>{p.title ?? 'Page non enregistrée'}</b>

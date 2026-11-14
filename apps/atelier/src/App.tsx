@@ -4767,6 +4767,7 @@ export function App() {
                 kind={doc.targets && doc.targets.length > 1 ? `${targetLabel(currentPub, activity)} · ${pubIndex(doc) + 1}/${doc.targets.length}` : doc.targets?.length ? targetLabel(currentPub, activity) : f.title}
                 saving={online && project ? saving : undefined}
                 open={bubble === 'activity' || picking ? 'activity' : space ? 'campaign' : bubble === 'composition' ? 'content' : null}
+                here={bubble === 'activity' ? 'activity' : space ? 'campaign' : 'content'}
                 onActivity={() => {
                   // avec une équipe : sous-menu des cinq dernières campagnes (et la fiche de l'activité en bas)
                   if (online && me?.team) {
