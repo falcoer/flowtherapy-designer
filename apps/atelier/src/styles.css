@@ -803,11 +803,6 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
   .bar-center { order: 1; position: static; transform: none; flex: none; margin: 0 auto; height: 100%; }
   .bar-right { order: 2; }
 }
-/* tablette : la pastille d'état garde son étape, l'action suivante est dans son menu */
-@media (min-width: 561px) and (max-width: 1100px) {
-  .sp-stage-next { display: none; }
-  .sp-stage { padding-right: 6px; }
-}
 /* téléphone : annuler, rétablir, dupliquer et corbeille dans une pastille sous la barre */
 @media (max-width: 560px) {
   .bar-center { top: calc(52px + env(safe-area-inset-top, 0px) + 6px); bottom: auto; height: 44px; padding: 0 4px; border-radius: 22px; background: var(--chrome); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: var(--shadow); z-index: 11; }
@@ -2763,11 +2758,13 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .cap-emojis button:hover { background: var(--accent-soft); }
 
 /* pastille d'état et son circuit */
-.sp-stage { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px 0 6px; border: 1px solid var(--line); border-radius: 18px; background: var(--chrome-solid); color: var(--ink); font: inherit; cursor: pointer; margin-right: 4px; }
-.sp-stage:hover, .sp-stage.on { border-color: var(--accent); }
-.sp-stage-next { color: var(--accent); font-weight: 600; font-size: 13px; white-space: nowrap; }
-.sp-stage { position: relative; }
-.sp-stage .msg-count { top: -5px; right: -6px; }
+/* la bulle de conversation de la barre : remplie de la couleur de l'étape de la composition */
+.sp-stage-btn { --stage: rgba(127, 127, 127, 0.18); }
+.sp-stage-btn.st-proposed { --stage: #2f6fd0; }
+.sp-stage-btn.st-changes { --stage: #e0a23a; }
+.sp-stage-btn.st-approved { --stage: #2e8b57; }
+.sp-stage-btn.st-scheduled { --stage: var(--accent); }
+.sp-stage-btn.st-published { --stage: #1f6b42; }
 /* dans le dialogue de l'état et des messages : le circuit en ligne, au-dessus des actions */
 .msg-state .sp-stage-track { flex: 1 1 100%; display: flex; flex-direction: column; gap: 8px; }
 .msg-modal .sp-track { flex-direction: row; }
@@ -2783,13 +2780,6 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .sp-track .done i { background: #2e8b57; border-color: #2e8b57; color: #fff; }
 .sp-track .now i { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
 .sp-track .now span { color: var(--accent); font-weight: 650; }
-@media (max-width: 560px) {
-  .sp-stage-next { display: none; }
-  .sp-stage { padding: 0; width: 36px; justify-content: center; margin-right: 0; }
-  .sp-stage .sp-pill { width: 22px; padding: 0; font-size: 0; gap: 0; justify-content: center; }
-  .sp-stage .sp-pill::before { width: 10px; height: 10px; }
-  .sp-stage .sp-pill.st-published::before { background: #fff; }
-}
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .sp-pill.st-proposed { color: #7fb0ff; }
   :root:not([data-theme='light']) .sp-pill.st-changes, :root:not([data-theme='light']) .sp-todo-k { color: #f0b75a; }

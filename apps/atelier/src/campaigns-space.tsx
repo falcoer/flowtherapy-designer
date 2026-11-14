@@ -673,15 +673,16 @@ function PlanTab(p: {
 
 // ——— dans l'atelier ———
 
-/** Pastille d'état de la composition, avec le nombre de messages : la toucher ouvre le dialogue de l'état et des messages. */
+/** Bulle de conversation de la barre, remplie de la couleur de l'étape, avec le nombre de messages : elle ouvre le dialogue de l'état et des messages. */
 export function StageButton(p: { meta?: AtelierMeta; campaign?: Campaign; owner: boolean; count: number; on: boolean; onClick: () => void }) {
   const stage = stageOf(p.meta, p.campaign);
-  const next: Record<Stage, string> = { draft: 'Proposer', proposed: p.owner ? 'Valider' : 'En attente', changes: 'À corriger', approved: 'Programmer', scheduled: 'Programmée', published: '' };
-  const msgs = p.count ? `, ${p.count} message${p.count > 1 ? 's' : ''}` : '';
+  const next: Record<Stage, string> = { draft: 'à proposer', proposed: p.owner ? 'à valider' : 'en attente des responsables', changes: 'à corriger', approved: 'à programmer', scheduled: '', published: '' };
+  const msgs = p.count ? ` · ${p.count} message${p.count > 1 ? 's' : ''}` : '';
   return (
-    <button className={`sp-stage ${p.on ? 'on' : ''}`} onClick={p.onClick} title={`Où en est la composition${msgs} : l’étape suivante et les messages`} aria-expanded={p.on}>
-      <StagePill stage={stage} />
-      {next[stage] && <span className="sp-stage-next">{next[stage]} ›</span>}
+    <button className={`btn msg-btn sp-stage-btn st-${stage} ${p.on ? 'on' : ''}`} onClick={p.onClick} title={`${STAGE_LABELS[stage]}${next[stage] ? `, ${next[stage]}` : ''}${msgs} : l’état de la composition et ses messages`} aria-label={`État et messages : ${STAGE_LABELS[stage]}`} aria-expanded={p.on}>
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+        <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z" fill="var(--stage)" />
+      </svg>
       {p.count > 0 && <span className="msg-count">{p.count > 99 ? '99+' : p.count}</span>}
     </button>
   );

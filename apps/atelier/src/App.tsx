@@ -4721,20 +4721,6 @@ export function App() {
                   )}
                 </button>
               )}
-              {!space && online && me?.team && (
-                <StageButton
-                  meta={curMeta}
-                  campaign={curCampaign}
-                  owner={me.team.role === 'owner'}
-                  count={curMeta?.messages ?? 0}
-                  on={msgDialog}
-                  onClick={() => {
-                    if (!project) return setToast('Enregistre la page pour la proposer et en parler');
-                    setBubble(null);
-                    setMsgDialog(true);
-                  }}
-                />
-              )}
               {!space && (
                 <>
               <button className={`btn ${bubble === 'light' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'light' ? null : 'light')} title="Scène : lumière, objectif, transformation" aria-label="Scène">
@@ -4792,6 +4778,20 @@ export function App() {
               >
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
+              {online && me?.team && (
+                <StageButton
+                  meta={curMeta}
+                  campaign={curCampaign}
+                  owner={me.team.role === 'owner'}
+                  count={curMeta?.messages ?? 0}
+                  on={msgDialog}
+                  onClick={() => {
+                    if (!project) return setToast('Enregistre la page pour la proposer et en parler');
+                    setBubble(null);
+                    setMsgDialog(true);
+                  }}
+                />
+              )}
               <button
                 className={`btn ${bubble === 'export' ? 'on' : ''}`}
                 onClick={() => {
