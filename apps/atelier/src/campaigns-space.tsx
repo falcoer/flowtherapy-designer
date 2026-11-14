@@ -235,8 +235,6 @@ export function CampaignPage(p: {
   onSheet: () => void;
   onSave: (c: CampaignInput) => Promise<void>;
   onClose: (closed: boolean) => void;
-  /** changer de campagne : les récentes du fil d'Ariane, et toutes */
-  onSwitch?: () => void;
   onNew: () => void;
   onOpen: (m: AtelierMeta, target?: number) => void;
   onVote: (m: AtelierMeta) => void;
@@ -461,18 +459,6 @@ export function CampaignPage(p: {
           <h1>{c ? c.name : 'Hors campagne'}</h1>
           <small>{c ? subOf(c, p.operations) : 'les compositions sans campagne'}</small>
         </span>
-        {p.onSwitch && (
-          <button
-            className="sp-switch"
-            onClick={(e) => {
-              e.stopPropagation();
-              p.onSwitch!();
-            }}
-            title="Changer de campagne : les dernières ouvertes, ou toutes"
-          >
-            <Icon name="switch" /> <span>Changer</span>
-          </button>
-        )}
         {c && (
           <span className="sp-head-acts">
             {p.canEdit && (
@@ -838,8 +824,8 @@ export function campaignCaption(c: Pick<Campaign, 'caption' | 'hashtags' | 'link
   return [c.caption?.trim(), c.link?.trim(), c.hashtags?.trim()].filter(Boolean).join('\n\n');
 }
 
-/** Sous la campagne du fil d'Ariane : les cinq dernières campagnes ouvertes, et l'accès à toutes. */
-export function CampaignPicker(p: { campaigns: Campaign[]; recent: string[]; current?: string; operations: Operation[]; onOpen: (id: string) => void; onAll: () => void; onClose: () => void }) {
+/** Sous l'activité du fil d'Ariane : les cinq dernières campagnes ouvertes, l'accès à toutes, et la fiche de l'activité. */
+export function CampaignPicker(p: { campaigns: Campaign[]; recent: string[]; current?: string; operations: Operation[]; onOpen: (id: string) => void; onAll: () => void; onActivity: () => void; onClose: () => void }) {
   const byId = new Map(p.campaigns.map((c) => [c.id, c]));
   const t = today();
   const list = p.recent.map((id) => byId.get(id)).filter((c): c is Campaign => !!c && !c.closed);
@@ -863,7 +849,10 @@ export function CampaignPicker(p: { campaigns: Campaign[]; recent: string[]; cur
         ))}
         {!list.length && <p className="fx-hint">Aucune campagne ouverte pour l’instant.</p>}
         <button className="sp-pick-all" onClick={p.onAll}>
-          Toutes les campagnes…
+          <Icon name="plus" /> Toutes les campagnes…
+        </button>
+        <button className="sp-pick-act" onClick={p.onActivity}>
+          Fiche de l’activité…
         </button>
       </div>
     </>

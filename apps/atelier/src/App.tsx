@@ -4656,21 +4656,21 @@ export function App() {
                 thumb={project ? thumbUrl(projects.find((x) => x.id === project.id) ?? { id: project.id, title: project.title, updated: '' }) : undefined}
                 kind={doc.targets && doc.targets.length > 1 ? `${doc.targets.length} publications` : f.title}
                 saving={online && project ? saving : undefined}
-                open={bubble === 'activity' ? 'activity' : picking || space ? 'campaign' : bubble === 'composition' ? 'content' : null}
+                open={bubble === 'activity' || picking ? 'activity' : space ? 'campaign' : bubble === 'composition' ? 'content' : null}
                 onActivity={() => {
-                  setPicking(false);
+                  // avec une équipe : sous-menu des cinq dernières campagnes (et la fiche de l'activité en bas)
+                  if (online && me?.team) {
+                    if (bubble) setBubble(null);
+                    return setPicking(!picking);
+                  }
                   if (bubble !== 'activity' && online) fetchMe().then(setMe, () => {});
                   setBubble(bubble === 'activity' ? null : 'activity');
                 }}
                 onCampaign={() => {
-                  if (bubble) setBubble(null);
-                  // la campagne sélectionnée s'édite en pleine page ; déjà dessus (ou hors campagne), le fil propose les récentes
+                  setPicking(false);
+                  // la campagne sélectionnée s'édite en pleine page (sans campagne : l'écran de toutes les campagnes)
                   const cur = space ? campaign : (projects.find((x) => x.id === project?.id)?.campaign ?? campaign);
-                  if (cur && !(space === 'campaign' && cur === campaign) && campaigns.some((c) => c.id === cur)) {
-                    setPicking(false);
-                    return openSpace(cur);
-                  }
-                  setPicking(!picking);
+                  openSpace(cur && campaigns.some((c) => c.id === cur) ? cur : undefined);
                 }}
                 onContent={() => {
                   setPicking(false);
@@ -4831,6 +4831,11 @@ export function App() {
                 setPicking(false);
                 openSpace();
               }}
+              onActivity={() => {
+                setPicking(false);
+                if (online) fetchMe().then(setMe, () => {});
+                setBubble('activity');
+              }}
               onClose={() => setPicking(false)}
             />
           )}
@@ -4864,7 +4869,6 @@ export function App() {
                   canEdit={!me?.team || canEditTeam}
                   isAdmin={!!me?.admin || me?.team?.role === 'owner'}
                   canVote={!!me?.team}
-                  onSwitch={() => setPicking(!picking)}
                   tab={spaceTab}
                   onTab={setSpaceTab}
                   onSheet={() => followed && setSheet(followed.id)}
