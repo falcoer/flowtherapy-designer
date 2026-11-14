@@ -62,11 +62,11 @@ function Avatar({ me, size = 36 }: { me: Me; size?: number }) {
  * Menu de l'activité : l'activité courante en tête, le changement d'activité sous les deux flèches,
  * et la fiche qui se déplie dessous quand on touche le crayon.
  */
-export function ActivityMenu(p: { me: Me | null; online: boolean | null; onSaved: () => void }) {
+export function ActivityMenu(p: { me: Me | null; online: boolean | null; /** fiche dépliée à l'ouverture */ fiche?: boolean; onSaved: () => void }) {
   const { me } = p;
   const team = me?.team;
   const [switching, setSwitching] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(!!p.fiche);
   const [status, setStatus] = useState<SaveState>('idle');
   const [newName, setNewName] = useState('');
   const [err, setErr] = useState<string | null>(null);

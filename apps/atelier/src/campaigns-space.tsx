@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CampaignForm, VoteButton } from './campaigns-ui';
 import { HistoryPanel, PubFan, campaignHistory, pubsOf } from './compositions-menu';
+import { ActivityMark } from './activity';
 import { Icon } from './icons';
 import { formatOf } from './model';
-import { thumbUrl, type ActivityEvent, type ActivityProfile, type AtelierMeta, type Campaign, type CampaignInput, type Operation, type PlanItem, type Target } from './server';
+import { ROLE_LABELS, thumbUrl, type ActivityEvent, type ActivityProfile, type AtelierMeta, type Campaign, type CampaignInput, type Operation, type PlanItem, type Target, type TeamRef } from './server';
 import { CONTACT_KINDS, channelsOf, contactsOf, targetLabel } from './targets';
 import { MediaIcon } from './targets-ui';
 
@@ -824,36 +825,84 @@ export function campaignCaption(c: Pick<Campaign, 'caption' | 'hashtags' | 'link
   return [c.caption?.trim(), c.link?.trim(), c.hashtags?.trim()].filter(Boolean).join('\n\n');
 }
 
-/** Sous l'activité du fil d'Ariane : les cinq dernières campagnes ouvertes, l'accès à toutes, et la fiche de l'activité. */
-export function CampaignPicker(p: { campaigns: Campaign[]; recent: string[]; current?: string; operations: Operation[]; onOpen: (id: string) => void; onAll: () => void; onActivity: () => void; onClose: () => void }) {
+/**
+ * Sous l'activité du fil d'Ariane : la fiche de l'activité en premier, puis les cinq dernières campagnes
+ * ouvertes et l'accès à toutes. Les deux flèches remplacent la liste des campagnes par les autres activités.
+ */
+export function CampaignPicker(p: {
+  team: TeamRef;
+  teams: TeamRef[];
+  /** l'administrateur crée les activités : il a toujours les deux flèches */
+  admin: boolean;
+  campaigns: Campaign[];
+  recent: string[];
+  current?: string;
+  operations: Operation[];
+  onActivity: () => void;
+  onTeam: (id: string) => void;
+  onOpen: (id: string) => void;
+  onAll: () => void;
+  onClose: () => void;
+}) {
+  const [teams, setTeams] = useState(false);
   const byId = new Map(p.campaigns.map((c) => [c.id, c]));
   const t = today();
   const list = p.recent.map((id) => byId.get(id)).filter((c): c is Campaign => !!c && !c.closed);
   // premières visites : les prochaines campagnes complètent la liste
   for (const c of p.campaigns.filter((x) => !x.closed && (!x.date || x.date >= t)).sort((a, b) => (a.date ?? '9').localeCompare(b.date ?? '9')))
     if (list.length < 5 && !list.includes(c)) list.push(c);
+  const others = p.teams.filter((x) => x.id !== p.team.id).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   return (
     <>
       <div className="sp-picker-back" onPointerDown={p.onClose} />
-      <div className="bubble sp-picker" role="dialog" aria-label="Campagnes récentes" onPointerDown={(e) => e.stopPropagation()}>
-        <div className="b-sub">Campagnes récentes</div>
-        {list.slice(0, 5).map((c) => (
-          <button key={c.id} className={`sp-pick ${c.id === p.current ? 'on' : ''}`} onClick={() => p.onOpen(c.id)}>
-            <DateTile c={c} small />
+      <div className="bubble sp-picker" role="dialog" aria-label="Activité et campagnes récentes" onPointerDown={(e) => e.stopPropagation()}>
+        <div className="sp-pick-head">
+          <button className="sp-pick sp-pick-team" onClick={p.onActivity} title="Fiche de l’activité">
+            <ActivityMark team={p.team} size={36} />
             <span className="sp-txt">
-              <b>{c.name}</b>
-              <small>{subOf(c, p.operations)}</small>
+              <b>{p.team.name}</b>
+              <small>Fiche de l’activité{p.team.kind ? ` · ${p.team.kind}` : ''}</small>
             </span>
-            {c.id === p.current && <span className="sp-pick-cur">en cours</span>}
           </button>
-        ))}
-        {!list.length && <p className="fx-hint">Aucune campagne ouverte pour l’instant.</p>}
-        <button className="sp-pick-all" onClick={p.onAll}>
-          <Icon name="plus" /> Toutes les campagnes…
-        </button>
-        <button className="sp-pick-act" onClick={p.onActivity}>
-          Fiche de l’activité…
-        </button>
+          {(others.length > 0 || p.admin) && (
+            <button className={`act-icon ${teams ? 'on' : ''}`} onClick={() => setTeams(!teams)} title={teams ? 'Revenir aux campagnes' : 'Choisir une autre activité'} aria-label="Changer d’activité" aria-pressed={teams}>
+              <Icon name="switch" />
+            </button>
+          )}
+        </div>
+        {teams ? (
+          <>
+            <div className="b-sub">Autres activités</div>
+            {others.map((x) => (
+              <button key={x.id} className="sp-pick" onClick={() => p.onTeam(x.id)}>
+                <ActivityMark team={x} size={28} />
+                <span className="sp-txt">
+                  <b>{x.name}</b>
+                  <small>{[x.kind, ROLE_LABELS[x.role]].filter(Boolean).join(' · ')}</small>
+                </span>
+              </button>
+            ))}
+            {!others.length && <p className="fx-hint">Aucune autre activité pour l’instant (on en crée depuis la fiche de l’activité).</p>}
+          </>
+        ) : (
+          <>
+            <div className="b-sub">Campagnes récentes</div>
+            {list.slice(0, 5).map((c) => (
+              <button key={c.id} className={`sp-pick ${c.id === p.current ? 'on' : ''}`} onClick={() => p.onOpen(c.id)}>
+                <DateTile c={c} small />
+                <span className="sp-txt">
+                  <b>{c.name}</b>
+                  <small>{subOf(c, p.operations)}</small>
+                </span>
+                {c.id === p.current && <span className="sp-pick-cur">en cours</span>}
+              </button>
+            ))}
+            {!list.length && <p className="fx-hint">Aucune campagne ouverte pour l’instant.</p>}
+            <button className="sp-pick-all" onClick={p.onAll}>
+              <Icon name="plus" /> Toutes les campagnes…
+            </button>
+          </>
+        )}
       </div>
     </>
   );

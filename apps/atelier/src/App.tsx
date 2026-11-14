@@ -37,7 +37,7 @@ import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
 import { CatalogPanel } from './catalog-ui';
-import { fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, retitleAtelier, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, postizSync, type PlanItem, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
+import { switchTeam, fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, retitleAtelier, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, postizSync, type PlanItem, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
 import { channelsOf, setCatalog, contactsOf, CONTACT_KINDS, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
 import { Knob } from './knob';
 import { FocusRing } from './focus-ring';
@@ -834,6 +834,8 @@ export function App() {
   const [space, setSpace] = useState<'campaigns' | 'campaign' | null>(null);
   const [spaceTab, setSpaceTab] = useState<SpaceTab>('comps');
   const [picking, setPicking] = useState(false);
+  /** la fiche de l'activité ouverte depuis le sous-menu de l'activité : dépliée d'emblée */
+  const [activityFiche, setActivityFiche] = useState(false);
   const [stageOpen, setStageOpen] = useState(false);
   const [newDialog, setNewDialog] = useState(false);
   const [msgDialog, setMsgDialog] = useState(false);
@@ -4664,6 +4666,7 @@ export function App() {
                     return setPicking(!picking);
                   }
                   if (bubble !== 'activity' && online) fetchMe().then(setMe, () => {});
+                  setActivityFiche(false);
                   setBubble(bubble === 'activity' ? null : 'activity');
                 }}
                 onCampaign={() => {
@@ -4819,6 +4822,10 @@ export function App() {
           </header>
           {picking && online && me?.team && (
             <CampaignPicker
+              team={me.team}
+              teams={me.teams ?? []}
+              admin={!!me.admin}
+              onTeam={(id) => void switchTeam(id).then(() => location.reload(), (e: Error) => setToast(`Changement d’activité impossible : ${e.message}`))}
               campaigns={campaigns}
               recent={recentCampaigns}
               current={space === 'campaign' ? campaign : (projects.find((x) => x.id === project?.id)?.campaign ?? campaign)}
@@ -4834,6 +4841,7 @@ export function App() {
               onActivity={() => {
                 setPicking(false);
                 if (online) fetchMe().then(setMe, () => {});
+                setActivityFiche(true);
                 setBubble('activity');
               }}
               onClose={() => setPicking(false)}
@@ -5771,6 +5779,7 @@ export function App() {
             <ActivityMenu
               me={me}
               online={online}
+              fiche={activityFiche}
               onSaved={() => {
                 void fetchMe().then(setMe, () => {});
                 loadActivity();
