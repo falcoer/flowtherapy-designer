@@ -2965,6 +2965,11 @@ input.sp-step-name::placeholder { color: var(--muted); font-weight: 500; }
 .sp-field textarea { resize: vertical; min-height: 140px; font: inherit; line-height: 1.45; }
 .sp-field .pf-input.bad { border-color: var(--danger); }
 .sp-write-side { display: flex; flex-direction: column; gap: 12px; }
+.sp-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -4px; }
+.sp-tag { height: 30px; padding: 0 11px; border-radius: 15px; border: 1px solid var(--line); background: var(--chrome-solid); color: var(--muted); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+.sp-tag:hover, .sp-tag.match { border-color: var(--accent); color: var(--accent); }
+.sp-tag.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.sp-tag:disabled { opacity: 0.4; cursor: default; }
 .sp-write-save { grid-column: 1 / -1; }
 .sp-settings { max-width: 620px; }
 .sp-settings .cp-form { padding: 0; }

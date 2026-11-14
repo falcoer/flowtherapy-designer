@@ -132,3 +132,23 @@ export function planCaption(c: Campaign | undefined, it: PlanItem, own?: string)
   if (c && t?.text.trim()) return campaignCaption(c, t.text);
   return own?.trim() ? own : c ? campaignCaption(c) : '';
 }
+
+/** Un mot-clé de l'activité devenu mot-dièse : sans espace ni ponctuation, en minuscules (« Rock progressif » → #rockprogressif). */
+export const hashtagOf = (word: string): string => {
+  const w = word.replace(/[^\p{L}\p{N}_]+/gu, '').toLowerCase();
+  return w ? `#${w}` : '';
+};
+export const hashtagsIn = (s: string): string[] => s.match(/#[\p{L}\p{N}_]+/gu) ?? [];
+/** Les mots-dièse à proposer : le nom de l'activité, ses mots-clés, puis ceux déjà employés dans ses autres campagnes. */
+export function hashtagChoices(name: string | undefined, keywords: string[], used: Array<string | undefined>): string[] {
+  const all = [hashtagOf(name ?? ''), ...keywords.map(hashtagOf), ...used.flatMap((s) => hashtagsIn(s ?? '').map(hashtagOf))].filter(Boolean);
+  return [...new Set(all)].slice(0, 24);
+}
+/** Ajoute le mot-dièse à la suite, ou le retire s'il y est déjà ; un mot en cours de frappe qu'il complète est remplacé. */
+export function toggleHashtag(s: string, tag: string): string {
+  const has = hashtagsIn(s).some((x) => x.toLowerCase() === tag);
+  if (has) return s.replace(/#[\p{L}\p{N}_]+/gu, (x) => (x.toLowerCase() === tag ? '' : x)).replace(/\s+/g, ' ').trim();
+  const typed = /(?:^|\s)(#?[\p{L}\p{N}_]+)$/u.exec(s)?.[1];
+  const partial = typed && hashtagOf(typed) !== tag && tag.startsWith(hashtagOf(typed)) ? typed : '';
+  return `${s.slice(0, s.length - partial.length).trimEnd()} ${tag}`.trim();
+}

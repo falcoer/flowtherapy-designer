@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, addPlanRow, patchStep, planCaption, planFromOperation, planSteps, stepsOf } from '../src/plan';
+import { addDays, addPlanRow, patchStep, hashtagChoices, hashtagOf, planCaption, toggleHashtag, planFromOperation, planSteps, stepsOf } from '../src/plan';
 import type { Campaign, PlanItem } from '../src/server';
 import { DEFAULT_OPERATIONS } from '../src/targets';
 
@@ -65,5 +65,19 @@ describe('plan de publication', () => {
     expect(planCaption(c, { id: 'x', format: 'carre', text: 'disparu' })).toBe('Venez !\n\nhttps://billets.example\n\n#concert');
     // le texte principal déposé sur l'étape passe devant celui de la composition
     expect(planCaption(c, { id: 'x', format: 'carre', text: 'main' }, 'Texte de la composition')).toBe('Venez !\n\nhttps://billets.example\n\n#concert');
+  });
+
+  it('propose les mots-dièse de l’activité et les pose ou retire d’un toucher', () => {
+    expect(hashtagOf('Rock progressif')).toBe('#rockprogressif');
+    expect(hashtagOf('#Psyché')).toBe('#psyché');
+    expect(hashtagOf(' , ')).toBe('');
+    expect(hashtagChoices('Flowtherapy', ['psyché', 'Rock progressif', '#flowtherapy'], ['#concert #RisOrangis', undefined, '#psyché'])).toEqual(['#flowtherapy', '#psyché', '#rockprogressif', '#concert', '#risorangis']);
+    expect(toggleHashtag('', '#psyché')).toBe('#psyché');
+    expect(toggleHashtag('#concert', '#psyché')).toBe('#concert #psyché');
+    expect(toggleHashtag('#concert #Psyché #live', '#psyché')).toBe('#concert #live');
+    // le mot en cours de frappe est complété, pas doublé
+    expect(toggleHashtag('#concert #ps', '#psyché')).toBe('#concert #psyché');
+    expect(toggleHashtag('#concert ps', '#psyché')).toBe('#concert #psyché');
+    expect(toggleHashtag('#concert', '#concertlive')).toBe('#concertlive');
   });
 });

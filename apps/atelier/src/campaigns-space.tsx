@@ -6,7 +6,7 @@ import { ActivityMark } from './activity';
 import { Icon } from './icons';
 import { formatOf } from './model';
 import { ROLE_LABELS, thumbUrl, type ActivityEvent, type ActivityProfile, type AtelierMeta, type Campaign, type CampaignInput, type CampaignText, type Operation, type PlanItem, type PostizAccounts, type Target, type TeamRef } from './server';
-import { MAIN_TEXT, addDays, addPlanRow, campaignCaption, patchStep, planChoices, planFromOperation, planSteps, planText, stepKey, uniquePlanId, type PlanStep } from './plan';
+import { MAIN_TEXT, addDays, addPlanRow, campaignCaption, hashtagChoices, hashtagOf, hashtagsIn, patchStep, toggleHashtag, planChoices, planFromOperation, planSteps, planText, stepKey, uniquePlanId, type PlanStep } from './plan';
 
 export { campaignCaption };
 import { PostizPlanActions } from './postiz-ui';
@@ -576,7 +576,7 @@ export function CampaignPage(p: {
         </>
       )}
 
-      {tab === 'write' && c && <WritingTab key={c.id} c={c} activity={p.activity} canEdit={p.canEdit} sel={textSel} onSel={setTextSel} drag={board.drag} onSave={p.onSave} />}
+      {tab === 'write' && c && <WritingTab key={c.id} c={c} campaigns={p.campaigns} activity={p.activity} canEdit={p.canEdit} sel={textSel} onSel={setTextSel} drag={board.drag} onSave={p.onSave} />}
 
       {tab === 'settings' && c && (
         <div className="sp-settings">
@@ -1273,7 +1273,7 @@ export function StageTrack(p: { meta?: AtelierMeta; campaign?: Campaign }) {
 }
 
 /** Rédaction de la campagne : le texte qui accompagne ses publications, ses mots-dièse, son lien. */
-function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit: boolean; sel: string; onSel: (id: string) => void; drag: PlanDrag; onSave: (c: CampaignInput) => Promise<void> }) {
+function WritingTab(p: { c: Campaign; campaigns: Campaign[]; activity: ActivityProfile | null; canEdit: boolean; sel: string; onSel: (id: string) => void; drag: PlanDrag; onSave: (c: CampaignInput) => Promise<void> }) {
   const [caption, setCaption] = useState(p.c.caption ?? '');
   const [hashtags, setHashtags] = useState(p.c.hashtags ?? '');
   const [link, setLink] = useState(p.c.link ?? '');
@@ -1292,6 +1292,21 @@ function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit:
   const linkOk = !link.trim() || /^https?:\/\/\S+$/.test(link.trim());
   const mentions = contactsOf(p.activity).map((x) => ({ name: x.label || CONTACT_KINDS[x.kind], text: x.value }));
   const post = campaignCaption({ hashtags, link }, body);
+  // l'aide aux mots-dièse : ceux de l'activité (nom, mots-clés), puis ceux de ses autres campagnes
+  const tags = useMemo(
+    () =>
+      hashtagChoices(
+        p.activity?.name,
+        p.activity?.branding?.keywords ?? [],
+        p.campaigns.filter((x) => x.id !== p.c.id).map((x) => x.hashtags),
+      ),
+    [p.activity, p.campaigns, p.c.id],
+  );
+  const chosen = new Set(hashtagsIn(hashtags).map((x) => x.toLowerCase()));
+  // le mot en cours de frappe met en avant les mots-dièse qui le complètent
+  const typed = hashtagOf(/(?:^|\s)(#?[\p{L}\p{N}_]+)$/u.exec(hashtags)?.[1] ?? '');
+  const matches = (x: string) => !!typed && x !== typed && x.startsWith(typed) && !chosen.has(x);
+  const shown = [...tags.filter(matches), ...tags.filter((x) => !matches(x))];
   const usedBy = planSteps(p.c.plan ?? []).filter((s) => s.text === (cur?.id ?? MAIN_TEXT)).map((s) => s.name || 'étape sans nom');
   const save = async () => {
     setBusy(true);
@@ -1404,8 +1419,31 @@ function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit:
         <span className="sp-field-k">Ajoutés à tous les textes</span>
         <label className="sp-field">
           <span>Mots-dièse</span>
-          <input className="pf-input" value={hashtags} disabled={!p.canEdit} placeholder="#concert #risorangis" onChange={(e) => setHashtags(e.target.value)} />
+          <input className="pf-input" value={hashtags} maxLength={300} disabled={!p.canEdit} placeholder="#concert #risorangis" onChange={(e) => setHashtags(e.target.value)} />
         </label>
+        {p.canEdit && shown.length > 0 && (
+          <div className="sp-tags" role="group" aria-label="Mots-dièse de l’activité">
+            {shown.map((x) => (
+              <button
+                key={x}
+                className={`sp-tag ${chosen.has(x) ? 'on' : ''} ${matches(x) ? 'match' : ''}`}
+                aria-pressed={chosen.has(x)}
+                disabled={!chosen.has(x) && hashtags.length + x.length + 1 > 300}
+                onClick={() => setHashtags(toggleHashtag(hashtags, x))}
+                title={chosen.has(x) ? 'Retirer ce mot-dièse' : 'Ajouter ce mot-dièse'}
+              >
+                {x}
+              </button>
+            ))}
+          </div>
+        )}
+        {p.canEdit && (
+          <small className="fx-hint">
+            {shown.length > 0
+              ? 'Touche un mot-dièse pour l’ajouter ou le retirer. Ils viennent des mots-clés de la fiche de l’activité et de ses autres campagnes.'
+              : 'Les mots-clés de la fiche de l’activité seront proposés ici.'}
+          </small>
+        )}
         <label className="sp-field">
           <span>Lien (billetterie, évènement…)</span>
           <input className={`pf-input ${linkOk ? '' : 'bad'}`} type="url" value={link} disabled={!p.canEdit} placeholder="https://…" onChange={(e) => setLink(e.target.value)} />
