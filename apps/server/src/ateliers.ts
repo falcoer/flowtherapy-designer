@@ -134,6 +134,17 @@ export class Ateliers {
     return meta;
   }
 
+  /** Renomme une composition sans toucher au document ni aux vignettes. */
+  async retitle(id: string, title: string): Promise<AtelierMeta> {
+    const full = await this.read(id);
+    const next = { ...full, title: title.trim().slice(0, 120) || 'Sans titre' };
+    const target = this.file(id, 'json');
+    await writeFile(target + '.tmp', JSON.stringify(next));
+    await rename(target + '.tmp', target);
+    const { doc: _doc, ...meta } = next;
+    return meta;
+  }
+
   /** Copie une composition (document et vignette) sous un nouvel identifiant, rattachée à une autre campagne. */
   async copy(from: string, to: string, o: { title?: string; campaign?: string }, by?: string): Promise<AtelierMeta> {
     const src = await this.read(from);

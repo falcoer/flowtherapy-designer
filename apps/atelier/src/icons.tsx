@@ -75,6 +75,7 @@ const PATHS: Record<string, string> = {
   redo: 'M15 14l5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13',
   height: 'M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4',
   up: 'M6 15l6-6 6 6',
+  back: 'M15 18l-6-6 6-6',
   down: 'M6 9l6 6 6-6',
   trash: 'M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3',
   photo: 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z',
