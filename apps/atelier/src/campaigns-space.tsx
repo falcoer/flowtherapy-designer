@@ -1307,7 +1307,8 @@ function WritingTab(p: { c: Campaign; campaigns: Campaign[]; activity: ActivityP
   const typed = hashtagOf(/(?:^|\s)(#?[\p{L}\p{N}_]+)$/u.exec(hashtags)?.[1] ?? '');
   const matches = (x: string) => !!typed && x !== typed && x.startsWith(typed) && !chosen.has(x);
   const shown = [...tags.filter(matches), ...tags.filter((x) => !matches(x))];
-  const usedBy = planSteps(p.c.plan ?? []).filter((s) => s.text === (cur?.id ?? MAIN_TEXT)).map((s) => s.name || 'étape sans nom');
+  const steps = planSteps(p.c.plan ?? []);
+  const usedBy = steps.filter((s) => s.text === (cur?.id ?? MAIN_TEXT)).map((s) => s.name || 'étape sans nom');
   const save = async () => {
     setBusy(true);
     try {
@@ -1318,146 +1319,149 @@ function WritingTab(p: { c: Campaign; campaigns: Campaign[]; activity: ActivityP
     }
     setBusy(false);
   };
+  const placed = (id: string) => steps.filter((s) => s.text === id).map((s) => s.name || 'étape sans nom');
+  const entries = [{ id: MAIN_TEXT, name: 'Texte principal', text: caption, ok: true }, ...texts.map((x) => ({ id: x.id, name: x.name || 'Sans nom', text: x.text, ok: saved(x.id) }))];
+  const selId = cur?.id ?? MAIN_TEXT;
   return (
     <div className="sp-write">
-      <div className="sp-write-form">
-        <div className="sp-chips" role="radiogroup" aria-label="Texte à rédiger">
-          <button
-            role="radio"
-            aria-checked={!cur}
-            className={`sp-chip ${cur ? '' : 'on'} ${p.canEdit ? 'grabbable' : ''}`}
-            onClick={() => p.onSel(MAIN_TEXT)}
-            onPointerDown={(e) => p.canEdit && p.drag.grab(e, { kind: 'text', id: MAIN_TEXT }, 'Texte principal')}
-            title="Se glisse sur la piste des textes de la frise"
-          >
-            Texte principal
-          </button>
-          {texts.map((x) => (
-            <button
+      <div className="sp-texts" role="radiogroup" aria-label="Texte à rédiger">
+        <span className="sp-field-k">Textes</span>
+        {entries.map((x) => {
+          const at = placed(x.id);
+          const can = p.canEdit && x.ok;
+          return (
+            <div
               key={x.id}
               role="radio"
-              aria-checked={cur?.id === x.id}
-              className={`sp-chip ${cur?.id === x.id ? 'on' : ''} ${p.canEdit && saved(x.id) ? 'grabbable' : ''}`}
+              tabIndex={0}
+              aria-checked={selId === x.id}
+              className={`sp-text ${selId === x.id ? 'on' : ''} ${can ? 'grabbable' : ''} ${p.drag.dragging?.kind === 'text' && p.drag.dragging.id === x.id ? 'drag' : ''}`}
               onClick={() => p.onSel(x.id)}
-              onPointerDown={(e) => p.canEdit && saved(x.id) && p.drag.grab(e, { kind: 'text', id: x.id }, x.name || 'Texte')}
-              title={saved(x.id) ? 'Se glisse sur la piste des textes de la frise' : undefined}
+              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && (e.preventDefault(), p.onSel(x.id))}
+              onPointerDown={(e) => can && p.drag.grab(e, { kind: 'text', id: x.id }, x.name)}
+              title={can ? 'Se glisse sur la piste des textes de la frise' : undefined}
             >
-              {x.name || 'Sans nom'}
-            </button>
-          ))}
-          {p.canEdit && texts.length < 20 && (
-            <button
-              className="sp-chip sp-chip-add"
-              onClick={() => {
-                const id = uniquePlanId('texte', [...texts, { id: MAIN_TEXT }], 'texte');
-                setTexts((l) => [...l, { id, name: `Texte ${l.length + 1}`, text: '' }]);
-                p.onSel(id);
-              }}
-            >
-              ＋ Texte
-            </button>
-          )}
-        </div>
-        {cur && (
-          <div className="sp-row">
-            <label className="sp-field sp-grow">
-              <span>Nom du texte</span>
-              <input className="pf-input" value={cur.name} maxLength={60} disabled={!p.canEdit} placeholder="Annonce, rappel…" onChange={(e) => setTexts((l) => l.map((x) => (x.id === cur.id ? { ...x, name: e.target.value } : x)))} />
-            </label>
-            {p.canEdit && (
-              <PlanGrip drag={p.drag} item={{ kind: 'text', id: cur.id }} label={cur.name || 'Texte'} disabled={!saved(cur.id)} title={saved(cur.id) ? undefined : 'Enregistre d’abord ce texte'}>
-                Placer sur la frise
-              </PlanGrip>
+              <span className="sp-text-txt">
+                <b>{x.name}</b>
+                <small>{x.text.trim() || 'pas encore rédigé'}</small>
+                <em className={at.length ? 'on' : ''}>{at.length ? `sur ${at.join(', ')}` : x.id === MAIN_TEXT ? 'étapes sans texte à elles' : x.ok ? 'pas encore sur la frise' : 'à enregistrer'}</em>
+              </span>
+              {p.canEdit && <PlanGrip drag={p.drag} item={{ kind: 'text', id: x.id }} label={x.name} disabled={!x.ok} title={x.ok ? undefined : 'Enregistre d’abord ce texte'} />}
+            </div>
+          );
+        })}
+        {p.canEdit && texts.length < 20 && (
+          <button
+            className="sp-text sp-text-add"
+            onClick={() => {
+              const id = uniquePlanId('texte', [...texts, { id: MAIN_TEXT }], 'texte');
+              setTexts((l) => [...l, { id, name: `Texte ${l.length + 1}`, text: '' }]);
+              p.onSel(id);
+            }}
+          >
+            ＋ Texte
+          </button>
+        )}
+      </div>
+      <div className="sp-write-form">
+        <div className="sp-editor">
+          <div className="sp-editor-head">
+            {cur ? (
+              <input className="sp-editor-name" value={cur.name} maxLength={60} disabled={!p.canEdit} placeholder="Nom du texte : annonce, rappel…" aria-label="Nom du texte" onChange={(e) => setTexts((l) => l.map((x) => (x.id === cur.id ? { ...x, name: e.target.value } : x)))} />
+            ) : (
+              <b className="sp-editor-name">Texte principal</b>
             )}
-            {p.canEdit && (
+            {cur && p.canEdit && (
               <button
-                className="sp-btn sm"
+                className="sp-more sm"
                 onClick={() => {
                   setTexts((l) => l.filter((x) => x.id !== cur.id));
                   p.onSel(MAIN_TEXT);
                 }}
-                title={usedBy.length ? `Il quittera aussi ${usedBy.join(', ')}` : undefined}
+                title={usedBy.length ? `Supprimer ce texte : il quittera aussi ${usedBy.join(', ')}` : 'Supprimer ce texte'}
+                aria-label="Supprimer ce texte"
               >
-                Supprimer ce texte
+                <Icon name="trash" />
               </button>
             )}
           </div>
-        )}
-        {!cur && p.canEdit && (
-          <div className="sp-row">
-            <PlanGrip drag={p.drag} item={{ kind: 'text', id: MAIN_TEXT }} label="Texte principal">
-              Placer sur la frise
-            </PlanGrip>
+          <textarea
+            ref={area}
+            className="sp-editor-area"
+            rows={8}
+            value={body}
+            maxLength={2200}
+            disabled={!p.canEdit}
+            aria-label={cur ? `Texte « ${cur.name} »` : 'Texte principal'}
+            placeholder={cur ? 'Ce que dit cette étape : le rappel, les dernières places…' : 'L’annonce commune aux publications : la date, le lieu, ce qui attend le public…'}
+            onChange={(e) => setBody(e.target.value)}
+          />
+          <div className="sp-editor-foot">
+            {p.canEdit && <CaptionTools area={area} value={body} onChange={setBody} />}
+            {p.canEdit &&
+              mentions.map((m) => (
+                <button key={`${m.name}/${m.text}`} className="pub-mention" title={m.text} onClick={() => setBody(`${body.trimEnd()}${body ? '\n' : ''}${m.text}`)}>
+                  + {m.name}
+                </button>
+              ))}
+            <span className="sp-editor-count">{post.length} caractères, lien et mots-dièse compris</span>
           </div>
-        )}
-        <label className="sp-field">
-          <span>{cur ? 'Texte' : 'Texte d’accompagnement'}</span>
-          {p.canEdit && <CaptionTools area={area} value={body} onChange={setBody} />}
-          <textarea ref={area} className="pf-input" rows={7} value={body} maxLength={2200} disabled={!p.canEdit} placeholder={cur ? 'Ce que dit cette étape : le rappel, les dernières places…' : 'L’annonce commune aux publications : la date, le lieu, ce qui attend le public…'} onChange={(e) => setBody(e.target.value)} />
-        </label>
+        </div>
         <small className="fx-hint">
-          {post.length > 0 && `${post.length} caractères, lien et mots-dièse compris. `}
           {cur
             ? usedBy.length
               ? `Déposé sur ${usedBy.join(', ')} dans la frise.`
               : saved(cur.id)
-                ? 'Pas encore dans le plan : glisse-le sur la piste des textes de la frise.'
+                ? 'Pas encore dans le plan : glisse-le depuis la liste sur la piste des textes de la frise.'
                 : 'Enregistre-le, puis glisse-le sur la piste des textes de la frise.'
             : `${usedBy.length ? `Déposé sur ${usedBy.join(', ')} dans la frise. ` : ''}Sert ${usedBy.length ? 'aussi ' : ''}aux étapes du plan qui n’ont pas de texte à elles.`}
         </small>
-        {p.canEdit && mentions.length > 0 && (
-          <div className="pub-mentions">
-            {mentions.map((m) => (
-              <button key={`${m.name}/${m.text}`} className="pub-mention" title={m.text} onClick={() => setBody(`${body.trimEnd()}${body ? '\n' : ''}${m.text}`)}>
-                + {m.name}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
       <div className="sp-write-side">
-        <span className="sp-field-k">Ajoutés à tous les textes</span>
-        <label className="sp-field">
-          <span>Mots-dièse</span>
-          <input className="pf-input" value={hashtags} maxLength={300} disabled={!p.canEdit} placeholder="#concert #risorangis" onChange={(e) => setHashtags(e.target.value)} />
-        </label>
-        {p.canEdit && shown.length > 0 && (
-          <div className="sp-tags" role="group" aria-label="Mots-dièse de l’activité">
-            {shown.map((x) => (
-              <button
-                key={x}
-                className={`sp-tag ${chosen.has(x) ? 'on' : ''} ${matches(x) ? 'match' : ''}`}
-                aria-pressed={chosen.has(x)}
-                disabled={!chosen.has(x) && hashtags.length + x.length + 1 > 300}
-                onClick={() => setHashtags(toggleHashtag(hashtags, x))}
-                title={chosen.has(x) ? 'Retirer ce mot-dièse' : 'Ajouter ce mot-dièse'}
-              >
-                {x}
-              </button>
-            ))}
+        <div className="sp-side-card">
+          <b className="sp-side-title">À la fin de chaque texte</b>
+          <label className="sp-field">
+            <span>Lien (billetterie, évènement…)</span>
+            <input className={`pf-input ${linkOk ? '' : 'bad'}`} type="url" value={link} disabled={!p.canEdit} placeholder="https://…" onChange={(e) => setLink(e.target.value)} />
+            {!linkOk && <small className="pf-err">Un lien commence par https://</small>}
+          </label>
+          <label className="sp-field">
+            <span>Mots-dièse</span>
+            <input className="pf-input" value={hashtags} maxLength={300} disabled={!p.canEdit} placeholder="#concert #risorangis" onChange={(e) => setHashtags(e.target.value)} />
+          </label>
+          {p.canEdit && shown.length > 0 && (
+            <div className="sp-tags" role="group" aria-label="Mots-dièse de l’activité">
+              {shown.map((x) => (
+                <button
+                  key={x}
+                  className={`sp-tag ${chosen.has(x) ? 'on' : ''} ${matches(x) ? 'match' : ''}`}
+                  aria-pressed={chosen.has(x)}
+                  disabled={!chosen.has(x) && hashtags.length + x.length + 1 > 300}
+                  onClick={() => setHashtags(toggleHashtag(hashtags, x))}
+                  title={chosen.has(x) ? 'Retirer ce mot-dièse' : 'Ajouter ce mot-dièse'}
+                >
+                  {x}
+                </button>
+              ))}
+            </div>
+          )}
+          {p.canEdit && (
+            <small className="fx-hint">
+              {shown.length > 0
+                ? 'Touche un mot-dièse pour l’ajouter ou le retirer. Ils viennent des mots-clés de la fiche de l’activité et de ses autres campagnes.'
+                : 'Les mots-clés de la fiche de l’activité seront proposés ici.'}
+            </small>
+          )}
+        </div>
+        {p.canEdit && (
+          <div className="sp-write-save">
+            <button className="sp-btn primary" disabled={!dirty || busy || !linkOk} onClick={() => void save()}>
+              Enregistrer
+            </button>
+            <small className="fx-hint">{msg || (dirty ? 'Modifications non enregistrées' : '')}</small>
           </div>
         )}
-        {p.canEdit && (
-          <small className="fx-hint">
-            {shown.length > 0
-              ? 'Touche un mot-dièse pour l’ajouter ou le retirer. Ils viennent des mots-clés de la fiche de l’activité et de ses autres campagnes.'
-              : 'Les mots-clés de la fiche de l’activité seront proposés ici.'}
-          </small>
-        )}
-        <label className="sp-field">
-          <span>Lien (billetterie, évènement…)</span>
-          <input className={`pf-input ${linkOk ? '' : 'bad'}`} type="url" value={link} disabled={!p.canEdit} placeholder="https://…" onChange={(e) => setLink(e.target.value)} />
-          {!linkOk && <small className="pf-err">Un lien commence par https://</small>}
-        </label>
       </div>
-      {p.canEdit && (
-        <div className="sp-row sp-write-save">
-          <button className="sp-btn primary" disabled={!dirty || busy || !linkOk} onClick={() => void save()}>
-            Enregistrer
-          </button>
-          {msg && <small className="fx-hint">{msg}</small>}
-        </div>
-      )}
     </div>
   );
 }

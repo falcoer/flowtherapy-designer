@@ -2957,8 +2957,40 @@ input.sp-step-name::placeholder { color: var(--muted); font-weight: 500; }
 .sp-picker .b-sub { padding: 4px 8px 2px; }
 
 /* rédaction et paramètres de la campagne */
-.sp-write { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 20px; align-items: start; }
-@media (max-width: 760px) { .sp-write { grid-template-columns: minmax(0, 1fr); } }
+.sp-write { display: grid; grid-template-columns: 230px minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .sp-write { grid-template-columns: 210px minmax(0, 1fr); } .sp-write-side { grid-column: 2; } }
+@media (max-width: 760px) { .sp-write { grid-template-columns: minmax(0, 1fr); } .sp-write-side { grid-column: auto; } }
+.sp-texts { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.sp-text { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 9px 9px 9px 13px; border-radius: 14px; border: 1px solid var(--line); background: var(--chrome-solid); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.sp-text:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.sp-text.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.sp-text.drag { opacity: 0.45; }
+.sp-text-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sp-text-txt b, .sp-text-txt small, .sp-text-txt em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-text-txt b { font-size: 13.5px; }
+.sp-text-txt small { font-size: 12px; color: var(--muted); }
+.sp-text-txt em { font-style: normal; font-size: 11px; font-weight: 600; color: var(--muted); opacity: 0.8; }
+.sp-text-txt em.on { color: var(--accent); opacity: 1; }
+.sp-text-add { justify-content: center; height: 40px; padding: 0 13px; border-style: dashed; color: var(--accent); font-weight: 600; font-size: 13.5px; }
+@media (max-width: 760px) {
+  .sp-texts { flex-direction: row; align-items: stretch; overflow-x: auto; padding: 2px; margin: -2px; scrollbar-width: none; }
+  .sp-texts > .sp-field-k { display: none; }
+  .sp-text { flex: none; width: 190px; }
+  .sp-text-add { width: auto; height: auto; }
+}
+.sp-editor { display: flex; flex-direction: column; border-radius: 18px; border: 1px solid var(--line); background: var(--chrome-solid); }
+.sp-editor:focus-within { border-color: var(--accent); }
+.sp-editor-head { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 8px 8px 0 16px; }
+.sp-editor-name { flex: 1; min-width: 0; padding: 4px 0; border: 0; background: none; color: var(--ink); font: inherit; font-size: 16px; font-weight: 700; outline: none; }
+input.sp-editor-name { border-bottom: 1px dashed transparent; }
+input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: var(--line); }
+.sp-editor-head .sp-more svg { width: 16px; height: 16px; stroke-width: 2; }
+.sp-editor-area { display: block; width: 100%; box-sizing: border-box; min-height: 190px; padding: 6px 16px 14px; border: 0; background: none; color: var(--ink); font: inherit; font-size: 15px; line-height: 1.5; resize: vertical; outline: none; }
+.sp-editor-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--line); }
+.sp-editor-count { margin-left: auto; padding: 0 6px; font-size: 12px; color: var(--muted); }
+.sp-side-card { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px 16px; border-radius: 18px; border: 1px solid var(--line); background: color-mix(in srgb, var(--chrome-solid) 60%, transparent); }
+.sp-side-title { font-size: 13.5px; }
+.sp-write-save { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .sp-write-form { display: flex; flex-direction: column; gap: 12px; }
 .sp-field { display: flex; flex-direction: column; gap: 5px; }
 .sp-field > span, .sp-field-k { font-size: 12px; font-weight: 600; color: var(--muted); }
@@ -2970,7 +3002,6 @@ input.sp-step-name::placeholder { color: var(--muted); font-weight: 500; }
 .sp-tag:hover, .sp-tag.match { border-color: var(--accent); color: var(--accent); }
 .sp-tag.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .sp-tag:disabled { opacity: 0.4; cursor: default; }
-.sp-write-save { grid-column: 1 / -1; }
 .sp-settings { max-width: 620px; }
 .sp-settings .cp-form { padding: 0; }
 .sp-info { display: flex; flex-direction: column; gap: 4px; }
