@@ -5906,14 +5906,6 @@ export function App() {
                         </label>
                       </>
                     )}
-                    {/* légende : seulement ce qui est sur la page en ce moment */}
-                    <MarkLegend
-                      kinds={(() => {
-                        const seen = new Set(anchorsOf(doc.frame, f).map((a) => anchorKind(doc.frame, a.id)));
-                        return marksOfFrame(doc.frame).filter((k) => (k === 'margin' ? hasMargins(docMargins(doc)) : k === 'zone' ? hasZone() : k === 'page' || seen.has(k)));
-                      })()}
-                      colors={markColors}
-                    />
                     <button className={`ab-more ${anchorMore ? 'on' : ''}`} onClick={() => setAnchorMore(!anchorMore)} aria-expanded={anchorMore}>
                       <span>Points d’accroche</span>
                       <span className="ab-chev">{anchorMore ? '−' : '+'}</span>
