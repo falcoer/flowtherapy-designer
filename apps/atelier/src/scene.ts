@@ -739,7 +739,7 @@ function shadowSprite(l: Layer, doc: Doc, f: Format, path: Path2D, blur: number)
   // le flou n'a pas de détail fin : une dizaine de pixels pour le flou suffit, au plus 1024 px de côté
   const k = Math.min(12 / bl, 1024 / Math.max(W, H));
   const g = (i?: number) => (i === undefined ? '' : JSON.stringify(doc.guides[i] ?? null));
-  const key = [cutId(l), b.w, b.h, f.width, f.height, JSON.stringify(l.trim ?? 0), JSON.stringify(l.border ?? 0), l.border ? g(l.border.guide) : '', bl, k].join('|');
+  const key = [cutId(l), b.w, b.h, f.width, f.height, JSON.stringify(l.trim ?? 0), JSON.stringify(l.border ?? 0), l.border ? g(l.border.guide) : '', bl, k, hollowOf(l)].join('|');
   const id = `${l.id}|${bl}`;
   const hit = shadowSprites.get(id);
   if (hit?.key === key) return hit;
@@ -754,7 +754,8 @@ function shadowSprite(l: Layer, doc: Doc, f: Format, path: Path2D, blur: number)
   // page → image : repère de la boîte, centré au milieu de l'image
   tx.setTransform(new DOMMatrix().translate(c.width / 2, c.height / 2).scale(k).rotate((-(l.rot ?? 0) * 180) / Math.PI).translate(-b.cx, -b.cy));
   tx.fillStyle = '#000';
-  tx.fill(path, 'evenodd');
+  // sans surface, seul le bord porte ombre
+  if (!hollowOf(l)) tx.fill(path, 'evenodd');
   // le bord déborde de l'objet : il porte ombre lui aussi
   if (bpad) {
     const bb = pageBounds(l, f);
@@ -787,6 +788,8 @@ function shadowSprite(l: Layer, doc: Doc, f: Format, path: Path2D, blur: number)
 }
 
 function castShadow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, path: Path2D, h: number) {
+  // sans surface ni bord, rien ne porte ombre
+  if (hollowOf(l) && !(l.border && l.border.width > 0)) return;
   const b = layerBox(l, f);
   const s = shadowVector(doc, f, b.cx, b.cy, h);
   if ((canFilter ??= typeof (ctx as { filter?: unknown }).filter === 'string')) {
@@ -808,15 +811,18 @@ function castShadow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format
   ctx.shadowOffsetY = off.y;
   ctx.shadowBlur = s.blur * o.scale;
   ctx.fillStyle = '#000';
-  ctx.fill(path, 'evenodd');
+  if (!hollowOf(l)) ctx.fill(path, 'evenodd');
   // le bord déborde de l'objet : il porte ombre lui aussi
   if (l.border && l.border.width > 0) borderSprite(ctx, l, doc, f, o, path);
   ctx.restore();
 }
 
+/** Objet sans surface : seuls son bord et sa lueur se dessinent (le fond de la page garde toujours la sienne). */
+export const hollowOf = (l: Layer) => !!l.hollow && l.kind !== 'surface';
+
 /** Profondeur de l'extrusion à 1, en fraction du petit côté, et sa part dans la hauteur d'ombre. */
 export const EXTRUDE_DEPTH = 0.05;
-const shadowLevel = (l: Layer) => l.height + (l.extrude ?? 0) * 0.4;
+const shadowLevel = (l: Layer) => l.height + (hollowOf(l) ? 0 : (l.extrude ?? 0) * 0.4);
 
 /**
  * Extrusion à plat : le flanc de l'objet, sa silhouette répétée vers l'ombre (à l'opposé de la
@@ -966,12 +972,20 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
         ctx.restore();
       });
     }
-    if (l.kind !== 'surface') below.push({ l, path, box });
+    // sans surface, rien ne reçoit l'ombre des objets posés plus haut
+    const hollow = hollowOf(l);
+    if (l.kind !== 'surface' && !hollow) below.push({ l, path, box });
 
     drawGlow(ctx, l, doc, f, o, true);
-    drawExtrude(ctx, l, doc, f, o, path);
+    if (!hollow) drawExtrude(ctx, l, doc, f, o, path);
     // bord : à l'extérieur de la découpe, en débordement de l'objet
     if (l.border && l.border.width > 0) borderSprite(ctx, l, doc, f, o, path);
+    if (hollow) {
+      // ni teinte, ni matière, ni peinture, ni volume : il reste le chemin du bord et la lueur
+      drawGlow(ctx, l, doc, f, o, false);
+      ctx.restore();
+      continue;
+    }
 
     ctx.save();
     ctx.clip(path, 'evenodd');

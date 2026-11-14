@@ -41,6 +41,8 @@ describe('palettes de matières et de vernis', () => {
     expect(off.material).toMatchObject({ id: 'glass', amount: 0.3, off: true });
     expect(fxOn([off.material])).toEqual([]);
     expect(opacityOf(off)).toBe(1);
+    // sans surface, la transparence de la matière ne joue plus : le bord reste plein
+    expect(opacityOf({ ...a, hollow: true })).toBe(1);
     const dull = { ...off, ...toggleMatter(off, 'varnish') } as Layer;
     expect(dull.fx!.map((x) => !!x.off)).toEqual([false, true]);
     expect(fxOn(dull.fx).map((x) => x.id)).toEqual(['grain']);

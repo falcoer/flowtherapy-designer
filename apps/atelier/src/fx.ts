@@ -1673,7 +1673,7 @@ export function newFx(id: FxId): Fx {
 export const fxKnobs = (def: FxDef, e: Fx): Record<string, number> => Object.fromEntries((def.knobs ?? []).map((x) => [x.key, e.knobs?.[x.key] ?? x.def]));
 
 /** Opacité de l'objet : seule une matière transparente laisse voir à travers. */
-export const opacityOf = (l: { material?: Fx; opacity?: number }) => (l.material && !l.material.off && fxOf(l.material.id)?.transparent ? (l.opacity ?? 1) : 1);
+export const opacityOf = (l: { material?: Fx; opacity?: number; hollow?: boolean }) => (l.material && !l.material.off && !l.hollow && fxOf(l.material.id)?.transparent ? (l.opacity ?? 1) : 1);
 
 export const hasPixelFx = (fx: Fx[] | undefined) => !!fx?.some((x) => fxOf(x.id)?.pixel);
 

@@ -216,4 +216,46 @@ describe('dans le navigateur', () => {
       expect(r.again).toBe(r.before);
     });
   });
+
+  describe('objet sans surface', () => {
+    t('seul le bord se dessine : ni teinte, ni matière, ni volume, ni ombre de la surface', async () => {
+      const r = await run<Record<string, number>>(`
+        const k = 400 / f.width;
+        const draw = (l) => {
+          const c = document.createElement('canvas');
+          c.width = Math.round(f.width * k);
+          c.height = Math.round(f.height * k);
+          const ctx = c.getContext('2d');
+          ctx.setTransform(k, 0, 0, k, 0, 0);
+          scene.drawLayers(ctx, { ...doc, layers: [l] }, f, { scale: k, onImage: () => {} });
+          return c;
+        };
+        // encre dans la boîte du milieu (la surface) et sur toute l'image
+        const ink = (c) => {
+          const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+          let all = 0, mid = 0;
+          for (let y = 0; y < c.height; y++)
+            for (let x = 0; x < c.width; x++)
+              if (d[(y * c.width + x) * 4 + 3] > 40) {
+                all++;
+                if (Math.abs(x / c.width - 0.5) < 0.1 && Math.abs(y / c.height - 0.5) < 0.05) mid++;
+              }
+          return { all, mid };
+        };
+        const border = { style: 'round', guide: 2, width: 0.02 };
+        const full = ink(draw(shape([], { border, bevel: 0.5, extrude: 0.5, height: 0.4 })));
+        const edge = ink(draw(shape([], { border, bevel: 0.5, extrude: 0.5, height: 0.4, hollow: true })));
+        const none = ink(draw(shape([], { hollow: true, height: 0.4 })));
+        return { fullMid: full.mid, fullAll: full.all, edgeMid: edge.mid, edgeAll: edge.all, none: none.all, opaque: scene.hollowOf(shape([], { hollow: true })) ? 1 : 0 };
+      `);
+      expect(r.fullMid).toBeGreaterThan(500);
+      // le milieu est vide, le bord est toujours là
+      expect(r.edgeMid).toBe(0);
+      expect(r.edgeAll).toBeGreaterThan(300);
+      expect(r.edgeAll).toBeLessThan(r.fullAll / 2);
+      // sans bord, il ne reste rien, pas même une ombre
+      expect(r.none).toBe(0);
+      expect(r.opaque).toBe(1);
+    });
+  });
 });

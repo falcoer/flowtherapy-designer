@@ -511,11 +511,45 @@ export function CoupePanel({
     </div>
   );
 
+  // sans surface : seul le chemin du bord se dessine ; le support et le volume restent, gardés de côté
+  const hollow = !!l.hollow && !surface;
+  const setHollow = (on: boolean) => {
+    if (!on) {
+      patch({ hollow: undefined });
+      return onToast('Surface remise : le support et le volume sont revenus', true);
+    }
+    // sans bord, l'objet disparaîtrait : il prend un bord fin de sa propre teinte
+    const edged = l.border && l.border.width > 0;
+    patch({ hollow: true, ...(edged ? {} : { border: { style: 'round' as const, ...borderDefaults('round', undefined, doc.guides), guide: l.guide, width: 0.012 } }) });
+    onToast(edged ? 'Sans surface : seul le bord se dessine' : 'Sans surface : un bord fin a été ajouté, à régler dans l’onglet Bord', true);
+  };
+  const hollowPlate = (l.kind === 'shape' || l.kind === 'text') && (
+    <div className="ap-shape ap-hollow-opt">
+      <div className="cp-attrs ap-attrs">
+        <label className="cp-row" title="Sans surface : l’objet ne garde que son bord et sa lueur, le long de sa découpe. Sa teinte, son vernis, sa matière et son volume sont gardés de côté.">
+          <span>Sans surface</span>
+          <input type="checkbox" checked={hollow} onChange={(e) => setHollow(e.target.checked)} />
+          <output>{hollow ? 'oui' : 'non'}</output>
+        </label>
+      </div>
+    </div>
+  );
+  /** Bandeau du bas des onglets Support et Volume d'un objet sans surface : grisés jusqu'au retour. */
+  const hollowBar = hollow && (
+    <div className="ap-molded ap-hollow-bar">
+      <span>Objet sans surface : {tab === 'depth' ? 'son volume est gardé' : 'sa teinte, son vernis et sa matière sont gardés'} de côté.</span>
+      <button className="chip primary" onClick={() => setHollow(false)}>
+        Remettre la surface
+      </button>
+    </div>
+  );
+
   let body: React.ReactNode = null;
   if (tab === 'main' && l.kind === 'text' && l.text && patchText)
     body = (
       <>
         <TextTab key={l.id} text={l.text} locked={!!l.molded} onChange={patchText} typeNow={typeNow === l.id} onTyped={() => setTypeNow(null)} />
+        {hollowPlate}
         {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}
@@ -525,7 +559,10 @@ export function CoupePanel({
     const it = items.find((x) => x.key === 'shape');
     body = (
       <>
-        <div className={`ap-shape ${l.molded ? 'ap-locked' : ''}`}>{it && <Attrs bare layer={l} doc={doc} item={{ ...it, locked: false }} patch={patch} />}</div>
+        <div className="ap-shape-row">
+          <div className={`ap-shape ${l.molded ? 'ap-locked' : ''}`}>{it && <Attrs bare layer={l} doc={doc} item={{ ...it, locked: false }} patch={patch} />}</div>
+          {hollowPlate}
+        </div>
         {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}
@@ -748,7 +785,8 @@ export function CoupePanel({
               ×
             </button>
           </div>
-          <div className={`ap-pane ap-${tab}`} role="tabpanel">
+          <div className={`ap-pane ap-${tab} ${hollow && (tab === 'support' || tab === 'depth') ? 'ap-hollow' : ''}`} role="tabpanel">
+            {(tab === 'support' || tab === 'depth') && hollowBar}
             {body}
           </div>
         </div>

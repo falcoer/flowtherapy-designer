@@ -3655,7 +3655,7 @@ export function App() {
       const ctx = c.getContext('2d', { willReadFrequently: true })!;
       ctx.setTransform(w / b.w, 0, 0, h / b.h, (-(b.cx - b.w / 2) * w) / b.w, (-(b.cy - b.h / 2) * h) / b.h);
       // la couche seule, à plat : sans ombre ni liseré
-      drawLayers(ctx, { ...doc, layers: [{ ...l, height: 0, bevel: 0, border: undefined, rot: 0, visible: true }] }, f, { scale: scale * dpr, onImage: redraw });
+      drawLayers(ctx, { ...doc, layers: [{ ...l, height: 0, bevel: 0, border: undefined, hollow: undefined, rot: 0, visible: true }] }, f, { scale: scale * dpr, onImage: redraw });
       analysisCache.current = { key, a: analyse(c) };
       mapCache.current = null;
     }
@@ -3681,7 +3681,7 @@ export function App() {
     ctx.fillRect(0, 0, c.width, c.height);
     ctx.setTransform(k, 0, 0, k, -(b.cx - b.w / 2 + crop.u0 * b.w) * k, -(b.cy - b.h / 2 + crop.v0 * b.h) * k);
     // la photo entière, à plat : le modèle voit tout le contexte, même hors de la découpe
-    const flat: Layer = { ...l, height: 0, bevel: 0, border: undefined, rot: 0, visible: true, ...(l.kind === 'photo' ? { cut: undefined, molded: undefined } : {}) };
+    const flat: Layer = { ...l, height: 0, bevel: 0, border: undefined, hollow: undefined, rot: 0, visible: true, ...(l.kind === 'photo' ? { cut: undefined, molded: undefined } : {}) };
     drawLayers(ctx, { ...doc, layers: [flat] }, f, { scale: k, onImage: redraw });
     const S: NonNullable<typeof subject.current> = { layer: l.id, crop, zone, state: 'busy', strokes: first, mask: null, img: null, geom: null };
     subject.current = S;
@@ -6404,6 +6404,14 @@ function LayerThumb({ layer, doc }: { layer: Layer; doc: Doc }) {
     const y0 = (S - h) / 2;
     const path = new Path2D();
     path.addPath(new Path2D(cutOf(layer)), new DOMMatrix([w, 0, 0, h, x0, y0]));
+    if (layer.hollow && layer.kind !== 'surface') {
+      // sans surface : le seul trait de son bord
+      ctx.strokeStyle = guideColor(doc.guides[layer.border?.guide ?? layer.guide], 0.5);
+      ctx.lineWidth = 2.5;
+      ctx.lineJoin = 'round';
+      ctx.stroke(path);
+      return;
+    }
     ctx.fillStyle = layer.kind === 'photo' ? '#8a7fa8' : guideColor(doc.guides[layer.guide], 0.5);
     ctx.fill(path, 'evenodd');
     ctx.strokeStyle = 'rgba(0,0,0,0.18)';
@@ -7319,7 +7327,7 @@ export function fxPreview(l: Layer, doc: Doc, f: Format, fx: Fx[] | undefined, k
   const bh = Math.max(1e-6, bb.y1 - bb.y0);
   const s = Math.min(W / (bw * 1.25), H / (bh * 1.25));
   ctx.setTransform(s, 0, 0, s, W / 2 - ((bb.x0 + bb.x1) / 2) * s, H / 2 - ((bb.y0 + bb.y1) / 2) * s);
-  drawLayers(ctx, { ...doc, layers: [{ ...l, id: `pv-${l.id}-${key}`, fx, height: 0, inner: 0, opacity: 1, visible: true, ...patch }] }, f, { scale: s, onImage });
+  drawLayers(ctx, { ...doc, layers: [{ ...l, id: `pv-${l.id}-${key}`, fx, height: 0, inner: 0, opacity: 1, visible: true, hollow: undefined, ...patch }] }, f, { scale: s, onImage });
   return c.toDataURL('image/png');
 }
 

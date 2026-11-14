@@ -218,6 +218,11 @@ export interface Layer {
   gen?: { sides: number; depth: number };
   /** Proportions libres : les poignées étirent la largeur et la hauteur séparément. */
   free?: boolean;
+  /**
+   * Sans surface : seuls le bord et la lueur se dessinent, le long de la découpe. La teinte, le vernis,
+   * la matière, la peinture et le volume restent sur l'objet, gardés de côté.
+   */
+  hollow?: boolean;
   /** Ombre intérieure (0..1). */
   inner?: number;
   /** Lueur autour de la découpe : style, guide, distance au bord et largeur (0..1). */

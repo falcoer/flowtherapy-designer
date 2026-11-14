@@ -2258,6 +2258,12 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .ap-x { width: 20px; height: 20px; border-radius: 10px; font-size: 14px; line-height: 20px; color: var(--muted); flex: none; }
 .ap-params { flex: 1; min-width: 0; display: flex; }
 .ap-params > .ap-hint { align-self: center; }
+/* sans surface : l'option à côté des paramètres de la forme ; Support et Volume grisés, comme un texte modelé */
+.ap-shape-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.ap-shape-row > .ap-shape { display: flex; align-items: center; }
+.ap-pane.ap-hollow > :not(.ap-molded) { opacity: 0.42; filter: grayscale(0.7); pointer-events: none; }
+/* le bandeau en tête : visible sans faire défiler, même sur téléphone */
+.ap-pane > .ap-hollow-bar { margin-top: 0; flex: none; }
 /* vernis ou matière désactivé : la plaque reste là, grisée comme un texte modelé ; l'interrupteur la rallume */
 .ap-toggle { align-self: center; margin-left: auto; }
 .ap-row.off > .ap-params { opacity: 0.42; filter: grayscale(0.7); pointer-events: none; }
