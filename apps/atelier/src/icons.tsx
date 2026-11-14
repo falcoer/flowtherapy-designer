@@ -1,5 +1,6 @@
 /** Icônes au trait, 24 × 24, couleur du texte. */
 const PATHS: Record<string, string> = {
+  calendar: 'M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM4 10h16M8 3v4M16 3v4',
   fit: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5',
   scissors: 'M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8.1 7.9 20 18M8.1 16.1 20 6',
   scalpel: 'M3 21 13.5 10.5M13.5 10.5l3-3c1.7-1.7 3.8-2.6 4.5-2-.6 2-2.5 4.5-4.5 6.5l-1.5 1.5zM11 13l2 2',

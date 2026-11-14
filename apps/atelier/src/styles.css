@@ -1479,7 +1479,11 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .pub-plan { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 12px; background: var(--accent-soft); }
 .pub-plan-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
 .pub-done { color: #2e8b57; font-weight: 700; }
-.pub-schedule { align-self: stretch; justify-content: center; }
+.pub-plan-row { flex-wrap: wrap; }
+.pz-state { display: inline-flex; align-items: center; gap: 8px; }
+.pz-queued { color: var(--accent); font-weight: 600; }
+.pz-sched { flex-basis: 100%; display: flex; flex-direction: column; gap: 6px; padding: 6px 0 2px; }
+.pz-sched-acts { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* fil de l'activité */
 .feed-modal { width: min(560px, 100%); max-height: min(80dvh, 760px); }
@@ -1685,6 +1689,9 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .cm-date.none { background: none; border: 1px dashed var(--line); color: var(--muted); }
 .cm-date.small { width: 30px; height: 30px; border-radius: 9px; }
 .cm-date.small b { font-size: 12.5px; }
+.cm-date.nodate svg { width: 22px; height: 22px; }
+.cm-date.small.nodate svg { width: 16px; height: 16px; }
+.crumb .cmp-date.nodate svg { width: 18px; height: 18px; }
 .cm-date.small small { font-size: 8.5px; }
 .cm-tools { display: flex; gap: 6px; align-items: center; }
 .cm-tools .pf-btn { flex: none; display: inline-flex; align-items: center; gap: 4px; }
@@ -1876,6 +1883,10 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .cm-item > .cm-row { grid-column: 1; grid-row: 1; }
 .cm-item > .cm-line { grid-column: 1; grid-row: 2; }
 .cm-item > .cm-fan { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; padding: 6px 14px 6px 0; cursor: pointer; }
+/* toute la ligne se choisit (texte, ligne d'état, éventail) : le survol l'éclaire en entier, pas seulement le titre */
+.cm-swipe .cm-item { cursor: pointer; }
+.cm-swipe .cm-item .cm-row:hover { background: none; }
+.cm-swipe .cm-item:not(.sel):hover { background: color-mix(in srgb, var(--accent) 8%, var(--chrome-solid)); }
 .cm-del-sel:not(:disabled):hover { color: #d64541; }
 .pub-card img { -webkit-user-drag: none; }
 
@@ -2066,6 +2077,8 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .act-conn-body .pf-input { width: 100%; box-sizing: border-box; }
 .act-conns > .act-add { align-self: flex-start; }
 @media (max-width: 520px) { .act-conn-body { grid-template-columns: 1fr; } }
+.pz-pic { width: 32px; height: 32px; font-size: 14px; object-fit: cover; }
+.pz-acct.off { opacity: 0.6; }
 .cat-font-name { font-size: 16px; font-weight: 400; }
 .cat-font-sample { font-size: 34px; line-height: 1.15; padding: 14px 4px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 .cat-font-add { display: flex; flex-wrap: wrap; gap: 8px; }

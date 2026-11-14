@@ -250,19 +250,21 @@ export function CompositionsMenu(p: {
   return (
     <div className={`bubble projects-bubble cm-menu ${fold.on ? 'folded' : ''}`} onPointerDown={(e) => e.stopPropagation()}>
       <div className="act-row act-current cm-head">
-        <span className={`cm-date ${c ? '' : 'none'}`}>
+        <span className={`cm-date ${c ? '' : 'none'} ${c && !d ? 'nodate' : ''}`} title={c && !d ? 'Pas encore de date' : undefined}>
           {d ? (
             <>
               <b>{d.getDate()}</b>
               <small>{d.toLocaleDateString('fr-FR', { month: 'short' })}</small>
             </>
+          ) : c ? (
+            <Icon name="calendar" />
           ) : (
             '—'
           )}
         </span>
         <span className="act-txt">
           <b>{c ? c.name : 'Hors campagne'}</b>
-          <small>{c ? [p.operations.find((o) => o.id === c.operation)?.name ?? c.kind, c.time && `accueil ${c.time.replace(':', 'h')}`, c.place].filter(Boolean).join(' · ') || (c.date ? '' : 'pas encore de date') : 'les compositions sans campagne'}</small>
+          <small>{c ? [p.operations.find((o) => o.id === c.operation)?.name ?? c.kind, c.time && `accueil ${c.time.replace(':', 'h')}`, c.place, !c.date && 'pas encore de date'].filter(Boolean).join(' · ') : 'les compositions sans campagne'}</small>
         </span>
         {c && p.isAdmin && (
           <button className="act-icon" onClick={p.onEditCampaign} title="Compléter la campagne : type, date, plan de publication" aria-label="Modifier la campagne">
@@ -300,14 +302,14 @@ export function CompositionsMenu(p: {
                   setSwitching(false);
                 }}
               >
-                <span className="cm-date small">
+                <span className={`cm-date small ${xd ? '' : 'nodate'}`}>
                   {xd ? (
                     <>
                       <b>{xd.getDate()}</b>
                       <small>{xd.toLocaleDateString('fr-FR', { month: 'short' })}</small>
                     </>
                   ) : (
-                    '—'
+                    <Icon name="calendar" />
                   )}
                 </span>
                 <span className="act-txt">
@@ -415,7 +417,13 @@ export function CompositionsMenu(p: {
                     <PubFan m={m} pubs={pubsOf(m, targetsOf(m), c, suggested)} activity={p.activity} size={64} />
                   </span>
                   {/* une ligne alignée : où en est la composition, ses voix, modèle */}
-                  <div className="cm-line">
+                  <div
+                    className="cm-line"
+                    onClick={(e) => {
+                      // la ligne d'état fait partie de la ligne : hors de ses boutons, elle choisit aussi la composition
+                      if (!(e.target as HTMLElement).closest('button')) tap(m);
+                    }}
+                  >
                     {st && <span className={`proj-badge st-${st.kind}`}>{st.label} le {dmy(st.at)}</span>}
                     {p.canVote ? (
                       <VoteButton votes={m.votes ?? []} voted={!!m.voted} onVote={() => p.onVote(m)} />
@@ -753,14 +761,16 @@ export function TopCrumbs(p: {
         <span className="crumb-txt crumb-act">{p.team?.name ?? 'Atelier'}</span>
       </button>
       {p.showCampaign && (
-        <button className={`crumb ${c ? '' : 'none'} ${p.open === 'campaign' ? 'on' : ''}`} onClick={p.onCampaign} title={c ? `${c.name}${c.date ? ` · ${day(c.date)}` : ''}${alert ? ` · ${alert}` : ''}` : `${mid} : choisir une campagne`}>
+        <button className={`crumb ${c ? '' : 'none'} ${p.open === 'campaign' ? 'on' : ''}`} onClick={p.onCampaign} title={c ? `${c.name}${c.date ? ` · ${day(c.date)}` : ' · pas encore de date'}${alert ? ` · ${alert}` : ''}` : `${mid} : choisir une campagne`}>
           <span className="crumb-icon">
-            <span className={`cmp-date ${d ? '' : 'none'}`}>
+            <span className={`cmp-date ${d ? '' : 'none'} ${c && !d ? 'nodate' : ''}`}>
               {d ? (
                 <>
                   <b>{d.getDate()}</b>
                   <small>{d.toLocaleDateString('fr-FR', { month: 'short' }).replace('.', '')}</small>
                 </>
+              ) : c ? (
+                <Icon name="calendar" />
               ) : (
                 '—'
               )}

@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import type { PlanPostiz, PostizConfig, PostizTeamState } from './postiz.js';
 import { cleanCatalog, cleanElementStore, cleanUserPresets, type Catalog, type ElementStore, type UserPresets } from '@ftd/core';
 
 /**
@@ -457,6 +458,64 @@ export class Accounts {
     }
   }
 
+  /* ---------- Postiz : réglage du site, comptes reliés par activité ---------- */
+
+  private setting(key: string): unknown {
+    const r = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as Row | undefined;
+    try {
+      return r?.value ? JSON.parse(String(r.value)) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private putSetting(key: string, value: unknown, by?: string) {
+    this.db
+      .prepare('INSERT INTO settings (key, value, updated, by) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated, by = excluded.by')
+      .run(key, JSON.stringify(value), new Date().toISOString(), by ?? null);
+  }
+
+  /** Adresse et clé de Postiz enregistrées par les administrateurs (la clé ne sort jamais du serveur). */
+  postizConfig(): PostizConfig {
+    const v = (this.setting('postiz') ?? {}) as PostizConfig;
+    return { ...(str(v.url, 300) ? { url: str(v.url, 300) } : {}), ...(str(v.key, 500) ? { key: str(v.key, 500) } : {}) };
+  }
+
+  /** `key` absente = gardée, null = effacée ; `url` vide = effacée. */
+  setPostizConfig(raw: { url?: unknown; key?: unknown }, by?: string): PostizConfig {
+    const cur = this.postizConfig();
+    const url = raw.url === undefined ? cur.url : str(raw.url, 300).replace(/\/+$/, '');
+    if (url && !/^https?:\/\//.test(url)) throw new Error('L’adresse de Postiz doit commencer par https://');
+    const key = raw.key === undefined ? cur.key : raw.key === null ? undefined : str(raw.key, 500) || cur.key;
+    const next = { ...(url ? { url } : {}), ...(key ? { key } : {}) };
+    this.putSetting('postiz', next, by);
+    return next;
+  }
+
+  postizTeam(team: string): PostizTeamState {
+    const v = (this.setting(`postiz:team:${team}`) ?? {}) as Partial<PostizTeamState>;
+    return { accounts: v.accounts && typeof v.accounts === 'object' ? { ...v.accounts } : {}, ...(v.pending ? { pending: v.pending } : {}) };
+  }
+
+  setPostizTeam(team: string, state: PostizTeamState, by?: string) {
+    this.putSetting(`postiz:team:${team}`, state, by);
+  }
+
+  /** Comptes Postiz déjà pris par une activité (sauf `except`). */
+  postizTaken(except?: string): Set<string> {
+    const rows = this.db.prepare("SELECT key, value FROM settings WHERE key LIKE 'postiz:team:%'").all() as Row[];
+    const out = new Set<string>();
+    for (const r of rows) {
+      if (String(r.key) === `postiz:team:${except}`) continue;
+      try {
+        for (const id of Object.keys((JSON.parse(String(r.value)) as PostizTeamState).accounts ?? {})) out.add(id);
+      } catch {
+        /* ligne illisible : ignorée */
+      }
+    }
+    return out;
+  }
+
   setCatalog(raw: unknown, by?: string): Catalog {
     const c = cleanCatalog(raw);
     this.db
@@ -692,7 +751,7 @@ export class Accounts {
     const base = teamIdFrom(name) || 'campagne';
     let id = base;
     for (let n = 2; this.campaign(team, id); n++) id = `${base}-${n}`;
-    this.db.prepare('INSERT INTO campaigns (team, id, name, data, created, by) VALUES (?, ?, ?, ?, ?, ?)').run(team, id, name, JSON.stringify(cleanCampaign(input)), new Date().toISOString(), by ?? null);
+    this.db.prepare('INSERT INTO campaigns (team, id, name, data, created, by) VALUES (?, ?, ?, ?, ?, ?)').run(team, id, name, JSON.stringify(cleanCampaign({ ...input, plan: input.plan?.map(({ postiz: _p, ...it }) => it) })), new Date().toISOString(), by ?? null);
     return this.campaign(team, id)!;
   }
 
@@ -701,9 +760,32 @@ export class Accounts {
     if (!cur) throw new Error('Campagne introuvable');
     const name = str(input.name, 80) || cur.name;
     const { id: _i, name: _n, created: _c, by: _b, closed: _x, ...prev } = cur;
+    // le suivi Postiz ne vient que du serveur : celui envoyé par le navigateur est remplacé par le nôtre
+    const kept = new Map((cur.plan ?? []).filter((it) => it.postiz).map((it) => [it.id, it.postiz!]));
+    if (input.plan) {
+      // une publication programmée chez Postiz ne quitte pas le plan sans être annulée : elle paraîtrait sans suivi
+      const ids = new Set(input.plan.map((it) => it.id));
+      if ([...kept].some(([id, p]) => p.state === 'queue' && !ids.has(id))) throw new Error('Une publication programmée ne se retire pas du plan : annule d’abord sa programmation');
+      input = { ...input, plan: input.plan.map(({ postiz: _p, ...it }) => (kept.has(it.id) ? { ...it, postiz: kept.get(it.id) } : it)) };
+    }
     const data = cleanCampaign({ ...prev, ...input });
     const closed = input.closed === undefined ? (cur.closed ?? null) : input.closed ? (cur.closed ?? new Date().toISOString()) : null;
     this.db.prepare('UPDATE campaigns SET name = ?, data = ?, closed = ? WHERE team = ? AND id = ?').run(name, JSON.stringify(data), closed, team, id);
+    return this.campaign(team, id)!;
+  }
+
+  /** Met à jour un élément du plan côté serveur (suivi Postiz, parution). `postiz: null` l'efface. */
+  setPlanItem(team: string, id: string, item: string, patch: Partial<Omit<PlanItem, 'postiz'>> & { postiz?: PlanPostiz | null }): Campaign {
+    const cur = this.campaign(team, id);
+    if (!cur) throw new Error('Campagne introuvable');
+    if (!cur.plan?.some((it) => it.id === item)) throw new Error('Élément du plan introuvable');
+    const { id: _i, name: _n, created: _c, by: _b, closed: _x, ...prev } = cur;
+    const plan = cur.plan.map((it) => {
+      if (it.id !== item) return it;
+      const { postiz, ...rest } = { ...it, ...patch };
+      return postiz ? { ...rest, postiz } : rest;
+    });
+    this.db.prepare('UPDATE campaigns SET data = ? WHERE team = ? AND id = ?').run(JSON.stringify(cleanCampaign({ ...prev, plan })), team, id);
     return this.campaign(team, id)!;
   }
 
@@ -899,6 +981,8 @@ export interface PlanItem {
   /** publiée : quand, et le lien de la publication */
   published?: string;
   link?: string;
+  /** confiée à Postiz : écrit par le serveur seulement */
+  postiz?: PlanPostiz;
 }
 export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'templates' | 'plan'>>;
 
@@ -927,6 +1011,7 @@ function cleanCampaign(c: CampaignInput) {
       ...(/^[a-z0-9][a-z0-9-]{0,63}$/.test(str(x.composition, 64)) ? { composition: str(x.composition, 64) } : {}),
       ...(str(x.published, 30) ? { published: str(x.published, 30) } : {}),
       ...(/^https?:\/\/\S+$/.test(str(x.link, 300)) ? { link: str(x.link, 300) } : {}),
+      ...(cleanPlanPostiz(x.postiz) ? { postiz: cleanPlanPostiz(x.postiz)! } : {}),
     }));
   return {
     ...(str(c.operation, 40) ? { operation: str(c.operation, 40) } : {}),
@@ -939,6 +1024,12 @@ function cleanCampaign(c: CampaignInput) {
     ...(templates.length ? { templates } : {}),
     ...(plan.length ? { plan } : {}),
   };
+}
+
+function cleanPlanPostiz(v: unknown): PlanPostiz | undefined {
+  const p = v as Partial<PlanPostiz> | undefined;
+  if (!p || typeof p !== 'object' || !str(p.post, 80) || !str(p.account, 80) || !['queue', 'published', 'error'].includes(String(p.state))) return undefined;
+  return { post: str(p.post, 80), account: str(p.account, 80), at: str(p.at, 30), state: p.state as PlanPostiz['state'], ...(str(p.error, 300) ? { error: str(p.error, 300) } : {}) };
 }
 
 function campaignOf(r: Row): Campaign {
