@@ -38,7 +38,8 @@ const channelMargins = (ch?: Channel) => ch?.margins ?? uniformMargins(ch?.margi
  * sinon celles de son format (catalogue), sinon l'ancienne marge de son média.
  */
 export function framesOf(t: Pick<Target, 'format' | 'margins' | 'zone'>, ch?: Channel): { margins: Margins; zone?: Margins } {
-  if (t.margins) return { margins: t.margins, zone: t.zone };
+  // marges et zone d'intérêt : un réglage global, celui du format (Configuration globale › Formats) ;
+  // celles qu'une ancienne publication gardait pour elle sont ignorées
   const f = formatOf(t.format);
   return { margins: f.margins ?? channelMargins(ch), zone: f.zone ?? ch?.zone };
 }

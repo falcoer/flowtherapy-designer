@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Target } from './model';
 import { deleteMessage, listMessages, postMessage, reactMessage, REVIEW_LABELS, type ActivityProfile, type AtelierMessage, type AtelierMeta } from './server';
 import { channelsOf, targetKey, targetLabel } from './targets';
@@ -13,18 +13,6 @@ const when = (d: string) => {
   return today ? t.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : t.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) + ' ' + t.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 };
 
-/** Bouton de la barre : une bulle avec le nombre de messages en indice. */
-export function MessagesButton({ count, on, onClick }: { count: number; on: boolean; onClick: () => void }) {
-  return (
-    <button className={`btn msg-btn ${on ? 'on' : ''}`} onClick={onClick} title={count ? `${count} message${count > 1 ? 's' : ''} sur cette composition` : 'Messages sur cette composition'}>
-      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
-        <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z" />
-      </svg>
-      {count > 0 && <span className="msg-count">{count > 99 ? '99+' : count}</span>}
-    </button>
-  );
-}
-
 /** Les messages d'une composition : chacun rattaché au rendu (cible) qu'on regardait, des smileys, et la zone pour écrire. */
 export function MessagesDialog(p: {
   atelier: string;
@@ -38,6 +26,10 @@ export function MessagesDialog(p: {
   review?: AtelierMeta['review'];
   canPropose: boolean;
   canReview: boolean;
+  /** le circuit de la composition, en tête du dialogue */
+  status?: ReactNode;
+  /** une fois validée : programmer, ou voir la publication */
+  publish?: { label: string; primary: boolean; onClick: () => void };
   onStep: (action: 'propose' | 'approve' | 'changes') => Promise<void>;
   onShowTarget: (i: number) => void;
   onCount: (n: number) => void;
@@ -116,19 +108,24 @@ export function MessagesDialog(p: {
 
   return (
     <div className="cp-modal-back" onPointerDown={(e) => e.target === e.currentTarget && p.onClose()}>
-      <div className="cp-modal msg-modal" role="dialog" aria-label="Messages" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="cp-modal msg-modal" role="dialog" aria-label="État et messages" onPointerDown={(e) => e.stopPropagation()}>
         <div className="pf-head">
-          <span className="b-title">Messages · {p.title}</span>
+          <span className="b-title">État et messages · {p.title}</span>
           <button className="lamp-close" onClick={p.onClose} aria-label="Fermer">
             ×
           </button>
         </div>
         <div className="msg-state">
-          {p.review ? <span className={`proj-badge st-${p.review.status}`}>{REVIEW_LABELS[p.review.status]}</span> : <span className="msg-state-none">Pas encore proposée</span>}
+          {p.status ?? (p.review ? <span className={`proj-badge st-${p.review.status}`}>{REVIEW_LABELS[p.review.status]}</span> : <span className="msg-state-none">Pas encore proposée</span>)}
           <span className="msg-state-acts">
+            {p.publish && (
+              <button className={`pf-btn ${p.publish.primary ? 'primary' : ''}`} onClick={p.publish.onClick}>
+                {p.publish.label}
+              </button>
+            )}
             {p.canPropose && (
               <button className="pf-btn" disabled={busy} onClick={() => void step('propose')} title="Prévenir les responsables par e-mail ; ton message en cours accompagne la proposition">
-                Proposer aux responsables
+                {p.review?.status === 'changes' ? 'Proposer à nouveau' : 'Proposer aux responsables'}
               </button>
             )}
             {p.canReview && (

@@ -12,6 +12,8 @@ export interface AtelierMeta {
   targets?: Target[];
   /** Campagne à laquelle elle contribue. */
   campaign?: string;
+  /** Son texte d'accompagnement propre, pour l'aperçu des envois. */
+  caption?: string;
   /** Adresses des membres qui ont voté pour elle, et si l'on en fait partie. */
   votes?: string[];
   /** création, et qui l'a créée */
@@ -81,6 +83,12 @@ export interface Campaign {
   /** Contact réservation. */
   contact?: { name?: string; phone?: string; email?: string };
   note?: string;
+  /** Rédaction : texte d'accompagnement des publications, mots-dièse, lien (billetterie…). */
+  caption?: string;
+  hashtags?: string;
+  link?: string;
+  /** Rédaction : textes nommés (« Rappel »…), à déposer sur les étapes du plan. */
+  texts?: CampaignText[];
   /** Compositions proposées comme modèles de la campagne. */
   templates?: string[];
   /** Plan de publication : ce qu'il faut sortir, quand, avec quelle composition. */
@@ -89,23 +97,35 @@ export interface Campaign {
   by?: string;
   closed?: string;
 }
-/** Une publication prévue : un rendu (média, format, variante), une date, la composition retenue. */
+export interface CampaignText {
+  id: string;
+  name: string;
+  text: string;
+}
+/** Une publication prévue : un rendu (média, format, variante), son étape (nom, date), la composition et le texte retenus. */
 export interface PlanItem extends Target {
   id: string;
-  /** « rappel », « annonce »… */
+  /** nom de l'étape : « Annonce », « Rappel »… */
   label?: string;
+  /** étape qui regroupe les lignes (absente dans un plan d'avant les étapes) */
+  step?: string;
   date?: string;
+  /** heure d'envoi prévue de l'étape (HH:MM) */
+  time?: string;
   composition?: string;
+  /** texte de la campagne déposé sur l'étape */
+  text?: string;
   /** publiée : quand, et le lien de la publication */
   published?: string;
   link?: string;
   /** confiée à Postiz (écrit par le serveur) */
   postiz?: { post: string; account: string; at: string; state: 'queue' | 'published' | 'error'; error?: string };
 }
-export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'templates' | 'plan'>> & { closed?: boolean };
+export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'caption' | 'hashtags' | 'link' | 'texts' | 'templates' | 'plan'>> & { closed?: boolean };
 export const listCampaigns = () => call<Campaign[]>('/api/campaigns');
 export const createCampaign = (c: CampaignInput) => call<{ campaign: Campaign }>('/api/campaigns', json('POST', c)).then((r) => r.campaign);
 export const updateCampaign = (id: string, c: CampaignInput) => call<{ campaign: Campaign }>(`/api/campaigns/${id}`, json('PATCH', c)).then((r) => r.campaign);
+export const retitleAtelier = (id: string, title: string) => call<{ meta: AtelierMeta }>(`/api/ateliers/${id}`, json('PATCH', { title })).then((r) => r.meta);
 export const copyAtelier = (id: string, to: string, title: string, campaign?: string) =>
   call<{ meta: AtelierMeta }>(`/api/ateliers/${id}/copy`, json('POST', { to, title, campaign })).then((r) => r.meta);
 export const voteAtelier = (id: string, on: boolean) => call<{ votes: string[]; voted: boolean }>(`/api/ateliers/${id}/vote`, json('POST', { on }));
@@ -289,6 +309,18 @@ export interface Operation {
   /** Icône de l'occasion (occ-concert, occ-music…) ; absente, devinée d'après le nom. */
   icon?: string;
   targets: Target[];
+  /** Étapes de publication du modèle ; absentes : annonce, rappel, stories à dater. */
+  steps?: OpStep[];
+}
+/** Une étape du modèle : son nom, son délai avant l'évènement (jours ; absent : à dater), ce qu'elle publie. */
+export interface OpStep {
+  name: string;
+  days?: number;
+  targets: Target[];
+  /** heure d'envoi prévue (HH:MM) */
+  time?: string;
+  /** modèle de texte de l'étape, avec ses champs ({date}, {lieu}…) */
+  text?: string;
 }
 /** Fiche de l'activité : identité, branding général, canaux, services. */
 export interface ActivityProfile {
@@ -397,6 +429,8 @@ export const inviteMember = (team: string, email: string, role: Role) => call<{ 
 export const setMemberRole = (team: string, email: string, role: Role) => call<{ ok: boolean }>(`/api/teams/${enc(team)}/members/${enc(email)}`, json('PATCH', { role }));
 export const removeMember = (team: string, email: string) => call<{ ok: boolean }>(`/api/teams/${enc(team)}/members/${enc(email)}`, { method: 'DELETE' });
 export const renameTeam = (team: string, name: string) => call<{ ok: boolean }>(`/api/teams/${enc(team)}`, json('PATCH', { name }));
+/** Supprime l'activité ; `name` est son nom retapé en confirmation. */
+export const deleteTeam = (team: string, name: string) => call<{ ok: boolean }>(`/api/teams/${enc(team)}`, json('DELETE', { name }));
 export const createTeam = (name: string) => call<{ team: { id: string; name: string } }>('/api/teams', json('POST', { name }));
 
 /** État du serveur, pour les administrateurs. */

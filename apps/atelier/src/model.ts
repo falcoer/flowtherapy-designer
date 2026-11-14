@@ -277,6 +277,12 @@ export interface Target {
   name?: string;
 }
 
+/** Les objets propres à une publication qui n'est pas affichée, et sa scène (la mise au point vise un de ses objets). */
+export interface PubPage {
+  layers: Layer[];
+  scene?: SceneLook;
+}
+
 /** Marges côté par côté, en fraction du petit côté du format (positives vers l'intérieur). */
 export interface Margins {
   top: number;
@@ -306,6 +312,11 @@ export interface Doc {
   /** Cibles du document (média, format, variante) ; `target` est celle affichée. */
   targets?: Target[];
   target?: number;
+  /**
+   * Les objets de chaque publication, alignés sur `targets` : chaque publication a sa propre disposition.
+   * Celle affichée vit dans `layers` et `scene` (sa case vaut null) ; absent dans un document d'avant, où elles partageaient leurs objets.
+   */
+  pubs?: (PubPage | null)[];
   /** Occasion dont part le document. */
   operation?: string;
   /** Campagne à laquelle il contribue. */
@@ -384,6 +395,10 @@ export const DENSITY_STEPS: number[][] = [[2], [2, 3], [2, 3, 4], [2, 3, 4, 6], 
 // densité du document ouvert : réglée par l'atelier, lue par tous les calculs d'ancrage
 export const DEFAULT_DENSITY = 4;
 let density = DEFAULT_DENSITY;
+/** Repères de placement : un réglage global (Préférences), les mêmes pour tous les documents, pour passer d'un format à l'autre. */
+let guideFrame: AnchorFrame = 'repartition';
+export const setGuideFrame = (fr: AnchorFrame | undefined) => (guideFrame = fr ?? 'repartition');
+export const guideFrameNow = (): AnchorFrame => guideFrame;
 export const setAnchorDensity = (d: number | undefined) => (density = Math.max(1, Math.min(DENSITY_STEPS.length, d ?? DEFAULT_DENSITY)));
 /** Marge des repères d'une page neuve : 5 % du petit côté. */
 export const DEFAULT_MARGIN = 0.05;

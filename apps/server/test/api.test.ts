@@ -39,7 +39,7 @@ describe('API', () => {
 
   it('enregistre, liste, relit et supprime une composition de l’atelier', async () => {
     const { app } = await setup();
-    const doc = { formatId: 'a4', layers: [{ id: 'x', kind: 'shape' }] };
+    const doc = { formatId: 'a4', layers: [{ id: 'x', kind: 'shape' }], caption: 'Venez nombreux' };
     const thumb = 'data:image/png;base64,' + Buffer.from('png').toString('base64');
     const put = await app.inject({ method: 'PUT', url: '/api/ateliers/affiche-1', payload: { title: 'Affiche', doc, thumb } });
     expect(put.statusCode).toBe(200);
@@ -47,6 +47,8 @@ describe('API', () => {
     const list = (await app.inject('/api/ateliers')).json();
     expect(list).toHaveLength(1);
     expect(list[0].doc).toBeUndefined();
+    // le texte propre à la composition suit dans la liste, pour l'aperçu des envois
+    expect(list[0].caption).toBe('Venez nombreux');
     expect((await app.inject('/api/ateliers/affiche-1')).json().doc).toEqual(doc);
     expect((await app.inject('/api/ateliers/affiche-1/thumb.png')).statusCode).toBe(200);
     // adresse datée : la vignette reste en cache ; sans date, elle est revalidée
@@ -73,6 +75,21 @@ describe('API', () => {
     expect(again.json().meta.thumbs).toBeUndefined();
     expect((await app.inject('/api/ateliers/affiche-2/thumb.png?t=0')).statusCode).toBe(404);
     expect((await app.inject('/api/ateliers/affiche-2/thumb.png')).body).toBe('g');
+  });
+
+  it('renomme une composition sans toucher à son document ni à ses vignettes', async () => {
+    const { app } = await setup();
+    const doc = { formatId: 'a4', layers: [{ id: 'x' }], targets: [{ format: 'a4' }] };
+    const png = (s: string) => 'data:image/png;base64,' + Buffer.from(s).toString('base64');
+    await app.inject({ method: 'PUT', url: '/api/ateliers/affiche-3', payload: { title: 'Affiche', doc, thumb: png('g'), thumbs: [png('a4')] } });
+    const r = await app.inject({ method: 'PATCH', url: '/api/ateliers/affiche-3', payload: { title: '  Affiche lama ' } });
+    expect(r.json().meta.title).toBe('Affiche lama');
+    const back = (await app.inject('/api/ateliers/affiche-3')).json();
+    expect(back.title).toBe('Affiche lama');
+    expect(back.doc).toEqual(doc);
+    expect((await app.inject('/api/ateliers/affiche-3/thumb.png?t=0')).body).toBe('a4');
+    expect((await app.inject({ method: 'PATCH', url: '/api/ateliers/affiche-3', payload: { title: ' ' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'PATCH', url: '/api/ateliers/absente', payload: { title: 'X' } })).statusCode).toBe(404);
   });
 
   it('range un objet préparé (ses pièces) dans la bibliothèque', async () => {

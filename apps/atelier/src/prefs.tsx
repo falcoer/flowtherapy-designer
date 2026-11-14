@@ -3,7 +3,8 @@ import { fetchMe, fetchSystem, reindexLibrary, restartServer, serverOnline, type
 import { MARK_KINDS, MARKS, type MarkGroup, type MarkKind } from './marks';
 import { MarkLegend } from './marks-ui';
 import { PointGrids } from './anchor-ui';
-import type { AnchorExtras } from './model';
+import { FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame } from '@ftd/core';
+import { DENSITY_STEPS, type AnchorExtras } from './model';
 
 const MARK_GROUPS: Array<[MarkGroup, string]> = [
   ['page', 'Page'],
@@ -48,6 +49,9 @@ function Toggle({ label, hint, on, set }: { label: string; hint: string; on: boo
 export function PrefsPanel(p: {
   points: AnchorExtras;
   setPoints: (v: AnchorExtras) => void;
+  /** repères de placement, les mêmes pour tous les documents */
+  reperes: { frame: AnchorFrame; density: number };
+  setReperes: (v: { frame: AnchorFrame; density: number }) => void;
   online: boolean | null;
   tips: boolean;
   setTips: (v: boolean) => void;
@@ -184,10 +188,35 @@ export function PrefsPanel(p: {
           <Toggle label="Repères toujours visibles" hint="Sinon, ils n'apparaissent que pendant un déplacement" on={p.guides.on} set={(on) => p.setGuides({ ...p.guides, on })} />
           <div className="pf-row pf-col">
             <span className="pf-txt">
-              <b>Points d’accroche par défaut</b>
-              <small>Les points de l’objet et de la page qui s’aimantent, pour les compositions qui n’ont pas leurs propres réglages. Touche un point pour allumer ou éteindre sa famille.</small>
+              <b>Repères de placement</b>
+              <small>Les mêmes pour tous les documents : une composition s’adapte ainsi d’un format à l’autre.</small>
             </span>
-            <PointGrids points={p.points} frame="repartition" onChange={(k, v) => p.setPoints({ ...p.points, [k]: v })} />
+            <div className="seg">
+              {ANCHOR_FRAMES.filter((x) => x !== 'grid').map((x) => (
+                <button key={x} className={p.reperes.frame === x ? 'on' : ''} onClick={() => p.setReperes({ ...p.reperes, frame: x as AnchorFrame })} title={FRAME_TITLES[x]}>
+                  {x === 'repartition' ? '½ ⅓' : x === 'or' ? 'φ' : '✕'}
+                </button>
+              ))}
+            </div>
+            {p.reperes.frame === 'repartition' && (
+              <>
+                <div className="b-title">
+                  Densité <span className="b-count">{['Demis', 'Tiers', 'Quarts', 'Sixièmes', 'Douzièmes', '24es'][p.reperes.density - 1]}</span>
+                </div>
+                <label className="density">
+                  <span>−</span>
+                  <input type="range" min={1} max={DENSITY_STEPS.length} step={1} value={p.reperes.density} onChange={(e) => p.setReperes({ ...p.reperes, density: Number(e.target.value) })} />
+                  <span>+</span>
+                </label>
+              </>
+            )}
+          </div>
+          <div className="pf-row pf-col">
+            <span className="pf-txt">
+              <b>Points d’accroche</b>
+              <small>Les points de l’objet et de la page qui s’aimantent, dans toutes les compositions. Touche un point pour allumer ou éteindre sa famille.</small>
+            </span>
+            <PointGrids points={p.points} frame={p.reperes.frame} onChange={(k, v) => p.setPoints({ ...p.points, [k]: v })} />
           </div>
           <div className="pf-row pf-col">
             <span className="pf-txt">

@@ -31,24 +31,28 @@ import { ColorDialog, swatch } from './color-dialog';
 import { GradientOverlay } from './gradient-ui';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
+import { NewPublicationDialog } from './pub-new';
+import { addPage, copyPage, packDoc, pageDoc, pubIndex, removePage, switchPage, unpackDoc, type PubViews } from './pubs';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
 import { PostizPlanActions, usePostizAccounts } from './postiz-ui';
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
 import { CatalogPanel } from './catalog-ui';
-import { fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, postizSync, type PlanItem, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
+import { createTeam, switchTeam, fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, retitleAtelier, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, postizSync, type PlanItem, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
 import { channelsOf, setCatalog, contactsOf, CONTACT_KINDS, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
 import { Knob } from './knob';
 import { FocusRing } from './focus-ring';
 import { MediaIcon, PublicationsPanel, VariantBar, VariantPick } from './targets-ui';
 import { CampaignDialog } from './campaigns-ui';
 import { NewCompositionDialog } from './compositions-ui';
-import { CompositionMenu, CompositionsMenu, TopCrumbs } from './compositions-menu';
-import { CampaignSheet, planFromOperation } from './campaign-sheet';
-import { MessagesButton, MessagesDialog } from './messages-ui';
+import { CompositionMenu, TopCrumbs } from './compositions-menu';
+import { CaptionTools } from './caption-tools';
+import { CampaignPage, CampaignPicker, CampaignsHome, StageButton, StageTrack, campaignCaption, stageOf, type SpaceTab } from './campaigns-space';
+import { campaignFields, draftFromOperation, fillFields, filledCaption, planCaption, planText } from './plan';
+import { MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
-import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorFrames, hasZone, zoneOf, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget } from './model';
+import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorFrames, setGuideFrame, hasZone, zoneOf, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget, type PaletteMatter, type PaletteEdge } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import { BRUSH_TIPS, TIP_NAMES, isComposite, tipHoverSvg, type BrushTip } from './tips';
@@ -323,6 +327,8 @@ function load(): Doc {
 
 /** Remet à jour un document enregistré par une version plus ancienne de l'atelier. */
 function migrate(d: Doc): Doc {
+  // images rangées une seule fois à l'enregistrement (publications autonomes) : remises dans leurs objets
+  d = unpackDoc(d);
   {
     {
       // anciens documents : découpe polygonale → tracé
@@ -404,7 +410,7 @@ export function App() {
   const pruneDue = useRef(false);
   const update = useCallback((fn: (d: Doc) => Doc) => {
     pruneDue.current = true;
-    past.current.push(JSON.stringify(docRef.current, compact));
+    past.current.push(JSON.stringify(packDoc(docRef.current), compact));
     if (past.current.length > 60) past.current.shift();
     future.current = [];
     setDoc((d) => fn(structuredClone(d)));
@@ -426,17 +432,17 @@ export function App() {
   const undo = useCallback(() => {
     const s = past.current.pop();
     if (!s) return;
-    future.current.push(JSON.stringify(docRef.current, compact));
+    future.current.push(JSON.stringify(packDoc(docRef.current), compact));
     forgetPaint();
-    setDoc(JSON.parse(s));
+    setDoc(unpackDoc(JSON.parse(s)));
     setToast('Annulé');
   }, []);
   const redo = useCallback(() => {
     const s = future.current.pop();
     if (!s) return;
-    past.current.push(JSON.stringify(docRef.current, compact));
+    past.current.push(JSON.stringify(packDoc(docRef.current), compact));
     forgetPaint();
-    setDoc(JSON.parse(s));
+    setDoc(unpackDoc(JSON.parse(s)));
     setToast('Rétabli');
   }, []);
 
@@ -444,7 +450,7 @@ export function App() {
   const localOk = useRef(true);
   useEffect(() => {
     try {
-      localStorage.setItem(STORE, JSON.stringify(doc, compact));
+      localStorage.setItem(STORE, JSON.stringify(packDoc(doc), compact));
       localOk.current = true;
     } catch {
       /* photo trop lourde pour le stockage local : on garde en mémoire */
@@ -519,12 +525,32 @@ export function App() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const campaignKey = `ftd-campagne-${me?.team?.id ?? ''}`;
   const [campaign, setCampaignRaw] = useState('');
+  // les cinq dernières campagnes ouvertes, proposées sous la campagne du fil d'Ariane
+  const recentKey = `ftd-campagnes-recentes-${me?.team?.id ?? ''}`;
+  const readRecent = (): string[] => {
+    try {
+      const v = JSON.parse(localStorage.getItem(recentKey) ?? '[]');
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  };
+  const [recentCampaigns, setRecentCampaigns] = useState<string[]>([]);
+  useEffect(() => setRecentCampaigns(readRecent()), [recentKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const setCampaign = (id: string) => {
     setCampaignRaw(id);
     try {
       localStorage.setItem(campaignKey, id);
     } catch {
       /* stockage indisponible */
+    }
+    if (!id) return;
+    const next = [id, ...readRecent().filter((x) => x !== id)].slice(0, 5);
+    setRecentCampaigns(next);
+    try {
+      localStorage.setItem(recentKey, JSON.stringify(next));
+    } catch {
+      /* stockage indisponible : la liste vaut pour cette visite */
     }
   };
   const loadCampaigns = () => {
@@ -573,6 +599,10 @@ export function App() {
     setFeedSeen(readSeen());
   };
   const refreshProjects = () => void listAteliers().then(setProjects, () => {});
+  // la liste des compositions sert dès l'ouverture : pastille d'état, retour vers la campagne
+  useEffect(() => {
+    if (online) refreshProjects();
+  }, [online, me?.team?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   /** Petite image de la composition pour la liste. */
   const makeThumb = (d: Doc) => {
     const ff = formatOf(d.formatId);
@@ -595,7 +625,7 @@ export function App() {
     for (let i = 0; i < d.targets.length; i++) {
       await new Promise((ok) => setTimeout(ok, 0));
       // les ancrages se résolvent avec les marges de cette publication
-      const x = docAtTarget(d, i, activity);
+      const x = pageDoc(d, i, views);
       setAnchorFrames(x);
       try {
         out.push(makeThumb(x));
@@ -611,7 +641,7 @@ export function App() {
     try {
       const thumb = makeThumb(d);
       const thumbs = await makeThumbs(d);
-      const meta = await saveAtelier(p.id, p.title, d, thumb, thumbs);
+      const meta = await saveAtelier(p.id, p.title, packDoc(d), thumb, thumbs);
       // le menu de la composition montre aussitôt ce qui vient d'être enregistré, sans rien redemander au serveur
       setSavedThumbs({ id: p.id, urls: thumbs ?? [thumb] });
       setProjects((l) => l.map((x) => (x.id === meta.id ? { ...x, ...meta } : x)));
@@ -664,6 +694,8 @@ export function App() {
       setProject({ id: m.id, title: r.title });
       setSaving('saved');
       setBubble(null);
+      // une composition ouverte (depuis la campagne, un modèle, une copie, le fil) se montre aussitôt
+      setSpace(null);
       setToast(`« ${r.title} » ouverte`);
       return true;
     } catch (err) {
@@ -739,6 +771,7 @@ export function App() {
       setSelected(null);
     }
     setProject(p);
+    setSpace(null);
     await saveNow(p, d);
     refreshProjects();
   };
@@ -750,7 +783,16 @@ export function App() {
     return { ...docForTarget(base, t, activity), formatId: t.format, targets: op.targets.map((x) => ({ ...x })), target: 0, operation: op.id };
   };
   /** Affiche une cible : format (les objets gardent leurs accroches), marge du média, couleurs de la variante. */
-  const showTarget = (i: number) => setDoc((d) => docAtTarget(d, i, activity));
+  /** Ce que deviennent les objets d'une publication à l'autre (format, marges, variante ; recalage d'une copie). */
+  const views: PubViews = {
+    look: (d, i) => ({ ...docForTarget(d, d.targets![i]!, activity), formatId: d.targets![i]!.format, target: i }),
+    at: (d, i) => docAtTarget(d, i, activity),
+  };
+  /** Affiche une publication : chacune a ses propres objets, celle qu'on quitte range les siens. */
+  const showTarget = (i: number) => {
+    if (i !== pubIndex(docRef.current)) setSelected(null);
+    setDoc((d) => switchPage(d, i, views));
+  };
   /** Édite la publication affichée (réseau, format, résolution, variante, marges) : le document suit, la publication garde ses réglages. */
   const applyPublication = (t: PubTarget) => {
     // les couleurs ne changent que si la variante change : une marge ou une résolution garde les couleurs retouchées
@@ -778,21 +820,46 @@ export function App() {
       });
       return { ...d, targets, target: cur };
     });
-  /** Nouvelle publication de la composition : une copie de celle affichée, à régler ensuite. */
-  const addPublication = () => {
-    const { name: _name, ...copy } = currentPub;
-    setDoc((d) => (d.targets?.length ? { ...d, targets: [...d.targets, copy], target: d.targets.length } : { ...d, targets: [{ ...currentPub }, copy], target: 1 }));
-    setBubble('format');
+  /** Nouvelle publication de la composition, avec ses propres objets : copie recalée d'une voisine, d'un modèle, ou page vierge. */
+  const addPublication = async (t: PubTarget, from: { pub: number } | { template: AtelierMeta } | 'blank') => {
+    let page: { layers: Layer[]; scene?: Doc['scene'] };
+    try {
+      if (from === 'blank') page = { layers: blankDoc().layers };
+      else {
+        // la source vue sur sa publication, puis recalée sur le nouveau format
+        let src: Doc;
+        let st: PubTarget;
+        if ('pub' in from) {
+          const d = docRef.current;
+          src = pageDoc(d, from.pub, views);
+          st = d.targets?.[from.pub] ?? currentPub;
+        } else {
+          const r = await readAtelier(from.template.id);
+          const md = migrate(r.doc);
+          const ts = md.targets?.length ? md.targets : [{ format: md.formatId }];
+          // la publication du modèle la plus proche : même réseau et format, sinon même format, sinon la première
+          const j = Math.max(0, ts.findIndex((x) => x.format === t.format && (x.channel ?? '') === (t.channel ?? '')), ts.findIndex((x) => x.format === t.format));
+          src = md.targets?.length ? pageDoc(md, j, views) : md;
+          st = ts[j]!;
+        }
+        const x = docAtTarget({ ...src, targets: [st, t], target: 0, pubs: undefined }, 1, activity);
+        page = { layers: x.layers, scene: x.scene };
+      }
+    } catch (err) {
+      return setToast(`Impossible : ${(err as Error).message}`);
+    } finally {
+      setAnchorFrames(docRef.current);
+    }
+    setSelected(null);
+    update((d) => addPage(d, currentPub, t, copyPage(page.layers, page.scene), views));
+    setNewPub(false);
+    setBubble(null);
+    setToast(`${targetLabel(t, activity)} ajoutée : elle a ses propres objets`);
   };
-  const removePublication = (i: number) =>
-    setDoc((d) => {
-      const targets = (d.targets ?? []).filter((_, j) => j !== i);
-      const cur = d.target ?? 0;
-      const target = Math.max(0, cur > i ? cur - 1 : Math.min(cur, targets.length - 1));
-      const next = { ...d, targets, target };
-      // la publication affichée disparaît : on montre celle qui prend sa place
-      return cur === i && targets.length ? docAtTarget(next, target, activity) : next;
-    });
+  const removePublication = (i: number) => {
+    if (i === pubIndex(docRef.current)) setSelected(null);
+    update((d) => removePage(d, i, views));
+  };
   const channels = channelsOf(activity);
   const allOperations = operationsOf(activity);
   const followed = campaigns.find((c) => c.id === campaign);
@@ -812,9 +879,20 @@ export function App() {
   // dans une campagne : ses compositions, les plus votées d'abord
   const canEditTeam = !!me?.team && me.team.role !== 'viewer';
   const [campaignDialog, setCampaignDialog] = useState(false);
+  // espace des campagnes, en plein écran sous la barre : la liste, ou une campagne et ses onglets
+  const [space, setSpace] = useState<'campaigns' | 'campaign' | null>(null);
+  const [spaceTab, setSpaceTab] = useState<SpaceTab>('comps');
+  const [picking, setPicking] = useState(false);
+  /** la fiche de l'activité ouverte depuis le sous-menu de l'activité : dépliée d'emblée */
+  const [activityFiche, setActivityFiche] = useState(false);
+  const captionArea = useRef<HTMLTextAreaElement>(null);
   const [newDialog, setNewDialog] = useState(false);
   const [msgDialog, setMsgDialog] = useState(false);
-  const [sheet, setSheet] = useState<string | null>(null);
+  const [newPub, setNewPub] = useState(false);
+  // la composition ouverte : sa fiche, sa campagne et son étape (pastille de la barre, dialogue de l'état et des messages)
+  const curMeta = project ? projects.find((x) => x.id === project.id) : undefined;
+  const curCampaign = curMeta?.campaign ? campaigns.find((c) => c.id === curMeta.campaign) : undefined;
+  const curStage = stageOf(curMeta, curCampaign);
   const followedTemplates = (followed?.templates ?? []).map((id) => projects.find((m) => m.id === id)).filter((m): m is AtelierMeta => !!m);
   const campaignCounts = projects.reduce<Record<string, number>>((o, m) => (m.campaign ? { ...o, [m.campaign]: (o[m.campaign] ?? 0) + 1 } : o), {});
   /** Nouvelle composition copiée d'une autre (modèle, ou import), rangée dans la campagne suivie, puis ouverte. */
@@ -828,12 +906,36 @@ export function App() {
       setToast(`Copie impossible : ${(err as Error).message}`);
     }
   };
-  /** Double toucher dans le menu de la campagne : la composition s'ouvre sur sa première publication, avec son menu. */
-  const openComposition = async (m: AtelierMeta) => {
-    if (m.id !== project?.id && !(await openProject(m))) return;
-    showTarget(0);
-    setBubble('composition');
+  /** Copie d'une composition dans sa campagne, sans l'ouvrir : « Affiche lama (copie) ». */
+  const duplicateComposition = async (m: AtelierMeta) => {
+    const title = `${m.title} (copie)`;
+    try {
+      await copyAtelier(m.id, newAtelierId(title), title, m.campaign);
+      refreshProjects();
+      setToast(`« ${title} » créée`);
+    } catch (err) {
+      setToast(`Copie impossible : ${(err as Error).message}`);
+    }
   };
+  /** Double toucher dans le menu de la campagne : la composition s'ouvre sur sa première publication, avec son menu. */
+  const openComposition = async (m: AtelierMeta, target = 0) => {
+    if (m.id !== project?.id && !(await openProject(m))) return;
+    showTarget(target);
+    setSpace(null);
+    setBubble(null);
+  };
+  /** Ouvre l'espace des campagnes : une campagne (suivie dès lors), ou la liste. */
+  const openSpace = (id?: string) => {
+    setBubble(null);
+    if (online) refreshProjects();
+    if (id === undefined) return setSpace('campaigns');
+    // une autre campagne s'ouvre sur ses compositions, sous la frise de son plan
+    if (id !== campaign) setSpaceTab('comps');
+    setCampaign(id);
+    setSpace('campaign');
+  };
+  /** Le plan d'une campagne : la frise en tête de sa page (depuis le choix de campagne, les notifications). */
+  const openPlan = (id: string) => openSpace(id);
   const voteFor = (m: AtelierMeta) =>
     void voteAtelier(m.id, !m.voted).then(
       (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
@@ -893,9 +995,9 @@ export function App() {
     // avec des cibles : chacune dans son format et sa variante ; sinon les formats cochés
     const jobs = d0.targets?.length
       ? exportTargets
-          .map((i) => d0.targets![i])
-          .filter((t): t is NonNullable<typeof t> => !!t)
-          .map((t) => ({ ff: formatOf(t.format), d: docForTarget(d0, t, activity), width: t.width, name: [project?.title ?? 'composition', t.channel].filter(Boolean).join(' ') }))
+          .filter((i) => !!d0.targets![i])
+          .map((i) => ({ i, t: d0.targets![i]! }))
+          .map(({ i, t }) => ({ ff: formatOf(t.format), d: pageDoc(d0, i, views), width: t.width, name: [project?.title ?? 'composition', t.channel].filter(Boolean).join(' ') }))
       : FORMATS.filter((x) => (exportFormats.length ? exportFormats : [d0.formatId]).includes(x.id)).map((ff) => ({ ff, d: d0, width: undefined as number | undefined, name: project?.title ?? 'composition' }));
     const list = jobs;
     setExporting(true);
@@ -964,8 +1066,11 @@ export function App() {
   const [bubble, setBubble] = useState<Bubble>(null);
   // Publier : les comptes reliés par l'activité, et l'état des programmations relu chez Postiz à l'ouverture
   const pubPz = usePostizAccounts(bubble === 'export' && !!online && !!me?.team);
+  // la frise du plan, en tête de la page de la campagne, programme aussi : mêmes comptes, même relecture de Postiz
+  const planOpen = space === 'campaign';
+  const spacePz = usePostizAccounts(planOpen && !!online && !!me?.team);
   useEffect(() => {
-    if (bubble !== 'export' || !online || !me?.team) return;
+    if ((bubble !== 'export' && !planOpen) || !online || !me?.team) return;
     let live = true;
     postizSync().then(
       (r) => live && r.changed > 0 && r.campaigns && setCampaigns(r.campaigns),
@@ -975,14 +1080,40 @@ export function App() {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bubble, online, me?.team?.id]);
+  }, [bubble, planOpen, online, me?.team?.id]);
   /** L'image d'un élément du plan : le rendu de la composition pour ce réseau et ce format, en JPEG. */
   const renderPlanItem = async (it: PlanItem): Promise<Blob | null> => {
     const d0 = docRef.current;
-    const t = d0.targets?.find((x) => (x.channel ?? '') === (it.channel ?? '') && x.format === it.format);
+    const i = d0.targets?.findIndex((x) => (x.channel ?? '') === (it.channel ?? '') && x.format === it.format) ?? -1;
+    const t = d0.targets?.[i];
     if (!t) return null;
-    const c = await renderDoc(docForTarget(d0, t, activity), formatOf(t.format), 4096, t.width);
+    const c = await renderDoc(pageDoc(d0, i, views), formatOf(t.format), 4096, t.width);
     return new Promise((ok, ko) => c.toBlob((b) => (b ? ok(b) : ko(new Error('Rendu impossible'))), 'image/jpeg', 0.92));
+  };
+  /**
+   * Depuis le plan en pleine page : la ligne rendue d'après sa composition (l'ouverte telle qu'elle est,
+   * une autre relue au serveur), et son texte (celui de la composition, sinon celui de la campagne).
+   */
+  const renderPlanFor = async (m: AtelierMeta, row: PlanItem, at?: string): Promise<{ image: Blob | null; caption: string }> => {
+    // le texte déposé sur l'étape, sinon celui de la composition, sinon le texte principal de la campagne ; ses champs
+    // ({date}, {quand}…) sont remplis pour le jour de l'envoi
+    const c = campaigns.find((x) => x.id === m.campaign);
+    const it = at ? { ...row, date: at } : row;
+    const who = activity?.name;
+    if (m.id === project?.id) return { image: await renderPlanItem(it), caption: planCaption(c, it, docRef.current.caption, who) };
+    const d = migrate((await readAtelier(m.id)).doc);
+    const ts = d.targets?.length ? d.targets : [{ format: d.formatId }];
+    const i = ts.findIndex((x) => (x.channel ?? '') === (it.channel ?? '') && x.format === it.format);
+    if (i < 0) return { image: null, caption: planCaption(c, it, d.caption, who) };
+    const x = d.targets?.length ? pageDoc(d, i, views) : d;
+    setAnchorFrames(x);
+    try {
+      const cv = await renderDoc(x, formatOf(ts[i]!.format), 4096, ts[i]!.width);
+      const image = await new Promise<Blob>((ok, ko) => cv.toBlob((b) => (b ? ok(b) : ko(new Error('Rendu impossible'))), 'image/jpeg', 0.92));
+      return { image, caption: planCaption(c, it, d.caption, who) };
+    } finally {
+      setAnchorFrames(docRef.current);
+    }
   };
   // historique du menu de la campagne : demandé au serveur pour cette campagne seulement, à l'ouverture du menu
   const [campaignFeed, setCampaignFeed] = useState<ActivityEvent[] | null>(null);
@@ -1002,7 +1133,7 @@ export function App() {
       if (stop || i >= n) return;
       let x = doc;
       if (doc.targets?.length) {
-        x = docAtTarget(doc, i, activity);
+        x = pageDoc(doc, i, views);
         setAnchorFrames(x);
       }
       try {
@@ -1028,8 +1159,13 @@ export function App() {
   }, [bubble, doc, activity, stored]); // eslint-disable-line react-hooks/exhaustive-deps
   const previews = stored ? (savedThumbs?.id === project?.id ? savedThumbs?.urls : undefined) : livePreviews;
   // menu de la composition : l'historique de sa campagne à elle
-  const menuOpen = bubble === 'projects' || bubble === 'composition';
-  const campaignScope = bubble === 'composition' && project ? (projects.find((x) => x.id === project.id)?.campaign ?? '') : (followed?.id ?? '');
+  useEffect(() => {
+    if (bubble) {
+        setPicking(false);
+    }
+  }, [bubble]);
+  const menuOpen = bubble === 'projects' || bubble === 'composition' || space === 'campaign';
+  const campaignScope = bubble === 'composition' && !space && project ? (projects.find((x) => x.id === project.id)?.campaign ?? '') : (followed?.id ?? '');
   useEffect(() => {
     if (!menuOpen || !online || !me?.team) return;
     let live = true;
@@ -1471,7 +1607,25 @@ export function App() {
 
   const f = formatOf(doc.formatId);
   // les calculs d'ancrage suivent la densité du document ouvert
-  setAnchorDensity(doc.density);
+  /** Repères (type et densité) : un réglage global des Préférences, les mêmes pour tous les documents. */
+  const [reperes, setReperesRaw] = useState<{ frame: AnchorFrame; density: number }>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('ftd-atelier-reperes') ?? 'null') as { frame?: AnchorFrame; density?: number } | null;
+      return { frame: v?.frame && v.frame !== 'grid' ? v.frame : 'repartition', density: v?.density ?? DEFAULT_DENSITY };
+    } catch {
+      return { frame: 'repartition', density: DEFAULT_DENSITY };
+    }
+  });
+  const setReperes = (v: { frame: AnchorFrame; density: number }) => {
+    setReperesRaw(v);
+    try {
+      localStorage.setItem('ftd-atelier-reperes', JSON.stringify(v));
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  setAnchorDensity(reperes.density);
+  setGuideFrame(reperes.frame);
   setAnchorFrames(doc);
   /** Points d'accroche par défaut (Préférences) : pour les compositions qui n'ont pas les leurs. */
   const [defaultPoints, setDefaultPointsRaw] = useState<AnchorExtras>(() => {
@@ -1489,10 +1643,8 @@ export function App() {
       /* stockage indisponible */
     }
   };
-  const points = doc.points ?? defaultPoints;
-  setAnchorExtras(points);
-  /** Bulle de positionnement : les points d'accroche s'ouvrent sur « Plus ». */
-  const [anchorMore, setAnchorMore] = useState(false);
+  // points d'accroche : un réglage global, dans les Préférences (ceux qu'une ancienne composition gardait sont ignorés)
+  setAnchorExtras(defaultPoints);
   /** Couleurs caractéristiques des repères (marges, points) : préférence de l'atelier, par-dessus les couleurs d'origine. */
   const [markColors, setMarkColorsRaw] = useState(loadMarkColors);
   setMarkColors(markColors);
@@ -1526,6 +1678,7 @@ export function App() {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
 
   // transformation page → écran (pixels CSS)
+  // sous la barre, les onglets des publications (et sur téléphone la pastille annuler/rétablir) : la page se place dessous
   const top = rendu ? 0 : TOP;
   const fit = Math.min((vp.w - (rendu ? 24 : vp.w < 560 ? 84 : 150)) / f.width, (vp.h - top - 24) / f.height);
   const viewMatrix = (v: View) =>
@@ -2192,8 +2345,8 @@ export function App() {
       }
       ctx.lineWidth = 1 * px;
       ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      for (const a of anchorsOf(doc.frame, f)) {
-        ctx.fillStyle = markColor(anchorKind(doc.frame, a.id));
+      for (const a of anchorsOf(reperes.frame, f)) {
+        ctx.fillStyle = markColor(anchorKind(reperes.frame, a.id));
         ctx.beginPath();
         ctx.arc(a.x * f.width, a.y * f.height, 3.5 * px, 0, Math.PI * 2);
         ctx.fill();
@@ -2231,7 +2384,7 @@ export function App() {
         const bb = pageBounds(held, f);
         ctx.save();
         ctx.lineWidth = 1.5 * px;
-        for (const g of objectGrips(points)) {
+        for (const g of objectGrips(defaultPoints)) {
           const x = (bb.x0 + bb.x1) / 2 + g.x * (bb.x1 - bb.x0);
           const y = (bb.y0 + bb.y1) / 2 + g.y * (bb.y1 - bb.y0);
           const r = 3.2 * px;
@@ -2449,7 +2602,7 @@ export function App() {
       const vy = (b.cy - O.y) * k;
       const cx = O.x + vx * Math.cos(dr) - vy * Math.sin(dr) + tx;
       const cy = O.y + vx * Math.sin(dr) + vy * Math.cos(dr) + ty;
-      const a = anchorFor(doc.frame, f, cx, cy);
+      const a = anchorFor(reperes.frame, f, cx, cy);
       out.set(m.id, { ...m, w: m.w * k, h: m.h * k, rot: dr ? Math.atan2(Math.sin((m.rot ?? 0) + dr), Math.cos((m.rot ?? 0) + dr)) : m.rot, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined, pins: undefined });
     }
     return out;
@@ -3184,11 +3337,11 @@ export function App() {
       // Maj : ni ancrage ni bord, l'objet suit le doigt
       const free = shiftHeld(shiftLatch, shiftKey, e.shiftKey);
       let bestD = free ? 0 : MAGNET / scale;
-      for (const g of free ? [] : objectGrips(points)) {
+      for (const g of free ? [] : objectGrips(defaultPoints)) {
         // le point de l'objet, d'après sa découpe, relatif au centre de sa boîte
         const ox = g.x || g.y ? (bb.x0 + bb.x1) / 2 + g.x * (bb.x1 - bb.x0) - b.cx : 0;
         const oy = g.x || g.y ? (bb.y0 + bb.y1) / 2 + g.y * (bb.y1 - bb.y0) - b.cy : 0;
-        const near = anchorFor(doc.frame, f, cx + ox, cy + oy);
+        const near = anchorFor(reperes.frame, f, cx + ox, cy + oy);
         const ax = near.at.x * f.width;
         const ay = near.at.y * f.height;
         // à distance égale, le centre l'emporte
@@ -3196,7 +3349,7 @@ export function App() {
         if (d < bestD) {
           bestD = d;
           const grip = g.x || g.y ? { x: ox / (o.w * m0), y: oy / (o.h * m0) } : undefined;
-          L.snap = { x: ax, y: ay, kind: anchorKind(doc.frame, near.at.id), anchor: near.anchor, grip, ox, oy };
+          L.snap = { x: ax, y: ay, kind: anchorKind(reperes.frame, near.at.id), anchor: near.anchor, grip, ox, oy };
         }
       }
       if (L.snap) [cx, cy] = [L.snap.x - L.snap.ox, L.snap.y - L.snap.oy];
@@ -3234,7 +3387,7 @@ export function App() {
       const edge = pins.left || pins.right || pins.top || pins.bottom;
       if (edge) L.snap = null;
       L.pins = edge ? pins : undefined;
-      const a = anchorFor(doc.frame, f, cx, cy);
+      const a = anchorFor(reperes.frame, f, cx, cy);
       const carried = carryMates(L.mates, { x: 0, y: 0 }, 1, 0, cx - b.cx, cy - b.cy);
       const sn = L.snap;
       setDoc((d) => ({
@@ -3287,13 +3440,13 @@ export function App() {
         const vy = v.y * ky;
         const cx = O.x + vx * c - vy * sn;
         const cy = O.y + vx * sn + vy * c;
-        const a = anchorFor(doc.frame, f, cx, cy);
+        const a = anchorFor(reperes.frame, f, cx, cy);
         setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, w: o.w * kx, h: o.h * ky, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined } : x)) }));
         return;
       }
       const cx = O.x + (b.cx - O.x) * k;
       const cy = O.y + (b.cy - O.y) * k;
-      const a = anchorFor(doc.frame, f, cx, cy);
+      const a = anchorFor(reperes.frame, f, cx, cy);
       const carried = carryMates(L.mates, O, k, 0, 0, 0);
       // accroché par un sommet ou un côté : ce point reste sur son ancrage, seule la taille change
       const keep = !fromCentre && L.centered && o.grip;
@@ -3331,7 +3484,7 @@ export function App() {
       const vy = b.cy - P.y;
       const cx = P.x + vx * Math.cos(dr) - vy * Math.sin(dr);
       const cy = P.y + vx * Math.sin(dr) + vy * Math.cos(dr);
-      const a = anchorFor(doc.frame, f, cx, cy);
+      const a = anchorFor(reperes.frame, f, cx, cy);
       const carried = carryMates(L.mates, P, 1, dr, 0, 0);
       setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, rot: r, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined } : (carried.get(x.id) ?? x))) }));
     }
@@ -3835,7 +3988,7 @@ export function App() {
     const h = y1 - y0;
     const cx = (x0 + x1) / 2;
     const cy = (y0 + y1) / 2;
-    const a = anchorFor(doc.frame, f, cx, cy);
+    const a = anchorFor(reperes.frame, f, cx, cy);
     const n = doc.layers.filter((l) => l.name.startsWith('Papier découpé')).length + 1;
     const local = lasso.map((p) => ({ x: (p.x - x0) / w, y: (p.y - y0) / h }));
     const layer: Layer = {
@@ -3867,7 +4020,7 @@ export function App() {
   };
   /** Objet en pièces : une couche par pièce, toutes dans la même boîte, solidaires. */
   const addKit = (kit: Kit) => {
-    const a = anchorFor(doc.frame, f, f.width / 2, f.height / 2);
+    const a = anchorFor(reperes.frame, f, f.width / 2, f.height / 2);
     const k = 0.62;
     const [w, h] = kit.ratio >= 1 ? [k, k / kit.ratio] : [k * kit.ratio, k];
     const group = uid();
@@ -3917,7 +4070,7 @@ export function App() {
   };
 
   const addLayer = (kind: 'shape' | 'photo', opts: { shape?: ShapeKind; src?: string; name: string; ratio?: number; size?: number; at?: Pt; cut?: string; ref?: string }) => {
-    const a = anchorFor(doc.frame, f, opts.at?.x ?? f.width / 2, opts.at?.y ?? f.height / 2);
+    const a = anchorFor(reperes.frame, f, opts.at?.x ?? f.width / 2, opts.at?.y ?? f.height / 2);
     let w = 0.4;
     let h = 0.4;
     if (opts.shape === 'arch') h = 0.5;
@@ -3981,7 +4134,7 @@ export function App() {
       name: `Texte ${p.name.toLowerCase()}`,
       kind: 'text',
       text: t,
-      anchor: anchorFor(doc.frame, f, f.width / 2, f.height / 2).anchor,
+      anchor: anchorFor(reperes.frame, f, f.width / 2, f.height / 2).anchor,
       dx: 0,
       dy: 0,
       w: h * c.ratio,
@@ -4538,7 +4691,7 @@ export function App() {
   };
 
   return (
-    <div className={`atelier ${rendu ? 'rendu' : ''} ${tips ? '' : 'no-tips'} ${lefty ? 'hand-left' : 'hand-right'}`} style={bubbleLeft ? ({ '--bubble-left': `${bubbleLeft + 8}px` } as React.CSSProperties) : undefined}>
+    <div className={`atelier ${space ? 'in-space' : ''} ${rendu ? 'rendu' : ''} ${tips ? '' : 'no-tips'} ${lefty ? 'hand-left' : 'hand-right'}`} style={bubbleLeft ? ({ '--bubble-left': `${bubbleLeft + 8}px` } as React.CSSProperties) : undefined}>
       <canvas
         ref={canvasRef}
         className="stage"
@@ -4586,13 +4739,13 @@ export function App() {
       {!rendu && (
         <>
           <header
-            className="bar"
+            className={`bar ${space ? 'in-space' : ''}`}
             onClick={(e) => {
               // toucher la barre en dehors de ses boutons : l'outil en cours se range
               if (!(e.target as HTMLElement).closest('button, input, select, textarea, a')) leaveTool();
             }}
           >
-            <div className="bar-center">
+            <div className="bar-center" hidden={!!space}>
               {(touchScreen || fingerMode !== 'auto') && (
                 <button
                   className={`btn finger-btn ${fingerDraws ? 'on' : ''}`}
@@ -4633,62 +4786,50 @@ export function App() {
               </button>
             </div>
             <div className="bar-left">
-              {/* fil d'Ariane : l'activité › la campagne (ou l'occasion) › le contenu ouvert */}
+              {/* fil d'Ariane : l'activité › la campagne (ses récentes, toutes) › la composition ouverte */}
               <TopCrumbs
                 team={me?.team}
-                campaign={followed}
+                campaign={space ? followed : project ? (campaigns.find((c) => c.id === (projects.find((x) => x.id === project.id)?.campaign ?? doc.campaign)) ?? followed) : followed}
                 occasion={allOperations.find((o) => o.id === doc.operation)}
                 showCampaign={!!(online && me?.team)}
                 title={project?.title}
-                thumb={project ? thumbUrl(projects.find((x) => x.id === project.id) ?? { id: project.id, title: project.title, updated: '' }) : undefined}
-                kind={doc.targets && doc.targets.length > 1 ? `${doc.targets.length} publications` : f.title}
+                thumb={project ? thumbUrl(projects.find((x) => x.id === project.id) ?? { id: project.id, title: project.title, updated: '' }, doc.targets?.length ? pubIndex(doc) : undefined) : undefined}
+                kind={doc.targets && doc.targets.length > 1 ? `${targetLabel(currentPub, activity)} · ${pubIndex(doc) + 1}/${doc.targets.length}` : doc.targets?.length ? targetLabel(currentPub, activity) : f.title}
                 saving={online && project ? saving : undefined}
-                open={bubble === 'activity' ? 'activity' : bubble === 'projects' ? 'campaign' : bubble === 'composition' ? 'content' : null}
+                open={bubble === 'activity' || picking ? 'activity' : space ? 'campaign' : bubble === 'composition' ? 'content' : null}
+                here={bubble === 'activity' ? 'activity' : space ? 'campaign' : 'content'}
                 onActivity={() => {
+                  // avec une équipe : sous-menu des cinq dernières campagnes (et la fiche de l'activité en bas)
+                  if (online && me?.team) {
+                    if (bubble) setBubble(null);
+                    return setPicking(!picking);
+                  }
                   if (bubble !== 'activity' && online) fetchMe().then(setMe, () => {});
+                  setActivityFiche(false);
                   setBubble(bubble === 'activity' ? null : 'activity');
                 }}
                 onCampaign={() => {
-                  if (bubble === 'projects') return setBubble(null);
-                  if (online) refreshProjects();
-                  setBubble('projects');
+                  setPicking(false);
+                  // la campagne sélectionnée s'édite en pleine page (sans campagne : l'écran de toutes les campagnes)
+                  const cur = space ? campaign : (projects.find((x) => x.id === project?.id)?.campaign ?? campaign);
+                  openSpace(cur && campaigns.some((c) => c.id === cur) ? cur : undefined);
                 }}
                 onContent={() => {
+                  setPicking(false);
+                  // depuis l'espace des campagnes : retour à la composition
+                  if (space) return setSpace(null);
                   if (bubble === 'composition') return setBubble(null);
-                  if (bubble !== 'projects' && online) refreshProjects();
+                  if (online) refreshProjects();
                   setBubble('composition');
                 }}
               />
             </div>
             <div className="bar-right">
-              {/* la publication affichée : son édition */}
-              <button
-                className={`btn pubs-btn ${bubble === 'format' ? 'on' : ''}`}
-                onClick={() => setBubble(bubble === 'format' ? null : 'format')}
-                title={`Édition de la publication : ${targetLabel(currentPub, activity)} (réseau, format, résolution, variante, marges, repères)`}
-                aria-label="Édition de la publication"
-              >
-                <FormatGlyph w={f.width} h={f.height} />
-                {activeTarget?.channel && (
-                  <span className="pubs-media">
-                    <MediaIcon ch={channels.find((c) => c.id === activeTarget.channel)} size={13} />
-                  </span>
-                )}
-              </button>
+              {!space && (
+                <>
               <button className={`btn ${bubble === 'light' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'light' ? null : 'light')} title="Scène : lumière, objectif, transformation" aria-label="Scène">
                 <SceneGlyph color={lampOf(doc).color} on={sceneOn(doc)} />
               </button>
-              {sceneOn(doc) && (
-                <button
-                  className={`btn ${sceneShown ? 'on' : ''}`}
-                  onClick={() => setPreview(!preview)}
-                  title={preview ? 'Aperçu de la scène allumé : objectif, transformation et mise au point (touche pour revenir à l’édition rapide)' : 'Aperçu de la scène : objectif, transformation et mise au point. Éteint, l’édition reste rapide ; l’export les applique toujours.'}
-                  aria-label="Aperçu de la scène"
-                  aria-pressed={preview}
-                >
-                  <Icon name="eye" />
-                </button>
-              )}
               <button
                 ref={guideBtn}
                 className={`btn guide-btn ${bubble === 'palette' ? 'on' : ''}`}
@@ -4730,7 +4871,20 @@ export function App() {
               >
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
-              {online && project && me?.team && <MessagesButton count={projects.find((m) => m.id === project.id)?.messages ?? 0} on={msgDialog} onClick={() => setMsgDialog(true)} />}
+              {online && me?.team && (
+                <StageButton
+                  meta={curMeta}
+                  campaign={curCampaign}
+                  owner={me.team.role === 'owner'}
+                  count={curMeta?.messages ?? 0}
+                  on={msgDialog}
+                  onClick={() => {
+                    if (!project) return setToast('Enregistre la page pour la proposer et en parler');
+                    setBubble(null);
+                    setMsgDialog(true);
+                  }}
+                />
+              )}
               <button
                 className={`btn ${bubble === 'export' ? 'on' : ''}`}
                 onClick={() => {
@@ -4744,6 +4898,8 @@ export function App() {
               >
                 <Icon name="export" />
               </button>
+                </>
+              )}
               <span className="sep" />
               {online && me?.team && (
                 <FeedButton
@@ -4762,6 +4918,140 @@ export function App() {
               />
             </div>
           </header>
+          {picking && online && me?.team && (
+            <CampaignPicker
+              team={me.team}
+              teams={me.teams ?? []}
+              admin={!!me.admin}
+              onTeam={(id) => void switchTeam(id).then(() => location.reload(), (e: Error) => setToast(`Changement d’activité impossible : ${e.message}`))}
+              onCreateTeam={(name) =>
+                void createTeam(name)
+                  .then((r) => switchTeam(r.team.id))
+                  .then(
+                    () => location.reload(),
+                    (e: Error) => setToast(`Création de l’activité impossible : ${e.message}`),
+                  )
+              }
+              campaigns={campaigns}
+              recent={recentCampaigns}
+              current={space === 'campaign' ? campaign : (projects.find((x) => x.id === project?.id)?.campaign ?? campaign)}
+              operations={allOperations}
+              onOpen={(id) => {
+                setPicking(false);
+                openSpace(id);
+              }}
+              onAll={() => {
+                setPicking(false);
+                openSpace();
+              }}
+              onActivity={() => {
+                setPicking(false);
+                if (online) fetchMe().then(setMe, () => {});
+                setActivityFiche(true);
+                setBubble('activity');
+              }}
+              onClose={() => setPicking(false)}
+            />
+          )}
+          {space && (
+            <div className="sp-space" onPointerDown={(e) => e.stopPropagation()}>
+              {space === 'campaigns' ? (
+                <CampaignsHome
+                  campaigns={campaigns}
+                  operations={allOperations}
+                  projects={projects}
+                  canEdit={canEditTeam}
+                  onOpen={(id) => openSpace(id)}
+                  create={async (c) => {
+                    const plan = draftFromOperation(allOperations.find((o) => o.id === c.operation), c.date, activity);
+                    const x = await createCampaign(plan.plan.length ? { ...c, plan: plan.plan, ...(plan.texts.length ? { texts: plan.texts } : {}) } : c);
+                    setCampaigns((l) => [x, ...l]);
+                    return x;
+                  }}
+                />
+              ) : (
+                <CampaignPage
+                  campaign={followed}
+                  campaigns={campaigns}
+                  operations={allOperations}
+                  projects={projects}
+                  activity={activity}
+                  current={project ?? undefined}
+                  currentTargets={compPubs()}
+                  events={online && me?.team ? campaignFeed : null}
+                  me={me?.email ?? 'groupe'}
+                  canEdit={!me?.team || canEditTeam}
+                  isAdmin={!!me?.admin || me?.team?.role === 'owner'}
+                  canVote={!!me?.team}
+                  tab={spaceTab}
+                  onTab={setSpaceTab}
+                  onPlan={(plan, texts) => {
+                    if (!followed) return;
+                    // la retouche se voit aussitôt, le serveur suit
+                    const id = followed.id;
+                    const x = { plan, ...(texts ? { texts } : {}) };
+                    setCampaigns((l) => l.map((y) => (y.id === id ? { ...y, ...x } : y)));
+                    updateCampaign(id, x).then(
+                      (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
+                      (e: Error) => {
+                        setToast(`Plan non enregistré : ${e.message}`);
+                        void listCampaigns().then(setCampaigns, () => {});
+                      },
+                    );
+                  }}
+                  publishing={
+                    online && me?.team
+                      ? {
+                          accounts: spacePz.data,
+                          err: spacePz.err,
+                          owner: me.team.role === 'owner',
+                          render: renderPlanFor,
+                          onCampaign: (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
+                          toast: setToast,
+                        }
+                      : undefined
+                  }
+                  onSave={async (c) => {
+                    if (!followed) return;
+                    const x = await updateCampaign(followed.id, c);
+                    setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y)));
+                    setToast('Campagne enregistrée');
+                  }}
+                  onClose={(closed) =>
+                    void (followed &&
+                      updateCampaign(followed.id, { closed }).then(
+                        (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
+                        (e: Error) => setToast(`Impossible : ${e.message}`),
+                      ))
+                  }
+                  onNew={() => setNewDialog(true)}
+                  onOpen={(m, t) => void openComposition(m, t)}
+                  onVote={voteFor}
+                  onTemplate={templateFor}
+                  onRename={async (m, title) => {
+                    if (m.id === project?.id) return setProject({ ...project, title });
+                    try {
+                      const meta = await retitleAtelier(m.id, title);
+                      setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, title: meta.title, updated: meta.updated } : x)));
+                    } catch (e) {
+                      setToast(`Renommage impossible : ${(e as Error).message}`);
+                    }
+                  }}
+                  onDuplicate={(m) => void duplicateComposition(m)}
+                  onDelete={(m) =>
+                    void removeAtelier(m.id).then(
+                      () => {
+                        if (project?.id === m.id) setProject(null);
+                        refreshProjects();
+                        setToast(`« ${m.title} » supprimée`);
+                      },
+                      (e: Error) => setToast(`Suppression impossible : ${e.message}`),
+                    )
+                  }
+                />
+              )}
+            </div>
+          )}
           {/* Maj : gros bouton en tête de la colonne de gauche (de droite pour un gaucher) */}
           <button
             className={`shift-big ${shift ? 'on' : ''} ${shiftBtn.latched ? 'latched' : ''}`}
@@ -5337,12 +5627,12 @@ export function App() {
               }}
               onSheet={(id) => {
                 setCampaignDialog(false);
-                setSheet(id);
+                openPlan(id);
               }}
               create={async (c: CampaignInput) => {
                 // le plan de publication part de l'occasion et de la date
-                const plan = planFromOperation(allOperations.find((o) => o.id === c.operation), c.date, activity);
-                const x = await createCampaign(plan.length ? { ...c, plan } : c);
+                const plan = draftFromOperation(allOperations.find((o) => o.id === c.operation), c.date, activity);
+                const x = await createCampaign(plan.plan.length ? { ...c, plan: plan.plan, ...(plan.texts.length ? { texts: plan.texts } : {}) } : c);
                 setCampaigns((l) => [x, ...l]);
                 setCampaign(x.id);
               }}
@@ -5362,35 +5652,16 @@ export function App() {
               onClose={closeFeed}
               onCampaign={(id) => {
                 closeFeed();
-                setSheet(id);
+                openPlan(id);
               }}
               onEvent={(e) => {
                 closeFeed();
-                if (e.type === 'campaign' && e.campaign) return setSheet(e.campaign);
+                if (e.type === 'campaign' && e.campaign) return openPlan(e.campaign);
                 const m = projects.find((x) => x.id === e.atelier);
                 if (!m) return;
                 void openProject(m).then(() => {
                   if (e.type !== 'composition' && e.type !== 'vote') setMsgDialog(true);
                 });
-              }}
-            />
-          )}
-          {sheet && campaigns.some((c) => c.id === sheet) && (
-            <CampaignSheet
-              campaign={campaigns.find((c) => c.id === sheet)!}
-              operations={allOperations}
-              activity={activity}
-              projects={projects}
-              canEdit={canEditTeam}
-              current={project?.id}
-              onClose={() => setSheet(null)}
-              onSave={async (c) => {
-                const x = await updateCampaign(sheet, c);
-                setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y)));
-              }}
-              onOpen={(m) => {
-                setSheet(null);
-                void openProject(m);
               }}
             />
           )}
@@ -5421,6 +5692,19 @@ export function App() {
               }}
             />
           )}
+          {newPub && (
+            <NewPublicationDialog
+              targets={doc.targets?.length ? doc.targets : [currentPub]}
+              previews={previews}
+              meta={curMeta}
+              active={pubIndex(doc)}
+              campaign={curCampaign ?? followed}
+              templates={followedTemplates}
+              activity={activity}
+              onAdd={(t, from) => void addPublication(t, from)}
+              onClose={() => setNewPub(false)}
+            />
+          )}
           {msgDialog && project && me?.team && (
             <MessagesDialog
               atelier={project.id}
@@ -5430,9 +5714,24 @@ export function App() {
               targets={doc.targets ?? []}
               active={doc.target ?? 0}
               activity={activity}
-              review={projects.find((x) => x.id === project.id)?.review}
-              canPropose={me.team.role !== 'viewer' && projects.find((x) => x.id === project.id)?.review?.status !== 'proposed'}
-              canReview={me.team.role === 'owner' && projects.find((x) => x.id === project.id)?.review?.status === 'proposed'}
+              review={curMeta?.review}
+              canPropose={me.team.role !== 'viewer' && (curStage === 'draft' || curStage === 'changes')}
+              canReview={me.team.role === 'owner' && curStage === 'proposed'}
+              status={<StageTrack meta={curMeta} campaign={curCampaign} />}
+              publish={
+                curStage === 'approved' || curStage === 'scheduled' || curStage === 'published'
+                  ? {
+                      label: curStage === 'approved' ? 'Programmer les publications' : 'Voir la publication',
+                      primary: curStage === 'approved',
+                      onClick: () => {
+                        setMsgDialog(false);
+                        setExportFormats([doc.formatId]);
+                        setExportTargets((doc.targets ?? []).map((_, i) => i));
+                        setBubble('export');
+                      },
+                    }
+                  : undefined
+              }
               onStep={sendReview}
               onShowTarget={showTarget}
               onCount={(n) => setProjects((l) => l.map((x) => (x.id === project.id ? { ...x, messages: n } : x)))}
@@ -5457,49 +5756,16 @@ export function App() {
               canVote={!!me?.team}
               onTitle={(t) => project && setProject({ ...project, title: t })}
               onShow={showTarget}
-              onAdd={addPublication}
+              onAdd={() => setNewPub(true)}
+              onSettings={() => setBubble('format')}
               onRemove={removePublication}
-              onCampaign={() => setBubble('projects')}
+              onCampaign={() => openSpace(projects.find((x) => x.id === project?.id)?.campaign ?? campaign)}
               onSaveNew={() => void newProject('Sans titre', true)}
               onVote={voteFor}
               onTemplate={templateFor}
             />
           )}
-          {(bubble === 'projects' || (bubble === 'composition' && !online)) && (online ? (
-            <CompositionsMenu
-              campaigns={me?.team ? campaigns : []}
-              operations={allOperations}
-              campaign={followed}
-              counts={campaignCounts}
-              activity={activity}
-              projects={projects}
-              current={project ?? undefined}
-              currentTargets={compPubs()}
-              events={online && me?.team ? campaignFeed : null}
-              me={me?.email ?? 'groupe'}
-              canEdit={!me?.team || canEditTeam}
-              isAdmin={!!me?.admin || me?.team?.role === 'owner'}
-              canVote={!!me?.team}
-              onPickCampaign={setCampaign}
-              onAllCampaigns={() => setCampaignDialog(true)}
-              onEditCampaign={() => followed && setSheet(followed.id)}
-              onSaveNew={() => void newProject('Sans titre', true)}
-              onNew={() => setNewDialog(true)}
-              onOpen={(m) => void openComposition(m)}
-              onVote={voteFor}
-              onDelete={(m) =>
-                void removeAtelier(m.id).then(
-                  () => {
-                    if (project?.id === m.id) setProject(null);
-                    refreshProjects();
-                    setToast(`« ${m.title} » supprimée`);
-                  },
-                  (e: Error) => setToast(`Suppression impossible : ${e.message}`),
-                )
-              }
-              onTemplate={templateFor}
-            />
-          ) : (
+          {(bubble === 'projects' || (bubble === 'composition' && !online)) && (online ? null : (
             <div className="bubble projects-bubble">
               <p className="fx-hint">{online === null ? 'Connexion au serveur…' : 'Hors ligne : la page reste dans ce navigateur. Sur designer.flowtherapymusic.com, elle s’enregistre pour tout le groupe.'}</p>
             </div>
@@ -5507,28 +5773,6 @@ export function App() {
 
           {bubble === 'export' && (
             <div className="bubble export-bubble">
-              <button
-                className="row"
-                onClick={() => {
-                  setBubble(null);
-                  setRendu(true);
-                }}
-              >
-                <Icon name="eye" />
-                <span>Aperçu plein écran</span>
-                <small>le rendu final, sans les outils</small>
-              </button>
-              <button
-                className="row"
-                onClick={() => {
-                  setBubble(null);
-                  setView3d({});
-                }}
-              >
-                <Icon name="layers" />
-                <span>Vue 3D</span>
-                <small>les couches en relief, à leur hauteur</small>
-              </button>
               <div className="b-title">Publier</div>
               <div className="b-sub">{doc.targets?.length ? 'Rendus' : 'Formats'}</div>
               {doc.targets?.map((t, i) => {
@@ -5560,7 +5804,14 @@ export function App() {
               })}
               <div className="pub-caption">
                 <div className="b-sub">Texte d’accompagnement</div>
+                {pubCampaign && filledCaption(pubCampaign, activity?.name) && doc.caption !== filledCaption(pubCampaign, activity?.name) && (
+                  <button className="ab-link pub-from-campaign" onClick={() => setDoc((d) => ({ ...d, caption: filledCaption(pubCampaign, activity?.name) }))} title="Le texte, le lien et les mots-dièse rédigés dans la campagne, champs remplis">
+                    {doc.caption ? 'Remplacer par le texte de la campagne' : 'Partir du texte de la campagne'}
+                  </button>
+                )}
+                <CaptionTools area={captionArea} value={doc.caption ?? ''} onChange={(v) => setDoc((d) => ({ ...d, caption: v || undefined }))} />
                 <textarea
+                  ref={captionArea}
                   className="pf-input"
                   rows={4}
                   value={doc.caption ?? ''}
@@ -5604,6 +5855,12 @@ export function App() {
                         {targetLabel(it, activity)}
                         {it.label ? ` · ${it.label}` : ''}
                         {it.date ? ` · ${new Date(`${it.date}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}` : ''}
+                        {planText(pubCampaign, it)?.text.trim() ? (
+                          <small className="fx-hint" title="Texte déposé sur cette étape dans le plan de la campagne : il part à la place du texte ci-dessus">
+                            {' '}
+                            · texte « {planText(pubCampaign, it)!.name} »
+                          </small>
+                        ) : null}
                       </span>
                       {pubPz.data?.enabled && !it.published && !it.postiz && it.composition && it.composition !== project?.id ? (
                         <small className="fx-hint pz-note" title="Ouvre la composition prévue pour la programmer">
@@ -5615,7 +5872,7 @@ export function App() {
                           item={it}
                           accounts={pubPz.data.accounts.filter((a) => a.channel === it.channel && !a.disabled)}
                           owner={me?.team?.role === 'owner'}
-                          caption={doc.caption ?? ''}
+                          caption={(at) => (planText(pubCampaign, it)?.text.trim() ? planCaption(pubCampaign, { ...it, date: at }, undefined, activity?.name) : fillFields(doc.caption ?? '', campaignFields(pubCampaign!, activity?.name, at)))}
                           composition={project?.id}
                           render={() => renderPlanItem(it)}
                           onCampaign={(x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y)))}
@@ -5652,6 +5909,7 @@ export function App() {
             <ActivityMenu
               me={me}
               online={online}
+              fiche={activityFiche}
               onSaved={() => {
                 void fetchMe().then(setMe, () => {});
                 loadActivity();
@@ -5687,6 +5945,8 @@ export function App() {
               setMarkColors={changeMarkColors}
               points={defaultPoints}
               setPoints={setDefaultPoints}
+              reperes={reperes}
+              setReperes={setReperes}
               onClose={() => setBubble(null)}
             />
           )}
@@ -5739,60 +5999,16 @@ export function App() {
                 onApply={applyPublication}
                 guides={
                   <div className="pub-guides">
-                    <div className="b-field-label">Repères</div>
-                    <div className="seg">
-                      {ANCHOR_FRAMES.filter((x) => x !== 'grid').map((x) => (
-                        <button key={x} className={doc.frame === x ? 'on' : ''} onClick={() => setDoc((d) => ({ ...d, frame: x as AnchorFrame }))} title={FRAME_TITLES[x]}>
-                          {x === 'repartition' ? '½ ⅓' : x === 'or' ? 'φ' : '✕'}
-                        </button>
-                      ))}
-                    </div>
-                    {doc.frame === 'repartition' && (
-                      <>
-                        <div className="b-title">
-                          Densité <span className="b-count">{['Demis', 'Tiers', 'Quarts', 'Sixièmes', 'Douzièmes', '24es'][(doc.density ?? DEFAULT_DENSITY) - 1]}</span>
-                        </div>
-                        <label className="density">
-                          <span>−</span>
-                          <input
-                            type="range"
-                            min={1}
-                            max={DENSITY_STEPS.length}
-                            step={1}
-                            value={doc.density ?? DEFAULT_DENSITY}
-                            onChange={(e) => setDoc((d) => ({ ...d, density: Number(e.target.value) }))}
-                          />
-                          <span>+</span>
-                        </label>
-                      </>
-                    )}
-                    {/* légende : seulement ce qui est sur la page en ce moment */}
-                    <MarkLegend
-                      kinds={(() => {
-                        const seen = new Set(anchorsOf(doc.frame, f).map((a) => anchorKind(doc.frame, a.id)));
-                        return marksOfFrame(doc.frame).filter((k) => (k === 'margin' ? hasMargins(docMargins(doc)) : k === 'zone' ? hasZone() : k === 'page' || seen.has(k)));
-                      })()}
-                      colors={markColors}
-                    />
-                    <button className={`ab-more ${anchorMore ? 'on' : ''}`} onClick={() => setAnchorMore(!anchorMore)} aria-expanded={anchorMore}>
-                      <span>Points d’accroche</span>
-                      <span className="ab-chev">{anchorMore ? '−' : '+'}</span>
+                    <button className="ab-link" onClick={() => setBubble('prefs')} title="Repères (½ ⅓, φ, ✕), densité et points d'accroche : un réglage global, le même pour tous les documents, dans les Préférences">
+                      Repères et points d’accroche : Préférences
                     </button>
-                    {anchorMore && (
-                      <>
-                        <PointGrids points={points} frame={doc.frame} onChange={(k, v) => setDoc((d) => ({ ...d, points: { ...(d.points ?? defaultPoints), [k]: v } }))} />
-                        <button className="ab-link" onClick={() => setBubble('prefs')}>
-                          Réglages par défaut dans Préférences
-                        </button>
-                      </>
-                    )}
                   </div>
                 }
               />
               <button
                 className="row danger"
                 onClick={() => {
-                  update(() => ({ ...blankDoc(), formatId: doc.formatId, frame: doc.frame, guides: doc.guides }));
+                  update(() => ({ ...blankDoc(), formatId: doc.formatId, frame: reperes.frame, guides: doc.guides }));
                   forgetPaint();
                   setSelected(null);
                 }}
@@ -5935,6 +6151,14 @@ export function App() {
               onDrag={(i, x, y) => setDragGuide(i === null ? null : { i, x, y })}
               onDrop={dropGuide}
               tabReq={palTabReq}
+              onLoadSet={(k, entries) => {
+                const key = k === 'material' ? 'materials' : k === 'varnish' ? 'varnishes' : 'edges';
+                const have = new Set(((doc[key] ?? []) as Array<{ name: string }>).map((e) => e.name));
+                const added = entries.filter((e) => !have.has(e.name)).map((e) => ({ ...e, id: uid() }));
+                if (!added.length) return setToast('Ces entrées sont déjà dans la palette du document');
+                update((d) => ({ ...d, [key]: [...((d[key] ?? []) as unknown[]), ...added] }));
+                setToast(`${added.length} ${added.length > 1 ? 'entrées ajoutées' : 'entrée ajoutée'} à la palette du document`);
+              }}
               matter={(k, edit) =>
                 k === 'edge' ? (
                   <EdgeRow
@@ -5972,7 +6196,7 @@ export function App() {
 
           {dragGuide && <span className="drag-dot" style={{ left: dragGuide.x, top: dragGuide.y, background: swatch(doc.guides[dragGuide.i]) }} />}
 
-          {bubble === 'light' && <LampPanel doc={doc} f={f} selected={sel?.id} onSelect={setSelected} onChange={(lamp) => setDoc((d) => ({ ...d, lamp }))} onScene={(scene) => setDoc((d) => ({ ...d, scene }))} onClose={() => setBubble(null)} />}
+          {bubble === 'light' && <LampPanel doc={doc} f={f} preview={preview} onPreview={setPreview} onFull={() => { setBubble(null); setRendu(true); }} selected={sel?.id} onSelect={setSelected} onChange={(lamp) => setDoc((d) => ({ ...d, lamp }))} onScene={(scene) => setDoc((d) => ({ ...d, scene }))} onClose={() => setBubble(null)} />}
 
           {tool === 'edge' && (!sel || sel.kind === 'surface') && <div className="status">Sélectionne une photo ou une forme pour régler ses bords</div>}
           {tool === 'material' && !sel && <div className="status">Sélectionne une photo ou une forme pour choisir sa matière</div>}
@@ -6244,9 +6468,17 @@ function LampPanel({
   onChange,
   onScene,
   onClose,
+  preview,
+  onPreview,
+  onFull,
 }: {
+  /** le rendu final en plein écran, sans les outils */
+  onFull: () => void;
   doc: Doc;
   f: Format;
+  /** aperçu gardé après la fermeture : objectif, transformation et mise au point sur la page (éteint, l'édition reste rapide) */
+  preview: boolean;
+  onPreview: (on: boolean) => void;
   /** Objet sélectionné sur la page : la mise au point peut s'y faire d'un geste. */
   selected?: string;
   onSelect: (id: string | null) => void;
@@ -6299,6 +6531,17 @@ function LampPanel({
     <>
       <div className="lamp-head">
         <span className="b-title">Scène</span>
+        <button
+          className={`chip scene-preview ${preview ? 'on' : ''}`}
+          onClick={() => onPreview(!preview)}
+          aria-pressed={preview}
+          title={preview ? 'Aperçu allumé : objectif, transformation et mise au point restent sur la page après la fermeture (touche pour revenir à l’édition rapide)' : 'Aperçu éteint : la scène se voit ici, l’édition reste rapide une fois fermé ; l’export l’applique toujours'}
+        >
+          <Icon name={preview ? 'eye' : 'eyeoff'} /> Aperçu
+        </button>
+        <button className="chip scene-full" onClick={onFull} title="Aperçu plein écran : le rendu final, sans les outils" aria-label="Aperçu plein écran">
+          <Icon name="fit" />
+        </button>
         <button className="chip scene-reset-h" disabled={!resetable} onClick={reset} title={`Réinitialiser ${tab === 'light' ? 'la lumière' : tab === 'lens' ? "l'objectif" : 'la transformation'}`}>
           Réinitialiser
         </button>
@@ -6477,6 +6720,10 @@ function SceneThumb({ doc, f, fx }: { doc: Doc; f: Format; fx?: FxId }) {
 }
 
 const SAVED = 'ftd-atelier-palettes';
+/** Titre des jeux enregistrés de chaque onglet de la palette, et nom d'un jeu. */
+const SET_TITLES = { color: 'Mes palettes', material: 'Mes jeux de matières', varnish: 'Mes jeux de vernis', edge: 'Mes jeux de bords' } as const;
+const SET_NAMES = { material: 'Matières', varnish: 'Vernis', edge: 'Bords' } as const;
+const setEntries = (d: Doc, k: 'material' | 'varnish' | 'edge'): Array<PaletteMatter | PaletteEdge> => (k === 'material' ? d.materials : k === 'varnish' ? d.varnishes : d.edges) ?? [];
 const PAL_TAB = 'ftd-atelier-palette-tab';
 type PalTab = 'color' | 'material' | 'varnish' | 'edge';
 /** Toute la palette en un seul dégradé, comme les variantes : chaque guide au milieu de sa part, les dégradés étalés dans la leur. */
@@ -6501,7 +6748,10 @@ function PaletteBubble({
   matter,
   onEditing,
   tabReq,
+  onLoadSet,
 }: {
+  /** Charger un jeu enregistré de matières, de vernis ou de bords : ses entrées rejoignent celles du document. */
+  onLoadSet?: (kind: 'material' | 'varnish' | 'edge', entries: Array<PaletteMatter | PaletteEdge>) => void;
   /** Onglet demandé de l'extérieur (toucher la teinte dans les attributs). */
   tabReq?: { t: PalTab; n: number };
   /** Une boîte de couleur est ouverte (ou vient de se fermer). */
@@ -6553,8 +6803,29 @@ function PaletteBubble({
       return [];
     }
   });
+  // les jeux enregistrés des autres onglets : matières, vernis, bords (dans ce navigateur, comme les palettes)
+  type SavedSet = { name: string; entries: Array<PaletteMatter | PaletteEdge> };
+  const [sets, setSets] = useState<Record<'material' | 'varnish' | 'edge', SavedSet[]>>(() => {
+    const read = (k: string) => {
+      try {
+        return JSON.parse(localStorage.getItem(`${SAVED}-${k}`) ?? '[]') as SavedSet[];
+      } catch {
+        return [];
+      }
+    };
+    return { material: read('material'), varnish: read('varnish'), edge: read('edge') };
+  });
+  const storeSets = (k: 'material' | 'varnish' | 'edge', list: SavedSet[]) => {
+    setSets((x) => ({ ...x, [k]: list }));
+    try {
+      localStorage.setItem(`${SAVED}-${k}`, JSON.stringify(list));
+    } catch {
+      /* stockage indisponible */
+    }
+  };
   const [renaming, setRenaming] = useState<number | null>(null);
   const [lib, setLib] = useState(false);
+  useEffect(() => setRenaming(null), [tab, lib]);
   // la couleur en cours de modification, dans sa propre boîte de dialogue
   const [editing, setEditing] = useState<number | null>(null);
   useEffect(() => {
@@ -6648,12 +6919,6 @@ function PaletteBubble({
     <div className={`bubble palette-bubble ${edit ? 'editing' : ''}`}>
       <div className="pal-head">
         <div className="b-title">Palette</div>
-        {colors && g && (
-          <span className="pal-sel" title={g.name}>
-            <span className="pal-sel-name">{g.name}</span>
-            {fixed(g) && <small>{ROLE_SHORT[g.role!] ?? g.role}</small>}
-          </span>
-        )}
         <button
           className={`pal-edit ${edit ? 'on' : ''}`}
           aria-pressed={edit}
@@ -6662,11 +6927,15 @@ function PaletteBubble({
         >
           <Icon name="pen" /> {edit ? 'Terminé' : 'Modifier'}
         </button>
-        {colors && (
-          <button className={`pal-lib-btn ${lib ? 'on' : ''}`} aria-pressed={lib} onClick={() => setLib(!lib)} title="Palettes enregistrées : sauvegarder ou recharger" aria-label="Palettes enregistrées">
-            <Icon name="palettes" />
-          </button>
-        )}
+        <button
+          className={`pal-lib-btn ${lib ? 'on' : ''}`}
+          aria-pressed={lib}
+          onClick={() => setLib(!lib)}
+          title={`${SET_TITLES[tab]} : enregistrer ${colors ? 'la palette' : 'le jeu'} du document, ou en recharger un`}
+          aria-label={SET_TITLES[tab]}
+        >
+          <Icon name="palettes" />
+        </button>
       </div>
       <div className="pal-tabs" role="tablist">
         {(
@@ -6684,6 +6953,58 @@ function PaletteBubble({
         ))}
       </div>
       {edit && <p className="pal-hint">{colors ? 'Touche une couleur pour la modifier, ＋ pour en ajouter.' : 'Touche une pastille pour la modifier, ＋ pour en ajouter, glisse-la sur la corbeille pour la retirer.'}</p>}
+      {!colors && lib && (
+        <div className="pal-lib">
+          <div className="pal-lib-head">
+            <span className="b-title">{SET_TITLES[tab]}</span>
+            <button
+              className="pal-lib-save"
+              disabled={!setEntries(doc, tab).length}
+              onClick={() => storeSets(tab, [...sets[tab], { name: `${SET_NAMES[tab]} ${sets[tab].length + 1}`, entries: structuredClone(setEntries(doc, tab)) }])}
+              title={setEntries(doc, tab).length ? `Enregistrer les ${SET_NAMES[tab].toLowerCase()} du document` : `Le document n'a pas encore de ${SET_NAMES[tab].toLowerCase()} à enregistrer`}
+            >
+              ＋ Enregistrer
+            </button>
+          </div>
+          {sets[tab].length === 0 && <p className="fx-hint">Aucun jeu enregistré.</p>}
+          {sets[tab].map((p, i) => (
+            <div key={i} className="saved">
+              <button className="saved-load saved-set" title={`Ajouter au document : ${p.entries.map((e) => e.name).join(', ')}`} onClick={() => onLoadSet?.(tab, structuredClone(p.entries))}>
+                {p.entries.length} <small>{p.entries.length > 1 ? 'entrées' : 'entrée'}</small>
+              </button>
+              {renaming === i ? (
+                <input
+                  className="saved-name"
+                  autoFocus
+                  defaultValue={p.name}
+                  aria-label="Nom du jeu"
+                  onFocus={(e) => e.currentTarget.select()}
+                  onBlur={(e) => {
+                    const name = e.currentTarget.value.trim();
+                    if (name) storeSets(tab, sets[tab].map((x, j) => (j === i ? { ...x, name } : x)));
+                    setRenaming(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.currentTarget.blur();
+                    if (e.key === 'Escape') setRenaming(null);
+                    e.stopPropagation();
+                  }}
+                />
+              ) : (
+                <span className="saved-label" onDoubleClick={() => setRenaming(i)} title={p.entries.map((e) => e.name).join(', ')}>
+                  {p.name}
+                </span>
+              )}
+              <button className="saved-pen" onClick={() => setRenaming(i)} title="Renommer" aria-label="Renommer">
+                <Icon name="pen" />
+              </button>
+              <button className="saved-x" onClick={() => storeSets(tab, sets[tab].filter((_, j) => j !== i))} aria-label="Supprimer">
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {colors && lib && (
         <div className="pal-lib">
           <div className="pal-lib-head">

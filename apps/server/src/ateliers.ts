@@ -23,6 +23,8 @@ export interface AtelierMeta {
   review?: Review;
   /** Nombre de vignettes par publication enregistrées (une par rendu, dans l'ordre des rendus). */
   thumbs?: number;
+  /** Texte d'accompagnement propre à la composition, lu dans le document pour l'aperçu des envois. */
+  caption?: string;
 }
 
 export interface Review {
@@ -66,8 +68,8 @@ export class Ateliers {
     for (const name of await readdir(this.root)) {
       if (!name.endsWith('.json')) continue;
       try {
-        const { doc: _doc, ...meta } = JSON.parse(await readFile(path.join(this.root, name), 'utf8')) as AtelierMeta & { doc?: unknown };
-        out.push(meta);
+        const { doc, ...meta } = JSON.parse(await readFile(path.join(this.root, name), 'utf8')) as AtelierMeta & { doc?: { caption?: unknown } };
+        out.push({ ...meta, ...(typeof doc?.caption === 'string' && doc.caption.trim() ? { caption: doc.caption.slice(0, 2200) } : {}) });
       } catch {
         /* fichier abîmé : ignoré dans la liste */
       }
@@ -128,6 +130,17 @@ export class Ateliers {
     const full = await this.read(id);
     const target = this.file(id, 'json');
     const next = { ...full, review };
+    await writeFile(target + '.tmp', JSON.stringify(next));
+    await rename(target + '.tmp', target);
+    const { doc: _doc, ...meta } = next;
+    return meta;
+  }
+
+  /** Renomme une composition sans toucher au document ni aux vignettes. */
+  async retitle(id: string, title: string): Promise<AtelierMeta> {
+    const full = await this.read(id);
+    const next = { ...full, title: title.trim().slice(0, 120) || 'Sans titre' };
+    const target = this.file(id, 'json');
     await writeFile(target + '.tmp', JSON.stringify(next));
     await rename(target + '.tmp', target);
     const { doc: _doc, ...meta } = next;

@@ -8,6 +8,7 @@ import {
   ROLE_LABELS,
   saveProfile,
   switchTeam,
+  deleteTeam,
   type ActivityProfile,
   type ChannelKind,
   type ChannelPick,
@@ -25,6 +26,7 @@ import {
 import { ensureFont, fontFamily, fontList, fontsFor, loadFonts } from './text';
 import { MembersSection } from './team-ui';
 import type { MediaType } from '@ftd/core';
+import { stepsOf } from './plan';
 import { BRAND_SLOTS, catalogNow, channelsOf, colorGuide, connectionsOf, CONTACT_KINDS, defaultPicks, DEFAULT_OPERATIONS, formatsFor, guidePaletteColor, ROLE_NAMES, slotColor } from './targets';
 import { SITE_VARIANTS } from './brand-presets';
 import { ColorDialog, swatch } from './color-dialog';
@@ -63,14 +65,16 @@ function Avatar({ me, size = 36 }: { me: Me; size?: number }) {
  * Menu de l'activité : l'activité courante en tête, le changement d'activité sous les deux flèches,
  * et la fiche qui se déplie dessous quand on touche le crayon.
  */
-export function ActivityMenu(p: { me: Me | null; online: boolean | null; onSaved: () => void }) {
+export function ActivityMenu(p: { me: Me | null; online: boolean | null; /** fiche dépliée à l'ouverture */ fiche?: boolean; onSaved: () => void }) {
   const { me } = p;
   const team = me?.team;
   const [switching, setSwitching] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(!!p.fiche);
   const [status, setStatus] = useState<SaveState>('idle');
   const [newName, setNewName] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  // suppression : le nom de l'activité retapé en confirmation
+  const [removing, setRemoving] = useState<string | null>(null);
   // changer d'activité change toutes les compositions visibles : on recharge l'atelier
   const pick = (id: string) => void switchTeam(id).then(() => location.reload(), (e: Error) => setErr(e.message));
   // la liste ne montre que les autres activités : la courante est déjà en tête du menu
@@ -86,6 +90,11 @@ export function ActivityMenu(p: { me: Me | null; online: boolean | null; onSaved
           <small>{team ? [team.kind, ROLE_LABELS[team.role]].filter(Boolean).join(' · ') : p.online === false ? 'Hors ligne' : 'Aucune activité'}</small>
         </span>
         {editing && status !== 'idle' && <span className={`act-status ${status}`}>{STATUS_LABELS[status]}</span>}
+        {editing && owner && (
+          <button className={`act-icon act-del ${removing !== null ? 'on' : ''}`} onClick={() => setRemoving(removing === null ? '' : null)} title="Supprimer l’activité" aria-label="Supprimer l’activité" aria-expanded={removing !== null}>
+            <Icon name="trash" />
+          </button>
+        )}
         {team && (
           <button
             className={`act-icon ${editing ? 'on' : ''}`}
@@ -136,6 +145,35 @@ export function ActivityMenu(p: { me: Me | null; online: boolean | null; onSaved
           )}
           {err && <p className="pf-note pf-err">{err}</p>}
         </div>
+      )}
+      {editing && team && removing !== null && (
+        <form
+          className="act-remove"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (removing.trim() !== team.name) return;
+            void deleteTeam(team.id, removing.trim())
+              // l'activité partie : on passe dans une autre s'il y en a une
+              .then(() => (others[0] ? switchTeam(others[0].id) : undefined))
+              .then(
+                () => location.reload(),
+                (e: Error) => setErr(e.message),
+              );
+          }}
+        >
+          <p>
+            Supprimer <b>{team.name}</b> avec ses compositions, ses campagnes et ses messages ? Tape son nom pour confirmer.
+          </p>
+          <input className="pf-input" autoFocus placeholder={team.name} value={removing} onChange={(e) => setRemoving(e.target.value)} aria-label="Nom de l’activité à supprimer" />
+          <span className="act-remove-acts">
+            <button type="button" className="pf-btn" onClick={() => setRemoving(null)}>
+              Annuler
+            </button>
+            <button type="submit" className="pf-btn danger" disabled={removing.trim() !== team.name}>
+              Supprimer l’activité
+            </button>
+          </span>
+        </form>
       )}
       {err && !switching && <p className="pf-note pf-err">{err}</p>}
       {editing && me?.team && <ActivityEditor me={me} onStatus={setStatus} onSaved={p.onSaved} />}
@@ -924,9 +962,13 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
                           disabled={!edit}
                           onClick={() =>
                             setOperations(
-                              operations.map((x, j) =>
-                                j === i ? { ...x, targets: on ? x.targets.filter((t) => !(t.channel === c.id && t.format === fm.id)) : [...x.targets, { channel: c.id, format: fm.id }] } : x,
-                              ),
+                              operations.map((x, j) => {
+                                if (j !== i) return x;
+                                if (on) return { ...x, targets: x.targets.filter((t) => !(t.channel === c.id && t.format === fm.id)) };
+                                // une publication de plus rejoint la première étape décrite, pour ne pas rester hors du plan
+                                const t = { channel: c.id, format: fm.id };
+                                return { ...x, targets: [...x.targets, t], ...(x.steps?.length ? { steps: x.steps.map((st, k) => (k ? st : { ...st, targets: [...st.targets, t] })) } : {}) };
+                              }),
                             )
                           }
                         >
@@ -936,6 +978,96 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
                     }),
                   )}
                 </div>
+                {o.targets.some((t) => chans.some((c) => c.id === t.channel)) &&
+                  (() => {
+                    // les étapes du modèle : décrites ici, sinon l'annonce, le rappel et les stories à dater
+                    // seules comptent les publications que l'activité peut faire (ses médias, leurs formats), comme ci-dessus
+                    const valid = o.targets.filter((t) => chans.some((c) => c.id === t.channel && formatsFor(c).some((f) => f.id === t.format)));
+                    const steps = o.steps ?? stepsOf({ ...o, targets: valid }, chans);
+                    const setSteps = (v: typeof steps) => setOperations(operations.map((x, j) => (j === i ? { ...x, steps: v } : x)));
+                    const has = (st: (typeof steps)[number], t: (typeof o.targets)[number]) => st.targets.some((x) => (x.channel ?? '') === (t.channel ?? '') && x.format === t.format);
+                    return (
+                      <div className="act-steps">
+                        <span className="act-steps-k">Étapes de publication</span>
+                        {steps.map((st, k) => (
+                          <div key={k} className="act-step">
+                            <input className="pf-input" value={st.name} maxLength={60} placeholder="Annonce, rappel…" disabled={!edit} onChange={(e) => setSteps(steps.map((x, n) => (n === k ? { ...x, name: e.target.value } : x)))} aria-label="Nom de l’étape" />
+                            <label className="act-step-days" title="Jours avant l’évènement. Vide : à dater dans chaque campagne.">
+                              J−
+                              <input
+                                className="pf-input"
+                                type="number"
+                                min={-60}
+                                max={365}
+                                value={st.days ?? ''}
+                                placeholder="?"
+                                disabled={!edit}
+                                onChange={(e) => {
+                                  const { days: _d, ...rest } = st;
+                                  const n = e.target.value === '' ? NaN : Math.round(Number(e.target.value));
+                                  setSteps(steps.map((x, m) => (m === k ? (Number.isFinite(n) ? { ...rest, days: Math.max(-60, Math.min(365, n)) } : rest) : x)));
+                                }}
+                                aria-label="Jours avant l’évènement"
+                              />
+                            </label>
+                            <input
+                              className="pf-input act-step-time"
+                              type="time"
+                              value={st.time ?? ''}
+                              disabled={!edit}
+                              title="Heure d’envoi prévue. Vide : 10 h."
+                              aria-label={`Heure d’envoi de l’étape ${st.name}`}
+                              onChange={(e) => {
+                                const { time: _h, ...rest } = st;
+                                setSteps(steps.map((x, n) => (n === k ? (e.target.value ? { ...rest, time: e.target.value } : rest) : x)));
+                              }}
+                            />
+                            <div className="act-checks">
+                              {valid.map((t) => {
+                                const ch = chans.find((c) => c.id === t.channel);
+                                const hit = has(st, t);
+                                return (
+                                  <button
+                                    key={`${t.channel ?? ''}/${t.format}`}
+                                    className={`act-check ${hit ? 'on' : ''}`}
+                                    disabled={!edit}
+                                    onClick={() => setSteps(steps.map((x, n) => (n === k ? { ...x, targets: hit ? x.targets.filter((y) => !((y.channel ?? '') === (t.channel ?? '') && y.format === t.format)) : [...x.targets, { ...(t.channel ? { channel: t.channel } : {}), format: t.format }] } : x)))}
+                                  >
+                                    {ch?.name} · {(ch ? formatsFor(ch) : []).find((f) => f.id === t.format)?.title}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {edit && (
+                              <button className="tm-remove" onClick={() => setSteps(steps.filter((_, n) => n !== k))} title="Retirer cette étape">
+                                ×
+                              </button>
+                            )}
+                            {(edit || st.text) && (
+                              <textarea
+                                className="pf-input act-step-text"
+                                rows={2}
+                                maxLength={2200}
+                                value={st.text ?? ''}
+                                disabled={!edit}
+                                placeholder="Modèle de texte de l’étape, avec les champs de la campagne : {campagne}, {date} à {heure}, {lieu}, {quand}…"
+                                aria-label={`Modèle de texte de l’étape ${st.name}`}
+                                onChange={(e) => {
+                                  const { text: _t, ...rest } = st;
+                                  setSteps(steps.map((x, n) => (n === k ? (e.target.value ? { ...rest, text: e.target.value } : rest) : x)));
+                                }}
+                              />
+                            )}
+                          </div>
+                        ))}
+                        {edit && steps.length < 12 && (
+                          <button className="pf-btn act-add" onClick={() => setSteps([...steps, { name: '', targets: [] }])}>
+                            + Étape
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
               </div>
             ))}
             {edit && (

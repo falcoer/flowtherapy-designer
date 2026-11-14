@@ -113,8 +113,9 @@ export function CampaignForm(p: { initial: CampaignInput & { id?: string }; oper
       await p.onSubmit(form);
     } catch (e) {
       setErr((e as Error).message);
-      setBusy(false);
     }
+    // le formulaire peut rester affiché (onglet Paramètres de la campagne) : il redevient utilisable
+    setBusy(false);
   };
   const buttons = (
     <span className="cp-btns">

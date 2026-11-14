@@ -1,5 +1,5 @@
 import type { Format } from '@ftd/core';
-import { anchorFor, layerBox, type Doc, type Layer } from './model';
+import { anchorFor, layerBox, type Doc, type Layer, guideFrameNow } from './model';
 
 /** Forme de chaque groupe de pièces solidaires : la pièce de tête, et la place des autres par rapport à elle. */
 export type LinkShapes = Map<string, { lead: string; w: number; parts: Map<string, { ox: number; oy: number; w: number; h: number }> }>;
@@ -44,7 +44,7 @@ export function keepLinks(doc: Doc, f: Format, links: LinkShapes): Doc {
     for (const [id, p] of g.parts) {
       const l = byId.get(id);
       if (!l || l.link !== lead.link) continue;
-      const a = anchorFor(doc.frame, f, L.cx + p.ox * m * k, L.cy + p.oy * m * k);
+      const a = anchorFor(guideFrameNow(), f, L.cx + p.ox * m * k, L.cy + p.oy * m * k);
       moved.set(id, { ...l, w: p.w * k, h: p.h * k, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined });
     }
   }

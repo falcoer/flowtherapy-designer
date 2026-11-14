@@ -15,7 +15,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const sameTarget = (a: Target, b: Target) => (a.channel ?? '') === (b.channel ?? '') && a.format === b.format;
 
 /** Une publication d'une composition : un de ses rendus, et ce que le plan de la campagne en prévoit. */
-interface Pub {
+export interface Pub {
   target: Target;
   rows: PlanItem[];
 }
@@ -37,14 +37,14 @@ const pubWhen = (p: Pub) => {
 };
 
 /** Les publications d'une composition : ses rendus, reliés aux lignes du plan qui la retiennent. */
-function pubsOf(m: AtelierMeta, targets: Target[], campaign: Campaign | undefined, suggested: AtelierMeta | undefined): Pub[] {
+export function pubsOf(m: AtelierMeta, targets: Target[], campaign: Campaign | undefined, suggested: AtelierMeta | undefined): Pub[] {
   const plan = campaign?.plan ?? [];
   const mine = (it: PlanItem) => it.composition === m.id || (!it.composition && suggested?.id === m.id);
   return targets.map((t) => ({ target: t, rows: plan.filter((it) => sameTarget(it, t) && mine(it)) }));
 }
 
 /** L'éventail des publications : une carte par rendu, à sa proportion, l'aperçu dedans, le média en pastille. */
-function PubFan({ m, pubs, activity, size = 38 }: { m: AtelierMeta; pubs: Pub[]; activity: ActivityProfile | null; /** hauteur d'une carte */ size?: number }) {
+export function PubFan({ m, pubs, activity, size = 38 }: { m: AtelierMeta; pubs: Pub[]; activity: ActivityProfile | null; /** hauteur d'une carte */ size?: number }) {
   const channels = channelsOf(activity);
   const n = pubs.length;
   return (
@@ -73,7 +73,7 @@ function PubFan({ m, pubs, activity, size = 38 }: { m: AtelierMeta; pubs: Pub[];
 
 const dmy = (d: string) => new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });
 /** Où en est une composition : publiée (d'après le plan de la campagne), sinon son étape de validation, et sa date. */
-function statusOf(m: AtelierMeta, c: Campaign | undefined): { kind: string; label: string; at: string } | null {
+export function statusOf(m: AtelierMeta, c: Campaign | undefined): { kind: string; label: string; at: string } | null {
   const pub = (c?.plan ?? [])
     .filter((it) => it.composition === m.id && it.published)
     .map((it) => it.published!)
@@ -84,6 +84,14 @@ function statusOf(m: AtelierMeta, c: Campaign | undefined): { kind: string; labe
   if (!r) return null;
   if (r.status === 'proposed') return { kind: r.status, label: REVIEW_LABELS.proposed, at: r.proposedAt };
   return { kind: r.status, label: REVIEW_LABELS[r.status], at: r.reviewedAt ?? r.proposedAt };
+}
+
+/** L'historique d'une campagne (ou des compositions hors campagne) : évènements du fil et publications faites. */
+export function campaignHistory(events: ActivityEvent[] | null, c: Campaign | undefined): HistoryItem[] {
+  return [
+    ...(events ?? []).filter((e) => (c ? e.inCampaign === c.id || (e.type === 'campaign' && e.campaign === c.id) : !!e.atelier && !e.inCampaign)).map((e) => ({ kind: 'event' as const, e, at: e.at })),
+    ...(c?.plan ?? []).filter((it) => it.published).map((item) => ({ kind: 'published' as const, item, at: item.published! })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
 }
 
 /** Largeur de la corbeille découverte en glissant une ligne vers la gauche. */
@@ -101,7 +109,7 @@ const FILTERS = [
 type FilterId = (typeof FILTERS)[number]['id'];
 
 /** Une ligne de l'historique : un évènement du fil, ou une publication faite d'après le plan. */
-type HistoryItem = { kind: 'event'; e: ActivityEvent; at: string } | { kind: 'published'; item: PlanItem; at: string };
+export type HistoryItem = { kind: 'event'; e: ActivityEvent; at: string } | { kind: 'published'; item: PlanItem; at: string };
 
 /**
  * Menu de la campagne : son détail sur toute la largeur (la liste des campagnes s'ouvre par les deux
@@ -230,10 +238,7 @@ export function CompositionsMenu(p: {
   const channels = channelsOf(p.activity);
 
   // historique : ce que l'équipe a fait sur la campagne (ou sur les compositions hors campagne)
-  const history: HistoryItem[] = [
-    ...(p.events ?? []).filter((e) => (c ? e.inCampaign === c.id || (e.type === 'campaign' && e.campaign === c.id) : !!e.atelier && !e.inCampaign)).map((e) => ({ kind: 'event' as const, e, at: e.at })),
-    ...(c?.plan ?? []).filter((it) => it.published).map((item) => ({ kind: 'published' as const, item, at: item.published! })),
-  ].sort((a, b) => b.at.localeCompare(a.at));
+  const history = campaignHistory(p.events, c);
   const fold = useHistoryFold();
 
   const tap = (m: AtelierMeta) => {
@@ -488,7 +493,7 @@ function useHistoryFold() {
 }
 
 /** Colonne de droite : l'historique, ou, replié, une languette pour le rouvrir. */
-function HistoryPanel(p: { items: HistoryItem[]; events: ActivityEvent[] | null; me: string; campaigns: Campaign[]; activity: ActivityProfile | null; folded: boolean; onFold: () => void; empty: string; title?: string }) {
+export function HistoryPanel(p: { items: HistoryItem[]; events: ActivityEvent[] | null; me: string; campaigns: Campaign[]; activity: ActivityProfile | null; folded: boolean; onFold?: () => void; empty: string; title?: string }) {
   if (p.folded)
     return (
       <button className="cm-hist-tab" onClick={p.onFold} title="Afficher l’historique" aria-label="Afficher l’historique" aria-expanded={false}>
@@ -502,9 +507,9 @@ function HistoryPanel(p: { items: HistoryItem[]; events: ActivityEvent[] | null;
     <div className="cm-right cm-history">
       <div className="cm-hist-head">
         <div className="b-sub">{p.title ?? 'Historique'}</div>
-        <button className="cm-fold" onClick={p.onFold} title="Replier l’historique" aria-label="Replier l’historique" aria-expanded>
+        {p.onFold && <button className="cm-fold" onClick={p.onFold} title="Replier l’historique" aria-label="Replier l’historique" aria-expanded>
           ›
-        </button>
+        </button>}
       </div>
       {p.events === null && <p className="fx-hint">L’historique s’affiche avec une activité en ligne.</p>}
       {p.events !== null && !p.items.length && <p className="fx-hint">{p.empty}</p>}
@@ -562,6 +567,8 @@ export function CompositionMenu(p: {
   onTitle: (t: string) => void;
   onShow: (i: number) => void;
   onAdd: () => void;
+  /** réglages de la publication affichée (nom, variante, résolution) */
+  onSettings: () => void;
   onRemove: (i: number) => void;
   onCampaign: () => void;
   onSaveNew: () => void;
@@ -692,6 +699,11 @@ export function CompositionMenu(p: {
                     </em>
                     <small>{pubWhen(pub)}</small>
                   </button>
+                  {i === p.active && (
+                    <button className="act-icon" onClick={p.onSettings} title="Réglages de cette publication : nom, réseau, format, variante, résolution" aria-label={`Régler ${targetLabel(pub.target, p.activity)}`}>
+                      <Icon name="settings" />
+                    </button>
+                  )}
                   {p.canEdit && n > 1 && (
                     <button className="act-icon cm-pub-del" onClick={() => p.onRemove(i)} title="Retirer cette publication" aria-label={`Retirer ${targetLabel(pub.target, p.activity)}`}>
                       <Icon name="trash" />
@@ -702,8 +714,8 @@ export function CompositionMenu(p: {
             })}
           </div>
           {p.canEdit && (
-            <button className="pf-btn comp-pubs-btn" onClick={p.onAdd} title="Ajouter une publication (copie de celle affichée), puis la régler">
-              <Icon name="plus" /> Ajouter une publication
+            <button className="pf-btn comp-pubs-btn" onClick={p.onAdd} title="Nouvelle publication avec ses propres objets : un format du plan, partie d’une voisine, d’un modèle ou d’une page vierge">
+              <Icon name="plus" /> Publication
             </button>
           )}
         </div>
@@ -744,6 +756,8 @@ export function TopCrumbs(p: {
   /** seul l'échec d'enregistrement se signale (point d'exclamation) */
   saving?: keyof typeof SAVE_LABELS;
   open: 'activity' | 'campaign' | 'content' | null;
+  /** la section présentée à l'écran, éclairée dans le fil */
+  here: 'activity' | 'campaign' | 'content';
   onActivity: () => void;
   onCampaign: () => void;
   onContent: () => void;
@@ -756,12 +770,12 @@ export function TopCrumbs(p: {
   const alert = late ? `${late} rendu${late > 1 ? 's' : ''} en retard` : '';
   return (
     <nav className="crumbs" aria-label="Activité, campagne, contenu">
-      <button className={`crumb first ${p.open === 'activity' ? 'on' : ''}`} onClick={p.onActivity} title={p.team ? `${p.team.name} : activité` : 'Activité'}>
+      <button className={`crumb first ${p.open === 'activity' ? 'on' : ''} ${p.here === 'activity' ? 'current' : ''}`} aria-current={p.here === 'activity' ? 'page' : undefined} onClick={p.onActivity} title={p.team ? `${p.team.name} : activité` : 'Activité'}>
         <ActivityMark team={p.team} size={24} />
         <span className="crumb-txt crumb-act">{p.team?.name ?? 'Atelier'}</span>
       </button>
       {p.showCampaign && (
-        <button className={`crumb ${c ? '' : 'none'} ${p.open === 'campaign' ? 'on' : ''}`} onClick={p.onCampaign} title={c ? `${c.name}${c.date ? ` · ${day(c.date)}` : ' · pas encore de date'}${alert ? ` · ${alert}` : ''}` : `${mid} : choisir une campagne`}>
+        <button className={`crumb ${c ? '' : 'none'} ${p.open === 'campaign' ? 'on' : ''} ${p.here === 'campaign' ? 'current' : ''}`} aria-current={p.here === 'campaign' ? 'page' : undefined} onClick={p.onCampaign} title={c ? `${c.name}${c.date ? ` · ${day(c.date)}` : ' · pas encore de date'}${alert ? ` · ${alert}` : ''}` : `${mid} : choisir une campagne`}>
           <span className="crumb-icon">
             <span className={`cmp-date ${d ? '' : 'none'} ${c && !d ? 'nodate' : ''}`}>
               {d ? (
@@ -784,7 +798,7 @@ export function TopCrumbs(p: {
           <span className="crumb-txt">{mid}</span>
         </button>
       )}
-      <button className={`crumb last current ${p.open === 'content' ? 'on' : ''}`} onClick={p.onContent} title={`${p.title ?? 'Page non enregistrée'} · ${p.kind}`}>
+      <button className={`crumb last ${p.here === 'content' ? 'current' : ''} ${p.open === 'content' ? 'on' : ''}`} aria-current={p.here === 'content' ? 'page' : undefined} onClick={p.onContent} title={`${p.title ?? 'Page non enregistrée'} · ${p.kind}`}>
         {p.thumb && <img className="crumb-thumb" src={p.thumb} alt="" />}
         <span className="crumb-txt crumb-two">
           <b>{p.title ?? 'Page non enregistrée'}</b>

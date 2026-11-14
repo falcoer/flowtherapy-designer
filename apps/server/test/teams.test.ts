@@ -108,6 +108,38 @@ describe('équipes', () => {
     expect(list.json().map((m: { id: string }) => m.id)).toEqual(['affiche']);
   });
 
+  it('un responsable supprime une activité en retapant son nom ; ses dossiers vont à la corbeille', async () => {
+    const { login, as, root } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    await lauris.send('POST', '/api/teams', { name: 'Les Insolites' });
+    await lauris.send('POST', '/api/teams/les-insolites/members', { email: 'jenni@example.org', role: 'editor' });
+    await lauris.send('POST', '/api/teams/les-insolites/members', { email: 'gerant@example.org', role: 'owner' });
+    const gerant = as((await login('gerant@example.org'))!);
+    await gerant.send('PUT', '/api/ateliers/affiche', { title: 'Affiche', doc });
+    await gerant.send('POST', '/api/campaigns', { name: 'Tournée' });
+
+    // un membre qui n'est pas responsable ne peut pas, et le nom doit être retapé à l'identique
+    const jenni = as((await login('jenni@example.org'))!);
+    expect((await jenni.send('DELETE', '/api/teams/les-insolites', { name: 'Les Insolites' })).statusCode).toBe(403);
+    expect((await gerant.send('DELETE', '/api/teams/les-insolites', { name: 'les insolites' })).statusCode).toBe(400);
+    // l'activité d'origine ne se supprime pas
+    expect((await lauris.send('DELETE', '/api/teams/flowtherapy', { name: 'Flowtherapy' })).statusCode).toBe(400);
+
+    expect((await gerant.send('DELETE', '/api/teams/les-insolites', { name: 'Les Insolites' })).statusCode).toBe(200);
+    expect((await lauris.get('/api/me')).json().teams.map((t: { id: string }) => t.id)).toEqual(['flowtherapy']);
+    expect((await gerant.get('/api/me')).json().teams).toEqual([]);
+    expect(await readdir(path.join(root, 'equipes'))).not.toContain('les-insolites');
+    const bin = await readdir(path.join(root, 'corbeille/equipes'));
+    expect(bin).toHaveLength(1);
+    expect(await readdir(path.join(root, 'corbeille/equipes', bin[0]!, 'ateliers'))).toContain('affiche.json');
+    // recréée sous le même nom : elle repart de zéro
+    await lauris.send('POST', '/api/teams', { name: 'Les Insolites' });
+    const sw = await lauris.send('POST', '/api/me/team', { team: 'les-insolites' });
+    const cookie = `${(await login('lauris@example.org'))!}; ${String(sw.headers['set-cookie']).split(';')[0]}`;
+    expect((await as(cookie).get('/api/campaigns')).json()).toEqual([]);
+    expect((await as(cookie).get('/api/ateliers')).json()).toEqual([]);
+  });
+
   it('garde au moins un responsable', async () => {
     const { login, as } = await setup();
     const lauris = as((await login('lauris@example.org'))!);
@@ -264,14 +296,26 @@ describe('équipes', () => {
     const ops = await lauris.send('PUT', '/api/teams/flowtherapy/profile', {
       operations: [
         { id: 'concert', name: 'Concert', icon: 'occ-concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }, { format: '' }] },
-        { id: 'logo', name: 'Logo', icon: '<svg>', targets: [{ format: 'carre' }] },
+        // étapes du modèle : un nom, un délai avant l'évènement (ou à dater), ce qu'elle publie
+        { id: 'logo', name: 'Logo', icon: '<svg>', targets: [{ format: 'carre' }], steps: [{ name: 'Annonce', days: 21, time: '18:00', targets: [{ format: 'carre' }, { format: '' }], text: '{campagne} : {date}' }, { name: 'Story', days: 'un jour', targets: [] }, { name: '', days: 3 }] },
         { name: '' },
       ],
     });
     expect(ops.json().profile.operations).toEqual([
       { id: 'concert', name: 'Concert', icon: 'occ-concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }] },
-      { id: 'logo', name: 'Logo', targets: [{ format: 'carre' }] },
+      { id: 'logo', name: 'Logo', targets: [{ format: 'carre' }], steps: [{ name: 'Annonce', days: 21, targets: [{ format: 'carre' }], time: '18:00', text: '{campagne} : {date}' }, { name: 'Story', targets: [] }] },
     ]);
+  });
+
+  it('la rédaction d’une campagne : texte d’accompagnement, mots-dièse, lien', async () => {
+    const { login, as } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    const c = (await lauris.send('POST', '/api/campaigns', { name: 'Bal', caption: '  Venez danser !  ', hashtags: '#bal #juvisy', link: 'https://billets.example.org/bal' })).json().campaign;
+    expect(c).toMatchObject({ caption: 'Venez danser !', hashtags: '#bal #juvisy', link: 'https://billets.example.org/bal' });
+    const u = (await lauris.send('PATCH', `/api/campaigns/${c.id}`, { caption: '', link: 'pas un lien' })).json().campaign;
+    expect(u.caption).toBeUndefined();
+    expect(u.link).toBeUndefined();
+    expect(u.hashtags).toBe('#bal #juvisy');
   });
 
   it('les campagnes : chacun y contribue, tout membre vote', async () => {
@@ -330,6 +374,34 @@ describe('équipes', () => {
       { id: 'rappel', channel: 'facebook', format: 'carre', label: 'rappel' },
       { id: 'story', channel: 'instagram', format: 'story', published: '2026-12-11T18:00:00Z', link: 'https://instagram.com/p/x' },
     ]);
+
+    // étapes nommées et textes de la campagne : un texte se dépose sur une étape, et la quitte quand il est supprimé
+    const staged = (
+      await jenni.send('PATCH', '/api/campaigns/concert-du-plan', {
+        texts: [{ id: 'rappel', name: 'Rappel', text: 'C’est samedi.' }, { id: 'rappel', name: 'Doublon', text: '' }, { id: 'Pas Valide', name: 'x', text: 'x' }, { id: 'sans-nom', text: 'y' }],
+        plan: [
+          { id: 'rappel', channel: 'facebook', format: 'carre', label: 'Rappel', step: 'rappel', text: 'rappel', time: '18:30' },
+          { id: 'story', channel: 'instagram', format: 'story', step: 'Pas Valide', text: 'inconnu', time: '25:00' },
+        ],
+      })
+    ).json().campaign;
+    expect(staged.texts).toEqual([{ id: 'rappel', name: 'Rappel', text: 'C’est samedi.' }, { id: 'sans-nom', name: 'Texte', text: 'y' }]);
+    expect(staged.plan).toEqual([
+      { id: 'rappel', channel: 'facebook', format: 'carre', label: 'Rappel', step: 'rappel', time: '18:30', text: 'rappel' },
+      { id: 'story', channel: 'instagram', format: 'story' },
+    ]);
+    const untexted = (await jenni.send('PATCH', '/api/campaigns/concert-du-plan', { texts: [] })).json().campaign;
+    expect(untexted.texts).toBeUndefined();
+    expect(untexted.plan[0]).toEqual({ id: 'rappel', channel: 'facebook', format: 'carre', label: 'Rappel', step: 'rappel', time: '18:30' });
+    // le texte principal se dépose aussi, sous l'identifiant réservé « main », qu'aucun texte nommé ne peut prendre
+    const main = (
+      await jenni.send('PATCH', '/api/campaigns/concert-du-plan', {
+        texts: [{ id: 'main', name: 'Usurpateur', text: 'x' }],
+        plan: [{ id: 'rappel', channel: 'facebook', format: 'carre', label: 'Rappel', step: 'rappel', text: 'main' }],
+      })
+    ).json().campaign;
+    expect(main.texts).toBeUndefined();
+    expect(main.plan[0].text).toBe('main');
 
     // modèles de la campagne, et copie d'une composition dans une autre campagne
     const tpl = (await jenni.send('PATCH', '/api/campaigns/concert-du-plan', { templates: ['affiche-lauris', 'affiche-lauris', 'Pas Valide'] })).json().campaign;

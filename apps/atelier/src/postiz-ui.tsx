@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchPostizAccounts, fetchPostizConfig, postizConnect, postizPublish, postizRemove, postizUnschedule, savePostizConfig, type Campaign, type PlanItem, type PostizAccount, type PostizAccounts } from './server';
+import { todayIso } from './plan';
 
 /**
  * Comptes Postiz de l'activité : chargés une fois, relus au retour sur l'onglet et,
@@ -182,10 +183,11 @@ export function PostizTab() {
 }
 
 /** « 2026-11-15T10:00 » local, pour un champ datetime-local : la date du plan à 10 h, ou dans une heure si elle est passée. */
-export function defaultWhen(date?: string, now = new Date()): string {
+/** L'envoi proposé : le jour et l'heure de l'étape (10 h à défaut d'heure), sinon la prochaine heure pleine. */
+export function defaultWhen(date?: string, now = new Date(), time?: string): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   const local = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  const planned = date ? new Date(`${date}T10:00:00`) : null;
+  const planned = date ? new Date(`${date}T${/^\d{2}:\d{2}$/.test(time ?? '') ? time : '10:00'}:00`) : null;
   if (planned && planned.getTime() > now.getTime() + 5 * 60_000) return local(planned);
   const soon = new Date(now.getTime() + 60 * 60_000);
   soon.setMinutes(0, 0, 0);
@@ -203,16 +205,21 @@ export function PostizPlanActions(p: {
   item: PlanItem;
   accounts: PostizAccount[];
   owner: boolean;
-  caption: string;
+  /** le texte envoyé, selon le jour de l'envoi (les champs {quand} et {jours} en dépendent) */
+  caption: string | ((at: string) => string);
   composition?: string;
-  /** rend l'image de la publication de cet élément ; null si la composition n'a pas ce rendu */
-  render: () => Promise<Blob | null>;
+  /** rend l'image de la publication de cet élément ; null si la composition n'a pas ce rendu ; avec son texte quand il vient de la composition rendue */
+  render: (at: string) => Promise<Blob | null | { image: Blob | null; caption: string }>;
+  /** ce qui empêche l'envoi (un champ du texte sans valeur…) */
+  blocked?: string;
   onCampaign: (c: Campaign) => void;
   toast: (m: string) => void;
 }) {
   const it = p.item;
   const [open, setOpen] = useState(false);
-  const [when, setWhen] = useState(() => defaultWhen(it.date));
+  const [when, setWhen] = useState(() => defaultWhen(it.date, undefined, it.time));
+  // l'étape change de jour ou d'heure : la programmation proposée suit
+  useEffect(() => setWhen(defaultWhen(it.date, undefined, it.time)), [it.date, it.time]);
   const [account, setAccount] = useState(p.accounts[0]?.id ?? '');
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmNow, setConfirmNow] = useState(false);
@@ -225,9 +232,13 @@ export function PostizPlanActions(p: {
     setConfirmNow(false);
     setBusy(now ? 'Publication…' : 'Programmation…');
     try {
-      const image = await p.render();
-      if (!image && !p.caption.trim()) throw new Error('Rien à publier');
-      const c = await postizPublish({ campaign: p.campaign, item: it.id, account, when: now ? 'now' : new Date(when).toISOString(), caption: p.caption, composition: p.composition, ...(image ? { image } : {}) });
+      if (p.blocked) throw new Error(p.blocked);
+      const at = now ? todayIso() : when.slice(0, 10);
+      const r = await p.render(at);
+      const image = r === null || r instanceof Blob ? r : r.image;
+      const caption = r === null || r instanceof Blob ? (typeof p.caption === 'string' ? p.caption : p.caption(at)) : r.caption;
+      if (!image && !caption.trim()) throw new Error('Rien à publier');
+      const c = await postizPublish({ campaign: p.campaign, item: it.id, account, when: now ? 'now' : new Date(when).toISOString(), caption, composition: p.composition, ...(image ? { image } : {}) });
       p.onCampaign(c);
       setOpen(false);
       p.toast(now ? 'Envoyée : elle paraît dans une minute' : `Programmée le ${whenLabel(new Date(when).toISOString())}`);
@@ -281,9 +292,26 @@ export function PostizPlanActions(p: {
             échec
           </small>
         )}
-        <button className="ab-link" onClick={() => setOpen(true)}>
-          {it.postiz?.state === 'error' ? 'Réessayer' : 'Programmer'}
-        </button>
+        {confirmNow ? (
+          <>
+            <small className="fx-hint pz-note">Publier tout de suite sur {p.accounts.find((a) => a.id === account)?.name ?? 'ce compte'} ?</small>
+            <button className="pf-btn act-primary" onClick={() => void send(true)}>
+              Oui, publier
+            </button>
+            <button className="ab-link" onClick={() => setConfirmNow(false)}>
+              Annuler
+            </button>
+          </>
+        ) : (
+          <>
+            <button className="pf-btn act-primary" disabled={!!p.blocked} title={p.blocked ?? 'Envoyer cette publication tout de suite'} onClick={() => (p.accounts.length > 1 ? setOpen(true) : setConfirmNow(true))}>
+              Publier maintenant
+            </button>
+            <button className="ab-link" disabled={!!p.blocked} title={p.blocked} onClick={() => setOpen(true)}>
+              {it.postiz?.state === 'error' ? 'Réessayer…' : 'Programmer…'}
+            </button>
+          </>
+        )}
       </span>
     );
   return (
