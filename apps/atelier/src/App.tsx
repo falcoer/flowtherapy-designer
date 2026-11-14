@@ -45,6 +45,7 @@ import { MediaIcon, PublicationsPanel, VariantBar, VariantPick } from './targets
 import { CampaignDialog } from './campaigns-ui';
 import { NewCompositionDialog } from './compositions-ui';
 import { CompositionMenu, TopCrumbs } from './compositions-menu';
+import { CaptionTools } from './caption-tools';
 import { CampaignPage, CampaignPicker, CampaignsHome, StageButton, campaignCaption, type SpaceTab } from './campaigns-space';
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
@@ -836,6 +837,7 @@ export function App() {
   const [picking, setPicking] = useState(false);
   /** la fiche de l'activité ouverte depuis le sous-menu de l'activité : dépliée d'emblée */
   const [activityFiche, setActivityFiche] = useState(false);
+  const captionArea = useRef<HTMLTextAreaElement>(null);
   const [stageOpen, setStageOpen] = useState(false);
   const [newDialog, setNewDialog] = useState(false);
   const [msgDialog, setMsgDialog] = useState(false);
@@ -5698,7 +5700,9 @@ export function App() {
                     {doc.caption ? 'Remplacer par le texte de la campagne' : 'Partir du texte de la campagne'}
                   </button>
                 )}
+                <CaptionTools area={captionArea} value={doc.caption ?? ''} onChange={(v) => setDoc((d) => ({ ...d, caption: v || undefined }))} />
                 <textarea
+                  ref={captionArea}
                   className="pf-input"
                   rows={4}
                   value={doc.caption ?? ''}

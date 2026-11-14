@@ -2741,6 +2741,15 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .sp-history { max-width: 720px; }
 .sp-history .cm-right { border: 0; padding: 0; max-height: none; overflow: visible; }
 
+/* texte d'accompagnement : gras, italique (lettres Unicode), émojis */
+.cap-tools { position: relative; display: flex; gap: 4px; align-items: center; }
+.cap-btn { width: 32px; height: 30px; border: 1px solid var(--line); border-radius: 9px; background: var(--chrome-solid); color: var(--ink); font: inherit; font-size: 15px; cursor: pointer; display: grid; place-items: center; }
+.cap-btn:hover, .cap-btn.on { background: var(--accent-soft); color: var(--accent); }
+.cap-btn:disabled { opacity: 0.4; }
+.cap-emojis { position: absolute; top: calc(100% + 4px); left: 0; z-index: 5; display: grid; grid-template-columns: repeat(8, 34px); gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: 14px; background: var(--chrome-solid); box-shadow: 0 8px 24px rgba(20, 16, 32, 0.16); }
+.cap-emojis button { width: 34px; height: 34px; border: 0; border-radius: 8px; background: none; font-size: 20px; cursor: pointer; }
+.cap-emojis button:hover { background: var(--accent-soft); }
+
 /* pastille d'état et son circuit */
 .sp-stage { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px 0 6px; border: 1px solid var(--line); border-radius: 18px; background: var(--chrome-solid); color: var(--ink); font: inherit; cursor: pointer; margin-right: 4px; }
 .sp-stage:hover, .sp-stage.on { border-color: var(--accent); }

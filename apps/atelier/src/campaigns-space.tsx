@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { CaptionTools } from './caption-tools';
 import { CampaignForm, VoteButton } from './campaigns-ui';
 import { HistoryPanel, PubFan, campaignHistory, pubsOf } from './compositions-menu';
 import { ActivityMark } from './activity';
@@ -760,6 +761,7 @@ function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit:
   const [caption, setCaption] = useState(p.c.caption ?? '');
   const [hashtags, setHashtags] = useState(p.c.hashtags ?? '');
   const [link, setLink] = useState(p.c.link ?? '');
+  const area = useRef<HTMLTextAreaElement>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   useEffect(() => setMsg(''), [caption, hashtags, link]);
@@ -782,7 +784,8 @@ function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit:
       <div className="sp-write-form">
         <label className="sp-field">
           <span>Texte d’accompagnement</span>
-          <textarea className="pf-input" rows={7} value={caption} disabled={!p.canEdit} placeholder="L’annonce commune aux publications : la date, le lieu, ce qui attend le public…" onChange={(e) => setCaption(e.target.value)} />
+          {p.canEdit && <CaptionTools area={area} value={caption} onChange={setCaption} />}
+          <textarea ref={area} className="pf-input" rows={7} value={caption} disabled={!p.canEdit} placeholder="L’annonce commune aux publications : la date, le lieu, ce qui attend le public…" onChange={(e) => setCaption(e.target.value)} />
         </label>
         {p.canEdit && mentions.length > 0 && (
           <div className="pub-mentions">
