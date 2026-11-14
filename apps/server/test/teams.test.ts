@@ -296,13 +296,14 @@ describe('équipes', () => {
     const ops = await lauris.send('PUT', '/api/teams/flowtherapy/profile', {
       operations: [
         { id: 'concert', name: 'Concert', icon: 'occ-concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }, { format: '' }] },
-        { id: 'logo', name: 'Logo', icon: '<svg>', targets: [{ format: 'carre' }] },
+        // étapes du modèle : un nom, un délai avant l'évènement (ou à dater), ce qu'elle publie
+        { id: 'logo', name: 'Logo', icon: '<svg>', targets: [{ format: 'carre' }], steps: [{ name: 'Annonce', days: 21, targets: [{ format: 'carre' }, { format: '' }] }, { name: 'Story', days: 'un jour', targets: [] }, { name: '', days: 3 }] },
         { name: '' },
       ],
     });
     expect(ops.json().profile.operations).toEqual([
       { id: 'concert', name: 'Concert', icon: 'occ-concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }] },
-      { id: 'logo', name: 'Logo', targets: [{ format: 'carre' }] },
+      { id: 'logo', name: 'Logo', targets: [{ format: 'carre' }], steps: [{ name: 'Annonce', days: 21, targets: [{ format: 'carre' }] }, { name: 'Story', targets: [] }] },
     ]);
   });
 
@@ -373,6 +374,25 @@ describe('équipes', () => {
       { id: 'rappel', channel: 'facebook', format: 'carre', label: 'rappel' },
       { id: 'story', channel: 'instagram', format: 'story', published: '2026-12-11T18:00:00Z', link: 'https://instagram.com/p/x' },
     ]);
+
+    // étapes nommées et textes de la campagne : un texte se dépose sur une étape, et la quitte quand il est supprimé
+    const staged = (
+      await jenni.send('PATCH', '/api/campaigns/concert-du-plan', {
+        texts: [{ id: 'rappel', name: 'Rappel', text: 'C’est samedi.' }, { id: 'rappel', name: 'Doublon', text: '' }, { id: 'Pas Valide', name: 'x', text: 'x' }, { id: 'sans-nom', text: 'y' }],
+        plan: [
+          { id: 'rappel', channel: 'facebook', format: 'carre', label: 'Rappel', step: 'rappel', text: 'rappel' },
+          { id: 'story', channel: 'instagram', format: 'story', step: 'Pas Valide', text: 'inconnu' },
+        ],
+      })
+    ).json().campaign;
+    expect(staged.texts).toEqual([{ id: 'rappel', name: 'Rappel', text: 'C’est samedi.' }, { id: 'sans-nom', name: 'Texte', text: 'y' }]);
+    expect(staged.plan).toEqual([
+      { id: 'rappel', channel: 'facebook', format: 'carre', label: 'Rappel', step: 'rappel', text: 'rappel' },
+      { id: 'story', channel: 'instagram', format: 'story' },
+    ]);
+    const untexted = (await jenni.send('PATCH', '/api/campaigns/concert-du-plan', { texts: [] })).json().campaign;
+    expect(untexted.texts).toBeUndefined();
+    expect(untexted.plan[0]).toEqual({ id: 'rappel', channel: 'facebook', format: 'carre', label: 'Rappel', step: 'rappel' });
 
     // modèles de la campagne, et copie d'une composition dans une autre campagne
     const tpl = (await jenni.send('PATCH', '/api/campaigns/concert-du-plan', { templates: ['affiche-lauris', 'affiche-lauris', 'Pas Valide'] })).json().campaign;

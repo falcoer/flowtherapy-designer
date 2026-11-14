@@ -105,6 +105,14 @@ export interface Operation {
   /** Icône de l'occasion (occ-concert, occ-music…) ; absente, devinée d'après le nom. */
   icon?: string;
   targets: Target[];
+  /** Étapes de publication du modèle ; absentes : annonce, rappel, stories à dater. */
+  steps?: OpStep[];
+}
+/** Une étape du modèle : son nom, son délai avant l'évènement (jours ; absent : à dater), ce qu'elle publie. */
+export interface OpStep {
+  name: string;
+  days?: number;
+  targets: Target[];
 }
 
 export interface PaletteColor {
@@ -332,7 +340,19 @@ export function cleanProfile(p: ActivityProfile): ActivityProfile {
         }))
         .filter((t) => t.format);
       const icon = str(o?.icon, 30);
-      return { id, name, ...(/^occ-[a-z]+$/.test(icon) ? { icon } : {}), targets };
+      // étapes de publication du modèle : un nom, un délai avant l'évènement, ce qu'elle publie
+      const steps = arr<Partial<OpStep>>(o?.steps)
+        .slice(0, 12)
+        .map((s) => ({
+          name: str(s?.name, 60),
+          ...(Number.isInteger(s?.days) && s!.days! >= -60 && s!.days! <= 365 ? { days: s!.days! } : {}),
+          targets: arr<Partial<Target>>(s?.targets)
+            .slice(0, 20)
+            .map((t) => ({ ...(str(t?.channel, 40) ? { channel: str(t?.channel, 40) } : {}), format: str(t?.format, 40) }))
+            .filter((t) => t.format),
+        }))
+        .filter((s) => s.name);
+      return { id, name, ...(/^occ-[a-z]+$/.test(icon) ? { icon } : {}), targets, ...(steps.length ? { steps } : {}) };
     })
     .filter((o) => o.name);
   const keywords = (Array.isArray(p.branding?.keywords) ? p.branding!.keywords : [])
@@ -974,6 +994,8 @@ export interface Campaign {
   caption?: string;
   hashtags?: string;
   link?: string;
+  /** Rédaction : textes nommés (« Rappel »…), à déposer sur les étapes du plan. */
+  texts?: Array<{ id: string; name: string; text: string }>;
   /** Compositions proposées comme modèles : chacun peut partir de l'une d'elles. */
   templates?: string[];
   /** Plan de publication : ce qu'il faut sortir, quand, avec quelle composition. */
@@ -988,18 +1010,23 @@ export interface PlanItem {
   channel?: string;
   format: string;
   palette?: string;
-  /** « rappel », « annonce »… */
+  /** nom de l'étape : « Annonce », « Rappel »… */
   label?: string;
+  /** étape qui regroupe les lignes */
+  step?: string;
   date?: string;
   composition?: string;
+  /** texte de la campagne déposé sur l'étape */
+  text?: string;
   /** publiée : quand, et le lien de la publication */
   published?: string;
   link?: string;
   /** confiée à Postiz : écrit par le serveur seulement */
   postiz?: PlanPostiz;
 }
-export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'caption' | 'hashtags' | 'link' | 'templates' | 'plan'>>;
+export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'caption' | 'hashtags' | 'link' | 'texts' | 'templates' | 'plan'>>;
 
+const SLUG40 = /^[a-z0-9][a-z0-9-]{0,39}$/;
 function cleanCampaign(c: CampaignInput) {
   const date = str(c.date, 10);
   const k = c.contact ?? {};
@@ -1011,6 +1038,12 @@ function cleanCampaign(c: CampaignInput) {
   };
   const contact = Object.keys(ct).length ? ct : undefined;
   const templates = [...new Set(arr<string>(c.templates).filter((t) => typeof t === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(t)))].slice(0, 20);
+  const textIds = new Set<string>();
+  const texts = arr<{ id: string; name: string; text: string }>(c.texts)
+    .filter((x) => x && typeof x === 'object' && SLUG40.test(str(x.id, 40)) && !textIds.has(x.id) && textIds.add(x.id))
+    .slice(0, 20)
+    .map((x) => ({ id: x.id, name: str(x.name, 60) || 'Texte', text: typeof x.text === 'string' ? x.text.slice(0, 2200) : '' }));
+  const kept = new Set(texts.map((x) => x.id));
   const ids = new Set<string>();
   const plan = arr<PlanItem>(c.plan)
     .filter((x) => x && typeof x === 'object' && str(x.format, 40) && /^[a-z0-9][a-z0-9-]{0,39}$/.test(str(x.id, 40)) && !ids.has(x.id) && ids.add(x.id))
@@ -1021,8 +1054,11 @@ function cleanCampaign(c: CampaignInput) {
       format: str(x.format, 40),
       ...(str(x.palette, 40) ? { palette: str(x.palette, 40) } : {}),
       ...(str(x.label, 60) ? { label: str(x.label, 60) } : {}),
+      ...(SLUG40.test(str(x.step, 40)) ? { step: str(x.step, 40) } : {}),
       ...(/^\d{4}-\d{2}-\d{2}$/.test(str(x.date, 10)) ? { date: str(x.date, 10) } : {}),
       ...(/^[a-z0-9][a-z0-9-]{0,63}$/.test(str(x.composition, 64)) ? { composition: str(x.composition, 64) } : {}),
+      // un texte supprimé ne reste pas déposé sur une étape
+      ...(kept.has(str(x.text, 40)) ? { text: str(x.text, 40) } : {}),
       ...(str(x.published, 30) ? { published: str(x.published, 30) } : {}),
       ...(/^https?:\/\/\S+$/.test(str(x.link, 300)) ? { link: str(x.link, 300) } : {}),
       ...(cleanPlanPostiz(x.postiz) ? { postiz: cleanPlanPostiz(x.postiz)! } : {}),
@@ -1038,6 +1074,7 @@ function cleanCampaign(c: CampaignInput) {
     ...(str(c.caption, 2200) ? { caption: str(c.caption, 2200) } : {}),
     ...(str(c.hashtags, 300) ? { hashtags: str(c.hashtags, 300) } : {}),
     ...(/^https?:\/\/\S+$/.test(str(c.link, 300)) ? { link: str(c.link, 300) } : {}),
+    ...(texts.length ? { texts } : {}),
     ...(templates.length ? { templates } : {}),
     ...(plan.length ? { plan } : {}),
   };

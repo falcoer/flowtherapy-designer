@@ -49,7 +49,7 @@ import { NewCompositionDialog } from './compositions-ui';
 import { CompositionMenu, TopCrumbs } from './compositions-menu';
 import { CaptionTools } from './caption-tools';
 import { CampaignPage, CampaignPicker, CampaignsHome, StageButton, StageTrack, campaignCaption, stageOf, type SpaceTab } from './campaigns-space';
-import { planFromOperation } from './campaign-sheet';
+import { planCaption, planFromOperation, planText } from './plan';
 import { MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorFrames, setGuideFrame, hasZone, zoneOf, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget, type PaletteMatter, type PaletteEdge } from './model';
@@ -1098,19 +1098,19 @@ export function App() {
    * une autre relue au serveur), et son texte (celui de la composition, sinon celui de la campagne).
    */
   const renderPlanFor = async (m: AtelierMeta, it: PlanItem): Promise<{ image: Blob | null; caption: string }> => {
+    // le texte déposé sur l'étape, sinon celui de la composition, sinon le texte principal de la campagne
     const c = campaigns.find((x) => x.id === m.campaign);
-    const fallback = c ? campaignCaption(c) : '';
-    if (m.id === project?.id) return { image: await renderPlanItem(it), caption: docRef.current.caption || fallback };
+    if (m.id === project?.id) return { image: await renderPlanItem(it), caption: planCaption(c, it, docRef.current.caption) };
     const d = migrate((await readAtelier(m.id)).doc);
     const ts = d.targets?.length ? d.targets : [{ format: d.formatId }];
     const i = ts.findIndex((x) => (x.channel ?? '') === (it.channel ?? '') && x.format === it.format);
-    if (i < 0) return { image: null, caption: d.caption || fallback };
+    if (i < 0) return { image: null, caption: planCaption(c, it, d.caption) };
     const x = d.targets?.length ? pageDoc(d, i, views) : d;
     setAnchorFrames(x);
     try {
       const cv = await renderDoc(x, formatOf(ts[i]!.format), 4096, ts[i]!.width);
       const image = await new Promise<Blob>((ok, ko) => cv.toBlob((b) => (b ? ok(b) : ko(new Error('Rendu impossible'))), 'image/jpeg', 0.92));
-      return { image, caption: d.caption || fallback };
+      return { image, caption: planCaption(c, it, d.caption) };
     } finally {
       setAnchorFrames(docRef.current);
     }
@@ -4985,12 +4985,13 @@ export function App() {
                   canVote={!!me?.team}
                   tab={spaceTab}
                   onTab={setSpaceTab}
-                  onPlan={(plan) => {
+                  onPlan={(plan, texts) => {
                     if (!followed) return;
                     // la retouche se voit aussitôt, le serveur suit
                     const id = followed.id;
-                    setCampaigns((l) => l.map((y) => (y.id === id ? { ...y, plan } : y)));
-                    updateCampaign(id, { plan }).then(
+                    const x = { plan, ...(texts ? { texts } : {}) };
+                    setCampaigns((l) => l.map((y) => (y.id === id ? { ...y, ...x } : y)));
+                    updateCampaign(id, x).then(
                       (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
                       (e: Error) => {
                         setToast(`Plan non enregistré : ${e.message}`);
@@ -5854,6 +5855,12 @@ export function App() {
                         {targetLabel(it, activity)}
                         {it.label ? ` · ${it.label}` : ''}
                         {it.date ? ` · ${new Date(`${it.date}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}` : ''}
+                        {planText(pubCampaign, it)?.text.trim() ? (
+                          <small className="fx-hint" title="Texte déposé sur cette étape dans le plan de la campagne : il part à la place du texte ci-dessus">
+                            {' '}
+                            · texte « {planText(pubCampaign, it)!.name} »
+                          </small>
+                        ) : null}
                       </span>
                       {pubPz.data?.enabled && !it.published && !it.postiz && it.composition && it.composition !== project?.id ? (
                         <small className="fx-hint pz-note" title="Ouvre la composition prévue pour la programmer">
@@ -5865,7 +5872,7 @@ export function App() {
                           item={it}
                           accounts={pubPz.data.accounts.filter((a) => a.channel === it.channel && !a.disabled)}
                           owner={me?.team?.role === 'owner'}
-                          caption={doc.caption ?? ''}
+                          caption={planText(pubCampaign, it)?.text.trim() ? planCaption(pubCampaign, it) : (doc.caption ?? '')}
                           composition={project?.id}
                           render={() => renderPlanItem(it)}
                           onCampaign={(x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y)))}

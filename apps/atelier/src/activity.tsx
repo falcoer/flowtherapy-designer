@@ -26,6 +26,7 @@ import {
 import { ensureFont, fontFamily, fontList, fontsFor, loadFonts } from './text';
 import { MembersSection } from './team-ui';
 import type { MediaType } from '@ftd/core';
+import { stepsOf } from './plan';
 import { BRAND_SLOTS, catalogNow, channelsOf, colorGuide, connectionsOf, CONTACT_KINDS, defaultPicks, DEFAULT_OPERATIONS, formatsFor, guidePaletteColor, ROLE_NAMES, slotColor } from './targets';
 import { SITE_VARIANTS } from './brand-presets';
 import { ColorDialog, swatch } from './color-dialog';
@@ -961,9 +962,13 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
                           disabled={!edit}
                           onClick={() =>
                             setOperations(
-                              operations.map((x, j) =>
-                                j === i ? { ...x, targets: on ? x.targets.filter((t) => !(t.channel === c.id && t.format === fm.id)) : [...x.targets, { channel: c.id, format: fm.id }] } : x,
-                              ),
+                              operations.map((x, j) => {
+                                if (j !== i) return x;
+                                if (on) return { ...x, targets: x.targets.filter((t) => !(t.channel === c.id && t.format === fm.id)) };
+                                // une publication de plus rejoint la première étape décrite, pour ne pas rester hors du plan
+                                const t = { channel: c.id, format: fm.id };
+                                return { ...x, targets: [...x.targets, t], ...(x.steps?.length ? { steps: x.steps.map((st, k) => (k ? st : { ...st, targets: [...st.targets, t] })) } : {}) };
+                              }),
                             )
                           }
                         >
@@ -973,6 +978,69 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
                     }),
                   )}
                 </div>
+                {o.targets.some((t) => chans.some((c) => c.id === t.channel)) &&
+                  (() => {
+                    // les étapes du modèle : décrites ici, sinon l'annonce, le rappel et les stories à dater
+                    // seules comptent les publications que l'activité peut faire (ses médias, leurs formats), comme ci-dessus
+                    const valid = o.targets.filter((t) => chans.some((c) => c.id === t.channel && formatsFor(c).some((f) => f.id === t.format)));
+                    const steps = o.steps ?? stepsOf({ ...o, targets: valid }, chans);
+                    const setSteps = (v: typeof steps) => setOperations(operations.map((x, j) => (j === i ? { ...x, steps: v } : x)));
+                    const has = (st: (typeof steps)[number], t: (typeof o.targets)[number]) => st.targets.some((x) => (x.channel ?? '') === (t.channel ?? '') && x.format === t.format);
+                    return (
+                      <div className="act-steps">
+                        <span className="act-steps-k">Étapes de publication</span>
+                        {steps.map((st, k) => (
+                          <div key={k} className="act-step">
+                            <input className="pf-input" value={st.name} maxLength={60} placeholder="Annonce, rappel…" disabled={!edit} onChange={(e) => setSteps(steps.map((x, n) => (n === k ? { ...x, name: e.target.value } : x)))} aria-label="Nom de l’étape" />
+                            <label className="act-step-days" title="Jours avant l’évènement. Vide : à dater dans chaque campagne.">
+                              J−
+                              <input
+                                className="pf-input"
+                                type="number"
+                                min={-60}
+                                max={365}
+                                value={st.days ?? ''}
+                                placeholder="?"
+                                disabled={!edit}
+                                onChange={(e) => {
+                                  const { days: _d, ...rest } = st;
+                                  const n = e.target.value === '' ? NaN : Math.round(Number(e.target.value));
+                                  setSteps(steps.map((x, m) => (m === k ? (Number.isFinite(n) ? { ...rest, days: Math.max(-60, Math.min(365, n)) } : rest) : x)));
+                                }}
+                                aria-label="Jours avant l’évènement"
+                              />
+                            </label>
+                            <div className="act-checks">
+                              {valid.map((t) => {
+                                const ch = chans.find((c) => c.id === t.channel);
+                                const hit = has(st, t);
+                                return (
+                                  <button
+                                    key={`${t.channel ?? ''}/${t.format}`}
+                                    className={`act-check ${hit ? 'on' : ''}`}
+                                    disabled={!edit}
+                                    onClick={() => setSteps(steps.map((x, n) => (n === k ? { ...x, targets: hit ? x.targets.filter((y) => !((y.channel ?? '') === (t.channel ?? '') && y.format === t.format)) : [...x.targets, { ...(t.channel ? { channel: t.channel } : {}), format: t.format }] } : x)))}
+                                  >
+                                    {ch?.name} · {(ch ? formatsFor(ch) : []).find((f) => f.id === t.format)?.title}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {edit && (
+                              <button className="tm-remove" onClick={() => setSteps(steps.filter((_, n) => n !== k))} title="Retirer cette étape">
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        {edit && steps.length < 12 && (
+                          <button className="pf-btn act-add" onClick={() => setSteps([...steps, { name: '', targets: [] }])}>
+                            + Étape
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
               </div>
             ))}
             {edit && (

@@ -85,6 +85,8 @@ export interface Campaign {
   caption?: string;
   hashtags?: string;
   link?: string;
+  /** Rédaction : textes nommés (« Rappel »…), à déposer sur les étapes du plan. */
+  texts?: CampaignText[];
   /** Compositions proposées comme modèles de la campagne. */
   templates?: string[];
   /** Plan de publication : ce qu'il faut sortir, quand, avec quelle composition. */
@@ -93,20 +95,29 @@ export interface Campaign {
   by?: string;
   closed?: string;
 }
-/** Une publication prévue : un rendu (média, format, variante), une date, la composition retenue. */
+export interface CampaignText {
+  id: string;
+  name: string;
+  text: string;
+}
+/** Une publication prévue : un rendu (média, format, variante), son étape (nom, date), la composition et le texte retenus. */
 export interface PlanItem extends Target {
   id: string;
-  /** « rappel », « annonce »… */
+  /** nom de l'étape : « Annonce », « Rappel »… */
   label?: string;
+  /** étape qui regroupe les lignes (absente dans un plan d'avant les étapes) */
+  step?: string;
   date?: string;
   composition?: string;
+  /** texte de la campagne déposé sur l'étape */
+  text?: string;
   /** publiée : quand, et le lien de la publication */
   published?: string;
   link?: string;
   /** confiée à Postiz (écrit par le serveur) */
   postiz?: { post: string; account: string; at: string; state: 'queue' | 'published' | 'error'; error?: string };
 }
-export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'caption' | 'hashtags' | 'link' | 'templates' | 'plan'>> & { closed?: boolean };
+export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'caption' | 'hashtags' | 'link' | 'texts' | 'templates' | 'plan'>> & { closed?: boolean };
 export const listCampaigns = () => call<Campaign[]>('/api/campaigns');
 export const createCampaign = (c: CampaignInput) => call<{ campaign: Campaign }>('/api/campaigns', json('POST', c)).then((r) => r.campaign);
 export const updateCampaign = (id: string, c: CampaignInput) => call<{ campaign: Campaign }>(`/api/campaigns/${id}`, json('PATCH', c)).then((r) => r.campaign);
@@ -293,6 +304,14 @@ export interface Operation {
   name: string;
   /** Icône de l'occasion (occ-concert, occ-music…) ; absente, devinée d'après le nom. */
   icon?: string;
+  targets: Target[];
+  /** Étapes de publication du modèle ; absentes : annonce, rappel, stories à dater. */
+  steps?: OpStep[];
+}
+/** Une étape du modèle : son nom, son délai avant l'évènement (jours ; absent : à dater), ce qu'elle publie. */
+export interface OpStep {
+  name: string;
+  days?: number;
   targets: Target[];
 }
 /** Fiche de l'activité : identité, branding général, canaux, services. */
