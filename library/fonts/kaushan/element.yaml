@@ -1,0 +1,16 @@
+id: kaushan
+type: font
+title: Kaushan Script
+family: Kaushan Script
+files:
+- weight: 400
+  style: normal
+  path: KaushanScript-Regular.ttf
+tags:
+- police
+- titre
+- script
+- pinceau
+origin:
+  url: https://github.com/google/fonts/tree/main/ofl/kaushanscript
+  license: OFL-1.1

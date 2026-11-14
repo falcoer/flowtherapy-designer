@@ -1,0 +1,17 @@
+id: yellowtail
+type: font
+title: Yellowtail
+family: Yellowtail
+files:
+- weight: 400
+  style: normal
+  path: Yellowtail-Regular.ttf
+tags:
+- police
+- titre
+- script
+- pinceau
+- retro
+origin:
+  url: https://github.com/google/fonts/tree/main/apache/yellowtail
+  license: Apache-2.0

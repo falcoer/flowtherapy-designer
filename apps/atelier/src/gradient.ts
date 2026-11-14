@@ -109,7 +109,7 @@ function gradCanvas(g: Extract<Guide, { type: 'gradient' }>, s: GradShape, ar: n
 type Box = { x0: number; y0: number; x1: number; y1: number };
 
 /** Remplissage d'un dégradé mis en forme sur une boîte (style de la palette, repère de l'objet) ; null sans forme (ancien dégradé). */
-export function shapedFill(ctx: CanvasRenderingContext2D, g: Guide | undefined, box: Box, place?: GradPlace): CanvasPattern | null {
+export function shapedFill(ctx: CanvasRenderingContext2D, g: Guide | undefined, box: Box, place?: GradPlace, m?: DOMMatrix): CanvasPattern | null {
   const shape = shapeOf(g, place);
   if (g?.type !== 'gradient' || !shape) return null;
   const w = Math.max(1e-6, box.x1 - box.x0);
@@ -118,7 +118,7 @@ export function shapedFill(ctx: CanvasRenderingContext2D, g: Guide | undefined, 
   const pat = ctx.createPattern(c as CanvasImageSource, 'no-repeat');
   if (!pat) return null;
   const span = 1 + 2 * PAD;
-  pat.setTransform(new DOMMatrix().translate(box.x0 - PAD * w, box.y0 - PAD * h).scale((w * span) / c.width, (h * span) / c.height));
+  pat.setTransform((m ?? new DOMMatrix()).translate(box.x0 - PAD * w, box.y0 - PAD * h).scale((w * span) / c.width, (h * span) / c.height));
   return pat;
 }
 

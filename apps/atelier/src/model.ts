@@ -149,6 +149,15 @@ export type LayerKind = 'surface' | 'support' | 'photo' | 'shape' | 'text';
 export type ShapeKind = 'star' | 'circle' | 'arch' | 'blob' | 'rounded' | 'triangle' | import('./silhouettes').SilhouetteKind;
 
 export type Pin = boolean | 'margin' | 'zone';
+export type LayerBlend = 'screen' | 'lighter' | 'multiply' | 'overlay';
+/** Fusions proposées, dans l'ordre de l'onglet Support : [mode, nom, aide]. */
+export const LAYER_BLENDS: Array<[LayerBlend | undefined, string, string]> = [
+  [undefined, 'Normal', 'L’objet couvre ce qui est dessous'],
+  ['screen', 'Lumière', 'Le noir disparaît : l’objet éclaire ce qui est dessous'],
+  ['lighter', 'Addition', 'Les clartés s’additionnent, comme des néons qui se croisent'],
+  ['multiply', 'Produit', 'Le blanc disparaît : l’objet assombrit ce qui est dessous'],
+  ['overlay', 'Incrustation', 'Renforce les contrastes de ce qui est dessous'],
+];
 
 export interface Layer {
   id: string;
@@ -189,6 +198,12 @@ export interface Layer {
   height: number;
   /** Opacité de la couche entière (0..1, 1 par défaut). */
   opacity?: number;
+  /**
+   * Fusion avec ce qui est dessous : 'screen' (Lumière : le noir disparaît, une illustration sur fond noir
+   * ou une fumée s'ajoute à la lumière), 'lighter' (Addition : les clartés s'additionnent, comme des néons),
+   * 'multiply' (Produit : le blanc disparaît), 'overlay' (Incrustation). Absent = normal.
+   */
+  blend?: LayerBlend;
   /** Relief sculpté (outil Modeler, mode Relief) : carte de hauteurs éclairée par la lampe. */
   bump?: import('./bump').Bump;
   /** Biseau (0..1) : largeur du relief au bord, éclairé par la lampe (scene.ts drawBevel). */

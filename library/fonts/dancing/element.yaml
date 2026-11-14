@@ -1,0 +1,16 @@
+id: dancing
+type: font
+title: Dancing Script
+family: Dancing Script
+files:
+- weight: 400
+  weightMax: 700
+  style: normal
+  path: DancingScript-wght.ttf
+tags:
+- police
+- script
+- manuscrite
+origin:
+  url: https://github.com/google/fonts/tree/main/ofl/dancingscript
+  license: OFL-1.1

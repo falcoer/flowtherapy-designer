@@ -574,7 +574,8 @@ function inkPrint(sx0: CanvasRenderingContext2D, s: Stroke, p: Print, i: number,
       sx.globalAlpha = (part.alpha ?? 1) * (0.92 + 0.08 * r());
       if (part.fill) {
         sx.fillStyle = style;
-        sx.fill(ps[j]!);
+        // pair-impair : les ouvertures d'une forme (anneau, lotus) restent vides
+        sx.fill(ps[j]!, 'evenodd');
       } else {
         // rempli : le trait referme sa forme et la peint
         if (s.filled) {
