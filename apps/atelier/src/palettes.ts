@@ -46,11 +46,11 @@ export function applyPatch(l: Layer, k: MatterKind, e: PaletteMatter): Partial<L
 }
 
 /** Ajoute le réglage de l'objet à la palette et l'y lie. */
-export function addEntry(d: Doc, layerId: string, k: MatterKind, name: string): Doc {
+export function addEntry(d: Doc, layerId: string, k: MatterKind, name: string, id?: string): Doc {
   const l = d.layers.find((x) => x.id === layerId);
   const fx = l && (k === 'material' ? l.material : varnishOf(l));
   if (!l || !fx) return d;
-  const e: PaletteMatter = { id: `${k === 'material' ? 'm' : 'v'}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, name, fx: bare(fx) };
+  const e: PaletteMatter = { id: id ?? `${k === 'material' ? 'm' : 'v'}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, name, fx: bare(fx) };
   const next = withList(d, k, [...listOf(d, k), e]);
   return {
     ...next,

@@ -326,7 +326,8 @@ export function CoupePanel({
   /** Ouvre l'assistant sur une section (toucher un emplacement vide ou rempli). */
   onWizard?: (tab: 'support' | 'coat' | 'depth' | 'edge') => void;
   /** Ouvre la palette sur un onglet (toucher la teinte). */
-  onPalette?: (tab: 'color' | 'material' | 'varnish' | 'edge') => void;
+  /** Montre la palette sur un onglet ; `open` : l'entrée dont la boîte doit s'y ouvrir. */
+  onPalette?: (tab: 'color' | 'material' | 'varnish' | 'edge', open?: string) => void;
   layer: Layer;
   doc: Doc;
   f: Format;
@@ -538,7 +539,11 @@ export function CoupePanel({
     el?.classList.add('slot-hot');
     slotHot.current = el;
   };
-  const paletteAt = (x: number, y: number) => (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('.palette-bubble, .guide-btn') ?? null;
+  // la palette : sa bulle, son bouton, ou la boîte d'une de ses entrées (ouverte par Modifier, elle recouvre la bulle sur un écran étroit)
+  const paletteAt = (x: number, y: number) => {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    return el?.closest<HTMLElement>('.palette-bubble, .guide-btn') ?? (document.querySelector('.palette-bubble') ? (el?.closest<HTMLElement>('.color-dialog') ?? null) : null);
+  };
   const rowAt = (x: number, y: number) => {
     const row = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('aside.coupe [data-layer]') ?? null;
     return row && row.dataset.layer !== l.id ? row : null;
@@ -549,11 +554,15 @@ export function CoupePanel({
     return fx?.preset ?? (fx ? fxOf(fx.id)?.name : undefined) ?? '';
   };
   const slotDrop = (p: SlotPayload, x: number, y: number) => {
-    if (paletteAt(x, y)) {
-      const r = slotToPalette(doc, l, p, slotName(p));
-      if (r.doc && onDoc) onDoc((d) => slotToPalette(d, l, p, slotName(p)).doc ?? d);
+    const zone = paletteAt(x, y);
+    if (zone) {
+      const name = slotName(p);
+      const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+      const r = slotToPalette(doc, l, p, name, id);
+      if (r.doc && onDoc) onDoc((d) => slotToPalette(d, l, p, name, id).doc ?? d);
       if (r.msg) onToast(r.msg, !!r.doc);
-      return onPalette?.(r.tab);
+      // lâchée sur la boîte ouverte d'une entrée : la boîte montre aussitôt l'entrée qui porte le réglage
+      return onPalette?.(r.tab, zone.matches('.color-dialog') ? r.entry : undefined);
     }
     const to = targetAt?.(x, y);
     if (!to || to.id === l.id) return;

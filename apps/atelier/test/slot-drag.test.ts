@@ -54,5 +54,12 @@ describe('pastille tirée d’un emplacement des attributs', () => {
     const twin = layer('b', { material: newFx('wood') });
     expect(slotToPalette({ ...m.doc!, layers: [...m.doc!.layers, twin] }, twin, { kind: 'material' }, 'Chêne')).toMatchObject({ msg: '« Chêne » est déjà dans Mes matières' });
     expect(slotToPalette(d, a, { kind: 'tint' }, '')).toMatchObject({ tab: 'color', msg: '« Nuit » est déjà une couleur de la palette' });
+    // l'entrée qui porte le réglage est nommée : la nouvelle (identifiant donné), ou celle qui l'avait déjà
+    expect(slotToPalette(doc([a]), a, { kind: 'edge', k: 'border' }, 'Arrondi', 'x1')).toMatchObject({ entry: 'ex1' });
+    expect(slotToPalette(d, a, { kind: 'edge', k: 'border' }, 'Arrondi', 'x2').entry).toBe(d.edges![0]!.id);
+    const m2 = slotToPalette(d, a, { kind: 'material' }, 'Chêne', 'x3');
+    expect(m2.entry).toBe('mx3');
+    expect(m2.doc!.materials!.at(-1)!.id).toBe('mx3');
+    expect(m2.doc!.layers[0]!.material!.ref).toBe('mx3');
   });
 });

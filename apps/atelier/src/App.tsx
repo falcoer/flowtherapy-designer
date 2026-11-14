@@ -1545,7 +1545,10 @@ export function App() {
   /** Onglet de l'assistant demandé depuis un emplacement des attributs. */
   const [wizardTab, setWizardTab] = useState<{ t?: 'support' | 'coat' | 'depth' | 'edge'; n: number }>({ n: 0 });
   /** Onglet de la palette demandé depuis les attributs (toucher la teinte). */
-  const [palTabReq, setPalTabReq] = useState<{ t: PalTab; n: number } | undefined>();
+  // `open` : l'entrée dont la boîte doit s'ouvrir dans cet onglet (une pastille des attributs lâchée sur une boîte)
+  const [palTabReq, setPalTabReq] = useState<{ t: PalTab; n: number; open?: string } | undefined>();
+  const palOpenReq = palTabReq?.open ? { id: palTabReq.open, n: palTabReq.n } : undefined;
+  const palOpened = () => setPalTabReq((r) => (r?.open ? { t: r.t, n: r.n } : r));
   /** La couleur de la barre d'outils tenue : départ du doigt, glisser commencé. */
   const guideDrag = useRef<{ x: number; y: number; on: boolean } | null>(null);
   // le doigt qui glisse depuis la couleur ne fait ni défiler ni rebondir la page (et n'avale pas le toucher suivant)
@@ -5184,8 +5187,8 @@ export function App() {
                 setWizardTab((w) => ({ t, n: w.n + 1 }));
                 setWizard(true);
               }}
-              onPalette={(t) => {
-                setPalTabReq((r) => ({ t, n: (r?.n ?? 0) + 1 }));
+              onPalette={(t, open) => {
+                setPalTabReq((r) => ({ t, n: (r?.n ?? 0) + 1, open }));
                 setBubble('palette');
               }}
               openOn={coupeOpen}
@@ -6176,6 +6179,8 @@ export function App() {
                       setToastUndo(!!u);
                     }}
                     targetAt={layerAtScreen}
+                    openReq={palOpenReq}
+                    onOpened={palOpened}
                   />
                 ) : (
                 <MatterRow
@@ -6191,6 +6196,8 @@ export function App() {
                     setToastUndo(!!u);
                   }}
                   targetAt={layerAtScreen}
+                  openReq={palOpenReq}
+                  onOpened={palOpened}
                 />
                 )
               }
@@ -6764,7 +6771,7 @@ function PaletteBubble({
   /** Charger un jeu enregistré de matières, de vernis ou de bords : ses entrées rejoignent celles du document. */
   onLoadSet?: (kind: 'material' | 'varnish' | 'edge', entries: Array<PaletteMatter | PaletteEdge>) => void;
   /** Onglet demandé de l'extérieur (toucher la teinte dans les attributs). */
-  tabReq?: { t: PalTab; n: number };
+  tabReq?: { t: PalTab; n: number; open?: string };
   /** Une boîte de couleur est ouverte (ou vient de se fermer). */
   onEditing?: (on: boolean) => void;
   doc: Doc;
@@ -6842,6 +6849,10 @@ function PaletteBubble({
   useEffect(() => {
     if (!edit) setEditing(null);
   }, [edit]);
+  // la boîte d'une matière, d'un vernis ou d'un bord est demandée : celle de la couleur lui laisse la place
+  useEffect(() => {
+    if (tabReq?.open) setEditing(null);
+  }, [tabReq]);
   useEffect(() => {
     onEditing?.(editing !== null);
   }, [editing, onEditing]);

@@ -52,9 +52,11 @@ export function slotOnto(from: Layer, to: Layer, p: SlotPayload): { patch?: Part
 /**
  * Le réglage de l'emplacement rangé dans la palette, sous `name`. Une matière ou un vernis y est lié à
  * l'objet (ses retouches suivent l'entrée) ; un bord y est copié. Sans `doc`, rien ne change : le réglage
- * y est déjà. `tab` est l'onglet de la palette à montrer.
+ * y est déjà. `tab` est l'onglet de la palette à montrer, `entry` l'entrée qui porte le réglage (la nouvelle,
+ * d'identifiant `id` s'il est donné, ou celle qui l'avait déjà).
  */
-export function slotToPalette(d: Doc, from: Layer, p: SlotPayload, name: string): { doc?: Doc; msg: string; tab: PaletteTab } {
+export function slotToPalette(d: Doc, from: Layer, p: SlotPayload, name: string, id?: string): { doc?: Doc; msg: string; tab: PaletteTab; entry?: string } {
+  const fresh = (prefix: string) => `${prefix}${id ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`}`;
   if (p.kind === 'tint') return { msg: `« ${d.guides[from.guide]?.name ?? 'Cette teinte'} » est déjà une couleur de la palette`, tab: 'color' };
   if (p.kind === 'varnish' || p.kind === 'material') {
     const tab = p.kind;
@@ -63,13 +65,14 @@ export function slotToPalette(d: Doc, from: Layer, p: SlotPayload, name: string)
     if (!fx) return { msg: '', tab };
     const list = listOf(d, p.kind);
     const known = list.find((e) => e.id === fx.ref) ?? list.find((e) => same(e.fx, bare(fx)));
-    if (known) return { msg: `« ${known.name} » est déjà dans ${book}`, tab };
-    return { doc: addEntry(d, from.id, p.kind, name), msg: `« ${name} » rangé dans ${book} : « ${from.name} » y est lié`, tab };
+    if (known) return { msg: `« ${known.name} » est déjà dans ${book}`, tab, entry: known.id };
+    const eid = fresh(p.kind === 'material' ? 'm' : 'v');
+    return { doc: addEntry(d, from.id, p.kind, name, eid), msg: `« ${name} » rangé dans ${book} : « ${from.name} » y est lié`, tab, entry: eid };
   }
   const v = from[p.k];
   if (!v) return { msg: '', tab: 'edge' };
   const known = (d.edges ?? []).find((e) => same(e[p.k], v));
-  if (known) return { msg: `« ${known.name} » est déjà dans Mes bords`, tab: 'edge' };
-  const e: PaletteEdge = { id: `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, name, [p.k]: JSON.parse(JSON.stringify(v)) };
-  return { doc: { ...d, edges: [...(d.edges ?? []), e] }, msg: `« ${name} » rangé dans Mes bords`, tab: 'edge' };
+  if (known) return { msg: `« ${known.name} » est déjà dans Mes bords`, tab: 'edge', entry: known.id };
+  const e: PaletteEdge = { id: fresh('e'), name, [p.k]: JSON.parse(JSON.stringify(v)) };
+  return { doc: { ...d, edges: [...(d.edges ?? []), e] }, msg: `« ${name} » rangé dans Mes bords`, tab: 'edge', entry: e.id };
 }

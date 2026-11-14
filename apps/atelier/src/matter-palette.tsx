@@ -30,6 +30,8 @@ export function MatterRow({
   onDocLive,
   onToast,
   targetAt,
+  openReq,
+  onOpened,
 }: {
   doc: Doc;
   kind: MatterKind;
@@ -43,6 +45,9 @@ export function MatterRow({
   onToast: (msg: string, undoable?: boolean) => void;
   /** L'objet sous ce point de l'écran (lâcher d'une pastille). */
   targetAt: (x: number, y: number) => Layer | undefined;
+  /** Une entrée dont la boîte doit s'ouvrir (demande numérotée), puis `onOpened` une fois fait. */
+  openReq?: { id: string; n: number };
+  onOpened?: () => void;
 }) {
   const list = listOf(doc, kind);
   const [ghost, setGhost] = useState<{ x: number; y: number; bg: string } | null>(null);
@@ -50,6 +55,12 @@ export function MatterRow({
   useEffect(() => {
     if (!edit) setEditing(null);
   }, [edit]);
+  useEffect(() => {
+    if (!openReq || !list.some((x) => x.id === openReq.id)) return;
+    setEditing(openReq.id);
+    onOpened?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openReq?.n, list]);
   const drag = useRef<{ id: string; x: number; y: number; on: boolean } | null>(null);
   const hot = useRef<HTMLElement | null>(null);
   const put = (l: Layer | undefined, e: PaletteMatter) => {

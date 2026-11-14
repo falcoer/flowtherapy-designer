@@ -126,6 +126,8 @@ export function EdgeRow({
   onDocLive,
   onToast,
   targetAt,
+  openReq,
+  onOpened,
 }: {
   doc: Doc;
   edit: boolean;
@@ -134,6 +136,9 @@ export function EdgeRow({
   onDocLive: (f: (d: Doc) => Doc) => void;
   onToast: (msg: string, undoable?: boolean) => void;
   targetAt: (x: number, y: number) => Layer | undefined;
+  /** Une entrée dont la boîte doit s'ouvrir (demande numérotée), puis `onOpened` une fois fait. */
+  openReq?: { id: string; n: number };
+  onOpened?: () => void;
 }) {
   const list = doc.edges ?? [];
   const [ghost, setGhost] = useState<{ x: number; y: number; e: PaletteEdge } | null>(null);
@@ -141,6 +146,12 @@ export function EdgeRow({
   useEffect(() => {
     if (!edit) setEditing(null);
   }, [edit]);
+  useEffect(() => {
+    if (!openReq || !list.some((x) => x.id === openReq.id)) return;
+    setEditing(openReq.id);
+    onOpened?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openReq?.n, list]);
   const drag = useRef<{ id: string; x: number; y: number; on: boolean } | null>(null);
   const hot = useRef<HTMLElement | null>(null);
   const heat = (el: HTMLElement | null) => {
