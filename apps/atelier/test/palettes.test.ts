@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { fxOn, newFx, opacityOf } from '../src/fx';
 import { MATERIAL_TYPES, presetFx } from '../src/material-presets';
 import type { Doc, Layer } from '../src/model';
-import { addEntry, applyPatch, removeEntry, renameEntry, syncRefs, toggleMatter, varnishOf } from '../src/palettes';
+import { addEntry, applyPatch, removeEntry, renameEntry, syncRefs, toggleMatter, updateEntry, varnishOf } from '../src/palettes';
 
 const layer = (id: string, extra: Partial<Layer> = {}) => ({ id, name: id, kind: 'shape', guide: 0, strokes: [], ...extra }) as unknown as Layer;
 const doc = (layers: Layer[]) => ({ guides: [], layers }) as unknown as Doc;
@@ -61,6 +61,12 @@ describe('palettes de matières et de vernis', () => {
     d = { ...d, layers: d.layers.map((l) => (l.id === 'b' ? { ...l, material: { ...l.material!, amount: 0.2 } } : l)) };
     d = syncRefs(d, 'b');
     expect(d.layers[0]!.material).toMatchObject({ amount: 0.2, off: true });
+    // l'entrée retouchée ou renommée depuis sa boîte : même chose
+    d = updateEntry(d, 'material', e.id, { name: 'Chêne clair', fx: { ...d.materials![0]!.fx, amount: 0.4 } });
+    expect(d.layers[0]!.material).toMatchObject({ amount: 0.4, preset: 'Chêne clair', off: true });
+    expect(d.layers[1]!.material).toMatchObject({ amount: 0.4, preset: 'Chêne clair' });
+    expect(d.layers[1]!.material!.off).toBeUndefined();
+    expect(renameEntry(d, 'material', e.id, 'Noyer').layers[0]!.material).toMatchObject({ preset: 'Noyer', off: true });
     // rangé dans la palette alors qu'il est désactivé : il le reste, l'entrée non
     let v = addEntry(doc([layer('a', { fx: [{ ...newFx('gloss'), off: true }] })]), 'a', 'varnish', 'Brillant');
     expect(v.varnishes![0]!.fx.off).toBeUndefined();

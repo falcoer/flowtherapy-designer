@@ -156,7 +156,8 @@ export function updateEntry(d: Doc, k: MatterKind, id: string, next: { name?: st
   if (!e) return d;
   const ne: PaletteMatter = { ...e, ...(next.name !== undefined ? { name: next.name } : {}), ...(next.fx ? { fx: bare(next.fx) } : {}) };
   const out = withList(d, k, listOf(d, k).map((x) => (x.id === id ? ne : x)));
-  return relink(out, k, id, () => linked(ne));
+  // chaque objet lié garde son propre interrupteur
+  return relink(out, k, id, (fx) => keepOff(fx, linked(ne)));
 }
 
 /** Nombre d'objets liés à une entrée. */
