@@ -49,7 +49,7 @@ import { NewCompositionDialog } from './compositions-ui';
 import { CompositionMenu, TopCrumbs } from './compositions-menu';
 import { CaptionTools } from './caption-tools';
 import { CampaignPage, CampaignPicker, CampaignsHome, StageButton, StageTrack, campaignCaption, stageOf, type SpaceTab } from './campaigns-space';
-import { CampaignSheet, planFromOperation } from './campaign-sheet';
+import { planFromOperation } from './campaign-sheet';
 import { MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorFrames, setGuideFrame, hasZone, zoneOf, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget, type PaletteMatter, type PaletteEdge } from './model';
@@ -881,7 +881,7 @@ export function App() {
   const [campaignDialog, setCampaignDialog] = useState(false);
   // espace des campagnes, en plein écran sous la barre : la liste, ou une campagne et ses onglets
   const [space, setSpace] = useState<'campaigns' | 'campaign' | null>(null);
-  const [spaceTab, setSpaceTab] = useState<SpaceTab>('comps');
+  const [spaceTab, setSpaceTab] = useState<SpaceTab>('plan');
   const [picking, setPicking] = useState(false);
   /** la fiche de l'activité ouverte depuis le sous-menu de l'activité : dépliée d'emblée */
   const [activityFiche, setActivityFiche] = useState(false);
@@ -893,7 +893,6 @@ export function App() {
   const curMeta = project ? projects.find((x) => x.id === project.id) : undefined;
   const curCampaign = curMeta?.campaign ? campaigns.find((c) => c.id === curMeta.campaign) : undefined;
   const curStage = stageOf(curMeta, curCampaign);
-  const [sheet, setSheet] = useState<string | null>(null);
   const followedTemplates = (followed?.templates ?? []).map((id) => projects.find((m) => m.id === id)).filter((m): m is AtelierMeta => !!m);
   const campaignCounts = projects.reduce<Record<string, number>>((o, m) => (m.campaign ? { ...o, [m.campaign]: (o[m.campaign] ?? 0) + 1 } : o), {});
   /** Nouvelle composition copiée d'une autre (modèle, ou import), rangée dans la campagne suivie, puis ouverte. */
@@ -930,9 +929,15 @@ export function App() {
     setBubble(null);
     if (online) refreshProjects();
     if (id === undefined) return setSpace('campaigns');
-    if (id !== campaign) setSpaceTab('comps');
+    // une autre campagne s'ouvre sur son plan de publication, sa page principale
+    if (id !== campaign) setSpaceTab('plan');
     setCampaign(id);
     setSpace('campaign');
+  };
+  /** Le plan d'une campagne, en pleine page (depuis le fil, le choix de campagne, les notifications). */
+  const openPlan = (id: string) => {
+    openSpace(id);
+    setSpaceTab('plan');
   };
   const voteFor = (m: AtelierMeta) =>
     void voteAtelier(m.id, !m.voted).then(
@@ -1064,8 +1069,11 @@ export function App() {
   const [bubble, setBubble] = useState<Bubble>(null);
   // Publier : les comptes reliés par l'activité, et l'état des programmations relu chez Postiz à l'ouverture
   const pubPz = usePostizAccounts(bubble === 'export' && !!online && !!me?.team);
+  // le plan de publication en pleine page programme aussi : mêmes comptes, même relecture de Postiz
+  const planOpen = space === 'campaign' && spaceTab === 'plan';
+  const spacePz = usePostizAccounts(planOpen && !!online && !!me?.team);
   useEffect(() => {
-    if (bubble !== 'export' || !online || !me?.team) return;
+    if ((bubble !== 'export' && !planOpen) || !online || !me?.team) return;
     let live = true;
     postizSync().then(
       (r) => live && r.changed > 0 && r.campaigns && setCampaigns(r.campaigns),
@@ -1075,7 +1083,7 @@ export function App() {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bubble, online, me?.team?.id]);
+  }, [bubble, planOpen, online, me?.team?.id]);
   /** L'image d'un élément du plan : le rendu de la composition pour ce réseau et ce format, en JPEG. */
   const renderPlanItem = async (it: PlanItem): Promise<Blob | null> => {
     const d0 = docRef.current;
@@ -1084,6 +1092,28 @@ export function App() {
     if (!t) return null;
     const c = await renderDoc(pageDoc(d0, i, views), formatOf(t.format), 4096, t.width);
     return new Promise((ok, ko) => c.toBlob((b) => (b ? ok(b) : ko(new Error('Rendu impossible'))), 'image/jpeg', 0.92));
+  };
+  /**
+   * Depuis le plan en pleine page : la ligne rendue d'après sa composition (l'ouverte telle qu'elle est,
+   * une autre relue au serveur), et son texte (celui de la composition, sinon celui de la campagne).
+   */
+  const renderPlanFor = async (m: AtelierMeta, it: PlanItem): Promise<{ image: Blob | null; caption: string }> => {
+    const c = campaigns.find((x) => x.id === m.campaign);
+    const fallback = c ? campaignCaption(c) : '';
+    if (m.id === project?.id) return { image: await renderPlanItem(it), caption: docRef.current.caption || fallback };
+    const d = migrate((await readAtelier(m.id)).doc);
+    const ts = d.targets?.length ? d.targets : [{ format: d.formatId }];
+    const i = ts.findIndex((x) => (x.channel ?? '') === (it.channel ?? '') && x.format === it.format);
+    if (i < 0) return { image: null, caption: d.caption || fallback };
+    const x = d.targets?.length ? pageDoc(d, i, views) : d;
+    setAnchorFrames(x);
+    try {
+      const cv = await renderDoc(x, formatOf(ts[i]!.format), 4096, ts[i]!.width);
+      const image = await new Promise<Blob>((ok, ko) => cv.toBlob((b) => (b ? ok(b) : ko(new Error('Rendu impossible'))), 'image/jpeg', 0.92));
+      return { image, caption: d.caption || fallback };
+    } finally {
+      setAnchorFrames(docRef.current);
+    }
   };
   // historique du menu de la campagne : demandé au serveur pour cette campagne seulement, à l'ouverture du menu
   const [campaignFeed, setCampaignFeed] = useState<ActivityEvent[] | null>(null);
@@ -4955,7 +4985,31 @@ export function App() {
                   canVote={!!me?.team}
                   tab={spaceTab}
                   onTab={setSpaceTab}
-                  onSheet={() => followed && setSheet(followed.id)}
+                  onPlan={(plan) => {
+                    if (!followed) return;
+                    // la retouche se voit aussitôt, le serveur suit
+                    const id = followed.id;
+                    setCampaigns((l) => l.map((y) => (y.id === id ? { ...y, plan } : y)));
+                    updateCampaign(id, { plan }).then(
+                      (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
+                      (e: Error) => {
+                        setToast(`Plan non enregistré : ${e.message}`);
+                        void listCampaigns().then(setCampaigns, () => {});
+                      },
+                    );
+                  }}
+                  publishing={
+                    online && me?.team
+                      ? {
+                          accounts: spacePz.data,
+                          err: spacePz.err,
+                          owner: me.team.role === 'owner',
+                          render: renderPlanFor,
+                          onCampaign: (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
+                          toast: setToast,
+                        }
+                      : undefined
+                  }
                   onSave={async (c) => {
                     if (!followed) return;
                     const x = await updateCampaign(followed.id, c);
@@ -5572,7 +5626,7 @@ export function App() {
               }}
               onSheet={(id) => {
                 setCampaignDialog(false);
-                setSheet(id);
+                openPlan(id);
               }}
               create={async (c: CampaignInput) => {
                 // le plan de publication part de l'occasion et de la date
@@ -5597,35 +5651,16 @@ export function App() {
               onClose={closeFeed}
               onCampaign={(id) => {
                 closeFeed();
-                setSheet(id);
+                openPlan(id);
               }}
               onEvent={(e) => {
                 closeFeed();
-                if (e.type === 'campaign' && e.campaign) return setSheet(e.campaign);
+                if (e.type === 'campaign' && e.campaign) return openPlan(e.campaign);
                 const m = projects.find((x) => x.id === e.atelier);
                 if (!m) return;
                 void openProject(m).then(() => {
                   if (e.type !== 'composition' && e.type !== 'vote') setMsgDialog(true);
                 });
-              }}
-            />
-          )}
-          {sheet && campaigns.some((c) => c.id === sheet) && (
-            <CampaignSheet
-              campaign={campaigns.find((c) => c.id === sheet)!}
-              operations={allOperations}
-              activity={activity}
-              projects={projects}
-              canEdit={canEditTeam}
-              current={project?.id}
-              onClose={() => setSheet(null)}
-              onSave={async (c) => {
-                const x = await updateCampaign(sheet, c);
-                setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y)));
-              }}
-              onOpen={(m) => {
-                setSheet(null);
-                void openProject(m);
               }}
             />
           )}

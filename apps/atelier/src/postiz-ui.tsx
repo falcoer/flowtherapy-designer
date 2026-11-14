@@ -205,8 +205,8 @@ export function PostizPlanActions(p: {
   owner: boolean;
   caption: string;
   composition?: string;
-  /** rend l'image de la publication de cet élément ; null si la composition n'a pas ce rendu */
-  render: () => Promise<Blob | null>;
+  /** rend l'image de la publication de cet élément ; null si la composition n'a pas ce rendu ; avec son texte quand il vient de la composition rendue */
+  render: () => Promise<Blob | null | { image: Blob | null; caption: string }>;
   onCampaign: (c: Campaign) => void;
   toast: (m: string) => void;
 }) {
@@ -225,9 +225,11 @@ export function PostizPlanActions(p: {
     setConfirmNow(false);
     setBusy(now ? 'Publication…' : 'Programmation…');
     try {
-      const image = await p.render();
-      if (!image && !p.caption.trim()) throw new Error('Rien à publier');
-      const c = await postizPublish({ campaign: p.campaign, item: it.id, account, when: now ? 'now' : new Date(when).toISOString(), caption: p.caption, composition: p.composition, ...(image ? { image } : {}) });
+      const r = await p.render();
+      const image = r === null || r instanceof Blob ? r : r.image;
+      const caption = r === null || r instanceof Blob ? p.caption : r.caption;
+      if (!image && !caption.trim()) throw new Error('Rien à publier');
+      const c = await postizPublish({ campaign: p.campaign, item: it.id, account, when: now ? 'now' : new Date(when).toISOString(), caption, composition: p.composition, ...(image ? { image } : {}) });
       p.onCampaign(c);
       setOpen(false);
       p.toast(now ? 'Envoyée : elle paraît dans une minute' : `Programmée le ${whenLabel(new Date(when).toISOString())}`);

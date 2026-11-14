@@ -5,13 +5,15 @@ import { HistoryPanel, PubFan, campaignHistory, pubsOf } from './compositions-me
 import { ActivityMark } from './activity';
 import { Icon } from './icons';
 import { formatOf } from './model';
-import { ROLE_LABELS, thumbUrl, type ActivityEvent, type ActivityProfile, type AtelierMeta, type Campaign, type CampaignInput, type Operation, type PlanItem, type Target, type TeamRef } from './server';
+import { REVIEW_LABELS, ROLE_LABELS, thumbUrl, type ActivityEvent, type ActivityProfile, type AtelierMeta, type Campaign, type CampaignInput, type Operation, type PlanItem, type PostizAccounts, type Target, type TeamRef } from './server';
+import { LEAD_DAYS, addDays, planChoices, planFromOperation, uniquePlanId } from './campaign-sheet';
+import { PostizPlanActions } from './postiz-ui';
 import { CONTACT_KINDS, channelsOf, contactsOf, targetLabel } from './targets';
 import { MediaIcon } from './targets-ui';
 
 /*
  * Espace des campagnes, en plein écran sous la barre du haut : la liste des campagnes, puis une
- * campagne en trois onglets (compositions, plan de publication, historique). Chaque geste a un
+ * campagne en onglets, son plan de publication d'abord (sa page principale). Chaque geste a un
  * bouton écrit ; un seul toucher ouvre une campagne ou une composition.
  */
 
@@ -234,8 +236,10 @@ export function CampaignPage(p: {
   canVote: boolean;
   tab: Tab;
   onTab: (t: Tab) => void;
-  onSheet: () => void;
   onSave: (c: CampaignInput) => Promise<void>;
+  /** enregistre le plan sans bruit (retouches sur place) */
+  onPlan: (plan: PlanItem[]) => void;
+  publishing?: PlanPublishing;
   onClose: (closed: boolean) => void;
   onNew: () => void;
   onOpen: (m: AtelierMeta, target?: number) => void;
@@ -304,11 +308,12 @@ export function CampaignPage(p: {
     for (const m of mine.filter((x) => x.review?.status === 'proposed').slice(0, 2))
       todo.push({ key: `p-${m.id}`, tone: 'info', text: `« ${titleOf(m)} » attend ta validation`, act: 'Ouvrir', go: () => p.onOpen(m) });
 
+  // le plan de publication est la page principale d'une campagne ; « Sans campagne » n'a que ses compositions
   const tabs: Array<[Tab, string, number | null]> = [
+    ...(c ? ([['plan', 'Plan de publication', plan.length]] as Array<[Tab, string, number | null]>) : []),
     ['comps', 'Compositions', mine.length],
     ...(c
       ? ([
-          ['plan', 'Plan de publication', plan.length],
           ['write', 'Rédaction', null],
           ['settings', 'Paramètres', null],
         ] as Array<[Tab, string, number | null]>)
@@ -544,7 +549,7 @@ export function CampaignPage(p: {
         </>
       )}
 
-      {tab === 'plan' && c && <PlanTab c={c} projects={mine} suggested={suggested} activity={p.activity} canEdit={p.canEdit} targetsOf={targetsOf} titleOf={titleOf} onOpen={p.onOpen} onSheet={p.onSheet} />}
+      {tab === 'plan' && c && <PlanTab c={c} projects={mine} suggested={suggested} activity={p.activity} operations={p.operations} canEdit={p.canEdit} targetsOf={targetsOf} titleOf={titleOf} onOpen={p.onOpen} onPlan={p.onPlan} onWrite={() => p.onTab('write')} publishing={p.publishing} />}
 
       {tab === 'write' && c && <WritingTab key={c.id} c={c} activity={p.activity} canEdit={p.canEdit} onSave={p.onSave} />}
 
@@ -592,20 +597,42 @@ export function CampaignPage(p: {
 type RowState = 'published' | 'scheduled' | 'error' | 'late' | Stage | 'pick';
 const ROW_LABELS: Record<RowState, string> = { ...STAGE_LABELS, approved: 'Prête', error: 'Erreur', late: 'En retard', pick: 'À choisir' };
 
+/** Ce que la page de la campagne sait de la diffusion : les comptes reliés, et de quoi rendre une publication. */
+export interface PlanPublishing {
+  accounts: PostizAccounts | null;
+  err: string | null;
+  /** responsable de l'équipe : lui seul programme */
+  owner: boolean;
+  /** l'image d'une ligne du plan rendue d'après sa composition, et le texte qui l'accompagne */
+  render: (m: AtelierMeta, it: PlanItem) => Promise<{ image: Blob | null; caption: string }>;
+  onCampaign: (c: Campaign) => void;
+  toast: (m: string) => void;
+}
+
+/**
+ * Le plan de publication, page principale de la campagne : chaque ligne se règle sur place (date,
+ * précision, composition retenue), se programme ou part tout de suite, ou se marque publiée.
+ */
 function PlanTab(p: {
   c: Campaign;
   projects: AtelierMeta[];
   suggested?: AtelierMeta;
   activity: ActivityProfile | null;
+  operations: Operation[];
   canEdit: boolean;
   targetsOf: (m: AtelierMeta) => Target[];
   titleOf: (m: AtelierMeta) => string;
   onOpen: (m: AtelierMeta, target?: number) => void;
-  onSheet: () => void;
+  onPlan: (plan: PlanItem[]) => void;
+  onWrite: () => void;
+  publishing?: PlanPublishing;
 }) {
   const t = today();
+  const [adding, setAdding] = useState('');
   const channels = channelsOf(p.activity);
-  const rows = [...(p.c.plan ?? [])].sort((a, b) => (a.date && b.date ? a.date.localeCompare(b.date) : a.date ? -1 : b.date ? 1 : 0));
+  const plan = p.c.plan ?? [];
+  const op = p.operations.find((o) => o.id === p.c.operation);
+  const rows = [...plan].sort((a, b) => (a.date && b.date ? a.date.localeCompare(b.date) : a.date ? -1 : b.date ? 1 : 0));
   const groupOf = (it: PlanItem) => (it.date ? new Date(`${it.date}T12:00:00`).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) : 'Sans date');
   const stateOf = (it: PlanItem, m?: AtelierMeta): RowState => {
     if (it.published) return 'published';
@@ -615,18 +642,35 @@ function PlanTab(p: {
     if (!m) return 'pick';
     return m.review?.status ?? 'draft';
   };
+  const patch = (id: string, x: Partial<PlanItem>) =>
+    p.onPlan(
+      plan.map((it) => {
+        if (it.id !== id) return it;
+        const n = { ...it, ...x };
+        for (const k of Object.keys(x) as (keyof PlanItem)[]) if (x[k] === undefined || x[k] === '') delete n[k];
+        return n;
+      }),
+    );
+  const pz = p.publishing?.accounts;
+  const choices = planChoices(p.activity);
   let last = '';
   return (
     <div className="sp-plan">
       <div className="sp-row">
-        <p className="fx-hint sp-grow">Une ligne par publication prévue. La toucher ouvre la composition sur cette publication ; on programme depuis Publier.</p>
-        {p.canEdit && (
-          <button className="sp-btn sm" onClick={p.onSheet}>
-            <Icon name="pen" /> Modifier le plan
+        <p className="fx-hint sp-grow">
+          Une ligne par publication prévue : sa date, la composition retenue, puis on la programme ou on la publie tout de suite. Le texte envoyé est celui de la composition, sinon celui de la{' '}
+          <button className="ab-link sp-inline-link" onClick={p.onWrite}>
+            Rédaction
           </button>
-        )}
+          .
+        </p>
       </div>
-      {!rows.length && <p className="fx-hint">Rien de prévu pour l’instant.{p.canEdit ? ' « Modifier le plan » ajoute des dates et des rendus.' : ''}</p>}
+      {!rows.length && (
+        <p className="fx-hint">
+          Rien de prévu pour l’instant.
+          {p.canEdit ? ' Ajoute les publications ci-dessous.' : ''}
+        </p>
+      )}
       {rows.map((it) => {
         const m = it.composition ? p.projects.find((x) => x.id === it.composition) : p.suggested;
         const ts = m ? p.targetsOf(m) : [];
@@ -636,37 +680,130 @@ function PlanTab(p: {
         const head = g !== last;
         last = g;
         const f = formatOf(it.format);
-        const when = it.date ? new Date(`${it.date}T12:00:00`) : null;
         const at = it.postiz?.at ? new Date(it.postiz.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
+        const locked = !p.canEdit || !!it.published || it.postiz?.state === 'queue';
+        const canPz = !!pz?.enabled && !!pz.providers[it.channel ?? ''] && (!!it.postiz || pz.accounts.some((a) => a.channel === it.channel));
+        const pub = p.publishing;
         return (
           <div key={it.id} className="sp-plan-item">
             {head && <div className="sp-plan-group">{g}</div>}
-            <button className={`sp-plan-row sp-st-${st}`} onClick={() => (m ? p.onOpen(m, idx >= 0 ? idx : 0) : p.canEdit && p.onSheet())} disabled={!m && !p.canEdit}>
+            <div className={`sp-plan-row sp-st-${st}`}>
               <span className="sp-when">
-                {when ? (
-                  <>
-                    <b>{when.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</b>
-                    <small>{at || when.toLocaleDateString('fr-FR', { weekday: 'short' })}</small>
-                  </>
+                {locked ? (
+                  it.date ? (
+                    <>
+                      <b>{short(it.date)}</b>
+                      <small>{at || new Date(`${it.date}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'short' })}</small>
+                    </>
+                  ) : (
+                    <small>à dater</small>
+                  )
                 ) : (
-                  <small>à dater</small>
+                  <input className="sp-plan-date" type="date" value={it.date ?? ''} onChange={(e) => patch(it.id, { date: e.target.value || undefined })} aria-label="Date de publication" title={it.date ? 'Changer la date' : 'Pas encore de date'} />
                 )}
               </span>
-              <span className="sp-plan-thumb" style={{ aspectRatio: `${Math.min(1.8, Math.max(0.5, f.width / f.height))}` }}>
+              <button className="sp-plan-thumb" style={{ aspectRatio: `${Math.min(1.8, Math.max(0.5, f.width / f.height))}` }} disabled={!m} onClick={() => m && p.onOpen(m, idx >= 0 ? idx : 0)} title={m ? `Ouvrir « ${p.titleOf(m)} » sur cette publication` : 'Choisis d’abord une composition'}>
                 {m && <img src={thumbUrl(m, idx >= 0 ? idx : undefined)} alt="" loading="lazy" draggable={false} />}
-              </span>
+              </button>
               <span className="sp-txt">
                 <b>
                   <MediaIcon ch={channels.find((x) => x.id === it.channel)} size={15} /> {targetLabel(it, p.activity)}
-                  {it.label ? <small> · {it.label}</small> : null}
+                  {p.canEdit && !locked ? (
+                    <input key={`${it.id}:${it.label ?? ''}`} className="sp-plan-label" defaultValue={it.label ?? ''} placeholder="précision…" onBlur={(e) => e.target.value.trim() !== (it.label ?? '') && patch(it.id, { label: e.target.value.trim() || undefined })} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} aria-label="Précision (annonce, rappel…)" />
+                  ) : it.label ? (
+                    <small> · {it.label}</small>
+                  ) : null}
                 </b>
-                <small>{m ? `${p.titleOf(m)}${!it.composition ? ' · retenue par défaut' : ''}` : 'composition à choisir'}</small>
+                {p.canEdit && !locked ? (
+                  <select className="sp-plan-compo" value={it.composition ?? ''} onChange={(e) => patch(it.id, { composition: e.target.value || undefined })} aria-label="Composition retenue">
+                    <option value="">{p.suggested ? `${p.titleOf(p.suggested)} · retenue par défaut` : 'composition à choisir…'}</option>
+                    {p.projects.map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {p.titleOf(x)}
+                        {x.review ? ` · ${REVIEW_LABELS[x.review.status].toLowerCase()}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <small>{m ? `${p.titleOf(m)}${!it.composition ? ' · retenue par défaut' : ''}` : 'composition à choisir'}</small>
+                )}
               </span>
               <StagePill stage={(st === 'late' || st === 'error' || st === 'pick' ? 'changes' : st) as Stage}>{ROW_LABELS[st]}</StagePill>
-            </button>
+              <span className="sp-plan-acts">
+                {m && pub && canPz && !it.published ? (
+                  <PostizPlanActions
+                    campaign={p.c.id}
+                    item={it}
+                    accounts={pz!.accounts.filter((a) => a.channel === it.channel && !a.disabled)}
+                    owner={pub.owner}
+                    caption=""
+                    composition={m.id}
+                    render={() => pub.render(m, it)}
+                    onCampaign={pub.onCampaign}
+                    toast={pub.toast}
+                  />
+                ) : it.published ? (
+                  <>
+                    {it.link ? (
+                      <a className="pub-done" href={it.link} target="_blank" rel="noreferrer">
+                        publiée ↗
+                      </a>
+                    ) : (
+                      <small className="pub-done">le {short(it.published.slice(0, 10))}</small>
+                    )}
+                    {p.canEdit && !it.postiz && (
+                      <button className="ab-link" onClick={() => patch(it.id, { published: undefined, link: undefined })} title="Remettre à publier">
+                        Annuler
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  p.canEdit && (
+                    <button className="ab-link" disabled={!m} onClick={() => m && patch(it.id, { published: new Date().toISOString(), composition: it.composition ?? m.id })} title={m ? 'Publiée à la main, hors du Designer' : 'Choisis d’abord une composition'}>
+                      Marquer publiée
+                    </button>
+                  )
+                )}
+                {p.canEdit && !it.postiz && (
+                  <button className="cs-del" onClick={() => p.onPlan(plan.filter((x) => x.id !== it.id))} title="Retirer du plan" aria-label="Retirer du plan">
+                    ×
+                  </button>
+                )}
+              </span>
+            </div>
           </div>
         );
       })}
+      {p.canEdit && (
+        <div className="cs-add sp-plan-add">
+          {!plan.length && op && (
+            <button className="pf-btn act-primary" onClick={() => p.onPlan(planFromOperation(op, p.c.date, p.activity))}>
+              Préremplir pour « {op.name} »
+            </button>
+          )}
+          <select
+            className="pf-input"
+            value={adding}
+            onChange={(e) => {
+              const ch = choices.find((x) => x.key === e.target.value);
+              setAdding('');
+              if (!ch) return;
+              p.onPlan([...plan, { id: uniquePlanId(`${ch.channel ?? ''}-${ch.format}`, plan), ...(ch.channel ? { channel: ch.channel } : {}), format: ch.format, ...(p.c.date && ch.format !== 'story' ? { date: addDays(p.c.date, -LEAD_DAYS) } : {}) }]);
+            }}
+            aria-label="Ajouter une publication au plan"
+          >
+            <option value="">＋ Ajouter une publication…</option>
+            {choices.map((x) => (
+              <option key={x.key} value={x.key}>
+                {x.channel ? targetLabel({ channel: x.channel, format: x.format }, p.activity) : `Libre · ${formatOf(x.format).title}`}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {p.publishing?.err && <p className="pf-note err">Publication programmée indisponible : {p.publishing.err}</p>}
+      {pz && !pz.enabled && <p className="fx-hint pz-note">La publication programmée n’est pas configurée (Configuration globale › Publication) : on marque les lignes publiées à la main.</p>}
+      {pz?.enabled && plan.length > 0 && !pz.accounts.length && <p className="fx-hint pz-note">Pour programmer, relie d’abord un compte dans la fiche de l’activité › Médias.</p>}
     </div>
   );
 }
