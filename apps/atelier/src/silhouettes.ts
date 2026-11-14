@@ -1211,7 +1211,16 @@ function build(k: SilhouetteKind): MultiPolygon {
         return band(p, [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], q, () => 0.05, 2);
       });
       const corners = V.map((a) => ellipse(...pol(a, 1), 0.025, 0.025, 0, 12));
-      const arms = V.map((a) => stroke([pol(a, 0.97), pol(a + 0.12, 0.62), pol(a + 0.55, 0.42), pol(a + 1.35, 0.33), pol(a + 2.3, 0.3)], (t) => 0.05 - 0.02 * t));
+      // chaque bras : une courbe régulière (rayon qui fond vers celui de l'œil, angle qui tourne de plus en plus vite)
+      const arms = V.map((a) =>
+        stroke(
+          Array.from({ length: 14 }, (_, i) => {
+            const u = i / 13;
+            return pol(a + 2.3 * u ** 1.6, 0.3 + 0.67 * (1 - u) ** 3);
+          }),
+          (t) => 0.048 - 0.02 * t,
+        ),
+      );
       // l'œil : spirale de deux tours, dans le sens des bras, qui finit là où arrive le premier bras
       const eye = stroke(spiralPts(0, 0, 0.3, -2, -Math.PI / 2 + 2.3 + 4 * Math.PI, 56), (t) => 0.02 + 0.012 * t);
       return union(...edges, ...corners, ...arms, eye, ellipse(0, 0, 0.045, 0.045, 0, 16));
