@@ -4799,17 +4799,6 @@ export function App() {
               <button className={`btn ${bubble === 'light' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'light' ? null : 'light')} title="Scène : lumière, objectif, transformation" aria-label="Scène">
                 <SceneGlyph color={lampOf(doc).color} on={sceneOn(doc)} />
               </button>
-              {sceneOn(doc) && (
-                <button
-                  className={`btn ${sceneShown ? 'on' : ''}`}
-                  onClick={() => setPreview(!preview)}
-                  title={preview ? 'Aperçu de la scène allumé : objectif, transformation et mise au point (touche pour revenir à l’édition rapide)' : 'Aperçu de la scène : objectif, transformation et mise au point. Éteint, l’édition reste rapide ; l’export les applique toujours.'}
-                  aria-label="Aperçu de la scène"
-                  aria-pressed={preview}
-                >
-                  <Icon name="eye" />
-                </button>
-              )}
               <button
                 ref={guideBtn}
                 className={`btn guide-btn ${bubble === 'palette' ? 'on' : ''}`}
@@ -6178,7 +6167,7 @@ export function App() {
 
           {dragGuide && <span className="drag-dot" style={{ left: dragGuide.x, top: dragGuide.y, background: swatch(doc.guides[dragGuide.i]) }} />}
 
-          {bubble === 'light' && <LampPanel doc={doc} f={f} selected={sel?.id} onSelect={setSelected} onChange={(lamp) => setDoc((d) => ({ ...d, lamp }))} onScene={(scene) => setDoc((d) => ({ ...d, scene }))} onClose={() => setBubble(null)} />}
+          {bubble === 'light' && <LampPanel doc={doc} f={f} preview={preview} onPreview={setPreview} selected={sel?.id} onSelect={setSelected} onChange={(lamp) => setDoc((d) => ({ ...d, lamp }))} onScene={(scene) => setDoc((d) => ({ ...d, scene }))} onClose={() => setBubble(null)} />}
 
           {tool === 'edge' && (!sel || sel.kind === 'surface') && <div className="status">Sélectionne une photo ou une forme pour régler ses bords</div>}
           {tool === 'material' && !sel && <div className="status">Sélectionne une photo ou une forme pour choisir sa matière</div>}
@@ -6450,9 +6439,14 @@ function LampPanel({
   onChange,
   onScene,
   onClose,
+  preview,
+  onPreview,
 }: {
   doc: Doc;
   f: Format;
+  /** aperçu gardé après la fermeture : objectif, transformation et mise au point sur la page (éteint, l'édition reste rapide) */
+  preview: boolean;
+  onPreview: (on: boolean) => void;
   /** Objet sélectionné sur la page : la mise au point peut s'y faire d'un geste. */
   selected?: string;
   onSelect: (id: string | null) => void;
@@ -6505,6 +6499,14 @@ function LampPanel({
     <>
       <div className="lamp-head">
         <span className="b-title">Scène</span>
+        <button
+          className={`chip scene-preview ${preview ? 'on' : ''}`}
+          onClick={() => onPreview(!preview)}
+          aria-pressed={preview}
+          title={preview ? 'Aperçu allumé : objectif, transformation et mise au point restent sur la page après la fermeture (touche pour revenir à l’édition rapide)' : 'Aperçu éteint : la scène se voit ici, l’édition reste rapide une fois fermé ; l’export l’applique toujours'}
+        >
+          <Icon name={preview ? 'eye' : 'eyeoff'} /> Aperçu
+        </button>
         <button className="chip scene-reset-h" disabled={!resetable} onClick={reset} title={`Réinitialiser ${tab === 'light' ? 'la lumière' : tab === 'lens' ? "l'objectif" : 'la transformation'}`}>
           Réinitialiser
         </button>
