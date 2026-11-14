@@ -40,6 +40,7 @@ import { CatalogPanel } from './catalog-ui';
 import { fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, postizSync, type PlanItem, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
 import { channelsOf, setCatalog, contactsOf, CONTACT_KINDS, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
 import { Knob } from './knob';
+import { FocusRing } from './focus-ring';
 import { MediaIcon, PublicationsPanel, VariantBar, VariantPick } from './targets-ui';
 import { CampaignDialog } from './campaigns-ui';
 import { NewCompositionDialog } from './compositions-ui';
@@ -1079,6 +1080,17 @@ export function App() {
     }
   };
   const [selected, setSelected] = useState<string | null>('arche');
+  // Scène › AF sélection : l'objet sélectionné devient l'objet net (sans pas d'annulation : c'est la sélection qui bouge)
+  const afFollow = !!doc.scene?.camera?.follow;
+  useEffect(() => {
+    if (!afFollow || !selected) return;
+    setDoc((d) => {
+      const cam = d.scene?.camera;
+      const l = d.layers.find((x) => x.id === selected);
+      if (!cam?.follow || !l || l.kind === 'surface' || !l.visible || cam.focus === l.id) return d;
+      return { ...d, scene: { ...d.scene, camera: { ...cam, focus: l.id, at: undefined } } };
+    });
+  }, [afFollow, selected]);
   // le bandeau des attributs ouvert : la roue du pinceau et le menu de gauche se posent au-dessus
   useEffect(() => {
     if (!(isEdit(tool) && selected)) return setBandH(0);
@@ -6211,14 +6223,11 @@ function LampPanel({
   const lens = sc.lens ?? NO_LENS;
   const tidy = (x: SceneLook): SceneLook | undefined => {
     const l = x.lens && (x.lens.warp || x.lens.vignette || x.lens.fringe) ? x.lens : undefined;
-    const c = x.camera && (x.camera.aperture > 0 || x.camera.focus) ? x.camera : undefined;
+    const c = x.camera && (x.camera.aperture > 0 || x.camera.focus || x.camera.at || x.camera.follow) ? x.camera : undefined;
     return x.fx || l || c ? { ...(x.fx ? { fx: x.fx } : {}), ...(l ? { lens: l } : {}), ...(c ? { camera: c } : {}) } : undefined;
   };
   const cam = sc.camera ?? { aperture: 0 };
   const setCam = (p: Partial<typeof cam>) => onScene(tidy({ ...sc, camera: { ...cam, ...p } }));
-  const fnum = (a: number) => 16 * Math.pow(1.4 / 16, a);
-  const selLayer = selected ? doc.layers.find((x) => x.id === selected) : undefined;
-  const selTarget = selLayer && selLayer.kind !== 'surface' && selLayer.visible ? selLayer : undefined;
   const setLens = (p: Partial<typeof lens>) => onScene(tidy({ ...sc, lens: { ...lens, ...p } }));
   const setFx = (fx: Fx | undefined) => onScene(tidy({ ...sc, fx }));
   const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -6257,39 +6266,9 @@ function LampPanel({
       <div className="lamp-panel scene-panel" data-tint-zone>
         {head}
         <div className="scene-sub">Mise au point</div>
-        {selTarget && cam.focus !== selTarget.id ? (
-          <button className="chip scene-aim" onClick={() => setCam({ focus: selTarget.id })}>
-            <Icon name="target" /> Mise au point sur « {selTarget.name} »
-          </button>
-        ) : (
-          <p className="scene-aim-note">{selTarget ? `Net sur « ${selTarget.name} », l'objet sélectionné.` : 'Sélectionne un objet sur la page pour y faire la mise au point, ou choisis-le ici.'}</p>
-        )}
-        <div className="scene-focus" role="radiogroup" aria-label="Objet net">
-          {[undefined, ...doc.layers.filter((x) => x.kind !== 'surface' && x.visible)].map((x) => (
-            <button
-              key={x?.id ?? 'page'}
-              ref={x && x.id === selected ? (el) => el?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) : undefined}
-              role="radio"
-              aria-checked={cam.focus === x?.id}
-              className={`scene-fx-b ${cam.focus === x?.id ? 'on' : ''} ${x && x.id === selected ? 'sel' : ''}`}
-              onClick={() => {
-                setCam({ focus: x?.id });
-                // le choix ici sélectionne aussi l'objet sur la page
-                if (x) onSelect(x.id);
-              }}
-            >
-              {x ? <LayerThumb layer={x} doc={doc} /> : <i className="scene-page" />}
-              <span>{x ? x.name : 'Feuille'}</span>
-            </button>
-          ))}
-        </div>
-        <div className="scene-knobs scene-knobs-4">
-          <div className="cp-dial">
-            <Knob label="Ouverture" value={cam.aperture} onChange={(v) => setCam({ aperture: r2(v) })} />
-            <span className="cp-dial-l">Ouverture</span>
-            <output>{cam.aperture < 0.01 ? 'tout net' : `f/${fnum(cam.aperture).toFixed(1).replace('.0', '')}`}</output>
-          </div>
-          <i className="scene-sep" />
+        <FocusRing doc={doc} cam={cam} selected={selected} onCam={setCam} onSelect={onSelect} thumb={(l) => <LayerThumb layer={l} doc={doc} />} />
+        <div className="scene-sub">Optique</div>
+        <div className="scene-knobs scene-knobs-3">
           <div className="cp-dial">
             <Knob label="Distorsion" center value={(lens.warp + 1) / 2} onChange={(v) => setLens({ warp: r2(v * 2 - 1) })} />
             <span className="cp-dial-l">Distorsion</span>
@@ -6306,7 +6285,6 @@ function LampPanel({
             <output>{Math.round(lens.fringe * 100)}</output>
           </div>
         </div>
-        <p className="hint">L'ouverture règle la profondeur de champ : plus elle est grande (f/1.4), plus la zone nette est courte et plus les objets plus hauts ou plus bas que l'objet net flouent.</p>
       </div>
     );
   if (tab === 'fx') {
