@@ -881,7 +881,7 @@ export function App() {
   const [campaignDialog, setCampaignDialog] = useState(false);
   // espace des campagnes, en plein écran sous la barre : la liste, ou une campagne et ses onglets
   const [space, setSpace] = useState<'campaigns' | 'campaign' | null>(null);
-  const [spaceTab, setSpaceTab] = useState<SpaceTab>('plan');
+  const [spaceTab, setSpaceTab] = useState<SpaceTab>('comps');
   const [picking, setPicking] = useState(false);
   /** la fiche de l'activité ouverte depuis le sous-menu de l'activité : dépliée d'emblée */
   const [activityFiche, setActivityFiche] = useState(false);
@@ -929,16 +929,13 @@ export function App() {
     setBubble(null);
     if (online) refreshProjects();
     if (id === undefined) return setSpace('campaigns');
-    // une autre campagne s'ouvre sur son plan de publication, sa page principale
-    if (id !== campaign) setSpaceTab('plan');
+    // une autre campagne s'ouvre sur ses compositions, sous la frise de son plan
+    if (id !== campaign) setSpaceTab('comps');
     setCampaign(id);
     setSpace('campaign');
   };
-  /** Le plan d'une campagne, en pleine page (depuis le fil, le choix de campagne, les notifications). */
-  const openPlan = (id: string) => {
-    openSpace(id);
-    setSpaceTab('plan');
-  };
+  /** Le plan d'une campagne : la frise en tête de sa page (depuis le choix de campagne, les notifications). */
+  const openPlan = (id: string) => openSpace(id);
   const voteFor = (m: AtelierMeta) =>
     void voteAtelier(m.id, !m.voted).then(
       (r) => setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, votes: r.votes, voted: r.voted } : x))),
@@ -1069,8 +1066,8 @@ export function App() {
   const [bubble, setBubble] = useState<Bubble>(null);
   // Publier : les comptes reliés par l'activité, et l'état des programmations relu chez Postiz à l'ouverture
   const pubPz = usePostizAccounts(bubble === 'export' && !!online && !!me?.team);
-  // le plan de publication en pleine page programme aussi : mêmes comptes, même relecture de Postiz
-  const planOpen = space === 'campaign' && spaceTab === 'plan';
+  // la frise du plan, en tête de la page de la campagne, programme aussi : mêmes comptes, même relecture de Postiz
+  const planOpen = space === 'campaign';
   const spacePz = usePostizAccounts(planOpen && !!online && !!me?.team);
   useEffect(() => {
     if ((bubble !== 'export' && !planOpen) || !online || !me?.team) return;

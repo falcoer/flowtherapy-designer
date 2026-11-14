@@ -6,7 +6,7 @@ import { ActivityMark } from './activity';
 import { Icon } from './icons';
 import { formatOf } from './model';
 import { ROLE_LABELS, thumbUrl, type ActivityEvent, type ActivityProfile, type AtelierMeta, type Campaign, type CampaignInput, type CampaignText, type Operation, type PlanItem, type PostizAccounts, type Target, type TeamRef } from './server';
-import { addPlanRow, campaignCaption, patchStep, planChoices, planFromOperation, planSteps, uniquePlanId, type PlanStep } from './plan';
+import { addDays, addPlanRow, campaignCaption, patchStep, planChoices, planFromOperation, planSteps, stepKey, uniquePlanId, type PlanStep } from './plan';
 
 export { campaignCaption };
 import { PostizPlanActions } from './postiz-ui';
@@ -219,7 +219,7 @@ const FILTERS = [
   { id: 'templates', label: 'Modèles' },
 ] as const;
 type FilterId = (typeof FILTERS)[number]['id'];
-export type SpaceTab = 'comps' | 'plan' | 'write' | 'settings' | 'history';
+export type SpaceTab = 'comps' | 'write' | 'settings' | 'history';
 type Tab = SpaceTab;
 
 export function CampaignPage(p: {
@@ -290,12 +290,30 @@ export function CampaignPage(p: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [p.projects, c, q, filter, p.me, p.current?.title],
   );
+  // le plan de publication : la frise sous le titre, l'étape ouverte, et de quoi y déposer depuis les onglets
+  const board = usePlanBoard({
+    c,
+    projects: mine,
+    suggested,
+    activity: p.activity,
+    operations: p.operations,
+    canEdit: p.canEdit,
+    targetsOf,
+    titleOf,
+    onOpen: p.onOpen,
+    onPlan: p.onPlan,
+    onWrite: (id) => {
+      setTextSel(id ?? 'main');
+      p.onTab('write');
+    },
+    publishing: p.publishing,
+  });
 
   // à faire : ce qui attend quelqu'un dans la campagne
   const plan = c?.plan ?? [];
   const late = plan.filter((it) => !it.published && it.date && it.date < t);
   const todo: Array<{ key: string; tone: string; text: ReactNode; act: string; go: () => void }> = [];
-  if (late.length) todo.push({ key: 'late', tone: 'late', text: `${plural(late.length, 'publication')} en retard dans le plan`, act: 'Voir le plan', go: () => p.onTab('plan') });
+  if (late.length) todo.push({ key: 'late', tone: 'late', text: `${plural(late.length, 'publication')} en retard dans le plan`, act: 'Voir l’étape', go: () => board.show(late[0]!.id) });
   for (const m of mine.filter((x) => x.review?.status === 'changes' && (!p.isAdmin || (x.author ?? x.by) === p.me)).slice(0, 2))
     todo.push({
       key: `c-${m.id}`,
@@ -312,9 +330,8 @@ export function CampaignPage(p: {
     for (const m of mine.filter((x) => x.review?.status === 'proposed').slice(0, 2))
       todo.push({ key: `p-${m.id}`, tone: 'info', text: `« ${titleOf(m)} » attend ta validation`, act: 'Ouvrir', go: () => p.onOpen(m) });
 
-  // le plan de publication est la page principale d'une campagne ; « Sans campagne » n'a que ses compositions
+  // le plan de publication est la frise sous le titre ; les onglets donnent ce qu'on y dépose, puis les réglages
   const tabs: Array<[Tab, string, number | null]> = [
-    ...(c ? ([['plan', 'Plan de publication', plan.length]] as Array<[Tab, string, number | null]>) : []),
     ['comps', 'Compositions', mine.length],
     ...(c
       ? ([
@@ -324,7 +341,8 @@ export function CampaignPage(p: {
       : []),
     ['history', 'Historique', null],
   ];
-  const tab = !c && (p.tab === 'plan' || p.tab === 'write' || p.tab === 'settings') ? 'comps' : p.tab;
+  const tab = !c && (p.tab === 'write' || p.tab === 'settings') ? 'comps' : p.tab;
+  const canPlace = p.canEdit && !!c;
 
   const compCard = (m: AtelierMeta) => {
     const tpl = !!c?.templates?.includes(m.id);
@@ -337,10 +355,11 @@ export function CampaignPage(p: {
     return (
       <div
         key={m.id}
-        className={`sp-card sp-comp ${m.id === p.current?.id ? 'cur' : ''}`}
+        className={`sp-card sp-comp ${m.id === p.current?.id ? 'cur' : ''} ${canPlace ? 'grabbable' : ''} ${board.drag.dragging?.kind === 'comp' && board.drag.dragging.id === m.id ? 'drag' : ''}`}
         role="button"
         tabIndex={0}
         onClick={open}
+        onPointerDown={(e) => canPlace && !(e.target as HTMLElement).closest('button, input, a, .sp-menu') && board.drag.grab(e, { kind: 'comp', id: m.id }, titleOf(m), thumbUrl(m))}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && (e.preventDefault(), open())}
         aria-label={`Ouvrir « ${titleOf(m)} »`}
       >
@@ -385,6 +404,7 @@ export function CampaignPage(p: {
             </span>
           )}
           <span className="sp-grow" />
+          {canPlace && <PlanGrip drag={board.drag} item={{ kind: 'comp', id: m.id }} label={titleOf(m)} img={thumbUrl(m)} />}
           {p.canEdit && (
             <button
               className={`sp-more ${menu === m.id ? 'on' : ''}`}
@@ -504,6 +524,9 @@ export function CampaignPage(p: {
         )}
       </div>
 
+      {board.timeline}
+      {board.inspector}
+
       <div className="sp-tabs" role="tablist">
         {tabs.map(([k, l, n]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={`sp-tab ${tab === k ? 'on' : ''}`} onClick={() => p.onTab(k)}>
@@ -553,28 +576,7 @@ export function CampaignPage(p: {
         </>
       )}
 
-      {tab === 'plan' && c && (
-        <PlanTab
-          c={c}
-          projects={mine}
-          suggested={suggested}
-          activity={p.activity}
-          operations={p.operations}
-          canEdit={p.canEdit}
-          targetsOf={targetsOf}
-          titleOf={titleOf}
-          onOpen={p.onOpen}
-          onPlan={p.onPlan}
-          onWrite={(id) => {
-            setTextSel(id ?? 'main');
-            p.onTab('write');
-          }}
-          onNew={p.onNew}
-          publishing={p.publishing}
-        />
-      )}
-
-      {tab === 'write' && c && <WritingTab key={c.id} c={c} activity={p.activity} canEdit={p.canEdit} sel={textSel} onSel={setTextSel} onSave={p.onSave} />}
+      {tab === 'write' && c && <WritingTab key={c.id} c={c} activity={p.activity} canEdit={p.canEdit} sel={textSel} onSel={setTextSel} drag={board.drag} onSave={p.onSave} />}
 
       {tab === 'settings' && c && (
         <div className="sp-settings">
@@ -612,6 +614,7 @@ export function CampaignPage(p: {
           />
         </div>
       )}
+      {board.ghost}
     </div>
   );
 }
@@ -632,22 +635,75 @@ export interface PlanPublishing {
   toast: (m: string) => void;
 }
 
-/** Ce qu'on tient pour le déposer sur une zone : une composition ou un texte de la campagne. */
+/** Ce qu'on tient pour le déposer sur la frise : une composition ou un texte de la campagne. */
 type Held = { kind: 'comp' | 'text'; id: string };
+/** De quoi prendre un élément depuis une autre partie de la page (cartes des compositions, textes de la Rédaction). */
+export interface PlanDrag {
+  held: Held | null;
+  dragging: Held | null;
+  /** au pointeur : glisser (la souris tout de suite, le doigt après un appui long ; `now` : tout de suite, pour une poignée) ; `arm` : un simple toucher le prend, il se pose ensuite d'un toucher */
+  grab: (e: ReactPointerEvent<HTMLElement>, item: Held, label: string, img?: string, opts?: { now?: boolean; arm?: boolean }) => void;
+  arm: (item: Held | null) => void;
+}
+const dayDiff = (a: string, b: string) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86_400_000);
 const relDay = (event: string | undefined, d: string | undefined) => {
   if (!event || !d) return '';
-  const n = Math.round((Date.parse(`${event}T12:00:00Z`) - Date.parse(`${d}T12:00:00Z`)) / 86_400_000);
+  const n = dayDiff(d, event);
   return n === 0 ? 'Jour J' : n > 0 ? `J−${n}` : `J+${-n}`;
 };
 
+// la frise : une case par publication, les étapes écartées selon les jours qui les séparent (sans jamais se toucher ni s'éloigner trop)
+const CLIP = 132;
+const CLIP_GAP = 4;
+const gapOf = (days: number) => Math.max(22, Math.min(110, days * 5));
+interface Col {
+  s: PlanStep;
+  x: number;
+  w: number;
+}
+/** Place les étapes le long de la frise, et donne l'abscisse d'une date (aujourd'hui, l'évènement) entre elles. */
+function layoutSteps(steps: PlanStep[], marks: string[]) {
+  const dated = steps.filter((s) => s.date);
+  const widthOf = (s: PlanStep) => s.rows.length * CLIP + (s.rows.length - 1) * CLIP_GAP;
+  const first = dated[0]?.date;
+  let x = 14 + (first ? Math.max(0, ...marks.filter((d) => d < first).map((d) => gapOf(dayDiff(d, first)))) : 0);
+  const cols: Col[] = [];
+  let prev: string | undefined;
+  for (const s of dated) {
+    if (prev) x += gapOf(dayDiff(prev, s.date!));
+    cols.push({ s, x, w: widthOf(s) });
+    x += widthOf(s);
+    prev = s.date;
+  }
+  const xOf = (d: string): number => {
+    if (!cols.length) return 26 + (d === [...marks].sort()[0] ? 0 : gapOf(dayDiff([...marks].sort()[0]!, d)));
+    const at = cols.find((c) => c.s.date === d);
+    if (at) return at.x - 11;
+    const a = cols.filter((c) => c.s.date! < d).at(-1);
+    const b = cols.find((c) => c.s.date! > d);
+    if (!a) return b!.x - gapOf(dayDiff(d, b!.s.date!));
+    if (!b) return a.x + a.w + gapOf(dayDiff(a.s.date!, d));
+    return a.x + a.w + ((b.x - a.x - a.w) * dayDiff(a.s.date!, d)) / dayDiff(a.s.date!, b.s.date!);
+  };
+  let end = Math.max(x, ...marks.map(xOf)) + 26;
+  // les étapes à dater, après les autres
+  const looseAt = end;
+  for (const s of steps.filter((y) => !y.date)) {
+    end += 22;
+    cols.push({ s, x: end, w: widthOf(s) });
+    end += widthOf(s);
+  }
+  return { cols, xOf, looseAt: cols.some((c) => !c.s.date) ? looseAt : null, end };
+}
+
 /**
- * Le plan de publication, page principale de la campagne, en étapes nommées et datées. Chaque étape
- * montre ses zones en pointillés : une par publication (réseau, format), où déposer une composition,
- * et une pour son texte. Les éléments se glissent depuis la colonne de droite, ou se touchent puis se
- * posent ; chaque publication se programme ensuite, part tout de suite, ou se marque publiée.
+ * Le plan de publication d'une campagne, en frise horizontale sous son titre, façon logiciel de montage :
+ * une piste des compositions (une case par publication de chaque étape) et une piste des textes, les
+ * étapes placées selon leur date, avec un curseur sur aujourd'hui et un sur l'évènement. Les compositions
+ * et les textes s'y déposent depuis leurs onglets ; toucher une étape ouvre son réglage sous la frise.
  */
-function PlanTab(p: {
-  c: Campaign;
+function usePlanBoard(p: {
+  c?: Campaign;
   projects: AtelierMeta[];
   suggested?: AtelierMeta;
   activity: ActivityProfile | null;
@@ -659,25 +715,43 @@ function PlanTab(p: {
   onPlan: (plan: PlanItem[], texts?: CampaignText[]) => void;
   /** ouvre la Rédaction, sur un texte donné */
   onWrite: (text?: string) => void;
-  onNew: () => void;
   publishing?: PlanPublishing;
 }) {
   const t = today();
   const c = p.c;
   const [adding, setAdding] = useState('');
-  // ce qu'on a touché pour le poser, ce qu'on glisse, et la zone survolée
+  // ce qu'on a touché pour le poser, ce qu'on glisse, la case survolée, et l'étape ouverte sous la frise
   const [held, setHeld] = useState<Held | null>(null);
   const [dragging, setDragging] = useState<(Held & { label: string; img?: string }) | null>(null);
   const [over, setOver] = useState<string | null>(null);
+  const [sel, setSel] = useState<string | null>(null);
   const ghost = useRef<HTMLDivElement>(null);
+  const strip = useRef<HTMLDivElement>(null);
+  // un élément tenu au doigt : la page ne défile plus sous lui
+  const lock = useRef(false);
+  useEffect(() => {
+    const still = (e: Event) => lock.current && e.cancelable && e.preventDefault();
+    window.addEventListener('touchmove', still, { passive: false });
+    window.addEventListener('contextmenu', still);
+    return () => (window.removeEventListener('touchmove', still), window.removeEventListener('contextmenu', still));
+  }, []);
   const channels = channelsOf(p.activity);
-  const plan = c.plan ?? [];
-  const texts = c.texts ?? [];
+  const plan = c?.plan ?? [];
+  const texts = c?.texts ?? [];
   const steps = planSteps(plan);
-  const op = p.operations.find((o) => o.id === c.operation);
+  const op = p.operations.find((o) => o.id === c?.operation);
   const pz = p.publishing?.accounts;
   const pub = p.publishing;
   const choices = planChoices(p.activity);
+  const marks = [t, ...(c?.date ? [c.date] : [])];
+  const lay = layoutSteps(steps, marks);
+  // la frise s'ouvre sur aujourd'hui
+  const todayX = lay.xOf(t);
+  useEffect(() => {
+    if (strip.current) strip.current.scrollLeft = Math.max(0, todayX - 150);
+    setSel(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [c?.id]);
   const free = (it: PlanItem) => !it.published && it.postiz?.state !== 'queue';
   const stateOf = (it: PlanItem, m?: AtelierMeta): RowState => {
     if (it.published) return 'published';
@@ -712,69 +786,90 @@ function PlanTab(p: {
     const s = el?.closest<HTMLElement>('[data-step]');
     return s ? `step:${s.dataset.step}` : null;
   };
-  /** Prend un élément de la colonne : glissé, il suit le doigt jusqu'à une zone ; simplement touché, il attend qu'on touche sa zone. */
-  const grab = (e: ReactPointerEvent<HTMLElement>, item: Held, label: string, img?: string) => {
-    if (!p.canEdit || (e.pointerType === 'mouse' && e.button !== 0)) return;
+  const grab: PlanDrag['grab'] = (e, item, label, img, opts) => {
+    if (!p.canEdit || !c || (e.pointerType === 'mouse' && e.button !== 0)) return;
     const [x0, y0, id] = [e.clientX, e.clientY, e.pointerId];
-    let on = false;
+    // au doigt, hors d'une poignée : un appui long prend l'élément, un geste immédiat fait défiler la page
+    const slow = e.pointerType !== 'mouse' && !opts?.now;
+    let [on, ready, timer] = [false, !slow, 0];
     let cur: string | null = null;
-    // près du haut ou du bas de la page, elle défile pour atteindre les étapes hors de l'écran
-    const root = ghost.current?.parentElement;
-    const scroller = root?.closest<HTMLElement>('.sp-space');
-    const tray = root?.querySelector<HTMLElement>('.sp-tray');
+    // près du haut ou du bas de la page, elle défile ; près des bouts de la frise, la frise défile
+    const scroller = strip.current?.closest<HTMLElement>('.sp-space');
     let [x, y, edge, raf, away] = [x0, y0, 0, 0, false];
     const aim = () => {
       const z = zoneAt(x, y, item.kind);
       if (z !== cur) setOver((cur = z));
     };
     const tick = () => {
-      if (edge && scroller) {
-        scroller.scrollTop += edge * 14;
-        aim();
-      }
+      const r = strip.current?.getBoundingClientRect();
+      const side = r && y > r.top && y < r.bottom ? (x < r.left + 70 ? -1 : x > r.right - 50 ? 1 : 0) : 0;
+      if (side) strip.current!.scrollLeft += side * 10;
+      if (edge && scroller) scroller.scrollTop += edge * 14;
+      if (side || edge) aim();
       raf = requestAnimationFrame(tick);
+    };
+    const start = () => {
+      on = true;
+      lock.current = true;
+      setHeld(null);
+      setDragging({ ...item, label, img });
+      if (ghost.current) ghost.current.style.transform = `translate(${x}px, ${y}px)`;
+      raf = requestAnimationFrame(tick);
+    };
+    const stop = () => {
+      window.clearTimeout(timer);
+      cancelAnimationFrame(raf);
+      lock.current = false;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
     };
     const move = (ev: PointerEvent) => {
       if (ev.pointerId !== id) return;
+      [x, y] = [ev.clientX, ev.clientY];
       if (!on) {
-        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 8) return;
-        on = true;
-        setHeld(null);
-        setDragging({ ...item, label, img });
-        raf = requestAnimationFrame(tick);
+        const far = Math.hypot(x - x0, y - y0) >= 8;
+        // bougé avant la fin de l'appui long : c'est un défilement, on laisse faire
+        if (!ready) return void (far && stop());
+        if (!far) return;
+        start();
       }
       ev.preventDefault();
-      [x, y] = [ev.clientX, ev.clientY];
       if (ghost.current) ghost.current.style.transform = `translate(${x}px, ${y}px)`;
       if (scroller) {
         const r = scroller.getBoundingClientRect();
-        // sur écran étroit le bandeau des éléments est collé en bas : la page défile juste au-dessus de lui
-        const low = tray && getComputedStyle(tray).flexDirection === 'row' ? tray.getBoundingClientRect().top : r.bottom;
         // le défilement n'entre en jeu qu'une fois l'élément sorti du bord d'où il part, et d'autant plus vite qu'on s'approche du bord
-        const raw = y < r.top + 56 ? (y - r.top - 56) / 56 : y > low ? 0 : y > low - 56 ? (y - low + 56) / 56 : 0;
-        if (!raw && y <= low) away = true;
-        edge = away ? Math.max(-1, raw) : 0;
+        const raw = y < r.top + 40 ? (y - r.top - 40) / 40 : y > r.bottom - 56 ? (y - r.bottom + 56) / 56 : 0;
+        if (!raw) away = true;
+        edge = away ? Math.max(-1, Math.min(1, raw)) : 0;
       }
       aim();
     };
     const end = (ev: PointerEvent) => {
       if (ev.pointerId !== id) return;
-      cancelAnimationFrame(raf);
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', end);
-      window.removeEventListener('pointercancel', end);
+      stop();
       if (on) {
         if (ev.type === 'pointerup' && cur) place(item, cur);
         setDragging(null);
         setOver(null);
-      } else if (ev.type === 'pointerup') setHeld((h) => (h?.kind === item.kind && h.id === item.id ? null : item));
+        // le lâcher ne compte pas comme un toucher de la carte d'où l'on est parti
+        const mute = (ce: Event) => (ce.stopPropagation(), ce.preventDefault());
+        window.addEventListener('click', mute, { capture: true, once: true });
+        window.setTimeout(() => window.removeEventListener('click', mute, { capture: true }), 60);
+      } else if (ev.type === 'pointerup' && opts?.arm) setHeld((h) => (h?.kind === item.kind && h.id === item.id ? null : item));
     };
+    if (slow)
+      timer = window.setTimeout(() => {
+        ready = true;
+        start();
+        navigator.vibrate?.(8);
+      }, 320);
     window.addEventListener('pointermove', move, { passive: false });
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', end);
   };
   const moving = dragging ?? held;
-  /** Une zone qui attend ce qu'on tient : la toucher l'y pose. */
+  /** Une case qui attend ce qu'on tient : la toucher l'y pose. */
   const zoneProps = (zone: string, kind: Held['kind'], open: boolean) => {
     const can = open && moving?.kind === kind;
     return {
@@ -796,14 +891,18 @@ function PlanTab(p: {
     p.onPlan(patchStep(plan, s.key, { text: id }), [...texts, { id, name: s.name || 'Texte', text: '' }]);
     p.onWrite(id);
   };
-  const addSelect = (label: string, step?: PlanStep) => (
+  const addSelect = (label: string, cls: string, step?: PlanStep) => (
     <select
-      className={step ? 'sp-zone-add' : 'pf-input'}
+      className={cls}
       value={step ? '' : adding}
       onChange={(e) => {
         const ch = choices.find((x) => x.key === e.target.value);
         setAdding('');
-        if (ch) p.onPlan(addPlanRow(plan, { ...(ch.channel ? { channel: ch.channel } : {}), format: ch.format }, step));
+        if (!ch) return;
+        const next = addPlanRow(plan, { ...(ch.channel ? { channel: ch.channel } : {}), format: ch.format }, step);
+        p.onPlan(next);
+        // une étape nouvelle s'ouvre aussitôt, pour la nommer et la dater
+        if (!step) setSel(stepKey(next.at(-1)!));
       }}
       aria-label={step ? `Ajouter une publication à l’étape ${step.name}` : 'Nouvelle étape : sa première publication'}
     >
@@ -815,13 +914,17 @@ function PlanTab(p: {
       ))}
     </select>
   );
-
-  const pubZone = (it: PlanItem) => {
+  /** La composition d'une ligne : celle choisie, sinon la validée retenue par défaut ; et sa publication dans ce format. */
+  const compOf = (it: PlanItem) => {
     const chosen = it.composition ? p.projects.find((x) => x.id === it.composition) : undefined;
     const m = chosen ?? p.suggested;
-    const ts = m ? p.targetsOf(m) : [];
-    const idx = ts.findIndex((x) => (x.channel ?? '') === (it.channel ?? '') && x.format === it.format);
-    const st = stateOf(it, m);
+    const idx = m ? p.targetsOf(m).findIndex((x) => (x.channel ?? '') === (it.channel ?? '') && x.format === it.format) : -1;
+    return { chosen, m, idx, st: stateOf(it, m) };
+  };
+
+  // ——— sous la frise : l'étape ouverte, ses publications et son texte ———
+  const pubZone = (it: PlanItem) => {
+    const { chosen, m, idx, st } = compOf(it);
     const f = formatOf(it.format);
     const open = p.canEdit && free(it);
     const canPz = !!pz?.enabled && !!pz.providers[it.channel ?? ''] && (!!it.postiz || pz.accounts.some((a) => a.channel === it.channel));
@@ -854,7 +957,7 @@ function PlanTab(p: {
         <div className="sp-zone-acts">
           <StagePill stage={(st === 'late' || st === 'error' || st === 'pick' ? 'changes' : st) as Stage}>{ROW_LABELS[st]}</StagePill>
           {m && pub && canPz && !it.published ? (
-            <PostizPlanActions campaign={c.id} item={it} accounts={pz!.accounts.filter((a) => a.channel === it.channel && !a.disabled)} owner={pub.owner} caption="" composition={m.id} render={() => pub.render(m, it)} onCampaign={pub.onCampaign} toast={pub.toast} />
+            <PostizPlanActions campaign={c!.id} item={it} accounts={pz!.accounts.filter((a) => a.channel === it.channel && !a.disabled)} owner={pub.owner} caption="" composition={m.id} render={() => pub.render(m, it)} onCampaign={pub.onCampaign} toast={pub.toast} />
           ) : it.published ? (
             <>
               {it.link ? (
@@ -879,7 +982,7 @@ function PlanTab(p: {
             )
           )}
           {open && chosen && (
-            <button className="ab-link" onClick={() => patch(it.id, { composition: undefined })} title="Vider la zone">
+            <button className="ab-link" onClick={() => patch(it.id, { composition: undefined })} title="Vider la case">
               Retirer
             </button>
           )}
@@ -887,7 +990,6 @@ function PlanTab(p: {
       </div>
     );
   };
-
   const textZone = (s: PlanStep) => {
     const x = s.text ? texts.find((y) => y.id === s.text) : undefined;
     const z = zoneProps(`text:${s.key}`, 'text', p.canEdit);
@@ -911,7 +1013,7 @@ function PlanTab(p: {
         {p.canEdit && (
           <div className="sp-zone-acts">
             {x ? (
-              <button className="ab-link" onClick={() => p.onPlan(patchStep(plan, s.key, { text: undefined }))} title="Vider la zone">
+              <button className="ab-link" onClick={() => p.onPlan(patchStep(plan, s.key, { text: undefined }))} title="Vider la case">
                 Retirer
               </button>
             ) : (
@@ -924,104 +1026,202 @@ function PlanTab(p: {
       </div>
     );
   };
-
-  const trayItem = (item: Held, label: string, sub: string, img?: string) => {
-    const on = held?.kind === item.kind && held.id === item.id;
-    return (
-      <div
-        key={`${item.kind}:${item.id}`}
-        role="button"
-        tabIndex={0}
-        aria-pressed={on}
-        className={`sp-tray-item ${item.kind} ${on ? 'on' : ''} ${dragging?.kind === item.kind && dragging.id === item.id ? 'drag' : ''}`}
-        onPointerDown={(e) => grab(e, item, label, img)}
-        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setHeld(on ? null : item))}
-        title="Glisse sur une zone en pointillés, ou touche puis touche la zone"
-      >
-        {item.kind === 'comp' ? <img src={img} alt="" loading="lazy" draggable={false} /> : <Icon name="pen" />}
-        <span className="sp-txt">
-          <b>{label}</b>
-          <small>{sub}</small>
-        </span>
-      </div>
-    );
-  };
-
-  return (
-    <div className={`sp-plan ${p.canEdit ? 'edit' : ''} ${moving ? `moving-${moving.kind}` : ''}`}>
-      <div className="sp-steps">
-        {!steps.length && <p className="fx-hint">Rien de prévu pour l’instant.{p.canEdit ? ' Crée une première étape ci-dessous.' : ''}</p>}
-        {steps.map((s) => {
-          const late = s.date && s.date < t && s.rows.some((it) => !it.published);
-          return (
-            <section key={s.rows[0]!.id} className={`sp-step ${over === `step:${s.key}` ? 'over' : ''}`} data-step={p.canEdit ? s.key : undefined}>
-              <header className="sp-step-head">
-                {p.canEdit ? (
-                  <input
-                    key={s.name}
-                    className="sp-step-name"
-                    defaultValue={s.name}
-                    placeholder="Nom de l’étape (annonce, rappel…)"
-                    onBlur={(e) => e.target.value.trim() !== s.name && p.onPlan(patchStep(plan, s.key, { label: e.target.value.trim() || undefined }))}
-                    onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-                    aria-label="Nom de l’étape"
-                  />
-                ) : (
-                  <b className="sp-step-name">{s.name || 'Étape'}</b>
-                )}
-                {relDay(c.date, s.date) && <small className={`sp-step-rel ${late ? 'late' : ''}`}>{relDay(c.date, s.date)}</small>}
-                {p.canEdit ? (
-                  <input className="sp-plan-date" type="date" value={s.date ?? ''} onChange={(e) => p.onPlan(patchStep(plan, s.key, { date: e.target.value || undefined }))} aria-label={`Date de l’étape ${s.name}`} title={s.date ? 'Changer la date' : 'Pas encore de date'} />
-                ) : (
-                  <span className="sp-step-date">{s.date ? short(s.date) : 'à dater'}</span>
-                )}
-              </header>
-              <div className="sp-zones">
-                {s.rows.map(pubZone)}
-                {textZone(s)}
-                {p.canEdit && addSelect('＋ Publication…', s)}
-              </div>
-            </section>
-          );
-        })}
-        {p.canEdit && (
-          <div className="cs-add sp-plan-add">
-            {!plan.length && op && (
-              <button className="pf-btn act-primary" onClick={() => p.onPlan(planFromOperation(op, c.date, p.activity))}>
-                Préremplir les étapes de « {op.name} »
-              </button>
-            )}
-            {addSelect('＋ Nouvelle étape : choisir sa première publication…')}
-          </div>
+  const open = sel ? steps.find((s) => s.key === sel || s.rows.some((r) => r.id === sel)) : undefined;
+  const inspector = c && open && (
+    <section className={`sp-step ${over === `step:${open.key}` ? 'over' : ''}`} data-step={p.canEdit ? open.key : undefined}>
+      <header className="sp-step-head">
+        {p.canEdit ? (
+          <input
+            key={`${open.rows[0]!.id}:${open.name}`}
+            className="sp-step-name"
+            defaultValue={open.name}
+            placeholder="Nom de l’étape (annonce, rappel…)"
+            onBlur={(e) => e.target.value.trim() !== open.name && p.onPlan(patchStep(plan, open.key, { label: e.target.value.trim() || undefined }))}
+            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+            aria-label="Nom de l’étape"
+          />
+        ) : (
+          <b className="sp-step-name">{open.name || 'Étape'}</b>
         )}
-        {pub?.err && <p className="pf-note err">Publication programmée indisponible : {pub.err}</p>}
-        {pz && !pz.enabled && <p className="fx-hint pz-note">La publication programmée n’est pas configurée (Configuration globale › Publication) : on marque les publications à la main.</p>}
-        {pz?.enabled && plan.length > 0 && !pz.accounts.length && <p className="fx-hint pz-note">Pour programmer, relie d’abord un compte dans la fiche de l’activité › Médias.</p>}
+        {p.canEdit ? (
+          <>
+            {c.date && (
+              <label className="sp-step-days" title="Jours avant l’évènement (négatif : après)">
+                J−
+                <input
+                  key={open.date ?? ''}
+                  type="number"
+                  min={-60}
+                  max={365}
+                  defaultValue={open.date ? dayDiff(open.date, c.date) : ''}
+                  placeholder="?"
+                  onBlur={(e) => {
+                    const n = e.target.value === '' ? NaN : Math.round(Number(e.target.value));
+                    const d = Number.isFinite(n) ? addDays(c.date!, -Math.max(-60, Math.min(365, n))) : undefined;
+                    if (d !== open.date) p.onPlan(patchStep(plan, open.key, { date: d }));
+                  }}
+                  onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                  aria-label="Jours avant l’évènement"
+                />
+              </label>
+            )}
+            <input className="sp-plan-date" type="date" value={open.date ?? ''} onChange={(e) => p.onPlan(patchStep(plan, open.key, { date: e.target.value || undefined }))} aria-label={`Date de l’étape ${open.name}`} title={open.date ? 'Changer la date' : 'Pas encore de date'} />
+          </>
+        ) : (
+          <span className="sp-step-date">{[relDay(c.date, open.date), open.date ? short(open.date) : 'à dater'].filter(Boolean).join(' · ')}</span>
+        )}
+        <button className="sp-more sm" onClick={() => setSel(null)} aria-label="Refermer l’étape" title="Refermer">
+          ×
+        </button>
+      </header>
+      <div className="sp-zones">
+        {open.rows.map(pubZone)}
+        {textZone(open)}
+        {p.canEdit && addSelect('＋ Publication…', 'sp-zone-add', open)}
       </div>
-      {p.canEdit && (
-        <aside className="sp-tray" aria-label="Éléments à déposer">
-          <p className="fx-hint sp-tray-hint">{held ? 'Touche maintenant une zone en pointillés.' : 'Glisse un élément sur une zone en pointillés.'}</p>
-          <div className="sp-tray-k">Compositions</div>
-          <div className="sp-tray-list">
-            {p.projects.map((m) => trayItem({ kind: 'comp', id: m.id }, p.titleOf(m), STAGE_LABELS[stageOf(m, c)], thumbUrl(m)))}
-            <button className="sp-tray-new" onClick={p.onNew}>
-              ＋ Composition
-            </button>
-          </div>
-          <div className="sp-tray-k">Textes</div>
-          <div className="sp-tray-list">
-            {texts.map((x) => trayItem({ kind: 'text', id: x.id }, x.name, x.text.trim() || 'pas encore rédigé'))}
-            <button className="sp-tray-new" onClick={() => p.onWrite()}>
-              ＋ Texte
-            </button>
-          </div>
-        </aside>
-      )}
-      <div ref={ghost} className={`sp-ghost ${dragging ? `on ${dragging.kind}` : ''}`} aria-hidden>
-        {dragging?.img ? <img src={dragging.img} alt="" /> : <Icon name="pen" />}
-        <b>{dragging?.label}</b>
-      </div>
+    </section>
+  );
+
+  // ——— la frise ———
+  const cursor = (d: string, cls: string, label: string) => (
+    <div className={`tl-cursor ${cls}`} style={{ left: lay.xOf(d) }} title={label}>
+      <span>{label}</span>
     </div>
+  );
+  const timeline = c && (
+    <div className={`tl ${moving ? `moving-${moving.kind}` : ''}`}>
+      <div className="tl-scroll" ref={strip}>
+        <div className="tl-heads" aria-hidden>
+          <span className="tl-head comp" title="Compositions">
+            <Icon name="layers" />
+          </span>
+          <span className="tl-head text" title="Textes">
+            <Icon name="pen" />
+          </span>
+        </div>
+        <div className="tl-canvas" style={{ width: lay.end + (p.canEdit ? 190 : 20) }}>
+          <div className="tl-track comp" />
+          <div className="tl-track text" />
+          {lay.looseAt !== null && (
+            <div className="tl-loose" style={{ left: lay.looseAt }} title="Après ce trait : les étapes à dater" />
+          )}
+          {lay.cols.map(({ s, x, w }) => {
+            const late = s.date && s.date < t && s.rows.some((it) => !it.published);
+            const tx = s.text ? texts.find((y) => y.id === s.text) : undefined;
+            const tz = zoneProps(`text:${s.key}`, 'text', p.canEdit);
+            const on = open?.key === s.key;
+            const pick = () => setSel(on ? null : s.rows[0]!.id);
+            return (
+              <div key={s.rows[0]!.id} className={`tl-step ${on ? 'on' : ''} ${over === `step:${s.key}` ? 'over' : ''}`} style={{ left: x, width: w }} data-step={p.canEdit ? s.key : undefined}>
+                <button className="tl-step-head" onClick={pick} aria-expanded={on} title="Régler cette étape, programmer ses publications">
+                  <b>{s.name || 'Étape à nommer'}</b>
+                  <small className={late ? 'late' : ''}>{[relDay(c.date, s.date), s.date ? short(s.date) : 'à dater'].filter(Boolean).join(' · ')}</small>
+                </button>
+                <div className="tl-clips">
+                  {s.rows.map((it) => {
+                    const { chosen, m, idx, st } = compOf(it);
+                    const z = zoneProps(`comp:${it.id}`, 'comp', p.canEdit && free(it));
+                    return (
+                      <button key={it.id} {...z} className={`tl-clip sp-st-${st} ${chosen ? 'filled' : ''} ${z.className}`} onClick={pick} title={`${targetLabel(it, p.activity)}${m ? ` · ${p.titleOf(m)}${chosen ? '' : ' (retenue par défaut)'}` : ' · à déposer'} · ${ROW_LABELS[st]}`}>
+                        {m ? <img className={chosen ? '' : 'dflt'} src={thumbUrl(m, idx >= 0 ? idx : undefined)} alt="" loading="lazy" draggable={false} /> : <span className="tl-hole">＋</span>}
+                        <span className="tl-clip-txt">
+                          <b>
+                            <MediaIcon ch={channels.find((x) => x.id === it.channel)} size={13} />
+                            <span>{formatOf(it.format).title}</span>
+                          </b>
+                          <small className="tl-state">{ROW_LABELS[st]}</small>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <button {...tz} className={`tl-clip tl-text ${tx ? 'filled' : ''} ${tz.className}`} onClick={pick} title={tx ? `${tx.name} : ${tx.text.trim() || 'pas encore rédigé'}` : 'Texte à déposer ; sinon celui de la composition, ou le texte principal'}>
+                  {tx ? (
+                    <>
+                      <b>{tx.name}</b>
+                      <small>{tx.text.trim() || 'pas encore rédigé'}</small>
+                    </>
+                  ) : (
+                    <span className="tl-hole">＋ texte</span>
+                  )}
+                </button>
+              </div>
+            );
+          })}
+          {cursor(t, 'today', `Aujourd’hui${c.date ? ` · ${relDay(c.date, t)}` : ''}`)}
+          {c.date && cursor(c.date, 'event', `Évènement · ${short(c.date)}`)}
+          {p.canEdit && (
+            <div className="tl-add" style={{ left: lay.end + 8 }}>
+              {!plan.length && op && (
+                <button className="tl-add-btn fill" onClick={() => p.onPlan(planFromOperation(op, c.date, p.activity))}>
+                  Étapes de « {op.name} »
+                </button>
+              )}
+              {addSelect('＋ Étape…', 'tl-add-btn')}
+            </div>
+          )}
+        </div>
+      </div>
+      {(held || !plan.length || pub?.err || (pz?.enabled && plan.length > 0 && !pz.accounts.length)) && (
+        <div className="tl-notes">
+          {held && (
+            <span className="tl-note on">
+              Touche une case en pointillés de la frise pour l’y poser.{' '}
+              <button className="ab-link" onClick={() => setHeld(null)}>
+                Annuler
+              </button>
+            </span>
+          )}
+          {!held && !plan.length && <span className="tl-note">Rien de prévu pour l’instant.{p.canEdit ? ' Crée une première étape au bout de la frise.' : ''}</span>}
+          {pub?.err && <span className="tl-note err">Publication programmée indisponible : {pub.err}</span>}
+          {pz?.enabled && plan.length > 0 && !pz.accounts.length && <span className="tl-note">Pour programmer, relie d’abord un compte dans la fiche de l’activité › Médias.</span>}
+        </div>
+      )}
+    </div>
+  );
+  const ghostEl = (
+    <div ref={ghost} className={`sp-ghost ${dragging ? `on ${dragging.kind}` : ''}`} aria-hidden>
+      {dragging?.img ? <img src={dragging.img} alt="" /> : <Icon name="pen" />}
+      <b>{dragging?.label}</b>
+    </div>
+  );
+  const drag: PlanDrag = { held, dragging, grab, arm: setHeld };
+  /** Ouvre l'étape d'une ligne du plan sous la frise, et l'amène à l'écran. */
+  const show = (rowId: string) => {
+    setSel(rowId);
+    const col = lay.cols.find((x) => x.s.rows.some((r) => r.id === rowId));
+    if (col && strip.current) strip.current.scrollTo({ left: Math.max(0, col.x - 120), behavior: 'smooth' });
+  };
+  return { timeline, inspector, ghost: ghostEl, drag, show };
+}
+
+/** Poignée d'un élément à déposer sur la frise : on la glisse, ou on la touche puis on touche la case. */
+function PlanGrip(p: { drag: PlanDrag; item: Held; label: string; img?: string; disabled?: boolean; title?: string; children?: ReactNode }) {
+  const on = p.drag.held?.kind === p.item.kind && p.drag.held.id === p.item.id;
+  return (
+    <button
+      className={`sp-grip ${on ? 'on' : ''} ${p.children ? 'wide' : ''}`}
+      disabled={p.disabled}
+      aria-pressed={on}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        p.drag.grab(e, p.item, p.label, p.img, { now: true, arm: true });
+      }}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), p.drag.arm(on ? null : p.item))}
+      title={p.title ?? 'Glisser sur la frise ; ou toucher, puis toucher une case de la frise'}
+      aria-label={`Placer « ${p.label} » sur la frise`}
+    >
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden fill="currentColor">
+        <circle cx="5" cy="3" r="1.5" />
+        <circle cx="11" cy="3" r="1.5" />
+        <circle cx="5" cy="8" r="1.5" />
+        <circle cx="11" cy="8" r="1.5" />
+        <circle cx="5" cy="13" r="1.5" />
+        <circle cx="11" cy="13" r="1.5" />
+      </svg>
+      {p.children}
+    </button>
   );
 }
 
@@ -1073,7 +1273,7 @@ export function StageTrack(p: { meta?: AtelierMeta; campaign?: Campaign }) {
 }
 
 /** Rédaction de la campagne : le texte qui accompagne ses publications, ses mots-dièse, son lien. */
-function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit: boolean; sel: string; onSel: (id: string) => void; onSave: (c: CampaignInput) => Promise<void> }) {
+function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit: boolean; sel: string; onSel: (id: string) => void; drag: PlanDrag; onSave: (c: CampaignInput) => Promise<void> }) {
   const [caption, setCaption] = useState(p.c.caption ?? '');
   const [hashtags, setHashtags] = useState(p.c.hashtags ?? '');
   const [link, setLink] = useState(p.c.link ?? '');
@@ -1084,6 +1284,8 @@ function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit:
   const [msg, setMsg] = useState('');
   useEffect(() => setMsg(''), [caption, hashtags, link, texts]);
   const cur = texts.find((x) => x.id === p.sel);
+  // seul un texte enregistré se dépose sur la frise : le plan ne connaît que ceux-là
+  const saved = (id: string) => !!p.c.texts?.some((x) => x.id === id);
   const body = cur ? cur.text : caption;
   const setBody = (v: string) => (cur ? setTexts((l) => l.map((x) => (x.id === cur.id ? { ...x, text: v } : x))) : setCaption(v));
   const dirty = caption !== (p.c.caption ?? '') || hashtags !== (p.c.hashtags ?? '') || link !== (p.c.link ?? '') || JSON.stringify(texts) !== JSON.stringify(p.c.texts ?? []);
@@ -1109,7 +1311,15 @@ function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit:
             Texte principal
           </button>
           {texts.map((x) => (
-            <button key={x.id} role="radio" aria-checked={cur?.id === x.id} className={`sp-chip ${cur?.id === x.id ? 'on' : ''}`} onClick={() => p.onSel(x.id)}>
+            <button
+              key={x.id}
+              role="radio"
+              aria-checked={cur?.id === x.id}
+              className={`sp-chip ${cur?.id === x.id ? 'on' : ''} ${p.canEdit && saved(x.id) ? 'grabbable' : ''}`}
+              onClick={() => p.onSel(x.id)}
+              onPointerDown={(e) => p.canEdit && saved(x.id) && p.drag.grab(e, { kind: 'text', id: x.id }, x.name || 'Texte')}
+              title={saved(x.id) ? 'Se glisse sur la piste des textes de la frise' : undefined}
+            >
               {x.name || 'Sans nom'}
             </button>
           ))}
@@ -1133,6 +1343,11 @@ function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit:
               <input className="pf-input" value={cur.name} maxLength={60} disabled={!p.canEdit} placeholder="Annonce, rappel…" onChange={(e) => setTexts((l) => l.map((x) => (x.id === cur.id ? { ...x, name: e.target.value } : x)))} />
             </label>
             {p.canEdit && (
+              <PlanGrip drag={p.drag} item={{ kind: 'text', id: cur.id }} label={cur.name || 'Texte'} disabled={!saved(cur.id)} title={saved(cur.id) ? undefined : 'Enregistre d’abord ce texte'}>
+                Placer sur la frise
+              </PlanGrip>
+            )}
+            {p.canEdit && (
               <button
                 className="sp-btn sm"
                 onClick={() => {
@@ -1154,8 +1369,10 @@ function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit:
         <small className="fx-hint">
           {cur
             ? usedBy.length
-              ? `Déposé sur ${usedBy.join(', ')} dans le plan de publication.`
-              : 'Pas encore dans le plan : dépose-le sur une étape du plan de publication.'
+              ? `Déposé sur ${usedBy.join(', ')} dans la frise.`
+              : saved(cur.id)
+                ? 'Pas encore dans le plan : glisse-le sur la piste des textes de la frise.'
+                : 'Enregistre-le, puis glisse-le sur la piste des textes de la frise.'
             : 'Sert aux étapes du plan qui n’ont pas de texte à elles.'}
         </small>
         {p.canEdit && mentions.length > 0 && (
