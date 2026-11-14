@@ -384,6 +384,10 @@ export const DENSITY_STEPS: number[][] = [[2], [2, 3], [2, 3, 4], [2, 3, 4, 6], 
 // densité du document ouvert : réglée par l'atelier, lue par tous les calculs d'ancrage
 export const DEFAULT_DENSITY = 4;
 let density = DEFAULT_DENSITY;
+/** Repères de placement : un réglage global (Préférences), les mêmes pour tous les documents, pour passer d'un format à l'autre. */
+let guideFrame: AnchorFrame = 'repartition';
+export const setGuideFrame = (fr: AnchorFrame | undefined) => (guideFrame = fr ?? 'repartition');
+export const guideFrameNow = (): AnchorFrame => guideFrame;
 export const setAnchorDensity = (d: number | undefined) => (density = Math.max(1, Math.min(DENSITY_STEPS.length, d ?? DEFAULT_DENSITY)));
 /** Marge des repères d'une page neuve : 5 % du petit côté. */
 export const DEFAULT_MARGIN = 0.05;

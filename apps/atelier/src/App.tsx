@@ -50,7 +50,7 @@ import { CampaignPage, CampaignPicker, CampaignsHome, StageButton, campaignCapti
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
-import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorFrames, hasZone, zoneOf, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget } from './model';
+import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorFrames, setGuideFrame, hasZone, zoneOf, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import { BRUSH_TIPS, TIP_NAMES, isComposite, tipHoverSvg, type BrushTip } from './tips';
@@ -1487,7 +1487,25 @@ export function App() {
 
   const f = formatOf(doc.formatId);
   // les calculs d'ancrage suivent la densité du document ouvert
-  setAnchorDensity(doc.density);
+  /** Repères (type et densité) : un réglage global des Préférences, les mêmes pour tous les documents. */
+  const [reperes, setReperesRaw] = useState<{ frame: AnchorFrame; density: number }>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('ftd-atelier-reperes') ?? 'null') as { frame?: AnchorFrame; density?: number } | null;
+      return { frame: v?.frame && v.frame !== 'grid' ? v.frame : 'repartition', density: v?.density ?? DEFAULT_DENSITY };
+    } catch {
+      return { frame: 'repartition', density: DEFAULT_DENSITY };
+    }
+  });
+  const setReperes = (v: { frame: AnchorFrame; density: number }) => {
+    setReperesRaw(v);
+    try {
+      localStorage.setItem('ftd-atelier-reperes', JSON.stringify(v));
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+  setAnchorDensity(reperes.density);
+  setGuideFrame(reperes.frame);
   setAnchorFrames(doc);
   /** Points d'accroche par défaut (Préférences) : pour les compositions qui n'ont pas les leurs. */
   const [defaultPoints, setDefaultPointsRaw] = useState<AnchorExtras>(() => {
@@ -2207,8 +2225,8 @@ export function App() {
       }
       ctx.lineWidth = 1 * px;
       ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      for (const a of anchorsOf(doc.frame, f)) {
-        ctx.fillStyle = markColor(anchorKind(doc.frame, a.id));
+      for (const a of anchorsOf(reperes.frame, f)) {
+        ctx.fillStyle = markColor(anchorKind(reperes.frame, a.id));
         ctx.beginPath();
         ctx.arc(a.x * f.width, a.y * f.height, 3.5 * px, 0, Math.PI * 2);
         ctx.fill();
@@ -2464,7 +2482,7 @@ export function App() {
       const vy = (b.cy - O.y) * k;
       const cx = O.x + vx * Math.cos(dr) - vy * Math.sin(dr) + tx;
       const cy = O.y + vx * Math.sin(dr) + vy * Math.cos(dr) + ty;
-      const a = anchorFor(doc.frame, f, cx, cy);
+      const a = anchorFor(reperes.frame, f, cx, cy);
       out.set(m.id, { ...m, w: m.w * k, h: m.h * k, rot: dr ? Math.atan2(Math.sin((m.rot ?? 0) + dr), Math.cos((m.rot ?? 0) + dr)) : m.rot, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined, pins: undefined });
     }
     return out;
@@ -3203,7 +3221,7 @@ export function App() {
         // le point de l'objet, d'après sa découpe, relatif au centre de sa boîte
         const ox = g.x || g.y ? (bb.x0 + bb.x1) / 2 + g.x * (bb.x1 - bb.x0) - b.cx : 0;
         const oy = g.x || g.y ? (bb.y0 + bb.y1) / 2 + g.y * (bb.y1 - bb.y0) - b.cy : 0;
-        const near = anchorFor(doc.frame, f, cx + ox, cy + oy);
+        const near = anchorFor(reperes.frame, f, cx + ox, cy + oy);
         const ax = near.at.x * f.width;
         const ay = near.at.y * f.height;
         // à distance égale, le centre l'emporte
@@ -3211,7 +3229,7 @@ export function App() {
         if (d < bestD) {
           bestD = d;
           const grip = g.x || g.y ? { x: ox / (o.w * m0), y: oy / (o.h * m0) } : undefined;
-          L.snap = { x: ax, y: ay, kind: anchorKind(doc.frame, near.at.id), anchor: near.anchor, grip, ox, oy };
+          L.snap = { x: ax, y: ay, kind: anchorKind(reperes.frame, near.at.id), anchor: near.anchor, grip, ox, oy };
         }
       }
       if (L.snap) [cx, cy] = [L.snap.x - L.snap.ox, L.snap.y - L.snap.oy];
@@ -3249,7 +3267,7 @@ export function App() {
       const edge = pins.left || pins.right || pins.top || pins.bottom;
       if (edge) L.snap = null;
       L.pins = edge ? pins : undefined;
-      const a = anchorFor(doc.frame, f, cx, cy);
+      const a = anchorFor(reperes.frame, f, cx, cy);
       const carried = carryMates(L.mates, { x: 0, y: 0 }, 1, 0, cx - b.cx, cy - b.cy);
       const sn = L.snap;
       setDoc((d) => ({
@@ -3302,13 +3320,13 @@ export function App() {
         const vy = v.y * ky;
         const cx = O.x + vx * c - vy * sn;
         const cy = O.y + vx * sn + vy * c;
-        const a = anchorFor(doc.frame, f, cx, cy);
+        const a = anchorFor(reperes.frame, f, cx, cy);
         setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, w: o.w * kx, h: o.h * ky, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined } : x)) }));
         return;
       }
       const cx = O.x + (b.cx - O.x) * k;
       const cy = O.y + (b.cy - O.y) * k;
-      const a = anchorFor(doc.frame, f, cx, cy);
+      const a = anchorFor(reperes.frame, f, cx, cy);
       const carried = carryMates(L.mates, O, k, 0, 0, 0);
       // accroché par un sommet ou un côté : ce point reste sur son ancrage, seule la taille change
       const keep = !fromCentre && L.centered && o.grip;
@@ -3346,7 +3364,7 @@ export function App() {
       const vy = b.cy - P.y;
       const cx = P.x + vx * Math.cos(dr) - vy * Math.sin(dr);
       const cy = P.y + vx * Math.sin(dr) + vy * Math.cos(dr);
-      const a = anchorFor(doc.frame, f, cx, cy);
+      const a = anchorFor(reperes.frame, f, cx, cy);
       const carried = carryMates(L.mates, P, 1, dr, 0, 0);
       setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...x, rot: r, anchor: a.anchor, dx: a.dx, dy: a.dy, grip: undefined } : (carried.get(x.id) ?? x))) }));
     }
@@ -3850,7 +3868,7 @@ export function App() {
     const h = y1 - y0;
     const cx = (x0 + x1) / 2;
     const cy = (y0 + y1) / 2;
-    const a = anchorFor(doc.frame, f, cx, cy);
+    const a = anchorFor(reperes.frame, f, cx, cy);
     const n = doc.layers.filter((l) => l.name.startsWith('Papier découpé')).length + 1;
     const local = lasso.map((p) => ({ x: (p.x - x0) / w, y: (p.y - y0) / h }));
     const layer: Layer = {
@@ -3882,7 +3900,7 @@ export function App() {
   };
   /** Objet en pièces : une couche par pièce, toutes dans la même boîte, solidaires. */
   const addKit = (kit: Kit) => {
-    const a = anchorFor(doc.frame, f, f.width / 2, f.height / 2);
+    const a = anchorFor(reperes.frame, f, f.width / 2, f.height / 2);
     const k = 0.62;
     const [w, h] = kit.ratio >= 1 ? [k, k / kit.ratio] : [k * kit.ratio, k];
     const group = uid();
@@ -3932,7 +3950,7 @@ export function App() {
   };
 
   const addLayer = (kind: 'shape' | 'photo', opts: { shape?: ShapeKind; src?: string; name: string; ratio?: number; size?: number; at?: Pt; cut?: string; ref?: string }) => {
-    const a = anchorFor(doc.frame, f, opts.at?.x ?? f.width / 2, opts.at?.y ?? f.height / 2);
+    const a = anchorFor(reperes.frame, f, opts.at?.x ?? f.width / 2, opts.at?.y ?? f.height / 2);
     let w = 0.4;
     let h = 0.4;
     if (opts.shape === 'arch') h = 0.5;
@@ -3996,7 +4014,7 @@ export function App() {
       name: `Texte ${p.name.toLowerCase()}`,
       kind: 'text',
       text: t,
-      anchor: anchorFor(doc.frame, f, f.width / 2, f.height / 2).anchor,
+      anchor: anchorFor(reperes.frame, f, f.width / 2, f.height / 2).anchor,
       dx: 0,
       dy: 0,
       w: h * c.ratio,
@@ -5825,6 +5843,8 @@ export function App() {
               setMarkColors={changeMarkColors}
               points={defaultPoints}
               setPoints={setDefaultPoints}
+              reperes={reperes}
+              setReperes={setReperes}
               onClose={() => setBubble(null)}
             />
           )}
@@ -5877,35 +5897,8 @@ export function App() {
                 onApply={applyPublication}
                 guides={
                   <div className="pub-guides">
-                    <div className="b-field-label">Repères</div>
-                    <div className="seg">
-                      {ANCHOR_FRAMES.filter((x) => x !== 'grid').map((x) => (
-                        <button key={x} className={doc.frame === x ? 'on' : ''} onClick={() => setDoc((d) => ({ ...d, frame: x as AnchorFrame }))} title={FRAME_TITLES[x]}>
-                          {x === 'repartition' ? '½ ⅓' : x === 'or' ? 'φ' : '✕'}
-                        </button>
-                      ))}
-                    </div>
-                    {doc.frame === 'repartition' && (
-                      <>
-                        <div className="b-title">
-                          Densité <span className="b-count">{['Demis', 'Tiers', 'Quarts', 'Sixièmes', 'Douzièmes', '24es'][(doc.density ?? DEFAULT_DENSITY) - 1]}</span>
-                        </div>
-                        <label className="density">
-                          <span>−</span>
-                          <input
-                            type="range"
-                            min={1}
-                            max={DENSITY_STEPS.length}
-                            step={1}
-                            value={doc.density ?? DEFAULT_DENSITY}
-                            onChange={(e) => setDoc((d) => ({ ...d, density: Number(e.target.value) }))}
-                          />
-                          <span>+</span>
-                        </label>
-                      </>
-                    )}
-                    <button className="ab-link" onClick={() => setBubble('prefs')} title="Les points de l'objet et de la page qui s'aimantent : un réglage global, dans les Préférences">
-                      Points d’accroche : Préférences
+                    <button className="ab-link" onClick={() => setBubble('prefs')} title="Repères (½ ⅓, φ, ✕), densité et points d'accroche : un réglage global, le même pour tous les documents, dans les Préférences">
+                      Repères et points d’accroche : Préférences
                     </button>
                   </div>
                 }
@@ -5913,7 +5906,7 @@ export function App() {
               <button
                 className="row danger"
                 onClick={() => {
-                  update(() => ({ ...blankDoc(), formatId: doc.formatId, frame: doc.frame, guides: doc.guides }));
+                  update(() => ({ ...blankDoc(), formatId: doc.formatId, frame: reperes.frame, guides: doc.guides }));
                   forgetPaint();
                   setSelected(null);
                 }}

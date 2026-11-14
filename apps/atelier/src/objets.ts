@@ -5,7 +5,7 @@
  * dans ce navigateur.
  */
 import type { Format } from '@ftd/core';
-import { anchorFor, compact, layerBox, uid, type Doc, type Guide, type Layer } from './model';
+import { anchorFor, compact, layerBox, uid, type Doc, type Guide, type Layer, guideFrameNow } from './model';
 import { serverOnline } from './server';
 
 export interface ObjetDoc {
@@ -80,7 +80,7 @@ export function unpackObjet(o: ObjetDoc, doc: Doc, f: Format, x: number, y: numb
   const group = o.layers.length > 1 ? uid() : undefined;
   const layers = o.layers.map((l, i) => {
     const [ox, oy] = o.at[i] ?? [0, 0];
-    const a = anchorFor(doc.frame, f, x + ox * m, y + oy * m);
+    const a = anchorFor(guideFrameNow(), f, x + ox * m, y + oy * m);
     return { ...remapGuides(l, (g) => idx[g] ?? 0), id: uid(), anchor: a.anchor, dx: a.dx, dy: a.dy, visible: true, ...(group ? { link: group } : {}) };
   });
   return { layers, guides };
