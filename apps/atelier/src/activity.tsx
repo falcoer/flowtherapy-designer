@@ -29,6 +29,7 @@ import { BRAND_SLOTS, catalogNow, channelsOf, colorGuide, connectionsOf, CONTACT
 import { SITE_VARIANTS } from './brand-presets';
 import { ColorDialog, swatch } from './color-dialog';
 import { MediaIcon, VariantBar } from './targets-ui';
+import { OccasionIconPick } from './campaigns-ui';
 import { PostizAccountsEditor, usePostizAccounts } from './postiz-ui';
 
 /**
@@ -904,6 +905,7 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
             {operations.map((o, i) => (
               <div key={o.id} className="act-pal">
                 <div className="act-pal-head">
+                  <OccasionIconPick op={o} disabled={!edit} onChange={(icon) => setOperations(operations.map((x, j) => (j === i ? { ...x, icon } : x)))} />
                   <input className="pf-input act-pal-name" value={o.name} placeholder="Concert, album…" disabled={!edit} onChange={(e) => setOperations(operations.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} aria-label="Nom du type de projet" />
                   {edit && (
                     <button className="tm-remove" onClick={() => setOperations(operations.filter((_, j) => j !== i))} title="Retirer ce type de projet">

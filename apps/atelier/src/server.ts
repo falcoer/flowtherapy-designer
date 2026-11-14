@@ -286,6 +286,8 @@ export interface Target {
 export interface Operation {
   id: string;
   name: string;
+  /** Icône de l'occasion (occ-concert, occ-music…) ; absente, devinée d'après le nom. */
+  icon?: string;
   targets: Target[];
 }
 /** Fiche de l'activité : identité, branding général, canaux, services. */

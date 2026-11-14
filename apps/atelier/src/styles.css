@@ -1300,7 +1300,26 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .cp-form { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--accent); border-radius: 14px; }
 .cp-form .cp-row, .cp .cp-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .cp-form .cp-row > *, .cp .cp-row > * { min-width: 0; }
-.cp-btns { display: flex; justify-content: flex-end; }
+.cp-btns { display: flex; justify-content: flex-end; gap: 6px; }
+/* nom, occasion, date et boutons sur une ligne ; ça passe à la ligne quand la place manque */
+.cp-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cp-line > * { min-width: 0; }
+.cp-line .cp-name { flex: 1 1 160px; }
+.cp-line .cp-day { flex: 0 0 136px; }
+.cp-line .cp-btns { flex: none; margin-left: auto; }
+.occ-pick { flex: 0 1 auto; max-width: 190px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; text-align: left; color: var(--ink); }
+.occ-pick svg, .occ-opt svg { width: 18px; height: 18px; flex: none; color: var(--accent); }
+.occ-pick .occ-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.occ-pick.none .occ-name { color: var(--muted); }
+.occ-none { width: 18px; flex: none; text-align: center; color: var(--muted); }
+.occ-back { position: fixed; inset: 0; z-index: 70; }
+.occ-pop { position: fixed; z-index: 71; width: 240px; max-height: 300px; overflow: auto; display: flex; flex-direction: column; padding: 4px; border-radius: 12px; background: var(--chrome-solid); border: 1px solid var(--line); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25); }
+.occ-pop.grid { width: auto; flex-direction: row; flex-wrap: wrap; max-width: 200px; gap: 2px; }
+.occ-opt { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 0; border-radius: 8px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.occ-opt:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.occ-opt.on { background: var(--accent-soft); }
+.occ-pop.grid .occ-opt { padding: 8px; }
+.occ-icon-btn svg { color: var(--accent); }
 .cp-info { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 6px; font-size: 12.5px; color: var(--muted); }
 .cp-info.closed { opacity: 0.75; }
 .proj-camp { display: flex; align-items: center; gap: 8px; margin: 2px 0 6px; font-size: 12.5px; color: var(--muted); }
