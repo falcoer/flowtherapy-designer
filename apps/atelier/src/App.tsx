@@ -49,7 +49,7 @@ import { NewCompositionDialog } from './compositions-ui';
 import { CompositionMenu, TopCrumbs } from './compositions-menu';
 import { CaptionTools } from './caption-tools';
 import { CampaignPage, CampaignPicker, CampaignsHome, StageButton, StageTrack, campaignCaption, stageOf, type SpaceTab } from './campaigns-space';
-import { planCaption, planFromOperation, planText } from './plan';
+import { campaignFields, draftFromOperation, fillFields, filledCaption, planCaption, planText } from './plan';
 import { MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorFrames, setGuideFrame, hasZone, zoneOf, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget, type PaletteMatter, type PaletteEdge } from './model';
@@ -1094,20 +1094,23 @@ export function App() {
    * Depuis le plan en pleine page : la ligne rendue d'après sa composition (l'ouverte telle qu'elle est,
    * une autre relue au serveur), et son texte (celui de la composition, sinon celui de la campagne).
    */
-  const renderPlanFor = async (m: AtelierMeta, it: PlanItem): Promise<{ image: Blob | null; caption: string }> => {
-    // le texte déposé sur l'étape, sinon celui de la composition, sinon le texte principal de la campagne
+  const renderPlanFor = async (m: AtelierMeta, row: PlanItem, at?: string): Promise<{ image: Blob | null; caption: string }> => {
+    // le texte déposé sur l'étape, sinon celui de la composition, sinon le texte principal de la campagne ; ses champs
+    // ({date}, {quand}…) sont remplis pour le jour de l'envoi
     const c = campaigns.find((x) => x.id === m.campaign);
-    if (m.id === project?.id) return { image: await renderPlanItem(it), caption: planCaption(c, it, docRef.current.caption) };
+    const it = at ? { ...row, date: at } : row;
+    const who = activity?.name;
+    if (m.id === project?.id) return { image: await renderPlanItem(it), caption: planCaption(c, it, docRef.current.caption, who) };
     const d = migrate((await readAtelier(m.id)).doc);
     const ts = d.targets?.length ? d.targets : [{ format: d.formatId }];
     const i = ts.findIndex((x) => (x.channel ?? '') === (it.channel ?? '') && x.format === it.format);
-    if (i < 0) return { image: null, caption: planCaption(c, it, d.caption) };
+    if (i < 0) return { image: null, caption: planCaption(c, it, d.caption, who) };
     const x = d.targets?.length ? pageDoc(d, i, views) : d;
     setAnchorFrames(x);
     try {
       const cv = await renderDoc(x, formatOf(ts[i]!.format), 4096, ts[i]!.width);
       const image = await new Promise<Blob>((ok, ko) => cv.toBlob((b) => (b ? ok(b) : ko(new Error('Rendu impossible'))), 'image/jpeg', 0.92));
-      return { image, caption: planCaption(c, it, d.caption) };
+      return { image, caption: planCaption(c, it, d.caption, who) };
     } finally {
       setAnchorFrames(docRef.current);
     }
@@ -4960,8 +4963,8 @@ export function App() {
                   canEdit={canEditTeam}
                   onOpen={(id) => openSpace(id)}
                   create={async (c) => {
-                    const plan = planFromOperation(allOperations.find((o) => o.id === c.operation), c.date, activity);
-                    const x = await createCampaign(plan.length ? { ...c, plan } : c);
+                    const plan = draftFromOperation(allOperations.find((o) => o.id === c.operation), c.date, activity);
+                    const x = await createCampaign(plan.plan.length ? { ...c, plan: plan.plan, ...(plan.texts.length ? { texts: plan.texts } : {}) } : c);
                     setCampaigns((l) => [x, ...l]);
                     return x;
                   }}
@@ -5628,8 +5631,8 @@ export function App() {
               }}
               create={async (c: CampaignInput) => {
                 // le plan de publication part de l'occasion et de la date
-                const plan = planFromOperation(allOperations.find((o) => o.id === c.operation), c.date, activity);
-                const x = await createCampaign(plan.length ? { ...c, plan } : c);
+                const plan = draftFromOperation(allOperations.find((o) => o.id === c.operation), c.date, activity);
+                const x = await createCampaign(plan.plan.length ? { ...c, plan: plan.plan, ...(plan.texts.length ? { texts: plan.texts } : {}) } : c);
                 setCampaigns((l) => [x, ...l]);
                 setCampaign(x.id);
               }}
@@ -5801,8 +5804,8 @@ export function App() {
               })}
               <div className="pub-caption">
                 <div className="b-sub">Texte d’accompagnement</div>
-                {pubCampaign && campaignCaption(pubCampaign) && doc.caption !== campaignCaption(pubCampaign) && (
-                  <button className="ab-link pub-from-campaign" onClick={() => setDoc((d) => ({ ...d, caption: campaignCaption(pubCampaign) }))} title="Le texte, le lien et les mots-dièse rédigés dans la campagne">
+                {pubCampaign && filledCaption(pubCampaign, activity?.name) && doc.caption !== filledCaption(pubCampaign, activity?.name) && (
+                  <button className="ab-link pub-from-campaign" onClick={() => setDoc((d) => ({ ...d, caption: filledCaption(pubCampaign, activity?.name) }))} title="Le texte, le lien et les mots-dièse rédigés dans la campagne, champs remplis">
                     {doc.caption ? 'Remplacer par le texte de la campagne' : 'Partir du texte de la campagne'}
                   </button>
                 )}
@@ -5869,7 +5872,7 @@ export function App() {
                           item={it}
                           accounts={pubPz.data.accounts.filter((a) => a.channel === it.channel && !a.disabled)}
                           owner={me?.team?.role === 'owner'}
-                          caption={planText(pubCampaign, it)?.text.trim() ? planCaption(pubCampaign, it) : (doc.caption ?? '')}
+                          caption={(at) => (planText(pubCampaign, it)?.text.trim() ? planCaption(pubCampaign, { ...it, date: at }, undefined, activity?.name) : fillFields(doc.caption ?? '', campaignFields(pubCampaign!, activity?.name, at)))}
                           composition={project?.id}
                           render={() => renderPlanItem(it)}
                           onCampaign={(x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y)))}

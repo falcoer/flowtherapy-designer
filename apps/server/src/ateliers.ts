@@ -23,6 +23,8 @@ export interface AtelierMeta {
   review?: Review;
   /** Nombre de vignettes par publication enregistrées (une par rendu, dans l'ordre des rendus). */
   thumbs?: number;
+  /** Texte d'accompagnement propre à la composition, lu dans le document pour l'aperçu des envois. */
+  caption?: string;
 }
 
 export interface Review {
@@ -66,8 +68,8 @@ export class Ateliers {
     for (const name of await readdir(this.root)) {
       if (!name.endsWith('.json')) continue;
       try {
-        const { doc: _doc, ...meta } = JSON.parse(await readFile(path.join(this.root, name), 'utf8')) as AtelierMeta & { doc?: unknown };
-        out.push(meta);
+        const { doc, ...meta } = JSON.parse(await readFile(path.join(this.root, name), 'utf8')) as AtelierMeta & { doc?: { caption?: unknown } };
+        out.push({ ...meta, ...(typeof doc?.caption === 'string' && doc.caption.trim() ? { caption: doc.caption.slice(0, 2200) } : {}) });
       } catch {
         /* fichier abîmé : ignoré dans la liste */
       }

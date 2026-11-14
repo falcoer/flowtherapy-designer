@@ -12,6 +12,8 @@ export interface AtelierMeta {
   targets?: Target[];
   /** Campagne à laquelle elle contribue. */
   campaign?: string;
+  /** Son texte d'accompagnement propre, pour l'aperçu des envois. */
+  caption?: string;
   /** Adresses des membres qui ont voté pour elle, et si l'on en fait partie. */
   votes?: string[];
   /** création, et qui l'a créée */
@@ -313,6 +315,8 @@ export interface OpStep {
   name: string;
   days?: number;
   targets: Target[];
+  /** modèle de texte de l'étape, avec ses champs ({date}, {lieu}…) */
+  text?: string;
 }
 /** Fiche de l'activité : identité, branding général, canaux, services. */
 export interface ActivityProfile {

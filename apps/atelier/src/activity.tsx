@@ -1031,6 +1031,21 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
                                 ×
                               </button>
                             )}
+                            {(edit || st.text) && (
+                              <textarea
+                                className="pf-input act-step-text"
+                                rows={2}
+                                maxLength={2200}
+                                value={st.text ?? ''}
+                                disabled={!edit}
+                                placeholder="Modèle de texte de l’étape, avec les champs de la campagne : {campagne}, {date} à {heure}, {lieu}, {quand}…"
+                                aria-label={`Modèle de texte de l’étape ${st.name}`}
+                                onChange={(e) => {
+                                  const { text: _t, ...rest } = st;
+                                  setSteps(steps.map((x, n) => (n === k ? (e.target.value ? { ...rest, text: e.target.value } : rest) : x)));
+                                }}
+                              />
+                            )}
                           </div>
                         ))}
                         {edit && steps.length < 12 && (

@@ -297,13 +297,13 @@ describe('équipes', () => {
       operations: [
         { id: 'concert', name: 'Concert', icon: 'occ-concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }, { format: '' }] },
         // étapes du modèle : un nom, un délai avant l'évènement (ou à dater), ce qu'elle publie
-        { id: 'logo', name: 'Logo', icon: '<svg>', targets: [{ format: 'carre' }], steps: [{ name: 'Annonce', days: 21, targets: [{ format: 'carre' }, { format: '' }] }, { name: 'Story', days: 'un jour', targets: [] }, { name: '', days: 3 }] },
+        { id: 'logo', name: 'Logo', icon: '<svg>', targets: [{ format: 'carre' }], steps: [{ name: 'Annonce', days: 21, targets: [{ format: 'carre' }, { format: '' }], text: '{campagne} : {date}' }, { name: 'Story', days: 'un jour', targets: [] }, { name: '', days: 3 }] },
         { name: '' },
       ],
     });
     expect(ops.json().profile.operations).toEqual([
       { id: 'concert', name: 'Concert', icon: 'occ-concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }] },
-      { id: 'logo', name: 'Logo', targets: [{ format: 'carre' }], steps: [{ name: 'Annonce', days: 21, targets: [{ format: 'carre' }] }, { name: 'Story', targets: [] }] },
+      { id: 'logo', name: 'Logo', targets: [{ format: 'carre' }], steps: [{ name: 'Annonce', days: 21, targets: [{ format: 'carre' }], text: '{campagne} : {date}' }, { name: 'Story', targets: [] }] },
     ]);
   });
 

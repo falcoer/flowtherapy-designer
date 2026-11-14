@@ -5,13 +5,14 @@ import { HistoryPanel, PubFan, campaignHistory, pubsOf } from './compositions-me
 import { ActivityMark } from './activity';
 import { Icon } from './icons';
 import { formatOf } from './model';
-import { ROLE_LABELS, thumbUrl, type ActivityEvent, type ActivityProfile, type AtelierMeta, type Campaign, type CampaignInput, type CampaignText, type Operation, type PlanItem, type PostizAccounts, type Target, type TeamRef } from './server';
-import { MAIN_TEXT, addDays, addPlanRow, campaignCaption, hashtagChoices, hashtagOf, hashtagsIn, patchStep, toggleHashtag, planChoices, planFromOperation, planSteps, planText, stepKey, uniquePlanId, type PlanStep } from './plan';
+import { ROLE_LABELS, thumbUrl, type ActivityEvent, type ActivityProfile, type AtelierMeta, type Campaign, type Channel, type CampaignInput, type CampaignText, type Operation, type PlanItem, type PostizAccounts, type Target, type TeamRef } from './server';
+import { MAIN_TEXT, addDays, addPlanRow, campaignCaption, campaignFields, draftFromOperation, fillFields, hasFields, hashtagChoices, hashtagOf, hashtagsIn, missingFields, patchStep, planCaption, textModels, toggleHashtag, planChoices, planFromOperation, planSteps, planText, stepKey, uniquePlanId, type PlanStep } from './plan';
 
 export { campaignCaption };
 import { PostizPlanActions } from './postiz-ui';
 import { CONTACT_KINDS, channelsOf, contactsOf, targetLabel } from './targets';
 import { MediaIcon } from './targets-ui';
+import { PostPreview, mediaLook, richText } from './post-preview';
 
 /*
  * Espace des campagnes, en plein écran sous la barre du haut : la liste des campagnes, puis une
@@ -576,7 +577,7 @@ export function CampaignPage(p: {
         </>
       )}
 
-      {tab === 'write' && c && <WritingTab key={c.id} c={c} campaigns={p.campaigns} activity={p.activity} canEdit={p.canEdit} sel={textSel} onSel={setTextSel} drag={board.drag} onSave={p.onSave} />}
+      {tab === 'write' && c && <WritingTab key={c.id} c={c} campaigns={p.campaigns} operation={p.operations.find((o) => o.id === c.operation)} look={board.look} activity={p.activity} canEdit={p.canEdit} sel={textSel} onSel={setTextSel} drag={board.drag} onSave={p.onSave} />}
 
       {tab === 'settings' && c && (
         <div className="sp-settings">
@@ -630,7 +631,7 @@ export interface PlanPublishing {
   /** responsable de l'équipe : lui seul programme */
   owner: boolean;
   /** l'image d'une ligne du plan rendue d'après sa composition, et le texte qui l'accompagne */
-  render: (m: AtelierMeta, it: PlanItem) => Promise<{ image: Blob | null; caption: string }>;
+  render: (m: AtelierMeta, it: PlanItem, at?: string) => Promise<{ image: Blob | null; caption: string }>;
   onCampaign: (c: Campaign) => void;
   toast: (m: string) => void;
 }
@@ -929,10 +930,16 @@ function usePlanBoard(p: {
     const open = p.canEdit && free(it);
     const canPz = !!pz?.enabled && !!pz.providers[it.channel ?? ''] && (!!it.postiz || pz.accounts.some((a) => a.channel === it.channel));
     const z = zoneProps(`comp:${it.id}`, 'comp', open);
+    const ch = channels.find((x) => x.id === it.channel);
+    // ce qui partira : le texte de l'étape, sinon celui de la composition, sinon le texte principal ; champs remplis
+    const worded = ['feed', 'instagram'].includes(mediaLook(ch, it.format, it.channel));
+    const sent = worded ? planCaption(c ?? undefined, it, m?.caption, p.activity?.name) : '';
+    const raw = planText(c ?? undefined, it)?.text.trim() ? planText(c ?? undefined, it)!.text : m?.caption?.trim() ? m.caption : (c?.caption ?? '');
+    const missing = worded && c ? missingFields(raw, campaignFields(c, p.activity?.name, it.date)) : [];
     return (
-      <div key={it.id} {...z} className={`sp-zone sp-st-${st} ${chosen ? 'filled' : ''} ${z.className}`}>
+      <div key={it.id} {...z} className={`sp-zone sp-zone-pub sp-st-${st} ${chosen ? 'filled' : ''} ${z.className}`}>
         <div className="sp-zone-head">
-          <MediaIcon ch={channels.find((x) => x.id === it.channel)} size={15} />
+          <MediaIcon ch={ch} size={15} />
           <span>{targetLabel(it, p.activity)}</span>
           {p.canEdit && !it.postiz && (
             <button className="cs-del" onClick={() => p.onPlan(plan.filter((x) => x.id !== it.id))} title="Retirer cette publication du plan" aria-label={`Retirer ${targetLabel(it, p.activity)} du plan`}>
@@ -940,24 +947,10 @@ function usePlanBoard(p: {
             </button>
           )}
         </div>
-        {m ? (
-          <div className={`sp-zone-body ${chosen ? '' : 'dflt'}`}>
-            <button className="sp-plan-thumb" style={{ aspectRatio: `${Math.min(1.8, Math.max(0.5, f.width / f.height))}` }} onClick={() => p.onOpen(m, idx >= 0 ? idx : 0)} title={`Ouvrir « ${p.titleOf(m)} » sur cette publication`}>
-              <img src={thumbUrl(m, idx >= 0 ? idx : undefined)} alt="" loading="lazy" draggable={false} />
-            </button>
-            <span className="sp-txt">
-              <b>{p.titleOf(m)}</b>
-              {!chosen && <small>validée, retenue par défaut</small>}
-              {idx < 0 && <small>pas encore dans ce format</small>}
-            </span>
-          </div>
-        ) : (
-          <div className="sp-zone-empty">{open ? 'Dépose une composition ici' : 'Pas de composition'}</div>
-        )}
         <div className="sp-zone-acts">
           <StagePill stage={(st === 'late' || st === 'error' || st === 'pick' ? 'changes' : st) as Stage}>{ROW_LABELS[st]}</StagePill>
           {m && pub && canPz && !it.published ? (
-            <PostizPlanActions campaign={c!.id} item={it} accounts={pz!.accounts.filter((a) => a.channel === it.channel && !a.disabled)} owner={pub.owner} caption="" composition={m.id} render={() => pub.render(m, it)} onCampaign={pub.onCampaign} toast={pub.toast} />
+            <PostizPlanActions campaign={c!.id} item={it} accounts={pz!.accounts.filter((a) => a.channel === it.channel && !a.disabled)} owner={pub.owner} caption="" composition={m.id} render={(at) => pub.render(m, it, at)} blocked={missing.length ? `Champ sans valeur : ${missing.join(', ')}` : undefined} onCampaign={pub.onCampaign} toast={pub.toast} />
           ) : it.published ? (
             <>
               {it.link ? (
@@ -987,6 +980,31 @@ function usePlanBoard(p: {
             </button>
           )}
         </div>
+        <PostPreview
+          channel={ch}
+          channelId={it.channel}
+          format={it.format}
+          account={pz?.accounts.find((a) => a.channel === it.channel && !a.disabled)?.name ?? p.activity?.name ?? 'Activité'}
+          image={m ? thumbUrl(m, idx >= 0 ? idx : undefined) : undefined}
+          ratio={f.width / f.height}
+          text={sent}
+          when={it.published ? `publiée le ${short(it.published.slice(0, 10))}` : it.postiz?.state === 'queue' ? `programmée le ${short(it.postiz.at.slice(0, 10))}` : it.date ? `le ${short(it.date)}` : 'à dater'}
+          onImage={m ? () => p.onOpen(m, idx >= 0 ? idx : 0) : undefined}
+        />
+        {m ? (
+          <span className={`sp-txt sp-zone-comp ${chosen ? '' : 'dflt'}`}>
+            <b>{p.titleOf(m)}</b>
+            {!chosen && <small>validée, retenue par défaut</small>}
+            {idx < 0 && <small>pas encore dans ce format</small>}
+          </span>
+        ) : (
+          <div className="sp-zone-empty">{open ? 'Dépose une composition ici' : 'Pas de composition'}</div>
+        )}
+        {missing.length > 0 && (
+          <small className="pv-warn">
+            {missing.join(', ')} : sans valeur. Complète les Paramètres de la campagne.
+          </small>
+        )}
       </div>
     );
   };
@@ -1153,7 +1171,14 @@ function usePlanBoard(p: {
           {p.canEdit && (
             <div className="tl-add" style={{ left: lay.end + 8 }}>
               {!plan.length && op && (
-                <button className="tl-add-btn fill" onClick={() => p.onPlan(planFromOperation(op, c.date, p.activity))}>
+                <button
+                  className="tl-add-btn fill"
+                  onClick={() => {
+                    // les étapes du type de projet, et leurs modèles de texte déjà déposés dessus
+                    const d = draftFromOperation(op, c.date, p.activity);
+                    p.onPlan(d.plan, d.texts.length ? [...texts, ...d.texts.filter((x) => !texts.some((y) => y.id === x.id))] : undefined);
+                  }}
+                >
                   Étapes de « {op.name} »
                 </button>
               )}
@@ -1192,7 +1217,27 @@ function usePlanBoard(p: {
     const col = lay.cols.find((x) => x.s.rows.some((r) => r.id === rowId));
     if (col && strip.current) strip.current.scrollTo({ left: Math.max(0, col.x - 120), behavior: 'smooth' });
   };
-  return { timeline, inspector, ghost: ghostEl, drag, show };
+  /** Pour l'aperçu d'un envoi : le média de la ligne, l'image de sa composition, le compte qui publie. */
+  const look = (it: PlanItem): PostLook => {
+    const { m, idx } = compOf(it);
+    const f = formatOf(it.format);
+    return {
+      channel: channels.find((x) => x.id === it.channel),
+      channelId: it.channel,
+      image: m ? thumbUrl(m, idx >= 0 ? idx : undefined) : undefined,
+      ratio: f.width / f.height,
+      account: pz?.accounts.find((a) => a.channel === it.channel && !a.disabled)?.name ?? p.activity?.name ?? 'Activité',
+    };
+  };
+  return { timeline, inspector, ghost: ghostEl, drag, show, look };
+}
+
+export interface PostLook {
+  channel?: Channel;
+  channelId?: string;
+  image?: string;
+  ratio: number;
+  account: string;
 }
 
 /** Poignée d'un élément à déposer sur la frise : on la glisse, ou on la touche puis on touche la case. */
@@ -1273,7 +1318,7 @@ export function StageTrack(p: { meta?: AtelierMeta; campaign?: Campaign }) {
 }
 
 /** Rédaction de la campagne : le texte qui accompagne ses publications, ses mots-dièse, son lien. */
-function WritingTab(p: { c: Campaign; campaigns: Campaign[]; activity: ActivityProfile | null; canEdit: boolean; sel: string; onSel: (id: string) => void; drag: PlanDrag; onSave: (c: CampaignInput) => Promise<void> }) {
+function WritingTab(p: { c: Campaign; campaigns: Campaign[]; operation?: Operation; look: (it: PlanItem) => PostLook; activity: ActivityProfile | null; canEdit: boolean; sel: string; onSel: (id: string) => void; drag: PlanDrag; onSave: (c: CampaignInput) => Promise<void> }) {
   const [caption, setCaption] = useState(p.c.caption ?? '');
   const [hashtags, setHashtags] = useState(p.c.hashtags ?? '');
   const [link, setLink] = useState(p.c.link ?? '');
@@ -1291,7 +1336,6 @@ function WritingTab(p: { c: Campaign; campaigns: Campaign[]; activity: ActivityP
   const dirty = caption !== (p.c.caption ?? '') || hashtags !== (p.c.hashtags ?? '') || link !== (p.c.link ?? '') || JSON.stringify(texts) !== JSON.stringify(p.c.texts ?? []);
   const linkOk = !link.trim() || /^https?:\/\/\S+$/.test(link.trim());
   const mentions = contactsOf(p.activity).map((x) => ({ name: x.label || CONTACT_KINDS[x.kind], text: x.value }));
-  const post = campaignCaption({ hashtags, link }, body);
   // l'aide aux mots-dièse : ceux de l'activité (nom, mots-clés), puis ceux de ses autres campagnes
   const tags = useMemo(
     () =>
@@ -1309,6 +1353,35 @@ function WritingTab(p: { c: Campaign; campaigns: Campaign[]; activity: ActivityP
   const shown = [...tags.filter(matches), ...tags.filter((x) => !matches(x))];
   const steps = planSteps(p.c.plan ?? []);
   const usedBy = steps.filter((s) => s.text === (cur?.id ?? MAIN_TEXT)).map((s) => s.name || 'étape sans nom');
+  // les champs de la campagne ({date}, {lieu}…) : remplis dans l'aperçu et à l'envoi, pour le jour de l'étape où le texte est déposé
+  const fields = campaignFields(p.c, p.activity?.name, steps.find((s) => s.text === (cur?.id ?? MAIN_TEXT))?.date);
+  const post = campaignCaption({ hashtags, link }, fillFields(body, fields));
+  const missing = missingFields(body, fields);
+  const insert = (s: string) => {
+    const el = area.current;
+    const [a, b] = el ? [el.selectionStart, el.selectionEnd] : [body.length, body.length];
+    setBody(body.slice(0, a) + s + body.slice(b));
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(a + s.length, a + s.length);
+    });
+  };
+  // l'aperçu de l'envoi : les médias à texte du plan (Facebook, Instagram…), sur la ligne où ce texte est déposé
+  const wordy = (p.c.plan ?? []).filter((it) => ['feed', 'instagram'].includes(mediaLook(p.look(it).channel, it.format, it.channel)));
+  const media = [...new Set(wordy.map((it) => it.channel ?? ''))];
+  const [medium, setMedium] = useState('');
+  const mid = media.includes(medium) ? medium : media[0];
+  const onMid = wordy.filter((it) => (it.channel ?? '') === mid);
+  const placedRow = onMid.find((it) => it.text === (cur?.id ?? MAIN_TEXT)) ?? (cur ? undefined : onMid.find((it) => !it.text && !it.published));
+  // pas encore déposé : montré sur la prochaine publication de ce média, pour voir ce que ça donnerait
+  const row = placedRow ?? onMid.find((it) => !it.published) ?? onMid[0];
+  const [adding, setAdding] = useState(false);
+  const addText = (m?: { name: string; text: string }) => {
+    const id = uniquePlanId(m?.name ?? 'texte', [...texts, { id: MAIN_TEXT }], 'texte');
+    setTexts((l) => [...l, { id, name: m?.name ?? `Texte ${l.length + 1}`, text: m?.text ?? '' }]);
+    p.onSel(id);
+    setAdding(false);
+  };
   const save = async () => {
     setBusy(true);
     try {
@@ -1350,18 +1423,29 @@ function WritingTab(p: { c: Campaign; campaigns: Campaign[]; activity: ActivityP
             </div>
           );
         })}
-        {p.canEdit && texts.length < 20 && (
-          <button
-            className="sp-text sp-text-add"
-            onClick={() => {
-              const id = uniquePlanId('texte', [...texts, { id: MAIN_TEXT }], 'texte');
-              setTexts((l) => [...l, { id, name: `Texte ${l.length + 1}`, text: '' }]);
-              p.onSel(id);
-            }}
-          >
-            ＋ Texte
-          </button>
-        )}
+        {p.canEdit &&
+          texts.length < 20 &&
+          (adding ? (
+            <div className="sp-text-models" role="menu" aria-label="Nouveau texte">
+              <span className="sp-field-k">Partir de…</span>
+              <button role="menuitem" onClick={() => addText()}>
+                <b>Texte vide</b>
+              </button>
+              {textModels(p.operation).map((m) => (
+                <button key={m.name} role="menuitem" onClick={() => addText(m)} title={m.text}>
+                  <b>Modèle « {m.name} »</b>
+                  <small>{fillFields(m.text, fields)}</small>
+                </button>
+              ))}
+              <button className="ab-link" onClick={() => setAdding(false)}>
+                Annuler
+              </button>
+            </div>
+          ) : (
+            <button className="sp-text sp-text-add" onClick={() => setAdding(true)} title="Un texte vide, ou un modèle rempli par les réglages de la campagne">
+              ＋ Texte
+            </button>
+          ))}
       </div>
       <div className="sp-write-form">
         <div className="sp-editor">
@@ -1396,6 +1480,16 @@ function WritingTab(p: { c: Campaign; campaigns: Campaign[]; activity: ActivityP
             placeholder={cur ? 'Ce que dit cette étape : le rappel, les dernières places…' : 'L’annonce commune aux publications : la date, le lieu, ce qui attend le public…'}
             onChange={(e) => setBody(e.target.value)}
           />
+          {p.canEdit && (
+            <div className="sp-editor-fields">
+              <span title="Remplacés par les réglages de la campagne dans l’aperçu et à l’envoi">Champs</span>
+              {fields.map((f) => (
+                <button key={f.key} className={`sp-field-chip ${f.value ? '' : 'empty'}`} title={`${f.label} : ${f.value || 'sans valeur pour l’instant'}`} onMouseDown={(e) => e.preventDefault()} onClick={() => insert(`{${f.key}}`)}>
+                  {`{${f.key}}`}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="sp-editor-foot">
             {p.canEdit && <CaptionTools area={area} value={body} onChange={setBody} />}
             {p.canEdit &&
@@ -1407,6 +1501,7 @@ function WritingTab(p: { c: Campaign; campaigns: Campaign[]; activity: ActivityP
             <span className="sp-editor-count">{post.length} caractères, lien et mots-dièse compris</span>
           </div>
         </div>
+        {missing.length > 0 && <small className="pv-warn">{missing.join(', ')} : sans valeur pour l’instant. Complète les Paramètres de la campagne, sinon le champ partirait tel quel.</small>}
         <small className="fx-hint">
           {cur
             ? usedBy.length
@@ -1416,6 +1511,33 @@ function WritingTab(p: { c: Campaign; campaigns: Campaign[]; activity: ActivityP
                 : 'Enregistre-le, puis glisse-le sur la piste des textes de la frise.'
             : `${usedBy.length ? `Déposé sur ${usedBy.join(', ')} dans la frise. ` : ''}Sert ${usedBy.length ? 'aussi ' : ''}aux étapes du plan qui n’ont pas de texte à elles.`}
         </small>
+        {row ? (
+          <div className="sp-write-preview">
+            <div className="sp-row">
+              <span className="sp-field-k">Aperçu de l’envoi</span>
+              {media.length > 1 &&
+                media.map((id) => {
+                  const ch = p.look(wordy.find((it) => (it.channel ?? '') === id)!).channel;
+                  return (
+                    <button key={id} className={`sp-tag sp-medium ${id === mid ? 'on' : ''}`} aria-pressed={id === mid} onClick={() => setMedium(id)}>
+                      <MediaIcon ch={ch} size={15} />
+                      {ch?.name ?? (id ? id.charAt(0).toUpperCase() + id.slice(1) : 'Réseau')}
+                    </button>
+                  );
+                })}
+            </div>
+            <PostPreview {...p.look(row)} format={row.format} text={post} when={placedRow ? [row.label, row.date ? `le ${short(row.date)}` : 'à dater'].filter(Boolean).join(' · ') : 'pas encore sur la frise'} />
+          </div>
+        ) : (
+          hasFields(body, fields) && (
+            <div className="sp-write-preview">
+              <span className="sp-field-k">Ce qui partira</span>
+              <div className="pv pv-feed">
+                <p className="pv-text">{richText(post)}</p>
+              </div>
+            </div>
+          )
+        )}
       </div>
       <div className="sp-write-side">
         <div className="sp-side-card">

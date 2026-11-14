@@ -113,6 +113,8 @@ export interface OpStep {
   name: string;
   days?: number;
   targets: Target[];
+  /** modèle de texte de l'étape, avec ses champs ({date}, {lieu}…) */
+  text?: string;
 }
 
 export interface PaletteColor {
@@ -350,6 +352,7 @@ export function cleanProfile(p: ActivityProfile): ActivityProfile {
             .slice(0, 20)
             .map((t) => ({ ...(str(t?.channel, 40) ? { channel: str(t?.channel, 40) } : {}), format: str(t?.format, 40) }))
             .filter((t) => t.format),
+          ...(typeof s?.text === 'string' && s.text.trim() ? { text: s.text.slice(0, 2200) } : {}),
         }))
         .filter((s) => s.name);
       return { id, name, ...(/^occ-[a-z]+$/.test(icon) ? { icon } : {}), targets, ...(steps.length ? { steps } : {}) };

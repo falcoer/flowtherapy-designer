@@ -9,6 +9,8 @@ import { channelsOf, formatsFor } from './targets';
  */
 
 /** Délais par défaut avant l'évènement : l'annonce trois semaines avant, un rappel quelques jours avant ; la story au cas par cas. */
+/** L'identifiant réservé du texte principal de la campagne, quand il est déposé sur une étape comme un texte nommé. */
+export const MAIN_TEXT = 'main';
 export const LEAD_DAYS = 21;
 export const REMINDER_DAYS = 3;
 
@@ -50,17 +52,28 @@ export function stepsOf(op: Operation | undefined, activity: ActivityProfile | n
   ];
 }
 
-/** Plan prérempli par le type de projet : ses étapes, datées d'après l'évènement quand il a une date. */
-export function planFromOperation(op: Operation | undefined, date: string | undefined, activity: ActivityProfile | null): PlanItem[] {
-  const out: PlanItem[] = [];
+/**
+ * Plan prérempli par le type de projet : ses étapes, datées d'après l'évènement quand il a une date, et
+ * les textes de la campagne tirés des modèles de ses étapes, déjà déposés dessus.
+ */
+export function draftFromOperation(op: Operation | undefined, date: string | undefined, activity: ActivityProfile | null): { plan: PlanItem[]; texts: CampaignText[] } {
+  const plan: PlanItem[] = [];
+  const texts: CampaignText[] = [];
   const steps: Array<{ id: string }> = [];
   for (const s of stepsOf(op, activity)) {
     const step = uniquePlanId(s.name, steps, 'etape');
     steps.push({ id: step });
-    for (const t of s.targets) out.push({ id: uniquePlanId(`${step}-${t.channel ?? ''}-${t.format}`, out), ...t, label: s.name, step, ...(date && s.days !== undefined ? { date: addDays(date, -s.days) } : {}) });
+    let text: string | undefined;
+    if (s.text?.trim()) {
+      text = uniquePlanId(s.name, [...texts, { id: MAIN_TEXT }], 'texte');
+      texts.push({ id: text, name: s.name || 'Texte', text: s.text });
+    }
+    for (const t of s.targets)
+      plan.push({ id: uniquePlanId(`${step}-${t.channel ?? ''}-${t.format}`, plan), ...t, label: s.name, step, ...(date && s.days !== undefined ? { date: addDays(date, -s.days) } : {}), ...(text ? { text } : {}) });
   }
-  return out;
+  return { plan, texts };
 }
+export const planFromOperation = (op: Operation | undefined, date: string | undefined, activity: ActivityProfile | null): PlanItem[] => draftFromOperation(op, date, activity).plan;
 
 /** Ce qu'on peut ajouter au plan : chaque format de chaque réseau de l'activité, puis les formats libres. */
 export function planChoices(activity: ActivityProfile | null) {
@@ -118,8 +131,6 @@ export function addPlanRow(plan: PlanItem[], t: Target, step?: PlanStep): PlanIt
 export function campaignCaption(c: Pick<Campaign, 'caption' | 'hashtags' | 'link'>, body = c.caption): string {
   return [body?.trim(), c.link?.trim(), c.hashtags?.trim()].filter(Boolean).join('\n\n');
 }
-/** L'identifiant réservé du texte principal de la campagne, quand il est déposé sur une étape comme un texte nommé. */
-export const MAIN_TEXT = 'main';
 export const planText = (c: Pick<Campaign, 'texts' | 'caption'> | undefined, it: Pick<PlanItem, 'text'>): CampaignText | undefined =>
   !it.text || !c ? undefined : it.text === MAIN_TEXT ? { id: MAIN_TEXT, name: 'Texte principal', text: c.caption ?? '' } : c.texts?.find((t) => t.id === it.text);
 
@@ -127,10 +138,74 @@ export const planText = (c: Pick<Campaign, 'texts' | 'caption'> | undefined, it:
  * Le texte envoyé avec une ligne du plan : celui déposé sur son étape (avec le lien et les mots-dièse de
  * la campagne), sinon celui de la composition, sinon le texte principal de la campagne.
  */
-export function planCaption(c: Campaign | undefined, it: PlanItem, own?: string): string {
+export function planCaption(c: Campaign | undefined, it: PlanItem, own?: string, activity?: string): string {
+  const fields = c ? campaignFields(c, activity, it.date) : [];
   const t = planText(c, it);
-  if (c && t?.text.trim()) return campaignCaption(c, t.text);
-  return own?.trim() ? own : c ? campaignCaption(c) : '';
+  if (c && t?.text.trim()) return campaignCaption(c, fillFields(t.text, fields));
+  return own?.trim() ? fillFields(own, fields) : c ? campaignCaption(c, fillFields(c.caption ?? '', fields)) : '';
+}
+
+/*
+ * Les champs de la campagne : {date}, {lieu}, {heure}… écrits dans un texte, ils sont remplacés par
+ * les réglages de la campagne au moment de l'aperçu et de l'envoi. Un texte écrit avec des champs sert
+ * de modèle : il suit la campagne quand sa date ou son lieu changent.
+ */
+export interface TextField {
+  key: string;
+  label: string;
+  value: string;
+}
+const fieldKey = (s: string) =>
+  s
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '');
+const UTC_DAY = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', timeZone: 'UTC' });
+const UTC_DATE = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+export const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+/** Les champs et leur valeur pour cette campagne ; `at` est le jour de l'envoi (aujourd'hui à défaut), pour {quand} et {jours}. */
+export function campaignFields(c: Pick<Campaign, 'name' | 'date' | 'time' | 'place' | 'kind'>, activity?: string, at?: string): TextField[] {
+  const d = c.date && /^\d{4}-\d{2}-\d{2}$/.test(c.date) ? new Date(`${c.date}T00:00:00Z`) : null;
+  const from = /^\d{4}-\d{2}-\d{2}/.test(at ?? '') ? at!.slice(0, 10) : todayIso();
+  const left = d ? Math.round((d.getTime() - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) : null;
+  const hm = /^(\d{1,2}):(\d{2})$/.exec(c.time ?? '');
+  return [
+    { key: 'campagne', label: 'Nom de la campagne', value: c.name ?? '' },
+    { key: 'date', label: 'Date de l’évènement', value: d ? UTC_DATE.format(d).replace(/ 1 /, ' 1er ') : '' },
+    { key: 'jour', label: 'Jour de la semaine', value: d ? UTC_DAY.format(d) : '' },
+    { key: 'heure', label: 'Heure d’accueil', value: hm ? `${Number(hm[1])}h${hm[2] === '00' ? '' : hm[2]}` : (c.time ?? '') },
+    { key: 'lieu', label: 'Lieu', value: c.place ?? '' },
+    { key: 'quand', label: 'Échéance, le jour de l’envoi', value: left === null ? '' : left > 1 ? `dans ${left} jours` : left === 1 ? 'demain' : left === 0 ? 'aujourd’hui' : left === -1 ? 'hier' : `il y a ${-left} jours` },
+    { key: 'jours', label: 'Jours restants, le jour de l’envoi', value: left === null || left < 0 ? '' : String(left) },
+    { key: 'type', label: 'Type de prestation', value: c.kind ?? '' },
+    { key: 'activité', label: 'Nom de l’activité', value: activity ?? '' },
+  ];
+}
+/** Le texte principal de la campagne, champs remplis, avec le lien et les mots-dièse. */
+export const filledCaption = (c: Campaign, activity?: string, at?: string): string => campaignCaption(c, fillFields(c.caption ?? '', campaignFields(c, activity, at)));
+const FIELD = /\{([^{}\n]{1,24})\}/g;
+/** Remplace les champs connus qui ont une valeur ; les autres restent tels quels, pour qu'on les voie. */
+export const fillFields = (text: string, fields: TextField[]): string =>
+  text.replace(FIELD, (all, k: string) => fields.find((f) => fieldKey(f.key) === fieldKey(k))?.value || all);
+/** Les champs du texte que la campagne ne sait pas encore remplir (pas de lieu, pas de date…). */
+export const missingFields = (text: string, fields: TextField[]): string[] => [
+  ...new Set([...text.matchAll(FIELD)].map((m) => fields.find((f) => fieldKey(f.key) === fieldKey(m[1]!))).filter((f): f is TextField => !!f && !f.value).map((f) => `{${f.key}}`)),
+];
+export const hasFields = (text: string, fields: TextField[]): boolean => [...text.matchAll(FIELD)].some((m) => fields.some((f) => fieldKey(f.key) === fieldKey(m[1]!)));
+
+/** Modèles de texte proposés par « ＋ Texte » : ceux des étapes du type de projet, puis ceux d'usage. */
+export const TEXT_MODELS: Array<{ name: string; text: string }> = [
+  { name: 'Annonce', text: '{campagne} : rendez-vous {date} à {heure}, {lieu}.' },
+  { name: 'Rappel', text: '{campagne}, c’est {quand} ! Rendez-vous {date} à {heure}, {lieu}.' },
+  { name: 'Merci', text: 'Merci à toutes et à tous pour {campagne} ! À très vite.' },
+];
+export function textModels(op?: Operation): Array<{ name: string; text: string }> {
+  const own = (op?.steps ?? []).filter((s) => s.text?.trim()).map((s) => ({ name: s.name || 'Texte', text: s.text! }));
+  return [...own, ...TEXT_MODELS.filter((m) => !own.some((x) => fieldKey(x.name) === fieldKey(m.name)))];
 }
 
 /** Un mot-clé de l'activité devenu mot-dièse : sans espace ni ponctuation, en minuscules (« Rock progressif » → #rockprogressif). */
