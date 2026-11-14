@@ -731,13 +731,16 @@ export async function buildApp(opts: AppOptions) {
         return reply.code(400).send({ error: (err as Error).message });
       }
     });
-    app.get<{ Params: { id: string }; Querystring: { t?: string } }>(`${base}/:id/thumb.png`, read, async (req, reply) => {
+    app.get<{ Params: { id: string }; Querystring: { t?: string; v?: string } }>(`${base}/:id/thumb.png`, read, async (req, reply) => {
       // ?t=n : la vignette de la publication n
       const t = req.query.t === undefined ? undefined : Number(req.query.t);
       const f = await storeOf(req).thumb(req.params.id, t).catch(() => null);
       if (!f) return reply.code(404).send({ error: 'Pas de vignette' });
       const { createReadStream } = await import('node:fs');
-      return reply.type('image/png').header('Cache-Control', 'private, no-cache').send(createReadStream(f));
+      // ?v= : la date de la fiche ; l'adresse change à chaque enregistrement, l'image peut donc rester en cache
+      // (sans quoi l'iPad redemande toutes les vignettes à chaque ouverture du menu)
+      const cache = req.query.v ? 'private, max-age=31536000, immutable' : 'private, no-cache';
+      return reply.type('image/png').header('Cache-Control', cache).send(createReadStream(f));
     });
   }
 

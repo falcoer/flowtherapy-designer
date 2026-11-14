@@ -587,25 +587,34 @@ export function App() {
     applySceneLook(c, d, ff);
     return c.toDataURL('image/png');
   };
-  /** Une vignette par publication : le document tel qu'il s'affiche sur chacune (format, marges, couleurs). */
-  const makeThumbs = (d: Doc) => {
+  /** Une vignette par publication : le document tel qu'il s'affiche sur chacune (format, marges, couleurs).
+   *  Une à une, en rendant la main entre deux : l'atelier reste fluide pendant l'enregistrement. */
+  const makeThumbs = async (d: Doc) => {
     if (!d.targets?.length) return undefined;
-    try {
-      return d.targets.map((_, i) => {
-        // les ancrages se résolvent avec les marges de cette publication
-        const x = docAtTarget(d, i, activity);
-        setAnchorFrames(x);
-        return makeThumb(x);
-      });
-    } finally {
-      setAnchorFrames(docRef.current);
+    const out: string[] = [];
+    for (let i = 0; i < d.targets.length; i++) {
+      await new Promise((ok) => setTimeout(ok, 0));
+      // les ancrages se résolvent avec les marges de cette publication
+      const x = docAtTarget(d, i, activity);
+      setAnchorFrames(x);
+      try {
+        out.push(makeThumb(x));
+      } finally {
+        setAnchorFrames(docRef.current);
+      }
     }
+    return out;
   };
   const saveNow = async (p = project, d = docRef.current) => {
     if (!p || !online) return;
     setSaving('saving');
     try {
-      await saveAtelier(p.id, p.title, d, makeThumb(d), makeThumbs(d));
+      const thumb = makeThumb(d);
+      const thumbs = await makeThumbs(d);
+      const meta = await saveAtelier(p.id, p.title, d, thumb, thumbs);
+      // le menu de la composition montre aussitôt ce qui vient d'être enregistré, sans rien redemander au serveur
+      setSavedThumbs({ id: p.id, urls: thumbs ?? [thumb] });
+      setProjects((l) => l.map((x) => (x.id === meta.id ? { ...x, ...meta } : x)));
       setSaving(docRef.current === d ? 'saved' : 'dirty');
       if (docRef.current === d) setPending(null);
     } catch (err) {
@@ -648,6 +657,7 @@ export function App() {
       past.current = [];
       future.current = [];
       firstDoc.current = true;
+      setSavedThumbs(null);
       setDoc(migrate(r.doc));
       setPending(null);
       setSelected(null);
@@ -977,7 +987,46 @@ export function App() {
   // historique du menu de la campagne : demandé au serveur pour cette campagne seulement, à l'ouverture du menu
   const [campaignFeed, setCampaignFeed] = useState<ActivityEvent[] | null>(null);
   // menu de la composition : ses publications rendues d'après le document ouvert, retouches comprises
-  const previews = useMemo(() => (bubble === 'composition' ? (makeThumbs(doc) ?? [makeThumb(doc)]) : undefined), [bubble, doc, activity]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Menu de la composition : les vignettes enregistrées avec elle (serveur, ou celles du dernier enregistrement
+  // de cette séance), affichées aussitôt ; l'enregistrement automatique les refait quelques secondes après
+  // une retouche. Seule une page jamais enregistrée fait ses cartes ici, une à une, hors du geste.
+  const [savedThumbs, setSavedThumbs] = useState<{ id: string; urls: string[] } | null>(null);
+  const stored = !!project && projects.some((x) => x.id === project.id);
+  const [livePreviews, setLivePreviews] = useState<string[] | undefined>(undefined);
+  useEffect(() => {
+    if (bubble !== 'composition' || stored) return void setLivePreviews(undefined);
+    const n = doc.targets?.length || 1;
+    let stop = false;
+    const made: string[] = [];
+    const step = (i: number) => {
+      if (stop || i >= n) return;
+      let x = doc;
+      if (doc.targets?.length) {
+        x = docAtTarget(doc, i, activity);
+        setAnchorFrames(x);
+      }
+      try {
+        made[i] = makeThumb(x);
+      } finally {
+        setAnchorFrames(docRef.current);
+      }
+      const u = made[i];
+      // les cartes déjà faites restent jusqu'à leur remplaçante
+      setLivePreviews((l) => {
+        const next = (l ?? []).slice(0, n);
+        next[i] = u;
+        return next;
+      });
+      t = window.setTimeout(() => step(i + 1), 16);
+    };
+    // juste après une retouche, on attend que le geste se calme
+    let t = window.setTimeout(() => step(0), 400);
+    return () => {
+      stop = true;
+      clearTimeout(t);
+    };
+  }, [bubble, doc, activity, stored]); // eslint-disable-line react-hooks/exhaustive-deps
+  const previews = stored ? (savedThumbs?.id === project?.id ? savedThumbs?.urls : undefined) : livePreviews;
   // menu de la composition : l'historique de sa campagne à elle
   const menuOpen = bubble === 'projects' || bubble === 'composition';
   const campaignScope = bubble === 'composition' && project ? (projects.find((x) => x.id === project.id)?.campaign ?? '') : (followed?.id ?? '');
