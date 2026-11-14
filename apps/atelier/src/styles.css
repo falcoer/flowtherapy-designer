@@ -2606,6 +2606,17 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 /* jeux de paramètres d'un élément : un petit trait d'exemple par jeu */
 .fan-ico:has(.preset-thumb) { width: 52px; }
 .preset-thumb { width: 52px; height: 32px; border-radius: 8px; object-fit: cover; display: block; }
+/* Volume : dans une plaque, chaque option tient sa ligne (son nom à gauche, son réglage à droite) et
+   les potards se rangent ensemble dessous ; rien ne passe à la ligne au milieu d'un réglage, même
+   quand la plaque est étroite (trois plaques de front sur une tablette en portrait) */
+.ap-depths .ap-ecard { gap: 4px; padding: 6px 10px; }
+.ap-pane .ap-depths .ap-ecard-b .cp-attrs { row-gap: 4px; column-gap: 4px; align-items: flex-start; }
+.ap-pane .ap-depths .ap-ecard-b .cp-attrs > .cp-row { flex: 1 1 100%; display: flex; justify-content: space-between; gap: 8px; min-width: 0; min-height: 26px; }
+.ap-pane .ap-depths .ap-ecard-b .cp-attrs > .cp-row > span:first-child { flex: none; }
+.ap-pane .ap-depths .ap-ecard-b .cp-attrs > .cp-row .seg { flex: 0 1 150px; flex-wrap: nowrap; min-width: 0; }
+.ap-pane .ap-depths .ap-ecard-b .cp-attrs > .cp-row .seg button { flex: 1 1 0; min-width: 0; height: 26px; padding: 0 1px; }
+.ap-pane .ap-depths .ap-ecard-b .cp-attrs > .cp-row input[type='checkbox'] { flex: none; margin: 0; }
+.ap-pane .ap-depths .ap-ecard-b .cp-dial { flex: 1 1 64px; max-width: 96px; }
 /* Volume › Biseau : orientation en trois petits pictogrammes */
 .cp-seg .ap-axis { padding: 3px 8px; display: inline-flex; align-items: center; justify-content: center; }
 .cp-seg .ap-axis svg { display: block; }
