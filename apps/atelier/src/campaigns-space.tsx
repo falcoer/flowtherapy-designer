@@ -1367,6 +1367,7 @@ function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit:
           <textarea ref={area} className="pf-input" rows={7} value={body} maxLength={2200} disabled={!p.canEdit} placeholder={cur ? 'Ce que dit cette étape : le rappel, les dernières places…' : 'L’annonce commune aux publications : la date, le lieu, ce qui attend le public…'} onChange={(e) => setBody(e.target.value)} />
         </label>
         <small className="fx-hint">
+          {post.length > 0 && `${post.length} caractères, lien et mots-dièse compris. `}
           {cur
             ? usedBy.length
               ? `Déposé sur ${usedBy.join(', ')} dans la frise.`
@@ -1384,29 +1385,27 @@ function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit:
             ))}
           </div>
         )}
+      </div>
+      <div className="sp-write-side">
+        <span className="sp-field-k">Ajoutés à tous les textes</span>
         <label className="sp-field">
-          <span>Mots-dièse (ajoutés à tous les textes)</span>
+          <span>Mots-dièse</span>
           <input className="pf-input" value={hashtags} disabled={!p.canEdit} placeholder="#concert #risorangis" onChange={(e) => setHashtags(e.target.value)} />
         </label>
         <label className="sp-field">
-          <span>Lien (billetterie, évènement… ; ajouté à tous les textes)</span>
+          <span>Lien (billetterie, évènement…)</span>
           <input className={`pf-input ${linkOk ? '' : 'bad'}`} type="url" value={link} disabled={!p.canEdit} placeholder="https://…" onChange={(e) => setLink(e.target.value)} />
           {!linkOk && <small className="pf-err">Un lien commence par https://</small>}
         </label>
-        {p.canEdit && (
-          <div className="sp-row">
-            <button className="sp-btn primary" disabled={!dirty || busy || !linkOk} onClick={() => void save()}>
-              Enregistrer
-            </button>
-            {msg && <small className="fx-hint">{msg}</small>}
-          </div>
-        )}
       </div>
-      <div className="sp-write-preview">
-        <span className="sp-field-k">Aperçu du post{cur ? ` « ${cur.name} »` : ''}</span>
-        <div className="sp-post">{post || <span className="fx-hint">Le texte, les mots-dièse et le lien s’assemblent ici.</span>}</div>
-        <small className="fx-hint">{post.length} caractères.{cur ? '' : ' Chaque composition part de ce texte dans Publier, et peut l’adapter.'}</small>
-      </div>
+      {p.canEdit && (
+        <div className="sp-row sp-write-save">
+          <button className="sp-btn primary" disabled={!dirty || busy || !linkOk} onClick={() => void save()}>
+            Enregistrer
+          </button>
+          {msg && <small className="fx-hint">{msg}</small>}
+        </div>
+      )}
     </div>
   );
 }
