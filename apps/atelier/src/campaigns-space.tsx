@@ -6,7 +6,7 @@ import { ActivityMark } from './activity';
 import { Icon } from './icons';
 import { formatOf } from './model';
 import { ROLE_LABELS, thumbUrl, type ActivityEvent, type ActivityProfile, type AtelierMeta, type Campaign, type CampaignInput, type CampaignText, type Operation, type PlanItem, type PostizAccounts, type Target, type TeamRef } from './server';
-import { addDays, addPlanRow, campaignCaption, patchStep, planChoices, planFromOperation, planSteps, stepKey, uniquePlanId, type PlanStep } from './plan';
+import { MAIN_TEXT, addDays, addPlanRow, campaignCaption, patchStep, planChoices, planFromOperation, planSteps, planText, stepKey, uniquePlanId, type PlanStep } from './plan';
 
 export { campaignCaption };
 import { PostizPlanActions } from './postiz-ui';
@@ -887,7 +887,7 @@ function usePlanBoard(p: {
     };
   };
   const writeFor = (s: PlanStep) => {
-    const id = uniquePlanId(s.name || 'texte', texts, 'texte');
+    const id = uniquePlanId(s.name || 'texte', [...texts, { id: MAIN_TEXT }], 'texte');
     p.onPlan(patchStep(plan, s.key, { text: id }), [...texts, { id, name: s.name || 'Texte', text: '' }]);
     p.onWrite(id);
   };
@@ -991,7 +991,7 @@ function usePlanBoard(p: {
     );
   };
   const textZone = (s: PlanStep) => {
-    const x = s.text ? texts.find((y) => y.id === s.text) : undefined;
+    const x = planText(c ?? undefined, s);
     const z = zoneProps(`text:${s.key}`, 'text', p.canEdit);
     return (
       <div {...z} className={`sp-zone sp-zone-text ${x ? 'filled' : ''} ${z.className}`}>
@@ -1107,7 +1107,7 @@ function usePlanBoard(p: {
           )}
           {lay.cols.map(({ s, x, w }) => {
             const late = s.date && s.date < t && s.rows.some((it) => !it.published);
-            const tx = s.text ? texts.find((y) => y.id === s.text) : undefined;
+            const tx = planText(c ?? undefined, s);
             const tz = zoneProps(`text:${s.key}`, 'text', p.canEdit);
             const on = open?.key === s.key;
             const pick = () => setSel(on ? null : s.rows[0]!.id);
@@ -1292,7 +1292,7 @@ function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit:
   const linkOk = !link.trim() || /^https?:\/\/\S+$/.test(link.trim());
   const mentions = contactsOf(p.activity).map((x) => ({ name: x.label || CONTACT_KINDS[x.kind], text: x.value }));
   const post = campaignCaption({ hashtags, link }, body);
-  const usedBy = cur ? planSteps(p.c.plan ?? []).filter((s) => s.text === cur.id).map((s) => s.name || 'étape sans nom') : [];
+  const usedBy = planSteps(p.c.plan ?? []).filter((s) => s.text === (cur?.id ?? MAIN_TEXT)).map((s) => s.name || 'étape sans nom');
   const save = async () => {
     setBusy(true);
     try {
@@ -1307,7 +1307,14 @@ function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit:
     <div className="sp-write">
       <div className="sp-write-form">
         <div className="sp-chips" role="radiogroup" aria-label="Texte à rédiger">
-          <button role="radio" aria-checked={!cur} className={`sp-chip ${cur ? '' : 'on'}`} onClick={() => p.onSel('main')}>
+          <button
+            role="radio"
+            aria-checked={!cur}
+            className={`sp-chip ${cur ? '' : 'on'} ${p.canEdit ? 'grabbable' : ''}`}
+            onClick={() => p.onSel(MAIN_TEXT)}
+            onPointerDown={(e) => p.canEdit && p.drag.grab(e, { kind: 'text', id: MAIN_TEXT }, 'Texte principal')}
+            title="Se glisse sur la piste des textes de la frise"
+          >
             Texte principal
           </button>
           {texts.map((x) => (
@@ -1327,7 +1334,7 @@ function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit:
             <button
               className="sp-chip sp-chip-add"
               onClick={() => {
-                const id = uniquePlanId('texte', texts, 'texte');
+                const id = uniquePlanId('texte', [...texts, { id: MAIN_TEXT }], 'texte');
                 setTexts((l) => [...l, { id, name: `Texte ${l.length + 1}`, text: '' }]);
                 p.onSel(id);
               }}
@@ -1352,13 +1359,20 @@ function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit:
                 className="sp-btn sm"
                 onClick={() => {
                   setTexts((l) => l.filter((x) => x.id !== cur.id));
-                  p.onSel('main');
+                  p.onSel(MAIN_TEXT);
                 }}
                 title={usedBy.length ? `Il quittera aussi ${usedBy.join(', ')}` : undefined}
               >
                 Supprimer ce texte
               </button>
             )}
+          </div>
+        )}
+        {!cur && p.canEdit && (
+          <div className="sp-row">
+            <PlanGrip drag={p.drag} item={{ kind: 'text', id: MAIN_TEXT }} label="Texte principal">
+              Placer sur la frise
+            </PlanGrip>
           </div>
         )}
         <label className="sp-field">
@@ -1374,7 +1388,7 @@ function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit:
               : saved(cur.id)
                 ? 'Pas encore dans le plan : glisse-le sur la piste des textes de la frise.'
                 : 'Enregistre-le, puis glisse-le sur la piste des textes de la frise.'
-            : 'Sert aux étapes du plan qui n’ont pas de texte à elles.'}
+            : `${usedBy.length ? `Déposé sur ${usedBy.join(', ')} dans la frise. ` : ''}Sert ${usedBy.length ? 'aussi ' : ''}aux étapes du plan qui n’ont pas de texte à elles.`}
         </small>
         {p.canEdit && mentions.length > 0 && (
           <div className="pub-mentions">

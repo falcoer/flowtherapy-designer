@@ -118,7 +118,10 @@ export function addPlanRow(plan: PlanItem[], t: Target, step?: PlanStep): PlanIt
 export function campaignCaption(c: Pick<Campaign, 'caption' | 'hashtags' | 'link'>, body = c.caption): string {
   return [body?.trim(), c.link?.trim(), c.hashtags?.trim()].filter(Boolean).join('\n\n');
 }
-export const planText = (c: Pick<Campaign, 'texts'> | undefined, it: Pick<PlanItem, 'text'>): CampaignText | undefined => (it.text ? c?.texts?.find((t) => t.id === it.text) : undefined);
+/** L'identifiant réservé du texte principal de la campagne, quand il est déposé sur une étape comme un texte nommé. */
+export const MAIN_TEXT = 'main';
+export const planText = (c: Pick<Campaign, 'texts' | 'caption'> | undefined, it: Pick<PlanItem, 'text'>): CampaignText | undefined =>
+  !it.text || !c ? undefined : it.text === MAIN_TEXT ? { id: MAIN_TEXT, name: 'Texte principal', text: c.caption ?? '' } : c.texts?.find((t) => t.id === it.text);
 
 /**
  * Le texte envoyé avec une ligne du plan : celui déposé sur son étape (avec le lien et les mots-dièse de

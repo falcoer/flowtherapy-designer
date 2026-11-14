@@ -63,5 +63,7 @@ describe('plan de publication', () => {
     expect(planCaption(c, { id: 'x', format: 'carre', text: 'rappel' }, 'Texte de la composition')).toBe('C’est samedi.\n\nhttps://billets.example\n\n#concert');
     expect(planCaption(c, { id: 'x', format: 'carre' }, 'Texte de la composition')).toBe('Texte de la composition');
     expect(planCaption(c, { id: 'x', format: 'carre', text: 'disparu' })).toBe('Venez !\n\nhttps://billets.example\n\n#concert');
+    // le texte principal déposé sur l'étape passe devant celui de la composition
+    expect(planCaption(c, { id: 'x', format: 'carre', text: 'main' }, 'Texte de la composition')).toBe('Venez !\n\nhttps://billets.example\n\n#concert');
   });
 });

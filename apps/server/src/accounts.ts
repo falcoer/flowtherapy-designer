@@ -1027,6 +1027,7 @@ export interface PlanItem {
 export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'caption' | 'hashtags' | 'link' | 'texts' | 'templates' | 'plan'>>;
 
 const SLUG40 = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const MAIN_TEXT = 'main';
 function cleanCampaign(c: CampaignInput) {
   const date = str(c.date, 10);
   const k = c.contact ?? {};
@@ -1040,10 +1041,11 @@ function cleanCampaign(c: CampaignInput) {
   const templates = [...new Set(arr<string>(c.templates).filter((t) => typeof t === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(t)))].slice(0, 20);
   const textIds = new Set<string>();
   const texts = arr<{ id: string; name: string; text: string }>(c.texts)
-    .filter((x) => x && typeof x === 'object' && SLUG40.test(str(x.id, 40)) && !textIds.has(x.id) && textIds.add(x.id))
+    .filter((x) => x && typeof x === 'object' && SLUG40.test(str(x.id, 40)) && x.id !== MAIN_TEXT && !textIds.has(x.id) && textIds.add(x.id))
     .slice(0, 20)
     .map((x) => ({ id: x.id, name: str(x.name, 60) || 'Texte', text: typeof x.text === 'string' ? x.text.slice(0, 2200) : '' }));
-  const kept = new Set(texts.map((x) => x.id));
+  // le texte principal (caption) se dépose aussi sur une étape, sous un identifiant réservé
+  const kept = new Set([MAIN_TEXT, ...texts.map((x) => x.id)]);
   const ids = new Set<string>();
   const plan = arr<PlanItem>(c.plan)
     .filter((x) => x && typeof x === 'object' && str(x.format, 40) && /^[a-z0-9][a-z0-9-]{0,39}$/.test(str(x.id, 40)) && !ids.has(x.id) && ids.add(x.id))

@@ -393,6 +393,15 @@ describe('équipes', () => {
     const untexted = (await jenni.send('PATCH', '/api/campaigns/concert-du-plan', { texts: [] })).json().campaign;
     expect(untexted.texts).toBeUndefined();
     expect(untexted.plan[0]).toEqual({ id: 'rappel', channel: 'facebook', format: 'carre', label: 'Rappel', step: 'rappel' });
+    // le texte principal se dépose aussi, sous l'identifiant réservé « main », qu'aucun texte nommé ne peut prendre
+    const main = (
+      await jenni.send('PATCH', '/api/campaigns/concert-du-plan', {
+        texts: [{ id: 'main', name: 'Usurpateur', text: 'x' }],
+        plan: [{ id: 'rappel', channel: 'facebook', format: 'carre', label: 'Rappel', step: 'rappel', text: 'main' }],
+      })
+    ).json().campaign;
+    expect(main.texts).toBeUndefined();
+    expect(main.plan[0].text).toBe('main');
 
     // modèles de la campagne, et copie d'une composition dans une autre campagne
     const tpl = (await jenni.send('PATCH', '/api/campaigns/concert-du-plan', { templates: ['affiche-lauris', 'affiche-lauris', 'Pas Valide'] })).json().campaign;
