@@ -68,6 +68,7 @@ const NEW = [
   'spiral',
   'peace',
   'rule',
+  'vortex',
 ] as const;
 export type SilhouetteKind = keyof typeof LEGACY | (typeof NEW)[number];
 
@@ -179,6 +180,7 @@ export const SHAPE_FAMILIES: Array<[string, Array<[string, string]>]> = [
       ['spiral', 'Spirale'],
       ['peace', 'Paix'],
       ['rule', 'Filet'],
+      ['vortex', 'Œil spirale'],
     ],
   ],
 ];
@@ -1200,6 +1202,20 @@ function build(k: SilhouetteKind): MultiPolygon {
         ellipse(-1, 0, 0.018, 0.018, 0, 12),
         ellipse(1, 0, 0.018, 0.018, 0, 12),
       );
+    case 'vortex': {
+      // triangle au trait, trois courbes qui partent des sommets et s'enroulent en œil spirale au centre
+      const pol = (a: number, r: number): P => [Math.cos(a) * r, Math.sin(a) * r];
+      const V = [0, 1, 2].map((j) => -Math.PI / 2 + (j * 2 * Math.PI) / 3);
+      const edges = V.map((a, j) => {
+        const [p, q] = [pol(a, 1), pol(V[(j + 1) % 3]!, 1)];
+        return band(p, [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], q, () => 0.05, 2);
+      });
+      const corners = V.map((a) => ellipse(...pol(a, 1), 0.025, 0.025, 0, 12));
+      const arms = V.map((a) => stroke([pol(a, 0.97), pol(a + 0.12, 0.62), pol(a + 0.55, 0.42), pol(a + 1.35, 0.33), pol(a + 2.3, 0.3)], (t) => 0.05 - 0.02 * t));
+      // l'œil : spirale de deux tours, dans le sens des bras, qui finit là où arrive le premier bras
+      const eye = stroke(spiralPts(0, 0, 0.3, -2, -Math.PI / 2 + 2.3 + 4 * Math.PI, 56), (t) => 0.02 + 0.012 * t);
+      return union(...edges, ...corners, ...arms, eye, ellipse(0, 0, 0.045, 0.045, 0, 16));
+    }
     case 'pennant':
       return union(
         rect(-0.05, -1, 0.04, 1),
