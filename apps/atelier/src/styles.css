@@ -294,7 +294,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .lamp-panel .hint { margin: 0; font-size: 11px; line-height: 1.35; color: var(--muted); }
 
 /* astuces masquées : on garde les menus, sans leurs textes d'aide */
-.no-tips .hint, .no-tips .fx-hint, .no-tips .status, .no-tips .mode-pop .row small, .no-tips .layer-main small { display: none !important; }
+.no-tips .hint, .no-tips .fx-hint:not(.pz-note), .no-tips .status, .no-tips .mode-pop .row small, .no-tips .layer-main small { display: none !important; }
 
 /* sections du mode Modifier l'objet : bandeau à côté de la barre d'outils */
 .edit-sections { position: absolute; top: 64px; left: 64px; z-index: 15; display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--chrome); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: var(--shadow); max-width: calc(100vw - 80px); overflow-x: auto; }
