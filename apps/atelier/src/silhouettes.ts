@@ -62,6 +62,12 @@ const NEW = [
   'seal',
   'balloon',
   'pennant',
+  'lotus',
+  'infinity',
+  'triskel',
+  'spiral',
+  'peace',
+  'rule',
 ] as const;
 export type SilhouetteKind = keyof typeof LEGACY | (typeof NEW)[number];
 
@@ -162,6 +168,17 @@ export const SHAPE_FAMILIES: Array<[string, Array<[string, string]>]> = [
       ['seal', 'Sceau'],
       ['balloon', 'Ballon'],
       ['pennant', 'Fanion'],
+    ],
+  ],
+  [
+    'Symboles',
+    [
+      ['lotus', 'Lotus'],
+      ['infinity', 'Infini'],
+      ['triskel', 'Triskel'],
+      ['spiral', 'Spirale'],
+      ['peace', 'Paix'],
+      ['rule', 'Filet'],
     ],
   ],
 ];
@@ -292,6 +309,31 @@ const turn = (g: G, a: number, cx = 0, cy = 0): MultiPolygon => {
 const sign = (plate: (k: number) => G, cy: number) => union(minus(plate(1), minus(plate(0.86), plate(0.74))), rect(-0.05, cy, 0.05, 1));
 /** Roue vue de côté : pneu plein et moyeu évidé. */
 const wheel = (cx: number, cy: number, r: number) => minus(ellipse(cx, cy, r, r, 0, 40), ellipse(cx, cy, r * 0.38, r * 0.38, 0, 24));
+
+/** Pétale pointé : de sa base (bx, by), long de `len`, large de `wid`, penché de `a` (0 = vers le haut). */
+const petal = (bx: number, by: number, len: number, wid: number, a: number, n = 28): Polygon => {
+  const side = (sgn: number) =>
+    Array.from({ length: n + 1 }, (_, i) => {
+      const t = sgn > 0 ? i / n : 1 - i / n;
+      // ventre arrondi près de la base, pointe effilée
+      const hw = (wid / 2) * Math.sin(Math.PI * Math.pow(t, 0.75)) ** 0.9;
+      return [sgn * hw, -t * len] as P;
+    });
+  const pts = [...side(1), ...side(-1).slice(1, -1)];
+  const [c, s2] = [Math.cos(a), Math.sin(a)];
+  return ring(pts.map(([x, y]) => [bx + x * c - y * s2, by + x * s2 + y * c] as P));
+};
+/** Pétale élargi d'un rien, retiré de ceux de derrière : un fin jour sépare les pétales (beau en néon). */
+const gap = (bx: number, by: number, len: number, wid: number, a: number, k = 0.05): Polygon => petal(bx, by + k * 0.6, len * (1 + k * 1.4), wid + k * 1.1, a);
+/** Trait fermé le long d'une suite de points (boucle) : on recolle le début à la fin. */
+const loop = (pts: P[], w: (t: number) => number) => stroke([...pts, pts[0]!, pts[1]!], w);
+/** Spirale d'Archimède partant du centre, `turns` tours, rayon final r, tournée de a0. */
+const spiralPts = (cx: number, cy: number, r: number, turns: number, a0: number, n = 40): P[] =>
+  Array.from({ length: n + 1 }, (_, i) => {
+    const t = i / n;
+    const a = a0 + t * turns * Math.PI * 2;
+    return [cx + Math.cos(a) * r * t, cy + Math.sin(a) * r * t] as P;
+  });
 
 function build(k: SilhouetteKind): MultiPolygon {
   switch (k) {
@@ -1093,6 +1135,70 @@ function build(k: SilhouetteKind): MultiPolygon {
           [-0.13, 0.52],
         ]),
         band([0, 0.5], [0.18, 0.8], [-0.04, 1.15], () => 0.035),
+      );
+    case 'lotus': {
+      // fleur de lotus : pétale central, deux paires sur les côtés, deux feuilles couchées ; un fin jour entre chaque
+      const B: P = [0, 0.55];
+      const center = petal(B[0], B[1], 1.45, 0.62, 0);
+      const mid = [petal(B[0], B[1], 1.25, 0.56, -0.55), petal(B[0], B[1], 1.25, 0.56, 0.55)];
+      const out = [petal(B[0], B[1] + 0.02, 1.05, 0.5, -1.05), petal(B[0], B[1] + 0.02, 1.05, 0.5, 1.05)];
+      const low = [petal(0, 0.62, 0.95, 0.36, -1.5), petal(0, 0.62, 0.95, 0.36, 1.5)];
+      const cut1 = gap(B[0], B[1], 1.45, 0.62, 0);
+      const cut2 = [gap(B[0], B[1], 1.25, 0.56, -0.55), gap(B[0], B[1], 1.25, 0.56, 0.55)];
+      const cut3 = [gap(B[0], B[1] + 0.02, 1.05, 0.5, -1.05), gap(B[0], B[1] + 0.02, 1.05, 0.5, 1.05)];
+      return union(
+        center,
+        minus(union(...mid), cut1),
+        minus(union(...out), cut1, ...cut2),
+        minus(union(...low), cut1, ...cut2, ...cut3),
+      );
+    }
+    case 'infinity':
+      // lemniscate de Bernoulli, trait un peu plus fin au croisement
+      return loop(
+        Array.from({ length: 64 }, (_, i) => {
+          const t = (i / 64) * Math.PI * 2;
+          const d = 1 + Math.sin(t) ** 2;
+          return [Math.cos(t) / d, (Math.sin(t) * Math.cos(t)) / d] as P;
+        }),
+        () => 0.11,
+      );
+    case 'triskel':
+      // trois spirales enroulées autour de trois centres, reliées au milieu par un bras qui s'épaissit
+      return union(
+        ...[0, 1, 2].map((j) => {
+          const a = -Math.PI / 2 + (j * 2 * Math.PI) / 3;
+          const [cx, cy] = [Math.cos(a) * 0.46, Math.sin(a) * 0.46];
+          // la spirale finit tournée vers le centre, le bras la prolonge en tournant
+          const sp = spiralPts(cx, cy, 0.44, 1.5, a + Math.PI - 3 * Math.PI, 34);
+          const bend: P = [Math.cos(a + 1.2) * 0.2, Math.sin(a + 1.2) * 0.2];
+          return stroke([...sp, bend, [0, 0]], (t) => 0.02 + 0.11 * t ** 1.4);
+        }),
+        ellipse(0, 0, 0.12, 0.12, 0, 24),
+      );
+    case 'spiral':
+      return stroke(spiralPts(0, 0, 1, 3, -Math.PI / 2, 72), (t) => 0.035 + 0.1 * t);
+    case 'peace':
+      // cercle, barre verticale et deux jambes, gardées dans l'anneau
+      return union(
+        annulus(1, 0.84),
+        minus(
+          union(rect(-0.07, -0.9, 0.07, 0.9), band([0, 0.02], [-0.3, 0.32], [-0.62, 0.62], () => 0.14, 4), band([0, 0.02], [0.3, 0.32], [0.62, 0.62], () => 0.14, 4)),
+          minus(rect(-2, -2, 2, 2), ellipse(0, 0, 0.88, 0.88, 0, 64)),
+        ),
+      );
+    case 'rule':
+      // filet : un trait qui s'effile vers les deux bouts, un losange au milieu
+      return union(
+        band([-1, 0], [0, 0], [1, 0], (t) => 0.03 * Math.sin(Math.PI * t) ** 0.6 + 0.003, 48),
+        ring([
+          [-0.09, 0],
+          [0, -0.05],
+          [0.09, 0],
+          [0, 0.05],
+        ]),
+        ellipse(-1, 0, 0.018, 0.018, 0, 12),
+        ellipse(1, 0, 0.018, 0.018, 0, 12),
       );
     case 'pennant':
       return union(

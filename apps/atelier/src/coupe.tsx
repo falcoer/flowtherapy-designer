@@ -5,7 +5,7 @@ import { BORDER_TYPES, fxPreview, GLOW_TYPES, Knob, swatch } from './App';
 import { FX, fxGuides, fxKnobs, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
-import { GEN_DEFAULTS, SKINS, VOLUMES, bevelSoftName, bevelSoftOf, volumeName, type Doc, type Layer } from './model';
+import { GEN_DEFAULTS, LAYER_BLENDS, SKINS, VOLUMES, bevelSoftName, bevelSoftOf, volumeName, type Doc, type Layer } from './model';
 import { ensureFont, fontFamily, fontsFor, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { AlignGlyph, TextContent, useLazyText, WarpGlyph, weightName } from './textbar';
 import { TiltPad } from './tilt';
@@ -746,6 +746,29 @@ export function CoupePanel({
             {l.material && <Attrs bare layer={l} doc={doc} item={{ sec: 'support', key: 'material', name: '', bg: '', removable: true }} patch={patch} />}
           </SlotRow>
         </div>
+        {!surface && (
+          <div className="ap-blend" role="radiogroup" aria-label="Fusion avec ce qui est dessous">
+            <span className="ap-slot-l">Fusion</span>
+            <span className="seg cp-seg">
+              {LAYER_BLENDS.map(([k, name, hint]) => (
+                <button
+                  key={name}
+                  role="radio"
+                  aria-checked={l.blend === k}
+                  className={l.blend === k ? 'on' : ''}
+                  title={hint}
+                  onClick={() => {
+                    if (l.blend === k) return;
+                    patch({ blend: k });
+                    onToast(`Fusion : ${name}`, true);
+                  }}
+                >
+                  {name}
+                </button>
+              ))}
+            </span>
+          </div>
+        )}
       </div>
     );
   } else if (tab === 'edge') {

@@ -1,0 +1,15 @@
+id: satisfy
+type: font
+title: Satisfy
+family: Satisfy
+files:
+- weight: 400
+  style: normal
+  path: Satisfy-Regular.ttf
+tags:
+- police
+- script
+- manuscrite
+origin:
+  url: https://github.com/google/fonts/tree/main/apache/satisfy
+  license: Apache-2.0

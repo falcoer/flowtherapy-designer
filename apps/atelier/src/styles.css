@@ -3106,3 +3106,8 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .saved .saved-set { flex: none; min-width: 72px; height: 26px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; background: var(--accent-soft); color: var(--accent); font-weight: 650; }
 .saved .saved-set small { font-weight: 400; font-size: 11px; }
 .pal-lib-save:disabled { opacity: 0.4; }
+
+/* Support › Fusion : sur toute la largeur, sous la teinte et les emplacements */
+.ap-blend { grid-column: 1 / -1; flex: 1 1 100%; display: flex; align-items: center; gap: 10px; padding-top: 8px; margin-top: 4px; border-top: 1px solid var(--line); min-width: 0; }
+.ap-blend .seg { flex-wrap: wrap; min-width: 0; }
+.ap-blend .seg button { font-size: 12px; }

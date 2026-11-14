@@ -32,6 +32,10 @@ FONTS = [
     ('marker', 'Permanent Marker', ['manuscrite', 'feutre'], 'Apache-2.0', [('apache/permanentmarker/PermanentMarker-Regular.ttf', 400, None, 'normal')]),
     ('bungee', 'Bungee', ['titre', 'enseigne'], 'OFL-1.1', [('ofl/bungee/Bungee-Regular.ttf', 400, None, 'normal')]),
     ('monoton', 'Monoton', ['titre', 'neon', 'enseigne'], 'OFL-1.1', [('ofl/monoton/Monoton-Regular.ttf', 400, None, 'normal')]),
+    ('kaushan', 'Kaushan Script', ['titre', 'script', 'pinceau'], 'OFL-1.1', [('ofl/kaushanscript/KaushanScript-Regular.ttf', 400, None, 'normal')]),
+    ('yellowtail', 'Yellowtail', ['titre', 'script', 'pinceau', 'retro'], 'Apache-2.0', [('apache/yellowtail/Yellowtail-Regular.ttf', 400, None, 'normal')]),
+    ('dancing', 'Dancing Script', ['script', 'manuscrite'], 'OFL-1.1', [('ofl/dancingscript/DancingScript[wght].ttf', 400, 700, 'normal')]),
+    ('satisfy', 'Satisfy', ['script', 'manuscrite'], 'Apache-2.0', [('apache/satisfy/Satisfy-Regular.ttf', 400, None, 'normal')]),
 ]
 
 

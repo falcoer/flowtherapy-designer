@@ -822,7 +822,9 @@ export const hollowOf = (l: Layer) => !!l.hollow && l.kind !== 'surface';
 
 /** Profondeur de l'extrusion à 1, en fraction du petit côté, et sa part dans la hauteur d'ombre. */
 export const EXTRUDE_DEPTH = 0.05;
-const shadowLevel = (l: Layer) => l.height + (hollowOf(l) ? 0 : (l.extrude ?? 0) * 0.4);
+/** Une couche de lumière (fusion Lumière ou Addition) ne porte pas d'ombre. */
+const lightBlend = (l: Layer) => l.blend === 'screen' || l.blend === 'lighter';
+const shadowLevel = (l: Layer) => (lightBlend(l) ? 0 : l.height + (hollowOf(l) ? 0 : (l.extrude ?? 0) * 0.4));
 
 /**
  * Extrusion à plat : le flanc de l'objet, sa silhouette répétée vers l'ombre (à l'opposé de la
@@ -869,7 +871,8 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     const feather = !flattening.has(l.id) && l.kind !== 'surface' && (l.trim?.blur ?? 0) > 0.01;
     // profondeur de champ : hors de la hauteur mise au point, la couche se floute (rayon en pixels du canevas)
     const dof = flattening.has(l.id) ? 0 : dofRadius(l, doc, f, o.scale);
-    if (opacityOf(l) < 1 || burnt || feather || dof > 0.4) {
+    const blend = flattening.has(l.id) || l.kind === 'surface' ? undefined : l.blend;
+    if (opacityOf(l) < 1 || burnt || feather || dof > 0.4 || blend) {
       const c = (layerBuffers[depth] ??= document.createElement('canvas'));
       c.width = ctx.canvas.width;
       c.height = ctx.canvas.height;
@@ -921,6 +924,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = opacityOf(l);
+      if (blend) ctx.globalCompositeOperation = blend;
       // un fond flou garde ses bords pleins : la version nette dessous, la floue par-dessus
       if (dof > 0.4 && l.kind === 'surface') ctx.drawImage(c, 0, 0);
       drawBlurred(ctx, c, dof);
@@ -936,6 +940,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
           ctx.translate(-b.cx, -b.cy);
         }
         ctx.globalAlpha = opacityOf(l);
+        if (blend) ctx.globalCompositeOperation = blend;
         ctx.drawImage(fl.c, b.cx - b.w / 2 + fl.x * b.w, b.cy - b.h / 2 + fl.y * b.h, fl.w * b.w, fl.h * b.h);
         ctx.restore();
       }
@@ -1610,6 +1615,7 @@ function drawGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, 
     const gx = c.getContext('2d')!;
     gx.setTransform(S, 0, 0, S, -(bb.x0 - pad) * S, -(bb.y0 - pad) * S);
     paintGlow(gx, l, doc, f, { ...o, scale: S }, gl);
+    if (!(gl.style in EDGE_ELEMENTS)) tintGlow(gx, l, doc.guides[gl.guide], f);
     hit = { c, x: bb.x0 - pad, y: bb.y0 - pad, w: c.width / S, h: c.height / S };
     // une seule image par lueur et par passe : on oublie l'ancienne
     for (const k of glowCache.keys()) if (k.startsWith(JSON.stringify([l.id, behind]).slice(0, -1) + ',')) glowCache.delete(k);
@@ -1617,6 +1623,47 @@ function drawGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, 
     if (glowCache.size > 64) glowCache.delete(glowCache.keys().next().value!);
   }
   ctx.drawImage(hit.c, bb.x0 - pad, bb.y0 - pad, hit.w, hit.h);
+}
+
+/**
+ * Lueur sur un guide en dégradé : elle prend, à chaque endroit, la teinte du dégradé posé sur l'objet
+ * (même placement que la surface), en gardant la clarté de son rendu : les cœurs blancs restent blancs.
+ */
+function tintGlow(gx: CanvasRenderingContext2D, l: Layer, g: Guide | undefined, f: Format) {
+  if (g?.type !== 'gradient' || g.stops.length < 2) return;
+  const b = layerBox(l, f);
+  const m = new DOMMatrix().translate(b.cx, b.cy).rotate(((l.rot ?? 0) * 180) / Math.PI);
+  const box = { x0: -b.w / 2, y0: -b.h / 2, x1: b.w / 2, y1: b.h / 2 };
+  let paint: CanvasPattern | CanvasGradient | null = shapedFill(gx, g, box, l.grad, m);
+  if (!paint) {
+    // comme la surface : de haut en bas dans la boîte de l'objet
+    const a = m.transformPoint(new DOMPoint(0, box.y0));
+    const z = m.transformPoint(new DOMPoint(0, box.y1));
+    const lin = gx.createLinearGradient(a.x, a.y, z.x, z.y);
+    blendStops(g.stops, g.blend).forEach(([p, c]) => lin.addColorStop(p, c));
+    paint = lin;
+  }
+  const c = gx.canvas;
+  // l'alpha d'origine, pour rendre à la lueur sa forme après la teinte
+  const keep = document.createElement('canvas');
+  keep.width = c.width;
+  keep.height = c.height;
+  keep.getContext('2d')!.drawImage(c, 0, 0);
+  const T = gx.getTransform();
+  gx.save();
+  gx.globalCompositeOperation = 'color';
+  gx.fillStyle = paint;
+  gx.setTransform(1, 0, 0, 1, 0, 0);
+  const inv = T.inverse();
+  // on couvre tout le canevas en coordonnées de la page
+  const p0 = inv.transformPoint(new DOMPoint(0, 0));
+  const p1 = inv.transformPoint(new DOMPoint(c.width, c.height));
+  gx.setTransform(T);
+  gx.fillRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+  gx.setTransform(1, 0, 0, 1, 0, 0);
+  gx.globalCompositeOperation = 'destination-in';
+  gx.drawImage(keep, 0, 0);
+  gx.restore();
 }
 
 function paintGlow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, gl: NonNullable<Layer['glow']>) {
