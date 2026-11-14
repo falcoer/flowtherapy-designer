@@ -659,6 +659,8 @@ export function App() {
       setProject({ id: m.id, title: r.title });
       setSaving('saved');
       setBubble(null);
+      // une composition ouverte (depuis la campagne, un modèle, une copie, le fil) se montre aussitôt
+      setSpace(null);
       setToast(`« ${r.title} » ouverte`);
       return true;
     } catch (err) {
@@ -734,6 +736,7 @@ export function App() {
       setSelected(null);
     }
     setProject(p);
+    setSpace(null);
     await saveNow(p, d);
     refreshProjects();
   };

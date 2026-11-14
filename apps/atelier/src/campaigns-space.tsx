@@ -693,8 +693,11 @@ export function BackNav(p: {
         </button>
       )}
       {!p.space && (
-        <button className={`sp-title ${p.titleOn ? 'on' : ''}`} onClick={p.onTitle} title="La composition : titre, publications, historique">
-          <span>{p.title ?? 'Page non enregistrée'}</span>
+        <button className={`sp-title ${p.titleOn ? 'on' : ''}`} onClick={p.onTitle} title="La composition : titre, publications, historique" aria-label={`Menu de la composition ${p.title ?? 'non enregistrée'}`}>
+          <span className="sp-title-t">{p.title ?? 'Page non enregistrée'}</span>
+          <span className="sp-title-i" aria-hidden>
+            <Icon name="more" />
+          </span>
           {p.saving === 'error' && (
             <span className="crumb-alert inline" aria-label="Non enregistrée">
               !
