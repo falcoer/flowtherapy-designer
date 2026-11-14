@@ -1543,6 +1543,8 @@ export function App() {
   const growTimer = useRef(0);
   /** Couleur glissée depuis la palette (position écran). */
   const [dragGuide, setDragGuide] = useState<{ i: number; x: number; y: number } | null>(null);
+  /** Objets en surbrillance pendant le glisser d'une couleur (ceux qu'elle colorera). */
+  const colorAim = useRef<{ i: number; ids: string[] } | null>(null);
   /** Assistant de l'outil multicouche (baguette magique). */
   const [wizard, setWizard] = useState(false);
   /** Onglet de l'assistant demandé depuis un emplacement des attributs. */
@@ -2159,6 +2161,26 @@ export function App() {
         ctx.stroke();
       }
     }
+    // couleur en train d'être glissée : les objets qui la prendront au lâcher, en surbrillance
+    if (colorAim.current) {
+      const ids = new Set(colorAim.current.ids);
+      const hue = guideColor(doc.guides[colorAim.current.i], 0.5);
+      ctx.save();
+      for (const m of doc.layers.filter((x) => ids.has(x.id) && x.visible)) {
+        const path = maskPath2D(m, f);
+        ctx.globalAlpha = 0.45;
+        ctx.fillStyle = hue;
+        ctx.fill(path, 'evenodd');
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 4 * px;
+        ctx.stroke(path);
+        ctx.strokeStyle = '#7a5cff';
+        ctx.lineWidth = 2 * px;
+        ctx.stroke(path);
+      }
+      ctx.restore();
+    }
     // assemblage : l'ensemble bondit, s'entoure d'un liseré et se teinte un instant
     if (linkFx.current) {
       const t = Math.min(1, (performance.now() - linkFx.current.t0) / LINK_FX_MS);
@@ -2525,6 +2547,15 @@ export function App() {
     }
     return undefined;
   };
+  /** Ce qu'une couleur lâchée en (x, y) colorerait : l'ensemble de la pièce visée, ou la pièce seule avec Maj ; null sur un réglage des attributs. */
+  const colorTargets = (x: number, y: number): string[] | null => {
+    const under = document.elementFromPoint(x, y) as HTMLElement | null;
+    if (under?.closest('.ap-ecard, .cp-attrs, [data-tint-zone], [data-tint], aside.coupe [data-drop^="edge-"]')) return null;
+    const l = layerAtScreen(x, y);
+    if (!l || l.kind === 'photo') return null;
+    const group = l.link && !shiftNow.current ? doc.layers.filter((m) => m.link === l.link && m.kind !== 'photo' && m.kind !== 'surface') : [];
+    return group.length > 1 ? group.map((m) => m.id) : [l.id];
+  };
   const dropGuide = (i: number, x: number, y: number) => {
     setDragGuide(null);
     // déposée sur la zone d'un réglage qui prend une teinte (plaque de bord, formulaire, boîte) : cette teinte-là ;
@@ -2562,6 +2593,16 @@ export function App() {
     setSelected(l.id);
     setToast(`« ${l.name} » prend la couleur « ${doc.guides[i]?.name} »`);
   };
+  // pendant le glisser d'une couleur : la surbrillance suit le doigt et Maj
+  useEffect(() => {
+    const ids = dragGuide ? colorTargets(dragGuide.x, dragGuide.y) : null;
+    const next = ids && dragGuide ? { i: dragGuide.i, ids } : null;
+    const prev = colorAim.current;
+    if (JSON.stringify(prev) === JSON.stringify(next)) return;
+    colorAim.current = next;
+    redraw();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragGuide, shift]);
   /**
    * Met à la corbeille les éléments choisis (aujourd'hui un seul, demain une sélection multiple) avec leurs
    * objets solidaires, sauf si Maj est tenu. Le fond n'est jamais supprimé. Annulable.
