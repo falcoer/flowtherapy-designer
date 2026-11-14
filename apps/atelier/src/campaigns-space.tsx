@@ -840,11 +840,14 @@ export function CampaignPicker(p: {
   operations: Operation[];
   onActivity: () => void;
   onTeam: (id: string) => void;
+  /** créer une activité (administrateur) puis y passer */
+  onCreateTeam: (name: string) => void;
   onOpen: (id: string) => void;
   onAll: () => void;
   onClose: () => void;
 }) {
   const [teams, setTeams] = useState(false);
+  const [newName, setNewName] = useState('');
   const byId = new Map(p.campaigns.map((c) => [c.id, c]));
   const t = today();
   const list = p.recent.map((id) => byId.get(id)).filter((c): c is Campaign => !!c && !c.closed);
@@ -882,7 +885,21 @@ export function CampaignPicker(p: {
                 </span>
               </button>
             ))}
-            {!others.length && <p className="fx-hint">Aucune autre activité pour l’instant (on en crée depuis la fiche de l’activité).</p>}
+            {!others.length && <p className="fx-hint">Aucune autre activité pour l’instant.</p>}
+            {p.admin && (
+              <form
+                className="act-new"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (newName.trim()) p.onCreateTeam(newName.trim());
+                }}
+              >
+                <input className="pf-input" placeholder="Créer une nouvelle activité…" value={newName} onChange={(e) => setNewName(e.target.value)} aria-label="Nom de la nouvelle activité" />
+                <button className="act-icon cm-add" type="submit" disabled={!newName.trim()} title="Créer l’activité" aria-label="Créer l’activité">
+                  <Icon name="plus" />
+                </button>
+              </form>
+            )}
           </>
         ) : (
           <>
