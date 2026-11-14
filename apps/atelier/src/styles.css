@@ -796,6 +796,18 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 }
 /* bulles : jamais plus larges que l'écran moins la barre d'outils */
 .atelier .bubble:not(.format-bubble):not(.anchor-bubble):not(.projects-bubble):not(.act-menu.editing):not(.cat-panel) { width: min(340px, calc(100vw - 78px)); max-height: min(70dvh, calc(100dvh - 140px)); }
+/* au-delà du téléphone : annuler/rétablir prennent place entre le fil d'Ariane et les boutons de droite
+   (centrés tant que la place le permet), sans jamais passer par-dessus le bouton de la publication */
+@media (min-width: 561px) {
+  .bar-left { order: 0; }
+  .bar-center { order: 1; position: static; transform: none; flex: none; margin: 0 auto; height: 100%; }
+  .bar-right { order: 2; }
+}
+/* tablette : la pastille d'état garde son étape, l'action suivante est dans son menu */
+@media (min-width: 561px) and (max-width: 1100px) {
+  .sp-stage-next { display: none; }
+  .sp-stage { padding-right: 6px; }
+}
 /* téléphone : annuler, rétablir, dupliquer et corbeille dans une pastille sous la barre */
 @media (max-width: 560px) {
   .bar-center { top: calc(52px + env(safe-area-inset-top, 0px) + 6px); bottom: auto; height: 44px; padding: 0 4px; border-radius: 22px; background: var(--chrome); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: var(--shadow); z-index: 11; }
