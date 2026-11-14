@@ -46,9 +46,9 @@ import { CampaignDialog } from './campaigns-ui';
 import { NewCompositionDialog } from './compositions-ui';
 import { CompositionMenu, TopCrumbs } from './compositions-menu';
 import { CaptionTools } from './caption-tools';
-import { CampaignPage, CampaignPicker, CampaignsHome, StageButton, campaignCaption, type SpaceTab } from './campaigns-space';
+import { CampaignPage, CampaignPicker, CampaignsHome, StageButton, StageTrack, campaignCaption, stageOf, type SpaceTab } from './campaigns-space';
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
-import { MessagesButton, MessagesDialog } from './messages-ui';
+import { MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorFrames, setGuideFrame, hasZone, zoneOf, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
@@ -838,9 +838,12 @@ export function App() {
   /** la fiche de l'activité ouverte depuis le sous-menu de l'activité : dépliée d'emblée */
   const [activityFiche, setActivityFiche] = useState(false);
   const captionArea = useRef<HTMLTextAreaElement>(null);
-  const [stageOpen, setStageOpen] = useState(false);
   const [newDialog, setNewDialog] = useState(false);
   const [msgDialog, setMsgDialog] = useState(false);
+  // la composition ouverte : sa fiche, sa campagne et son étape (pastille de la barre, dialogue de l'état et des messages)
+  const curMeta = project ? projects.find((x) => x.id === project.id) : undefined;
+  const curCampaign = curMeta?.campaign ? campaigns.find((c) => c.id === curMeta.campaign) : undefined;
+  const curStage = stageOf(curMeta, curCampaign);
   const [sheet, setSheet] = useState<string | null>(null);
   const followedTemplates = (followed?.templates ?? []).map((id) => projects.find((m) => m.id === id)).filter((m): m is AtelierMeta => !!m);
   const campaignCounts = projects.reduce<Record<string, number>>((o, m) => (m.campaign ? { ...o, [m.campaign]: (o[m.campaign] ?? 0) + 1 } : o), {});
@@ -876,7 +879,6 @@ export function App() {
   /** Ouvre l'espace des campagnes : une campagne (suivie dès lors), ou la liste. */
   const openSpace = (id?: string) => {
     setBubble(null);
-    setStageOpen(false);
     if (online) refreshProjects();
     if (id === undefined) return setSpace('campaigns');
     if (id !== campaign) setSpaceTab('comps');
@@ -1040,8 +1042,7 @@ export function App() {
   // menu de la composition : l'historique de sa campagne à elle
   useEffect(() => {
     if (bubble) {
-      setStageOpen(false);
-      setPicking(false);
+        setPicking(false);
     }
   }, [bubble]);
   const menuOpen = bubble === 'projects' || bubble === 'composition' || space === 'campaign';
@@ -4722,27 +4723,14 @@ export function App() {
               )}
               {!space && online && me?.team && (
                 <StageButton
-                  meta={project ? projects.find((x) => x.id === project.id) : undefined}
-                  campaign={project ? campaigns.find((c) => c.id === projects.find((x) => x.id === project.id)?.campaign) : undefined}
-                  open={stageOpen}
+                  meta={curMeta}
+                  campaign={curCampaign}
                   owner={me.team.role === 'owner'}
-                  canPropose={me.team.role !== 'viewer'}
-                  onToggle={() => {
-                    if (!stageOpen) setBubble(null);
-                    setStageOpen(!stageOpen);
-                  }}
-                  onStep={(a) => {
-                    setStageOpen(false);
-                    void sendReview(a);
-                  }}
-                  onPublish={() => {
-                    setStageOpen(false);
-                    setExportFormats([doc.formatId]);
-                    setExportTargets((doc.targets ?? []).map((_, i) => i));
-                    setBubble('export');
-                  }}
-                  onMessages={() => {
-                    setStageOpen(false);
+                  count={curMeta?.messages ?? 0}
+                  on={msgDialog}
+                  onClick={() => {
+                    if (!project) return setToast('Enregistre la page pour la proposer et en parler');
+                    setBubble(null);
                     setMsgDialog(true);
                   }}
                 />
@@ -4804,7 +4792,6 @@ export function App() {
               >
                 <span className="dot" style={{ background: swatch(g) }} />
               </button>
-              {online && project && me?.team && <MessagesButton count={projects.find((m) => m.id === project.id)?.messages ?? 0} on={msgDialog} onClick={() => setMsgDialog(true)} />}
               <button
                 className={`btn ${bubble === 'export' ? 'on' : ''}`}
                 onClick={() => {
@@ -5615,9 +5602,24 @@ export function App() {
               targets={doc.targets ?? []}
               active={doc.target ?? 0}
               activity={activity}
-              review={projects.find((x) => x.id === project.id)?.review}
-              canPropose={me.team.role !== 'viewer' && projects.find((x) => x.id === project.id)?.review?.status !== 'proposed'}
-              canReview={me.team.role === 'owner' && projects.find((x) => x.id === project.id)?.review?.status === 'proposed'}
+              review={curMeta?.review}
+              canPropose={me.team.role !== 'viewer' && (curStage === 'draft' || curStage === 'changes')}
+              canReview={me.team.role === 'owner' && curStage === 'proposed'}
+              status={<StageTrack meta={curMeta} campaign={curCampaign} />}
+              publish={
+                curStage === 'approved' || curStage === 'scheduled' || curStage === 'published'
+                  ? {
+                      label: curStage === 'approved' ? 'Programmer les publications' : 'Voir la publication',
+                      primary: curStage === 'approved',
+                      onClick: () => {
+                        setMsgDialog(false);
+                        setExportFormats([doc.formatId]);
+                        setExportTargets((doc.targets ?? []).map((_, i) => i));
+                        setBubble('export');
+                      },
+                    }
+                  : undefined
+              }
               onStep={sendReview}
               onShowTarget={showTarget}
               onCount={(n) => setProjects((l) => l.map((x) => (x.id === project.id ? { ...x, messages: n } : x)))}

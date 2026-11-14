@@ -673,86 +673,47 @@ function PlanTab(p: {
 
 // ——— dans l'atelier ———
 
-/** Pastille d'état de la composition : l'étape, et en la touchant le circuit et l'action suivante. */
-export function StageButton(p: {
-  meta?: AtelierMeta;
-  campaign?: Campaign;
-  open: boolean;
-  owner: boolean;
-  canPropose: boolean;
-  onToggle: () => void;
-  onStep: (a: 'propose' | 'approve' | 'changes') => void;
-  onPublish: () => void;
-  onMessages: () => void;
-}) {
+/** Pastille d'état de la composition, avec le nombre de messages : la toucher ouvre le dialogue de l'état et des messages. */
+export function StageButton(p: { meta?: AtelierMeta; campaign?: Campaign; owner: boolean; count: number; on: boolean; onClick: () => void }) {
+  const stage = stageOf(p.meta, p.campaign);
+  const next: Record<Stage, string> = { draft: 'Proposer', proposed: p.owner ? 'Valider' : 'En attente', changes: 'À corriger', approved: 'Programmer', scheduled: 'Programmée', published: '' };
+  const msgs = p.count ? `, ${p.count} message${p.count > 1 ? 's' : ''}` : '';
+  return (
+    <button className={`sp-stage ${p.on ? 'on' : ''}`} onClick={p.onClick} title={`Où en est la composition${msgs} : l’étape suivante et les messages`} aria-expanded={p.on}>
+      <StagePill stage={stage} />
+      {next[stage] && <span className="sp-stage-next">{next[stage]} ›</span>}
+      {p.count > 0 && <span className="msg-count">{p.count > 99 ? '99+' : p.count}</span>}
+    </button>
+  );
+}
+
+/** Le circuit de la composition, de son brouillon à sa publication, et la dernière note des responsables ou de l'auteur. */
+export function StageTrack(p: { meta?: AtelierMeta; campaign?: Campaign }) {
   const m = p.meta;
   const stage = stageOf(m, p.campaign);
-  const order: Stage[] = ['draft', 'proposed', 'approved', 'scheduled', 'published'];
-  const at = stage === 'changes' ? 1 : order.indexOf(stage);
-  const next: Record<Stage, string> = { draft: 'Proposer', proposed: p.owner ? 'Valider' : 'En attente', changes: 'À corriger', approved: 'Programmer', scheduled: 'Programmée', published: '' };
+  const at = stage === 'changes' ? 1 : (['draft', 'proposed', 'approved', 'scheduled', 'published'] as Stage[]).indexOf(stage);
   const r = m?.review;
   return (
-    <span className="sp-rel">
-      <button className={`sp-stage ${p.open ? 'on' : ''}`} onClick={p.onToggle} title="Où en est la composition, et l’étape suivante" aria-expanded={p.open}>
-        <StagePill stage={stage} />
-        {next[stage] && <span className="sp-stage-next">{next[stage]} ›</span>}
-      </button>
-      {p.open && (
-        <div className="bubble sp-stage-pop" onPointerDown={(e) => e.stopPropagation()}>
-          <div className="sp-row">
-            <b className="sp-grow">Où en est « {m?.title ?? 'la page'} »</b>
-            <StagePill stage={stage} />
-          </div>
-          {stage === 'changes' && r?.reviewNote && (
-            <div className="sp-quote">
-              <b>{who(r.reviewedBy) || 'Responsable'}</b> : « {r.reviewNote} »
-            </div>
-          )}
-          {stage === 'proposed' && r?.note && (
-            <div className="sp-quote info">
-              <b>{who(r.proposedBy)}</b> : « {r.note} »
-            </div>
-          )}
-          <ol className="sp-track">
-            {['Brouillon', 'Proposée', 'Validée', 'Programmée', 'Publiée'].map((l, i) => (
-              <li key={l} className={i < at ? 'done' : i === at ? 'now' : ''}>
-                <i>{i < at ? '✓' : i + 1}</i>
-                <span>{i === at && stage === 'changes' ? 'Proposée · à revoir' : l}</span>
-              </li>
-            ))}
-          </ol>
-          <div className="sp-row">
-            {!m && <p className="fx-hint">Enregistre la page pour la proposer.</p>}
-            {m && (stage === 'draft' || stage === 'changes') && p.canPropose && (
-              <button className="sp-btn primary" onClick={() => p.onStep('propose')}>
-                {stage === 'changes' ? 'Proposer à nouveau' : 'Proposer aux responsables'}
-              </button>
-            )}
-            {m && stage === 'proposed' && p.owner && (
-              <>
-                <button className="sp-btn primary" onClick={() => p.onStep('approve')}>
-                  Valider
-                </button>
-                <button className="sp-btn" onClick={() => p.onStep('changes')}>
-                  Demander une retouche
-                </button>
-              </>
-            )}
-            {m && stage === 'proposed' && !p.owner && <p className="fx-hint">Les responsables ont reçu la proposition.</p>}
-            {m && (stage === 'approved' || stage === 'scheduled' || stage === 'published') && (
-              <button className={`sp-btn ${stage === 'approved' ? 'primary' : ''}`} onClick={p.onPublish}>
-                {stage === 'approved' ? 'Programmer les publications' : 'Voir la publication'}
-              </button>
-            )}
-            {m && (
-              <button className="sp-btn ghost" onClick={p.onMessages}>
-                Échanges
-              </button>
-            )}
-          </div>
+    <div className="sp-stage-track">
+      {stage === 'changes' && r?.reviewNote && (
+        <div className="sp-quote">
+          <b>{who(r.reviewedBy) || 'Responsable'}</b> : « {r.reviewNote} »
         </div>
       )}
-    </span>
+      {stage === 'proposed' && r?.note && (
+        <div className="sp-quote info">
+          <b>{who(r.proposedBy)}</b> : « {r.note} »
+        </div>
+      )}
+      <ol className="sp-track">
+        {['Brouillon', 'Proposée', 'Validée', 'Programmée', 'Publiée'].map((l, i) => (
+          <li key={l} className={i < at ? 'done' : i === at ? 'now' : ''}>
+            <i>{i < at ? '✓' : i + 1}</i>
+            <span>{i === at && stage === 'changes' ? 'Proposée · à revoir' : l}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 
