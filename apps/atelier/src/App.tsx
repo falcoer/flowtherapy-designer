@@ -1505,10 +1505,8 @@ export function App() {
       /* stockage indisponible */
     }
   };
-  const points = doc.points ?? defaultPoints;
-  setAnchorExtras(points);
-  /** Bulle de positionnement : les points d'accroche s'ouvrent sur « Plus ». */
-  const [anchorMore, setAnchorMore] = useState(false);
+  // points d'accroche : un réglage global, dans les Préférences (ceux qu'une ancienne composition gardait sont ignorés)
+  setAnchorExtras(defaultPoints);
   /** Couleurs caractéristiques des repères (marges, points) : préférence de l'atelier, par-dessus les couleurs d'origine. */
   const [markColors, setMarkColorsRaw] = useState(loadMarkColors);
   setMarkColors(markColors);
@@ -2248,7 +2246,7 @@ export function App() {
         const bb = pageBounds(held, f);
         ctx.save();
         ctx.lineWidth = 1.5 * px;
-        for (const g of objectGrips(points)) {
+        for (const g of objectGrips(defaultPoints)) {
           const x = (bb.x0 + bb.x1) / 2 + g.x * (bb.x1 - bb.x0);
           const y = (bb.y0 + bb.y1) / 2 + g.y * (bb.y1 - bb.y0);
           const r = 3.2 * px;
@@ -3201,7 +3199,7 @@ export function App() {
       // Maj : ni ancrage ni bord, l'objet suit le doigt
       const free = shiftHeld(shiftLatch, shiftKey, e.shiftKey);
       let bestD = free ? 0 : MAGNET / scale;
-      for (const g of free ? [] : objectGrips(points)) {
+      for (const g of free ? [] : objectGrips(defaultPoints)) {
         // le point de l'objet, d'après sa découpe, relatif au centre de sa boîte
         const ox = g.x || g.y ? (bb.x0 + bb.x1) / 2 + g.x * (bb.x1 - bb.x0) - b.cx : 0;
         const oy = g.x || g.y ? (bb.y0 + bb.y1) / 2 + g.y * (bb.y1 - bb.y0) - b.cy : 0;
@@ -5906,18 +5904,9 @@ export function App() {
                         </label>
                       </>
                     )}
-                    <button className={`ab-more ${anchorMore ? 'on' : ''}`} onClick={() => setAnchorMore(!anchorMore)} aria-expanded={anchorMore}>
-                      <span>Points d’accroche</span>
-                      <span className="ab-chev">{anchorMore ? '−' : '+'}</span>
+                    <button className="ab-link" onClick={() => setBubble('prefs')} title="Les points de l'objet et de la page qui s'aimantent : un réglage global, dans les Préférences">
+                      Points d’accroche : Préférences
                     </button>
-                    {anchorMore && (
-                      <>
-                        <PointGrids points={points} frame={doc.frame} onChange={(k, v) => setDoc((d) => ({ ...d, points: { ...(d.points ?? defaultPoints), [k]: v } }))} />
-                        <button className="ab-link" onClick={() => setBubble('prefs')}>
-                          Réglages par défaut dans Préférences
-                        </button>
-                      </>
-                    )}
                   </div>
                 }
               />

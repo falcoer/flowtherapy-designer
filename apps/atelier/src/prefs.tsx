@@ -184,8 +184,8 @@ export function PrefsPanel(p: {
           <Toggle label="Repères toujours visibles" hint="Sinon, ils n'apparaissent que pendant un déplacement" on={p.guides.on} set={(on) => p.setGuides({ ...p.guides, on })} />
           <div className="pf-row pf-col">
             <span className="pf-txt">
-              <b>Points d’accroche par défaut</b>
-              <small>Les points de l’objet et de la page qui s’aimantent, pour les compositions qui n’ont pas leurs propres réglages. Touche un point pour allumer ou éteindre sa famille.</small>
+              <b>Points d’accroche</b>
+              <small>Les points de l’objet et de la page qui s’aimantent, dans toutes les compositions. Touche un point pour allumer ou éteindre sa famille.</small>
             </span>
             <PointGrids points={p.points} frame="repartition" onChange={(k, v) => p.setPoints({ ...p.points, [k]: v })} />
           </div>

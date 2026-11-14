@@ -44,9 +44,9 @@ describe('cibles et variantes', () => {
     // la marge vient du catalogue du site, plus de la fiche
     expect(docMargins(d)).toEqual({ top: 0.06, right: 0.06, bottom: 0.06, left: 0.06 });
     expect(d.guides[0]).toMatchObject({ color: '#1b1530' });
-    // une publication garde ses propres marges, côté par côté (zones mortes d'un réseau)
+    // marges : un réglage global (le format) ; celles qu'une ancienne publication gardait sont ignorées (Lauris, 2026-11-14)
     const own = { top: 0.12, right: 0.05, bottom: 0.2, left: 0.05 };
-    expect(docMargins(docForTarget(blankDoc(), { channel: 'affiche', format: 'a4', margins: own }, profile))).toEqual(own);
+    expect(docMargins(docForTarget(blankDoc(), { channel: 'affiche', format: 'a4', margins: own }, profile))).toEqual({ top: 0.06, right: 0.06, bottom: 0.06, left: 0.06 });
   });
 
   it('les occasions par défaut ne gardent que les cibles dont le média existe', () => {
@@ -160,12 +160,12 @@ describe('pastilles des variantes', () => {
   it('marge et zone appartiennent au format du catalogue, la zone dans la marge', () => {
     const c = cleanCatalog({ formats: [{ id: 'x', title: 'X', width: 100, height: 100, unit: 'px', target: 'web', margins: { top: 0.1, right: 0.05, bottom: 0.05, left: 0.05 }, zone: { top: 0.05, right: 0.2, bottom: 0.9, left: 0.1 } }] });
     expect(c.formats[0]).toMatchObject({ margins: { top: 0.1, right: 0.05, bottom: 0.05, left: 0.05 }, zone: { top: 0.1, right: 0.2, bottom: 0.45, left: 0.1 } });
-    // une publication prend la marge et la zone de son format, quel que soit son réseau ; les siennes l'emportent
+    // une publication prend la marge et la zone de son format, quel que soit son réseau ; les siennes sont ignorées
     const story = { top: 0.14, right: 0.08, bottom: 0.18, left: 0.08 };
     expect(docForTarget(blankDoc(), { channel: 'instagram', format: 'story' }, null).zone).toEqual(story);
     expect(docForTarget(blankDoc(), { format: 'story' }, null).zone).toEqual(story);
     const own = { top: 0, right: 0, bottom: 0, left: 0 };
-    expect(docForTarget(blankDoc(), { format: 'story', margins: own }, null)).toMatchObject({ margins: own, zone: undefined });
+    expect(docForTarget(blankDoc(), { format: 'story', margins: own }, null).zone).toEqual(story);
   });
 
 });

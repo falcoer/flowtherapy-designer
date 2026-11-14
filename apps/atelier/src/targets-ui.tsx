@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { exportSize, FORMATS, formatOf, type Margins, type Target } from './model';
-import { FrameInsets } from './frame-insets';
 import { palettesOf, type ActivityProfile, type Channel, type Palette } from './server';
 import { channelsOf, framesOf, formatsFor, paletteFor, paletteGuides, targetKey, targetLabel } from './targets';
 
@@ -189,8 +188,8 @@ export function VariantPick(p: { current: Target; activity: ActivityProfile | nu
 }
 
 /**
- * Édition de la publication affichée : son réseau, son format, sa résolution, sa variante et ses
- * marge et sa zone d'intérêt (FrameInsets, le même réglage que le catalogue), puis ses repères. Chaque réglage s'applique
+ * Édition de la publication affichée : son réseau, son format, sa résolution, sa variante,
+ * puis ses repères (marges, zone et points d'accroche sont des réglages globaux). Chaque réglage s'applique
  * aussitôt au document et à la publication.
  */
 export function PublicationsPanel(p: {
@@ -207,7 +206,6 @@ export function PublicationsPanel(p: {
   const f = formatOf(cfg.format);
   const native = exportSize(f);
   const size = exportSize(f, cfg.width);
-  const { margins, zone } = framesOf(cfg, ch);
   const set = (x: Partial<Target>) => {
     const next = { ...cfg, ...x };
     for (const k of Object.keys(next) as (keyof Target)[]) if (next[k] === undefined) delete next[k];
@@ -254,10 +252,7 @@ export function PublicationsPanel(p: {
             <small>× {size.h} px</small>
           </span>
         </label>
-        <div className="pub-field wide">
-          <span>Marge et zone d’intérêt</span>
-          <FrameInsets width={f.width} height={f.height} margins={margins} zone={zone} onChange={(m, z) => set({ margins: m, zone: z })} />
-        </div>
+        <p className="pub-field wide fx-hint">Marges et zone d’intérêt : celles du format, réglées dans la Configuration globale › Formats.</p>
       </div>
       {p.guides}
     </>
