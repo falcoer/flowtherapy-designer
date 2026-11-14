@@ -49,6 +49,9 @@ describe('API', () => {
     expect(list[0].doc).toBeUndefined();
     expect((await app.inject('/api/ateliers/affiche-1')).json().doc).toEqual(doc);
     expect((await app.inject('/api/ateliers/affiche-1/thumb.png')).statusCode).toBe(200);
+    // adresse datée : la vignette reste en cache ; sans date, elle est revalidée
+    expect((await app.inject('/api/ateliers/affiche-1/thumb.png?v=1')).headers['cache-control']).toContain('immutable');
+    expect((await app.inject('/api/ateliers/affiche-1/thumb.png')).headers['cache-control']).toContain('no-cache');
     expect((await app.inject({ method: 'PUT', url: '/api/ateliers/affiche-1', payload: { title: 'x' } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'PUT', url: '/api/ateliers/..%2Fetc', payload: { doc } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'DELETE', url: '/api/ateliers/affiche-1' })).statusCode).toBe(200);

@@ -617,25 +617,34 @@ export function App() {
     applySceneLook(c, d, ff);
     return c.toDataURL('image/png');
   };
-  /** Une vignette par publication : le document tel qu'il s'affiche sur chacune (format, marges, couleurs). */
-  const makeThumbs = (d: Doc) => {
+  /** Une vignette par publication : le document tel qu'il s'affiche sur chacune (format, marges, couleurs).
+   *  Une à une, en rendant la main entre deux : l'atelier reste fluide pendant l'enregistrement. */
+  const makeThumbs = async (d: Doc) => {
     if (!d.targets?.length) return undefined;
-    try {
-      return d.targets.map((_, i) => {
-        // les ancrages se résolvent avec les marges de cette publication
-        const x = pageDoc(d, i, views);
-        setAnchorFrames(x);
-        return makeThumb(x);
-      });
-    } finally {
-      setAnchorFrames(docRef.current);
+    const out: string[] = [];
+    for (let i = 0; i < d.targets.length; i++) {
+      await new Promise((ok) => setTimeout(ok, 0));
+      // les ancrages se résolvent avec les marges de cette publication
+      const x = pageDoc(d, i, views);
+      setAnchorFrames(x);
+      try {
+        out.push(makeThumb(x));
+      } finally {
+        setAnchorFrames(docRef.current);
+      }
     }
+    return out;
   };
   const saveNow = async (p = project, d = docRef.current) => {
     if (!p || !online) return;
     setSaving('saving');
     try {
-      await saveAtelier(p.id, p.title, packDoc(d), makeThumb(d), makeThumbs(d));
+      const thumb = makeThumb(d);
+      const thumbs = await makeThumbs(d);
+      const meta = await saveAtelier(p.id, p.title, packDoc(d), thumb, thumbs);
+      // le menu de la composition montre aussitôt ce qui vient d'être enregistré, sans rien redemander au serveur
+      setSavedThumbs({ id: p.id, urls: thumbs ?? [thumb] });
+      setProjects((l) => l.map((x) => (x.id === meta.id ? { ...x, ...meta } : x)));
       setSaving(docRef.current === d ? 'saved' : 'dirty');
       if (docRef.current === d) setPending(null);
     } catch (err) {
@@ -678,6 +687,7 @@ export function App() {
       past.current = [];
       future.current = [];
       firstDoc.current = true;
+      setSavedThumbs(null);
       setDoc(migrate(r.doc));
       setPending(null);
       setSelected(null);
@@ -1078,9 +1088,46 @@ export function App() {
   // historique du menu de la campagne : demandé au serveur pour cette campagne seulement, à l'ouverture du menu
   const [campaignFeed, setCampaignFeed] = useState<ActivityEvent[] | null>(null);
   // menu de la composition : ses publications rendues d'après le document ouvert, retouches comprises
-  const previews = useMemo(() => (bubble === 'composition' ? (makeThumbs(doc) ?? [makeThumb(doc)]) : undefined), [bubble, doc, activity]); // eslint-disable-line react-hooks/exhaustive-deps
-  // nouvelle publication : l'aperçu de chaque voisine, rendu une fois à l'ouverture du dialogue
-  const newPubPreviews = useMemo(() => (newPub ? (makeThumbs(doc) ?? [makeThumb(doc)]) : undefined), [newPub]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Menu de la composition : les vignettes enregistrées avec elle (serveur, ou celles du dernier enregistrement
+  // de cette séance), affichées aussitôt ; l'enregistrement automatique les refait quelques secondes après
+  // une retouche. Seule une page jamais enregistrée fait ses cartes ici, une à une, hors du geste.
+  const [savedThumbs, setSavedThumbs] = useState<{ id: string; urls: string[] } | null>(null);
+  const stored = !!project && projects.some((x) => x.id === project.id);
+  const [livePreviews, setLivePreviews] = useState<string[] | undefined>(undefined);
+  useEffect(() => {
+    if (bubble !== 'composition' || stored) return void setLivePreviews(undefined);
+    const n = doc.targets?.length || 1;
+    let stop = false;
+    const made: string[] = [];
+    const step = (i: number) => {
+      if (stop || i >= n) return;
+      let x = doc;
+      if (doc.targets?.length) {
+        x = pageDoc(doc, i, views);
+        setAnchorFrames(x);
+      }
+      try {
+        made[i] = makeThumb(x);
+      } finally {
+        setAnchorFrames(docRef.current);
+      }
+      const u = made[i];
+      // les cartes déjà faites restent jusqu'à leur remplaçante
+      setLivePreviews((l) => {
+        const next = (l ?? []).slice(0, n);
+        next[i] = u;
+        return next;
+      });
+      t = window.setTimeout(() => step(i + 1), 16);
+    };
+    // juste après une retouche, on attend que le geste se calme
+    let t = window.setTimeout(() => step(0), 400);
+    return () => {
+      stop = true;
+      clearTimeout(t);
+    };
+  }, [bubble, doc, activity, stored]); // eslint-disable-line react-hooks/exhaustive-deps
+  const previews = stored ? (savedThumbs?.id === project?.id ? savedThumbs?.urls : undefined) : livePreviews;
   // menu de la composition : l'historique de sa campagne à elle
   useEffect(() => {
     if (bubble) {
@@ -5622,7 +5669,7 @@ export function App() {
           {newPub && (
             <NewPublicationDialog
               targets={doc.targets?.length ? doc.targets : [currentPub]}
-              previews={newPubPreviews}
+              previews={previews}
               meta={curMeta}
               active={pubIndex(doc)}
               campaign={curCampaign ?? followed}
@@ -5806,7 +5853,7 @@ export function App() {
                         {it.date ? ` · ${new Date(`${it.date}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}` : ''}
                       </span>
                       {pubPz.data?.enabled && !it.published && !it.postiz && it.composition && it.composition !== project?.id ? (
-                        <small className="fx-hint" title="Ouvre la composition prévue pour la programmer">
+                        <small className="fx-hint pz-note" title="Ouvre la composition prévue pour la programmer">
                           prévue pour une autre composition
                         </small>
                       ) : pubPz.data?.enabled && pubPz.data.providers[it.channel ?? ''] && (it.postiz || pubPz.data.accounts.some((a) => a.channel === it.channel)) ? (
@@ -5834,14 +5881,17 @@ export function App() {
                   ))}
                 </div>
               )}
+              {pubPz.err && <p className="pf-note err">Publication programmée indisponible : {pubPz.err}</p>}
+              {!pubPz.data && !pubPz.err && online && me?.team && <p className="fx-hint pz-note">Comptes de diffusion : lecture…</p>}
+              {pubPz.data && !pubPz.data.enabled && me?.admin && <p className="fx-hint pz-note">Postiz n’est pas configuré (Configuration globale › Publication).</p>}
               {pubPz.data?.enabled && !pubPlan.length && (
-                <p className="fx-hint">
+                <p className="fx-hint pz-note">
                   {pubCampaign
                     ? 'Pour programmer cette publication, ajoute-la au plan de la campagne (le réseau et le format cochés ci-dessus).'
                     : 'Pour programmer une publication, range la composition dans une campagne et ajoute-la à son plan.'}
                 </p>
               )}
-              {pubPz.data?.enabled && pubPlan.length > 0 && !pubPz.data.accounts.length && <p className="fx-hint">Relie d’abord un compte du réseau dans la fiche de l’activité › Médias.</p>}
+              {pubPz.data?.enabled && pubPlan.length > 0 && !pubPz.data.accounts.length && <p className="fx-hint pz-note">Relie d’abord un compte du réseau dans la fiche de l’activité › Médias.</p>}
             </div>
           )}
 
