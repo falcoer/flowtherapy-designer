@@ -5736,28 +5736,6 @@ export function App() {
 
           {bubble === 'export' && (
             <div className="bubble export-bubble">
-              <button
-                className="row"
-                onClick={() => {
-                  setBubble(null);
-                  setRendu(true);
-                }}
-              >
-                <Icon name="eye" />
-                <span>Aperçu plein écran</span>
-                <small>le rendu final, sans les outils</small>
-              </button>
-              <button
-                className="row"
-                onClick={() => {
-                  setBubble(null);
-                  setView3d({});
-                }}
-              >
-                <Icon name="layers" />
-                <span>Vue 3D</span>
-                <small>les couches en relief, à leur hauteur</small>
-              </button>
               <div className="b-title">Publier</div>
               <div className="b-sub">{doc.targets?.length ? 'Rendus' : 'Formats'}</div>
               {doc.targets?.map((t, i) => {
@@ -6175,7 +6153,7 @@ export function App() {
 
           {dragGuide && <span className="drag-dot" style={{ left: dragGuide.x, top: dragGuide.y, background: swatch(doc.guides[dragGuide.i]) }} />}
 
-          {bubble === 'light' && <LampPanel doc={doc} f={f} preview={preview} onPreview={setPreview} selected={sel?.id} onSelect={setSelected} onChange={(lamp) => setDoc((d) => ({ ...d, lamp }))} onScene={(scene) => setDoc((d) => ({ ...d, scene }))} onClose={() => setBubble(null)} />}
+          {bubble === 'light' && <LampPanel doc={doc} f={f} preview={preview} onPreview={setPreview} onFull={() => { setBubble(null); setRendu(true); }} selected={sel?.id} onSelect={setSelected} onChange={(lamp) => setDoc((d) => ({ ...d, lamp }))} onScene={(scene) => setDoc((d) => ({ ...d, scene }))} onClose={() => setBubble(null)} />}
 
           {tool === 'edge' && (!sel || sel.kind === 'surface') && <div className="status">Sélectionne une photo ou une forme pour régler ses bords</div>}
           {tool === 'material' && !sel && <div className="status">Sélectionne une photo ou une forme pour choisir sa matière</div>}
@@ -6449,7 +6427,10 @@ function LampPanel({
   onClose,
   preview,
   onPreview,
+  onFull,
 }: {
+  /** le rendu final en plein écran, sans les outils */
+  onFull: () => void;
   doc: Doc;
   f: Format;
   /** aperçu gardé après la fermeture : objectif, transformation et mise au point sur la page (éteint, l'édition reste rapide) */
@@ -6514,6 +6495,9 @@ function LampPanel({
           title={preview ? 'Aperçu allumé : objectif, transformation et mise au point restent sur la page après la fermeture (touche pour revenir à l’édition rapide)' : 'Aperçu éteint : la scène se voit ici, l’édition reste rapide une fois fermé ; l’export l’applique toujours'}
         >
           <Icon name={preview ? 'eye' : 'eyeoff'} /> Aperçu
+        </button>
+        <button className="chip scene-full" onClick={onFull} title="Aperçu plein écran : le rendu final, sans les outils" aria-label="Aperçu plein écran">
+          <Icon name="fit" />
         </button>
         <button className="chip scene-reset-h" disabled={!resetable} onClick={reset} title={`Réinitialiser ${tab === 'light' ? 'la lumière' : tab === 'lens' ? "l'objectif" : 'la transformation'}`}>
           Réinitialiser
@@ -6892,12 +6876,6 @@ function PaletteBubble({
     <div className={`bubble palette-bubble ${edit ? 'editing' : ''}`}>
       <div className="pal-head">
         <div className="b-title">Palette</div>
-        {colors && g && (
-          <span className="pal-sel" title={g.name}>
-            <span className="pal-sel-name">{g.name}</span>
-            {fixed(g) && <small>{ROLE_SHORT[g.role!] ?? g.role}</small>}
-          </span>
-        )}
         <button
           className={`pal-edit ${edit ? 'on' : ''}`}
           aria-pressed={edit}

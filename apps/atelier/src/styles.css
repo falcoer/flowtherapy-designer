@@ -2607,6 +2607,8 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .lamp-head .scene-reset-h:disabled { opacity: 0.4; }
 .lamp-head .scene-preview { margin-left: auto; margin-right: 6px; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 4px 10px; }
 .lamp-head .scene-preview svg { width: 15px; height: 15px; }
+.lamp-head .scene-full { display: inline-flex; align-items: center; padding: 4px 8px; margin-right: 6px; }
+.lamp-head .scene-full svg { width: 15px; height: 15px; }
 .lamp-head .scene-preview.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 .lamp-stage { display: flex; gap: 8px; align-items: stretch; }
 .lamp-stage .lamp-map { flex: 1; min-width: 0; }
