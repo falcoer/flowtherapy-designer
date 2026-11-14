@@ -52,7 +52,7 @@ import { CampaignPage, CampaignPicker, CampaignsHome, StageButton, StageTrack, c
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
-import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorFrames, setGuideFrame, hasZone, zoneOf, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget } from './model';
+import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorFrames, setGuideFrame, hasZone, zoneOf, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget, type PaletteMatter, type PaletteEdge } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import { BRUSH_TIPS, TIP_NAMES, isComposite, tipHoverSvg, type BrushTip } from './tips';
@@ -6130,6 +6130,14 @@ export function App() {
               onDrag={(i, x, y) => setDragGuide(i === null ? null : { i, x, y })}
               onDrop={dropGuide}
               tabReq={palTabReq}
+              onLoadSet={(k, entries) => {
+                const key = k === 'material' ? 'materials' : k === 'varnish' ? 'varnishes' : 'edges';
+                const have = new Set(((doc[key] ?? []) as Array<{ name: string }>).map((e) => e.name));
+                const added = entries.filter((e) => !have.has(e.name)).map((e) => ({ ...e, id: uid() }));
+                if (!added.length) return setToast('Ces entrées sont déjà dans la palette du document');
+                update((d) => ({ ...d, [key]: [...((d[key] ?? []) as unknown[]), ...added] }));
+                setToast(`${added.length} ${added.length > 1 ? 'entrées ajoutées' : 'entrée ajoutée'} à la palette du document`);
+              }}
               matter={(k, edit) =>
                 k === 'edge' ? (
                   <EdgeRow
@@ -6685,6 +6693,10 @@ function SceneThumb({ doc, f, fx }: { doc: Doc; f: Format; fx?: FxId }) {
 }
 
 const SAVED = 'ftd-atelier-palettes';
+/** Titre des jeux enregistrés de chaque onglet de la palette, et nom d'un jeu. */
+const SET_TITLES = { color: 'Mes palettes', material: 'Mes jeux de matières', varnish: 'Mes jeux de vernis', edge: 'Mes jeux de bords' } as const;
+const SET_NAMES = { material: 'Matières', varnish: 'Vernis', edge: 'Bords' } as const;
+const setEntries = (d: Doc, k: 'material' | 'varnish' | 'edge'): Array<PaletteMatter | PaletteEdge> => (k === 'material' ? d.materials : k === 'varnish' ? d.varnishes : d.edges) ?? [];
 const PAL_TAB = 'ftd-atelier-palette-tab';
 type PalTab = 'color' | 'material' | 'varnish' | 'edge';
 /** Toute la palette en un seul dégradé, comme les variantes : chaque guide au milieu de sa part, les dégradés étalés dans la leur. */
@@ -6709,7 +6721,10 @@ function PaletteBubble({
   matter,
   onEditing,
   tabReq,
+  onLoadSet,
 }: {
+  /** Charger un jeu enregistré de matières, de vernis ou de bords : ses entrées rejoignent celles du document. */
+  onLoadSet?: (kind: 'material' | 'varnish' | 'edge', entries: Array<PaletteMatter | PaletteEdge>) => void;
   /** Onglet demandé de l'extérieur (toucher la teinte dans les attributs). */
   tabReq?: { t: PalTab; n: number };
   /** Une boîte de couleur est ouverte (ou vient de se fermer). */
@@ -6761,8 +6776,29 @@ function PaletteBubble({
       return [];
     }
   });
+  // les jeux enregistrés des autres onglets : matières, vernis, bords (dans ce navigateur, comme les palettes)
+  type SavedSet = { name: string; entries: Array<PaletteMatter | PaletteEdge> };
+  const [sets, setSets] = useState<Record<'material' | 'varnish' | 'edge', SavedSet[]>>(() => {
+    const read = (k: string) => {
+      try {
+        return JSON.parse(localStorage.getItem(`${SAVED}-${k}`) ?? '[]') as SavedSet[];
+      } catch {
+        return [];
+      }
+    };
+    return { material: read('material'), varnish: read('varnish'), edge: read('edge') };
+  });
+  const storeSets = (k: 'material' | 'varnish' | 'edge', list: SavedSet[]) => {
+    setSets((x) => ({ ...x, [k]: list }));
+    try {
+      localStorage.setItem(`${SAVED}-${k}`, JSON.stringify(list));
+    } catch {
+      /* stockage indisponible */
+    }
+  };
   const [renaming, setRenaming] = useState<number | null>(null);
   const [lib, setLib] = useState(false);
+  useEffect(() => setRenaming(null), [tab, lib]);
   // la couleur en cours de modification, dans sa propre boîte de dialogue
   const [editing, setEditing] = useState<number | null>(null);
   useEffect(() => {
@@ -6870,11 +6906,15 @@ function PaletteBubble({
         >
           <Icon name="pen" /> {edit ? 'Terminé' : 'Modifier'}
         </button>
-        {colors && (
-          <button className={`pal-lib-btn ${lib ? 'on' : ''}`} aria-pressed={lib} onClick={() => setLib(!lib)} title="Palettes enregistrées : sauvegarder ou recharger" aria-label="Palettes enregistrées">
-            <Icon name="palettes" />
-          </button>
-        )}
+        <button
+          className={`pal-lib-btn ${lib ? 'on' : ''}`}
+          aria-pressed={lib}
+          onClick={() => setLib(!lib)}
+          title={`${SET_TITLES[tab]} : enregistrer ${colors ? 'la palette' : 'le jeu'} du document, ou en recharger un`}
+          aria-label={SET_TITLES[tab]}
+        >
+          <Icon name="palettes" />
+        </button>
       </div>
       <div className="pal-tabs" role="tablist">
         {(
@@ -6892,6 +6932,58 @@ function PaletteBubble({
         ))}
       </div>
       {edit && <p className="pal-hint">{colors ? 'Touche une couleur pour la modifier, ＋ pour en ajouter.' : 'Touche une pastille pour la modifier, ＋ pour en ajouter, glisse-la sur la corbeille pour la retirer.'}</p>}
+      {!colors && lib && (
+        <div className="pal-lib">
+          <div className="pal-lib-head">
+            <span className="b-title">{SET_TITLES[tab]}</span>
+            <button
+              className="pal-lib-save"
+              disabled={!setEntries(doc, tab).length}
+              onClick={() => storeSets(tab, [...sets[tab], { name: `${SET_NAMES[tab]} ${sets[tab].length + 1}`, entries: structuredClone(setEntries(doc, tab)) }])}
+              title={setEntries(doc, tab).length ? `Enregistrer les ${SET_NAMES[tab].toLowerCase()} du document` : `Le document n'a pas encore de ${SET_NAMES[tab].toLowerCase()} à enregistrer`}
+            >
+              ＋ Enregistrer
+            </button>
+          </div>
+          {sets[tab].length === 0 && <p className="fx-hint">Aucun jeu enregistré.</p>}
+          {sets[tab].map((p, i) => (
+            <div key={i} className="saved">
+              <button className="saved-load saved-set" title={`Ajouter au document : ${p.entries.map((e) => e.name).join(', ')}`} onClick={() => onLoadSet?.(tab, structuredClone(p.entries))}>
+                {p.entries.length} <small>{p.entries.length > 1 ? 'entrées' : 'entrée'}</small>
+              </button>
+              {renaming === i ? (
+                <input
+                  className="saved-name"
+                  autoFocus
+                  defaultValue={p.name}
+                  aria-label="Nom du jeu"
+                  onFocus={(e) => e.currentTarget.select()}
+                  onBlur={(e) => {
+                    const name = e.currentTarget.value.trim();
+                    if (name) storeSets(tab, sets[tab].map((x, j) => (j === i ? { ...x, name } : x)));
+                    setRenaming(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.currentTarget.blur();
+                    if (e.key === 'Escape') setRenaming(null);
+                    e.stopPropagation();
+                  }}
+                />
+              ) : (
+                <span className="saved-label" onDoubleClick={() => setRenaming(i)} title={p.entries.map((e) => e.name).join(', ')}>
+                  {p.name}
+                </span>
+              )}
+              <button className="saved-pen" onClick={() => setRenaming(i)} title="Renommer" aria-label="Renommer">
+                <Icon name="pen" />
+              </button>
+              <button className="saved-x" onClick={() => storeSets(tab, sets[tab].filter((_, j) => j !== i))} aria-label="Supprimer">
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {colors && lib && (
         <div className="pal-lib">
           <div className="pal-lib-head">
