@@ -2,6 +2,8 @@
  * Tampons : motifs vectoriels (les décors à la craie du site du groupe) que l'outil
  * Tampons pose à la couleur courante. Chaque partie est un tracé plein ou un trait.
  */
+import { SHAPE_FAMILIES, isSilhouette, silhouetteRatio, silhouetteRings } from './silhouettes';
+
 export interface StampPart {
   d: string;
   fill?: boolean;
@@ -19,6 +21,8 @@ export interface StampDef {
   ahead?: number;
   /** Traces de pas : semées, elles alternent gauche et droite (pied miroir), en file. */
   pair?: boolean;
+  /** Famille dans l'éventail (« Craie » pour les décors du site, sinon la famille de la forme). */
+  group?: string;
 }
 
 /** Ellipse en tracé SVG. */
@@ -256,7 +260,45 @@ export const STAMPS: StampDef[] = [
   },
 ];
 
-export const stampOf = (id: string | undefined) => STAMPS.find((s) => s.id === id) ?? STAMPS[0]!;
+/**
+ * Les formes (silhouettes) servent aussi de tampons : leur contour plein, ouvertures comprises.
+ * Identifiant « forme:<forme> » ; tracées à la demande, puis gardées.
+ */
+const SHAPE_STAMP = 'forme:';
+const shapeStamps = new Map<string, StampDef>();
+function shapeStamp(k: string, name: string, group: string): StampDef | null {
+  if (!isSilhouette(k)) return null;
+  let d = shapeStamps.get(k);
+  if (!d) {
+    const ratio = silhouetteRatio(k);
+    const [w, h] = ratio >= 1 ? [180, 180 / ratio] : [180 * ratio, 180];
+    const path = silhouetteRings(k)
+      .map((r) => r.map((p, i) => `${i ? 'L' : 'M'}${(p.x * w).toFixed(1)} ${(p.y * h).toFixed(1)}`).join('') + 'Z')
+      .join('');
+    d = { id: SHAPE_STAMP + k, name, w, h, parts: [{ d: path, fill: true }], group };
+    shapeStamps.set(k, d);
+  }
+  return d;
+}
+const shapeName = (k: string): [string, string] | null => {
+  for (const [fam, list] of SHAPE_FAMILIES) for (const [id, name] of list) if (id === k) return [name, fam];
+  return null;
+};
+/** Tous les tampons de l'éventail : les décors à la craie, puis les formes par familles. */
+export function allStamps(): StampDef[] {
+  const shapes = SHAPE_FAMILIES.flatMap(([fam, list]) => list.map(([k, name]) => shapeStamp(k, name, fam)).filter((x): x is StampDef => !!x));
+  return [...STAMPS.map((x) => ({ ...x, group: 'Craie' })), ...shapes];
+}
+
+export const stampOf = (id: string | undefined): StampDef => {
+  if (id?.startsWith(SHAPE_STAMP)) {
+    const k = id.slice(SHAPE_STAMP.length);
+    const nm = shapeName(k);
+    const d = nm && shapeStamp(k, nm[0], nm[1]);
+    if (d) return d;
+  }
+  return STAMPS.find((s) => s.id === id) ?? STAMPS[0]!;
+};
 
 const paths = new Map<string, Path2D[]>();
 /** Tracés du motif, mis en cache. */
@@ -284,7 +326,7 @@ export function stampSvg(s: StampDef, color = 'currentColor', opts: { filled?: b
   const body = s.parts
     .map((x) =>
       x.fill
-        ? `<path d="${x.d}" fill="${paint}"${x.alpha ? ` opacity="${x.alpha}"` : ''}/>`
+        ? `<path d="${x.d}" fill="${paint}" fill-rule="evenodd"${x.alpha ? ` opacity="${x.alpha}"` : ''}/>`
         : (opts.filled ? `<path d="${x.d}" fill="${paint}" fill-rule="evenodd" opacity="${0.85 * (x.alpha ?? 1)}"/>` : '') +
           `<path d="${x.d}" fill="none" stroke="${paint}" stroke-width="${x.width}" stroke-linecap="round" stroke-linejoin="round"${x.alpha ? ` opacity="${x.alpha}"` : ''}/>`,
     )

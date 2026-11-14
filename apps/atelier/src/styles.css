@@ -3111,3 +3111,9 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .ap-blend { grid-column: 1 / -1; flex: 1 1 100%; display: flex; align-items: center; gap: 10px; padding-top: 8px; margin-top: 4px; border-top: 1px solid var(--line); min-width: 0; }
 .ap-blend .seg { flex-wrap: wrap; min-width: 0; }
 .ap-blend .seg button { font-size: 12px; }
+
+/* éventail par familles ouvert depuis la roue (en bas de l'écran) : il monte, et chaque ligne trop longue défile */
+.bw-fan-at .fan-groups { top: auto; bottom: 0; transform: translateY(34px); max-height: calc(100dvh - 130px); max-width: min(760px, calc(100vw - 150px)); }
+.fan-groups .fan-row { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; touch-action: pan-x pan-y; }
+.fan-groups .fan-row::-webkit-scrollbar { display: none; }
+.fan-groups .fan-row > .fan-item, .fan-groups .fan-group { flex: none; }

@@ -8,7 +8,7 @@ import { presetThumb } from './element-thumb';
 import { canSpill, inkRings, inWin, spillWindow, type Win } from './spill';
 import { steadyPath } from './steady';
 import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
-import { STAMPS, stampOf, stampSvg, type StampDef } from './stamps';
+import { allStamps, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel, Dots } from './coupe';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
@@ -5572,8 +5572,9 @@ export function App() {
                       face: <span className="bw-stamp-face" dangerouslySetInnerHTML={{ __html: stampSvg(stampOf(stampId), 'currentColor', { filled: stampFilled }) }} />,
                       title: `Tampon : ${stampOf(stampId).name}`,
                       // les tampons défilent dans l'éventail, comme les autres choix de la roue
-                      options: STAMPS.map((x) => ({
+                      options: allStamps().map((x) => ({
                         key: x.id,
+                        group: x.group,
                         icon: <span className="fan-stamp" dangerouslySetInnerHTML={{ __html: stampLook(x) }} />,
                         label: x.name,
                         on: stampId === x.id,
