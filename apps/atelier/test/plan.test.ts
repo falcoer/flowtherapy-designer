@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, addPlanRow, campaignFields, draftFromOperation, fillFields, filledCaption, hasFields, missingFields, patchStep, textModels, hashtagChoices, hashtagOf, planCaption, toggleHashtag, planFromOperation, planSteps, stepsOf } from '../src/plan';
+import { addDays, addPlanRow, campaignFields, draftFromOperation, fillFields, filledCaption, hasFields, hourLabel, missingFields, patchStep, textModels, hashtagChoices, hashtagOf, planCaption, toggleHashtag, planFromOperation, planSteps, stepsOf } from '../src/plan';
 import type { Campaign, PlanItem } from '../src/server';
 import { DEFAULT_OPERATIONS } from '../src/targets';
 
@@ -109,5 +109,23 @@ describe('plan de publication', () => {
     expect(textModels(op).map((m) => m.name)).toEqual(['Annonce', 'Main', 'Rappel', 'Merci']);
     expect(textModels(op)[0]!.text).toBe('{campagne} : {date}');
     expect(textModels().map((m) => m.name)).toEqual(['Annonce', 'Rappel', 'Merci']);
+  });
+
+  it('donne une heure à l’étape, reprise par ses lignes et par le type de projet', () => {
+    const plan: PlanItem[] = [
+      { id: 'a', channel: 'facebook', format: 'carre', step: 's', label: 'Rappel', date: '2026-12-09' },
+      { id: 'b', channel: 'instagram', format: 'carre', step: 's', label: 'Rappel', date: '2026-12-09' },
+      { id: 'c', channel: 'facebook', format: 'carre', step: 'matin', label: 'Matin', date: '2026-12-09', time: '08:00' },
+    ];
+    const timed = patchStep(plan, 's', { time: '18:30' });
+    expect(timed.map((x) => x.time)).toEqual(['18:30', '18:30', '08:00']);
+    // le même jour, l'étape du matin passe devant ; sans heure une étape compte pour 10 h
+    expect(planSteps(timed).map((s) => [s.name, s.time])).toEqual([['Matin', '08:00'], ['Rappel', '18:30']]);
+    expect(planSteps(plan).map((s) => s.name)).toEqual(['Matin', 'Rappel']);
+    expect(addPlanRow(timed, { channel: 'facebook', format: 'banniere' }, planSteps(timed)[1]).at(-1)).toMatchObject({ step: 's', date: '2026-12-09', time: '18:30' });
+    expect(patchStep(timed, 's', { time: undefined }).map((x) => x.time)).toEqual([undefined, undefined, '08:00']);
+    const op = { id: 'o', name: 'O', targets: [{ channel: 'facebook', format: 'carre' }], steps: [{ name: 'Annonce', days: 21, time: '18:00', targets: [{ channel: 'facebook', format: 'carre' }] }] };
+    expect(draftFromOperation(op, '2026-12-12', null).plan[0]).toMatchObject({ date: '2026-11-21', time: '18:00' });
+    expect([hourLabel('18:30'), hourLabel('09:00'), hourLabel(undefined)]).toEqual(['18h30', '9h', '']);
   });
 });

@@ -297,13 +297,13 @@ describe('équipes', () => {
       operations: [
         { id: 'concert', name: 'Concert', icon: 'occ-concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }, { format: '' }] },
         // étapes du modèle : un nom, un délai avant l'évènement (ou à dater), ce qu'elle publie
-        { id: 'logo', name: 'Logo', icon: '<svg>', targets: [{ format: 'carre' }], steps: [{ name: 'Annonce', days: 21, targets: [{ format: 'carre' }, { format: '' }], text: '{campagne} : {date}' }, { name: 'Story', days: 'un jour', targets: [] }, { name: '', days: 3 }] },
+        { id: 'logo', name: 'Logo', icon: '<svg>', targets: [{ format: 'carre' }], steps: [{ name: 'Annonce', days: 21, time: '18:00', targets: [{ format: 'carre' }, { format: '' }], text: '{campagne} : {date}' }, { name: 'Story', days: 'un jour', targets: [] }, { name: '', days: 3 }] },
         { name: '' },
       ],
     });
     expect(ops.json().profile.operations).toEqual([
       { id: 'concert', name: 'Concert', icon: 'occ-concert', targets: [{ channel: 'affiche', format: 'a4' }, { channel: 'post', format: 'carre', palette: 'jour' }] },
-      { id: 'logo', name: 'Logo', targets: [{ format: 'carre' }], steps: [{ name: 'Annonce', days: 21, targets: [{ format: 'carre' }], text: '{campagne} : {date}' }, { name: 'Story', targets: [] }] },
+      { id: 'logo', name: 'Logo', targets: [{ format: 'carre' }], steps: [{ name: 'Annonce', days: 21, targets: [{ format: 'carre' }], time: '18:00', text: '{campagne} : {date}' }, { name: 'Story', targets: [] }] },
     ]);
   });
 
@@ -380,19 +380,19 @@ describe('équipes', () => {
       await jenni.send('PATCH', '/api/campaigns/concert-du-plan', {
         texts: [{ id: 'rappel', name: 'Rappel', text: 'C’est samedi.' }, { id: 'rappel', name: 'Doublon', text: '' }, { id: 'Pas Valide', name: 'x', text: 'x' }, { id: 'sans-nom', text: 'y' }],
         plan: [
-          { id: 'rappel', channel: 'facebook', format: 'carre', label: 'Rappel', step: 'rappel', text: 'rappel' },
-          { id: 'story', channel: 'instagram', format: 'story', step: 'Pas Valide', text: 'inconnu' },
+          { id: 'rappel', channel: 'facebook', format: 'carre', label: 'Rappel', step: 'rappel', text: 'rappel', time: '18:30' },
+          { id: 'story', channel: 'instagram', format: 'story', step: 'Pas Valide', text: 'inconnu', time: '25:00' },
         ],
       })
     ).json().campaign;
     expect(staged.texts).toEqual([{ id: 'rappel', name: 'Rappel', text: 'C’est samedi.' }, { id: 'sans-nom', name: 'Texte', text: 'y' }]);
     expect(staged.plan).toEqual([
-      { id: 'rappel', channel: 'facebook', format: 'carre', label: 'Rappel', step: 'rappel', text: 'rappel' },
+      { id: 'rappel', channel: 'facebook', format: 'carre', label: 'Rappel', step: 'rappel', time: '18:30', text: 'rappel' },
       { id: 'story', channel: 'instagram', format: 'story' },
     ]);
     const untexted = (await jenni.send('PATCH', '/api/campaigns/concert-du-plan', { texts: [] })).json().campaign;
     expect(untexted.texts).toBeUndefined();
-    expect(untexted.plan[0]).toEqual({ id: 'rappel', channel: 'facebook', format: 'carre', label: 'Rappel', step: 'rappel' });
+    expect(untexted.plan[0]).toEqual({ id: 'rappel', channel: 'facebook', format: 'carre', label: 'Rappel', step: 'rappel', time: '18:30' });
     // le texte principal se dépose aussi, sous l'identifiant réservé « main », qu'aucun texte nommé ne peut prendre
     const main = (
       await jenni.send('PATCH', '/api/campaigns/concert-du-plan', {

@@ -110,6 +110,8 @@ export interface PlanItem extends Target {
   /** étape qui regroupe les lignes (absente dans un plan d'avant les étapes) */
   step?: string;
   date?: string;
+  /** heure d'envoi prévue de l'étape (HH:MM) */
+  time?: string;
   composition?: string;
   /** texte de la campagne déposé sur l'étape */
   text?: string;
@@ -315,6 +317,8 @@ export interface OpStep {
   name: string;
   days?: number;
   targets: Target[];
+  /** heure d'envoi prévue (HH:MM) */
+  time?: string;
   /** modèle de texte de l'étape, avec ses champs ({date}, {lieu}…) */
   text?: string;
 }

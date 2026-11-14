@@ -69,7 +69,7 @@ export function draftFromOperation(op: Operation | undefined, date: string | und
       texts.push({ id: text, name: s.name || 'Texte', text: s.text });
     }
     for (const t of s.targets)
-      plan.push({ id: uniquePlanId(`${step}-${t.channel ?? ''}-${t.format}`, plan), ...t, label: s.name, step, ...(date && s.days !== undefined ? { date: addDays(date, -s.days) } : {}), ...(text ? { text } : {}) });
+      plan.push({ id: uniquePlanId(`${step}-${t.channel ?? ''}-${t.format}`, plan), ...t, label: s.name, step, ...(date && s.days !== undefined ? { date: addDays(date, -s.days) } : {}), ...(s.time ? { time: s.time } : {}), ...(text ? { text } : {}) });
   }
   return { plan, texts };
 }
@@ -86,6 +86,8 @@ export interface PlanStep {
   key: string;
   name: string;
   date?: string;
+  /** heure d'envoi prévue (HH:MM) */
+  time?: string;
   rows: PlanItem[];
   /** texte déposé sur l'étape */
   text?: string;
@@ -102,13 +104,14 @@ export function planSteps(plan: PlanItem[]): PlanStep[] {
       s.rows.push(it);
       if (it.date && (!s.date || it.date < s.date)) s.date = it.date;
       s.text ??= it.text;
-    } else by.set(key, { key, name: it.label ?? '', rows: [it], ...(it.date ? { date: it.date } : {}), ...(it.text ? { text: it.text } : {}) });
+      s.time ??= it.time;
+    } else by.set(key, { key, name: it.label ?? '', rows: [it], ...(it.date ? { date: it.date } : {}), ...(it.time ? { time: it.time } : {}), ...(it.text ? { text: it.text } : {}) });
   }
-  return [...by.values()].map((s, i) => ({ s, i })).sort((a, b) => (a.s.date && b.s.date ? a.s.date.localeCompare(b.s.date) : a.s.date ? -1 : b.s.date ? 1 : 0) || a.i - b.i).map((x) => x.s);
+  return [...by.values()].map((s, i) => ({ s, i })).sort((a, b) => (a.s.date && b.s.date ? a.s.date.localeCompare(b.s.date) || (a.s.time ?? '10:00').localeCompare(b.s.time ?? '10:00') : a.s.date ? -1 : b.s.date ? 1 : 0) || a.i - b.i).map((x) => x.s);
 }
 
 /** Change une étape entière : ses lignes prennent toutes le même identifiant d'étape, pour rester groupées quand leur nom ou leur date change. */
-export function patchStep(plan: PlanItem[], key: string, x: Partial<Pick<PlanItem, 'label' | 'date' | 'text' | 'composition'>>, only?: (it: PlanItem) => boolean): PlanItem[] {
+export function patchStep(plan: PlanItem[], key: string, x: Partial<Pick<PlanItem, 'label' | 'date' | 'time' | 'text' | 'composition'>>, only?: (it: PlanItem) => boolean): PlanItem[] {
   const rows = plan.filter((it) => stepKey(it) === key);
   if (!rows.length) return plan;
   const step = rows[0]!.step ?? uniquePlanId(rows[0]!.label ?? '', [...new Set(plan.map((it) => it.step).filter(Boolean))].map((id) => ({ id: id! })), 'etape');
@@ -124,7 +127,7 @@ export function patchStep(plan: PlanItem[], key: string, x: Partial<Pick<PlanIte
 export function addPlanRow(plan: PlanItem[], t: Target, step?: PlanStep): PlanItem[] {
   const base = step ? patchStep(plan, step.key, {}) : plan;
   const sid = step ? base.find((it) => step.rows.some((r) => r.id === it.id))!.step! : uniquePlanId('etape', [...new Set(plan.map((it) => it.step).filter(Boolean))].map((id) => ({ id: id! })), 'etape');
-  return [...base, { id: uniquePlanId(`${sid}-${t.channel ?? ''}-${t.format}`, plan), ...(t.channel ? { channel: t.channel } : {}), format: t.format, step: sid, ...(step?.name ? { label: step.name } : {}), ...(step?.date ? { date: step.date } : {}), ...(step?.text ? { text: step.text } : {}) }];
+  return [...base, { id: uniquePlanId(`${sid}-${t.channel ?? ''}-${t.format}`, plan), ...(t.channel ? { channel: t.channel } : {}), format: t.format, step: sid, ...(step?.name ? { label: step.name } : {}), ...(step?.date ? { date: step.date } : {}), ...(step?.time ? { time: step.time } : {}), ...(step?.text ? { text: step.text } : {}) }];
 }
 
 /** Le texte d'une publication tel que la campagne le propose : l'annonce, puis le lien, puis les mots-dièse. */
@@ -163,6 +166,11 @@ const fieldKey = (s: string) =>
     .replace(/\p{M}/gu, '');
 const UTC_DAY = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', timeZone: 'UTC' });
 const UTC_DATE = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+/** « 19:30 » → « 19h30 », « 20:00 » → « 20h » ; autre chose reste tel quel. */
+export const hourLabel = (time?: string): string => {
+  const hm = /^(\d{1,2}):(\d{2})$/.exec(time ?? '');
+  return hm ? `${Number(hm[1])}h${hm[2] === '00' ? '' : hm[2]}` : (time ?? '');
+};
 export const todayIso = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -172,12 +180,11 @@ export function campaignFields(c: Pick<Campaign, 'name' | 'date' | 'time' | 'pla
   const d = c.date && /^\d{4}-\d{2}-\d{2}$/.test(c.date) ? new Date(`${c.date}T00:00:00Z`) : null;
   const from = /^\d{4}-\d{2}-\d{2}/.test(at ?? '') ? at!.slice(0, 10) : todayIso();
   const left = d ? Math.round((d.getTime() - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) : null;
-  const hm = /^(\d{1,2}):(\d{2})$/.exec(c.time ?? '');
   return [
     { key: 'campagne', label: 'Nom de la campagne', value: c.name ?? '' },
     { key: 'date', label: 'Date de l’évènement', value: d ? UTC_DATE.format(d).replace(/ 1 /, ' 1er ') : '' },
     { key: 'jour', label: 'Jour de la semaine', value: d ? UTC_DAY.format(d) : '' },
-    { key: 'heure', label: 'Heure d’accueil', value: hm ? `${Number(hm[1])}h${hm[2] === '00' ? '' : hm[2]}` : (c.time ?? '') },
+    { key: 'heure', label: 'Heure d’accueil', value: hourLabel(c.time) },
     { key: 'lieu', label: 'Lieu', value: c.place ?? '' },
     { key: 'quand', label: 'Échéance, le jour de l’envoi', value: left === null ? '' : left > 1 ? `dans ${left} jours` : left === 1 ? 'demain' : left === 0 ? 'aujourd’hui' : left === -1 ? 'hier' : `il y a ${-left} jours` },
     { key: 'jours', label: 'Jours restants, le jour de l’envoi', value: left === null || left < 0 ? '' : String(left) },

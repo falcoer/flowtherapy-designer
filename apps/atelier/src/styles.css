@@ -2834,6 +2834,8 @@ input.sp-step-name::placeholder { color: var(--muted); font-weight: 500; }
 .sp-step-date { color: var(--muted); font-size: 13px; }
 .sp-plan-date { flex: none; width: 140px; height: 32px; padding: 0 6px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--ink); font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; }
 .sp-plan-date:hover, .sp-plan-date:focus { border-color: var(--accent); }
+.sp-plan-time { width: 116px; }
+.act-step-time { flex: none; width: 104px; }
 .sp-zones { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 290px)); gap: 10px; margin-top: 10px; align-items: start; }
 @media (max-width: 620px) { .sp-zones { grid-template-columns: minmax(0, 1fr); } }
 .sp-zone { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 132px; padding: 8px 10px 10px; border-radius: 14px; border: 1.5px dashed color-mix(in srgb, var(--muted) 60%, transparent); background: none; color: var(--ink); font: inherit; text-align: left; transition: border-color 0.12s, background 0.12s; }
@@ -2877,12 +2879,13 @@ input.sp-step-name::placeholder { color: var(--muted); font-weight: 500; }
 .sp-more.sm { width: 30px; height: 30px; font-size: 18px; line-height: 1; }
 @media (max-width: 860px) {
   .sp-plan-date { width: 128px; }
+  .sp-plan-time { width: 112px; }
   .sp-step-head { flex-wrap: wrap; }
 }
 /* fiche de l'activité : les étapes d'un type de projet */
 .act-steps { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding-top: 8px; border-top: 1px dashed var(--line); }
 .act-steps-k { font-size: 11.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
-.act-step { display: grid; grid-template-columns: minmax(110px, 170px) auto minmax(0, 1fr) auto; gap: 6px 8px; align-items: center; }
+.act-step { display: grid; grid-template-columns: minmax(110px, 170px) auto auto minmax(0, 1fr) auto; gap: 6px 8px; align-items: center; }
 .act-step-days { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; }
 .act-step-days .pf-input { width: 62px; }
 .act-step-text { grid-column: 1 / -1; resize: vertical; min-height: 44px; font: inherit; font-size: 13px; line-height: 1.4; }

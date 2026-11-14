@@ -183,10 +183,11 @@ export function PostizTab() {
 }
 
 /** « 2026-11-15T10:00 » local, pour un champ datetime-local : la date du plan à 10 h, ou dans une heure si elle est passée. */
-export function defaultWhen(date?: string, now = new Date()): string {
+/** L'envoi proposé : le jour et l'heure de l'étape (10 h à défaut d'heure), sinon la prochaine heure pleine. */
+export function defaultWhen(date?: string, now = new Date(), time?: string): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   const local = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  const planned = date ? new Date(`${date}T10:00:00`) : null;
+  const planned = date ? new Date(`${date}T${/^\d{2}:\d{2}$/.test(time ?? '') ? time : '10:00'}:00`) : null;
   if (planned && planned.getTime() > now.getTime() + 5 * 60_000) return local(planned);
   const soon = new Date(now.getTime() + 60 * 60_000);
   soon.setMinutes(0, 0, 0);
@@ -216,7 +217,9 @@ export function PostizPlanActions(p: {
 }) {
   const it = p.item;
   const [open, setOpen] = useState(false);
-  const [when, setWhen] = useState(() => defaultWhen(it.date));
+  const [when, setWhen] = useState(() => defaultWhen(it.date, undefined, it.time));
+  // l'étape change de jour ou d'heure : la programmation proposée suit
+  useEffect(() => setWhen(defaultWhen(it.date, undefined, it.time)), [it.date, it.time]);
   const [account, setAccount] = useState(p.accounts[0]?.id ?? '');
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmNow, setConfirmNow] = useState(false);

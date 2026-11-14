@@ -1010,6 +1010,18 @@ function ActivityEditor(p: { me: Me; onStatus: (s: SaveState) => void; onSaved: 
                                 aria-label="Jours avant l’évènement"
                               />
                             </label>
+                            <input
+                              className="pf-input act-step-time"
+                              type="time"
+                              value={st.time ?? ''}
+                              disabled={!edit}
+                              title="Heure d’envoi prévue. Vide : 10 h."
+                              aria-label={`Heure d’envoi de l’étape ${st.name}`}
+                              onChange={(e) => {
+                                const { time: _h, ...rest } = st;
+                                setSteps(steps.map((x, n) => (n === k ? (e.target.value ? { ...rest, time: e.target.value } : rest) : x)));
+                              }}
+                            />
                             <div className="act-checks">
                               {valid.map((t) => {
                                 const ch = chans.find((c) => c.id === t.channel);

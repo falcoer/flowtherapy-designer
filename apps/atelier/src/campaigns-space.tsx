@@ -6,7 +6,7 @@ import { ActivityMark } from './activity';
 import { Icon } from './icons';
 import { formatOf } from './model';
 import { ROLE_LABELS, thumbUrl, type ActivityEvent, type ActivityProfile, type AtelierMeta, type Campaign, type Channel, type CampaignInput, type CampaignText, type Operation, type PlanItem, type PostizAccounts, type Target, type TeamRef } from './server';
-import { MAIN_TEXT, addDays, addPlanRow, campaignCaption, campaignFields, draftFromOperation, fillFields, hasFields, hashtagChoices, hashtagOf, hashtagsIn, missingFields, patchStep, planCaption, textModels, toggleHashtag, planChoices, planFromOperation, planSteps, planText, stepKey, uniquePlanId, type PlanStep } from './plan';
+import { MAIN_TEXT, addDays, addPlanRow, hourLabel, campaignCaption, campaignFields, draftFromOperation, fillFields, hasFields, hashtagChoices, hashtagOf, hashtagsIn, missingFields, patchStep, planCaption, textModels, toggleHashtag, planChoices, planFromOperation, planSteps, planText, stepKey, uniquePlanId, type PlanStep } from './plan';
 
 export { campaignCaption };
 import { PostizPlanActions } from './postiz-ui';
@@ -988,7 +988,7 @@ function usePlanBoard(p: {
           image={m ? thumbUrl(m, idx >= 0 ? idx : undefined) : undefined}
           ratio={f.width / f.height}
           text={sent}
-          when={it.published ? `publiée le ${short(it.published.slice(0, 10))}` : it.postiz?.state === 'queue' ? `programmée le ${short(it.postiz.at.slice(0, 10))}` : it.date ? `le ${short(it.date)}` : 'à dater'}
+          when={it.published ? `publiée le ${short(it.published.slice(0, 10))}` : it.postiz?.state === 'queue' ? `programmée le ${short(it.postiz.at.slice(0, 10))}` : it.date ? `le ${short(it.date)}${it.time ? ` à ${hourLabel(it.time)}` : ''}` : 'à dater'}
           onImage={m ? () => p.onOpen(m, idx >= 0 ? idx : 0) : undefined}
         />
         {m ? (
@@ -1084,9 +1084,17 @@ function usePlanBoard(p: {
               </label>
             )}
             <input className="sp-plan-date" type="date" value={open.date ?? ''} onChange={(e) => p.onPlan(patchStep(plan, open.key, { date: e.target.value || undefined }))} aria-label={`Date de l’étape ${open.name}`} title={open.date ? 'Changer la date' : 'Pas encore de date'} />
+            <input
+              className="sp-plan-date sp-plan-time"
+              type="time"
+              value={open.time ?? ''}
+              onChange={(e) => p.onPlan(patchStep(plan, open.key, { time: e.target.value || undefined }))}
+              aria-label={`Heure de l’étape ${open.name}`}
+              title={open.time ? 'Changer l’heure d’envoi' : 'Heure d’envoi : 10 h tant qu’elle n’est pas choisie'}
+            />
           </>
         ) : (
-          <span className="sp-step-date">{[relDay(c.date, open.date), open.date ? short(open.date) : 'à dater'].filter(Boolean).join(' · ')}</span>
+          <span className="sp-step-date">{[relDay(c.date, open.date), open.date ? short(open.date) : 'à dater', hourLabel(open.time)].filter(Boolean).join(' · ')}</span>
         )}
         <button className="sp-more sm" onClick={() => setSel(null)} aria-label="Refermer l’étape" title="Refermer">
           ×
@@ -1133,7 +1141,7 @@ function usePlanBoard(p: {
               <div key={s.rows[0]!.id} className={`tl-step ${on ? 'on' : ''} ${over === `step:${s.key}` ? 'over' : ''}`} style={{ left: x, width: w }} data-step={p.canEdit ? s.key : undefined}>
                 <button className="tl-step-head" onClick={pick} aria-expanded={on} title="Régler cette étape, programmer ses publications">
                   <b>{s.name || 'Étape à nommer'}</b>
-                  <small className={late ? 'late' : ''}>{[relDay(c.date, s.date), s.date ? short(s.date) : 'à dater'].filter(Boolean).join(' · ')}</small>
+                  <small className={late ? 'late' : ''}>{[relDay(c.date, s.date), s.date ? short(s.date) : 'à dater', hourLabel(s.time)].filter(Boolean).join(' · ')}</small>
                 </button>
                 <div className="tl-clips">
                   {s.rows.map((it) => {
@@ -1526,7 +1534,7 @@ function WritingTab(p: { c: Campaign; campaigns: Campaign[]; operation?: Operati
                   );
                 })}
             </div>
-            <PostPreview {...p.look(row)} format={row.format} text={post} when={placedRow ? [row.label, row.date ? `le ${short(row.date)}` : 'à dater'].filter(Boolean).join(' · ') : 'pas encore sur la frise'} />
+            <PostPreview {...p.look(row)} format={row.format} text={post} when={placedRow ? [row.label, row.date ? `le ${short(row.date)}${row.time ? ` à ${hourLabel(row.time)}` : ''}` : 'à dater'].filter(Boolean).join(' · ') : 'pas encore sur la frise'} />
           </div>
         ) : (
           hasFields(body, fields) && (

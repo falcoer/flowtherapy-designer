@@ -113,6 +113,8 @@ export interface OpStep {
   name: string;
   days?: number;
   targets: Target[];
+  /** heure d'envoi prévue (HH:MM) */
+  time?: string;
   /** modèle de texte de l'étape, avec ses champs ({date}, {lieu}…) */
   text?: string;
 }
@@ -352,6 +354,7 @@ export function cleanProfile(p: ActivityProfile): ActivityProfile {
             .slice(0, 20)
             .map((t) => ({ ...(str(t?.channel, 40) ? { channel: str(t?.channel, 40) } : {}), format: str(t?.format, 40) }))
             .filter((t) => t.format),
+          ...(HHMM.test(str(s?.time, 5)) ? { time: str(s?.time, 5) } : {}),
           ...(typeof s?.text === 'string' && s.text.trim() ? { text: s.text.slice(0, 2200) } : {}),
         }))
         .filter((s) => s.name);
@@ -1018,6 +1021,8 @@ export interface PlanItem {
   /** étape qui regroupe les lignes */
   step?: string;
   date?: string;
+  /** heure d'envoi prévue de l'étape (HH:MM) */
+  time?: string;
   composition?: string;
   /** texte de la campagne déposé sur l'étape */
   text?: string;
@@ -1031,6 +1036,7 @@ export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date'
 
 const SLUG40 = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const MAIN_TEXT = 'main';
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 function cleanCampaign(c: CampaignInput) {
   const date = str(c.date, 10);
   const k = c.contact ?? {};
@@ -1061,6 +1067,7 @@ function cleanCampaign(c: CampaignInput) {
       ...(str(x.label, 60) ? { label: str(x.label, 60) } : {}),
       ...(SLUG40.test(str(x.step, 40)) ? { step: str(x.step, 40) } : {}),
       ...(/^\d{4}-\d{2}-\d{2}$/.test(str(x.date, 10)) ? { date: str(x.date, 10) } : {}),
+      ...(HHMM.test(str(x.time, 5)) ? { time: str(x.time, 5) } : {}),
       ...(/^[a-z0-9][a-z0-9-]{0,63}$/.test(str(x.composition, 64)) ? { composition: str(x.composition, 64) } : {}),
       // un texte supprimé ne reste pas déposé sur une étape
       ...(kept.has(str(x.text, 40)) ? { text: str(x.text, 40) } : {}),
