@@ -235,6 +235,8 @@ export function CampaignPage(p: {
   onSheet: () => void;
   onSave: (c: CampaignInput) => Promise<void>;
   onClose: (closed: boolean) => void;
+  /** changer de campagne : les récentes du fil d'Ariane, et toutes */
+  onSwitch?: () => void;
   onNew: () => void;
   onOpen: (m: AtelierMeta, target?: number) => void;
   onVote: (m: AtelierMeta) => void;
@@ -459,6 +461,18 @@ export function CampaignPage(p: {
           <h1>{c ? c.name : 'Hors campagne'}</h1>
           <small>{c ? subOf(c, p.operations) : 'les compositions sans campagne'}</small>
         </span>
+        {p.onSwitch && (
+          <button
+            className="sp-switch"
+            onClick={(e) => {
+              e.stopPropagation();
+              p.onSwitch!();
+            }}
+            title="Changer de campagne : les dernières ouvertes, ou toutes"
+          >
+            <Icon name="switch" /> <span>Changer</span>
+          </button>
+        )}
         {c && (
           <span className="sp-head-acts">
             {p.canEdit && (
@@ -670,40 +684,6 @@ function PlanTab(p: {
 }
 
 // ——— dans l'atelier ———
-
-/** Les publications de la composition en onglets sous la barre : toucher change la page affichée, ⚙ la règle, ＋ en ajoute une. */
-export function PubTabs(p: { targets: Target[]; active: number; activity: ActivityProfile | null; editing: boolean; canEdit: boolean; onShow: (i: number) => void; onEdit: () => void; onAdd: () => void }) {
-  const channels = channelsOf(p.activity);
-  return (
-    <div className="sp-pubs" role="tablist" aria-label="Publications de la composition" onPointerDown={(e) => e.stopPropagation()}>
-      {p.targets.map((t, i) => {
-        const f = formatOf(t.format);
-        const r = Math.min(1.6, Math.max(0.55, f.width / f.height));
-        const on = i === p.active;
-        return (
-          <span key={i} className={`sp-pub ${on ? 'on' : ''}`}>
-            <button role="tab" aria-selected={on} className="sp-pub-main" onClick={() => (on ? p.onEdit() : p.onShow(i))} title={on ? 'Régler cette publication' : `Afficher ${targetLabel(t, p.activity)}`}>
-              <MediaIcon ch={channels.find((c) => c.id === t.channel)} size={15} />
-              <span className="sp-glyph" style={{ width: Math.round(13 * Math.min(1, r)), height: Math.round(13 / Math.max(1, r)) }} />
-              <span className="sp-pub-name">{targetLabel(t, p.activity)}</span>
-            </button>
-            {on && (
-              <button className={`sp-gear ${p.editing ? 'on' : ''}`} onClick={p.onEdit} title="Régler cette publication : réseau, format, résolution, variante, marges" aria-label="Régler cette publication">
-                <Icon name="settings" />
-              </button>
-            )}
-          </span>
-        );
-      })}
-      {p.canEdit && (
-        <button className="sp-pub-add" onClick={p.onAdd} title="Ajouter une publication à la composition">
-          <Icon name="plus" />
-          <span>Publication</span>
-        </button>
-      )}
-    </div>
-  );
-}
 
 /** Pastille d'état de la composition : l'étape, et en la touchant le circuit et l'action suivante. */
 export function StageButton(p: {

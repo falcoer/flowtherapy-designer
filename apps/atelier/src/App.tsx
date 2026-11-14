@@ -45,7 +45,7 @@ import { MediaIcon, PublicationsPanel, VariantBar, VariantPick } from './targets
 import { CampaignDialog } from './campaigns-ui';
 import { NewCompositionDialog } from './compositions-ui';
 import { CompositionMenu, TopCrumbs } from './compositions-menu';
-import { CampaignPage, CampaignPicker, CampaignsHome, PubTabs, StageButton, campaignCaption, type SpaceTab } from './campaigns-space';
+import { CampaignPage, CampaignPicker, CampaignsHome, StageButton, campaignCaption, type SpaceTab } from './campaigns-space';
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
@@ -1539,7 +1539,7 @@ export function App() {
 
   // transformation page → écran (pixels CSS)
   // sous la barre, les onglets des publications (et sur téléphone la pastille annuler/rétablir) : la page se place dessous
-  const top = rendu ? 0 : TOP + (vp.w < 560 ? 104 : 52);
+  const top = rendu ? 0 : TOP;
   const fit = Math.min((vp.w - (rendu ? 24 : vp.w < 560 ? 84 : 150)) / f.width, (vp.h - top - 24) / f.height);
   const viewMatrix = (v: View) =>
     new DOMMatrix()
@@ -4664,6 +4664,12 @@ export function App() {
                 }}
                 onCampaign={() => {
                   if (bubble) setBubble(null);
+                  // la campagne sélectionnée s'édite en pleine page ; déjà dessus (ou hors campagne), le fil propose les récentes
+                  const cur = space ? campaign : (projects.find((x) => x.id === project?.id)?.campaign ?? campaign);
+                  if (cur && !(space === 'campaign' && cur === campaign) && campaigns.some((c) => c.id === cur)) {
+                    setPicking(false);
+                    return openSpace(cur);
+                  }
                   setPicking(!picking);
                 }}
                 onContent={() => {
@@ -4677,6 +4683,22 @@ export function App() {
               />
             </div>
             <div className="bar-right">
+              {!space && (
+                /* la publication sélectionnée (dans le menu de la composition) : son édition */
+                <button
+                  className={`btn pubs-btn ${bubble === 'format' ? 'on' : ''}`}
+                  onClick={() => setBubble(bubble === 'format' ? null : 'format')}
+                  title={`Édition de la publication : ${targetLabel(currentPub, activity)} (réseau, format, résolution, variante, marges, repères)`}
+                  aria-label="Édition de la publication"
+                >
+                  <FormatGlyph w={f.width} h={f.height} />
+                  {activeTarget?.channel && (
+                    <span className="pubs-media">
+                      <MediaIcon ch={channels.find((c) => c.id === activeTarget.channel)} size={13} />
+                    </span>
+                  )}
+                </button>
+              )}
               {!space && online && me?.team && (
                 <StageButton
                   meta={project ? projects.find((x) => x.id === project.id) : undefined}
@@ -4795,18 +4817,6 @@ export function App() {
               />
             </div>
           </header>
-          {!space && (
-            <PubTabs
-              targets={compPubs()}
-              active={doc.targets?.length ? (doc.target ?? 0) : 0}
-              activity={activity}
-              editing={bubble === 'format'}
-              canEdit={!me?.team || canEditTeam}
-              onShow={showTarget}
-              onEdit={() => setBubble(bubble === 'format' ? null : 'format')}
-              onAdd={addPublication}
-            />
-          )}
           {picking && online && me?.team && (
             <CampaignPicker
               campaigns={campaigns}
@@ -4854,6 +4864,7 @@ export function App() {
                   canEdit={!me?.team || canEditTeam}
                   isAdmin={!!me?.admin || me?.team?.role === 'owner'}
                   canVote={!!me?.team}
+                  onSwitch={() => setPicking(!picking)}
                   tab={spaceTab}
                   onTab={setSpaceTab}
                   onSheet={() => followed && setSheet(followed.id)}
