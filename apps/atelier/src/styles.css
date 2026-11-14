@@ -2726,7 +2726,7 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .sp-more { flex: none; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); background: var(--chrome-solid); color: var(--ink); display: grid; place-items: center; cursor: pointer; }
 .sp-more svg { width: 20px; height: 20px; stroke-width: 3; }
 .sp-more.on, .sp-more:hover { background: var(--accent-soft); }
-.sp-menu { position: absolute; right: 12px; bottom: 56px; z-index: 3; min-width: 220px; padding: 6px; border-radius: 14px; border: 1px solid var(--line); background: var(--chrome-solid); box-shadow: var(--shadow); display: flex; flex-direction: column; }
+.sp-menu { position: absolute; right: 12px; bottom: 56px; z-index: 8; min-width: 220px; padding: 6px; border-radius: 14px; border: 1px solid var(--line); background: var(--chrome-solid); box-shadow: var(--shadow); display: flex; flex-direction: column; }
 .sp-menu.right { right: 0; top: 42px; bottom: auto; }
 .sp-menu button { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 0; border-radius: 9px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .sp-menu button:hover { background: var(--accent-soft); }
