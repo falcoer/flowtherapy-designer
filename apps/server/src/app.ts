@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, rename } from 'node:fs/promises';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
@@ -229,6 +229,24 @@ export async function buildApp(opts: AppOptions) {
     } catch (err) {
       return reply.code(400).send({ error: (err as Error).message });
     }
+  });
+  // supprimer une activité : son nom retapé en confirmation ; ses dossiers partent à la corbeille (rien n'est effacé du disque)
+  app.delete<{ Params: { id: string }; Body: { name?: string } }>('/api/teams/:id', { preHandler: needsIn('owner') }, async (req, reply) => {
+    const t = accounts.team(req.params.id);
+    if (!t) return reply.code(404).send({ error: 'Équipe introuvable' });
+    if (t.id === home.id) return reply.code(400).send({ error: 'L’activité d’origine ne peut pas être supprimée' });
+    if ((req.body?.name ?? '').trim() !== t.name) return reply.code(400).send({ error: 'Le nom tapé ne correspond pas à celui de l’activité' });
+    const dir = path.join(dataRoot, 'equipes', t.id);
+    const bin = path.join(dataRoot, 'corbeille', 'equipes', `${t.id}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+    try {
+      await mkdir(path.dirname(bin), { recursive: true });
+      await rename(dir, bin);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return reply.code(500).send({ error: `Dossiers de l’activité impossibles à déplacer : ${(err as Error).message}` });
+    }
+    storesByTeam.delete(t.id);
+    accounts.deleteTeam(t.id);
+    return { ok: true };
   });
   // --- catalogue du site : formats et types de diffusion, réglés par les administrateurs ---
   app.get('/api/catalog', async () => accounts.catalog());

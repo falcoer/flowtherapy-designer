@@ -446,6 +446,13 @@ export class Accounts {
     if (!this.db.prepare('UPDATE teams SET name = ? WHERE id = ?').run(clean, id).changes) throw new Error('Équipe introuvable');
   }
 
+  /** Supprime l'équipe et tout ce que la base en garde : membres, campagnes, votes, messages (et leurs réactions). */
+  deleteTeam(id: string) {
+    if (!this.team(id)) throw new Error('Équipe introuvable');
+    for (const sql of ['DELETE FROM votes WHERE team = ?', 'DELETE FROM messages WHERE team = ?', 'DELETE FROM campaigns WHERE team = ?', 'DELETE FROM members WHERE team = ?', 'DELETE FROM teams WHERE id = ?'])
+      this.db.prepare(sql).run(id);
+  }
+
   /* ---------- fiche d'activité ---------- */
 
   /** Catalogue du site (formats, types de diffusion) : celui des administrateurs, sinon celui d'origine. */

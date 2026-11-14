@@ -108,6 +108,38 @@ describe('équipes', () => {
     expect(list.json().map((m: { id: string }) => m.id)).toEqual(['affiche']);
   });
 
+  it('un responsable supprime une activité en retapant son nom ; ses dossiers vont à la corbeille', async () => {
+    const { login, as, root } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    await lauris.send('POST', '/api/teams', { name: 'Les Insolites' });
+    await lauris.send('POST', '/api/teams/les-insolites/members', { email: 'jenni@example.org', role: 'editor' });
+    await lauris.send('POST', '/api/teams/les-insolites/members', { email: 'gerant@example.org', role: 'owner' });
+    const gerant = as((await login('gerant@example.org'))!);
+    await gerant.send('PUT', '/api/ateliers/affiche', { title: 'Affiche', doc });
+    await gerant.send('POST', '/api/campaigns', { name: 'Tournée' });
+
+    // un membre qui n'est pas responsable ne peut pas, et le nom doit être retapé à l'identique
+    const jenni = as((await login('jenni@example.org'))!);
+    expect((await jenni.send('DELETE', '/api/teams/les-insolites', { name: 'Les Insolites' })).statusCode).toBe(403);
+    expect((await gerant.send('DELETE', '/api/teams/les-insolites', { name: 'les insolites' })).statusCode).toBe(400);
+    // l'activité d'origine ne se supprime pas
+    expect((await lauris.send('DELETE', '/api/teams/flowtherapy', { name: 'Flowtherapy' })).statusCode).toBe(400);
+
+    expect((await gerant.send('DELETE', '/api/teams/les-insolites', { name: 'Les Insolites' })).statusCode).toBe(200);
+    expect((await lauris.get('/api/me')).json().teams.map((t: { id: string }) => t.id)).toEqual(['flowtherapy']);
+    expect((await gerant.get('/api/me')).json().teams).toEqual([]);
+    expect(await readdir(path.join(root, 'equipes'))).not.toContain('les-insolites');
+    const bin = await readdir(path.join(root, 'corbeille/equipes'));
+    expect(bin).toHaveLength(1);
+    expect(await readdir(path.join(root, 'corbeille/equipes', bin[0]!, 'ateliers'))).toContain('affiche.json');
+    // recréée sous le même nom : elle repart de zéro
+    await lauris.send('POST', '/api/teams', { name: 'Les Insolites' });
+    const sw = await lauris.send('POST', '/api/me/team', { team: 'les-insolites' });
+    const cookie = `${(await login('lauris@example.org'))!}; ${String(sw.headers['set-cookie']).split(';')[0]}`;
+    expect((await as(cookie).get('/api/campaigns')).json()).toEqual([]);
+    expect((await as(cookie).get('/api/ateliers')).json()).toEqual([]);
+  });
+
   it('garde au moins un responsable', async () => {
     const { login, as } = await setup();
     const lauris = as((await login('lauris@example.org'))!);

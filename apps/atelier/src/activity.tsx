@@ -8,6 +8,7 @@ import {
   ROLE_LABELS,
   saveProfile,
   switchTeam,
+  deleteTeam,
   type ActivityProfile,
   type ChannelKind,
   type ChannelPick,
@@ -70,6 +71,8 @@ export function ActivityMenu(p: { me: Me | null; online: boolean | null; /** fic
   const [status, setStatus] = useState<SaveState>('idle');
   const [newName, setNewName] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  // suppression : le nom de l'activité retapé en confirmation
+  const [removing, setRemoving] = useState<string | null>(null);
   // changer d'activité change toutes les compositions visibles : on recharge l'atelier
   const pick = (id: string) => void switchTeam(id).then(() => location.reload(), (e: Error) => setErr(e.message));
   // la liste ne montre que les autres activités : la courante est déjà en tête du menu
@@ -85,6 +88,11 @@ export function ActivityMenu(p: { me: Me | null; online: boolean | null; /** fic
           <small>{team ? [team.kind, ROLE_LABELS[team.role]].filter(Boolean).join(' · ') : p.online === false ? 'Hors ligne' : 'Aucune activité'}</small>
         </span>
         {editing && status !== 'idle' && <span className={`act-status ${status}`}>{STATUS_LABELS[status]}</span>}
+        {editing && owner && (
+          <button className={`act-icon act-del ${removing !== null ? 'on' : ''}`} onClick={() => setRemoving(removing === null ? '' : null)} title="Supprimer l’activité" aria-label="Supprimer l’activité" aria-expanded={removing !== null}>
+            <Icon name="trash" />
+          </button>
+        )}
         {team && (
           <button
             className={`act-icon ${editing ? 'on' : ''}`}
@@ -135,6 +143,35 @@ export function ActivityMenu(p: { me: Me | null; online: boolean | null; /** fic
           )}
           {err && <p className="pf-note pf-err">{err}</p>}
         </div>
+      )}
+      {editing && team && removing !== null && (
+        <form
+          className="act-remove"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (removing.trim() !== team.name) return;
+            void deleteTeam(team.id, removing.trim())
+              // l'activité partie : on passe dans une autre s'il y en a une
+              .then(() => (others[0] ? switchTeam(others[0].id) : undefined))
+              .then(
+                () => location.reload(),
+                (e: Error) => setErr(e.message),
+              );
+          }}
+        >
+          <p>
+            Supprimer <b>{team.name}</b> avec ses compositions, ses campagnes et ses messages ? Tape son nom pour confirmer.
+          </p>
+          <input className="pf-input" autoFocus placeholder={team.name} value={removing} onChange={(e) => setRemoving(e.target.value)} aria-label="Nom de l’activité à supprimer" />
+          <span className="act-remove-acts">
+            <button type="button" className="pf-btn" onClick={() => setRemoving(null)}>
+              Annuler
+            </button>
+            <button type="submit" className="pf-btn danger" disabled={removing.trim() !== team.name}>
+              Supprimer l’activité
+            </button>
+          </span>
+        </form>
       )}
       {err && !switching && <p className="pf-note pf-err">{err}</p>}
       {editing && me?.team && <ActivityEditor me={me} onStatus={setStatus} onSaved={p.onSaved} />}
