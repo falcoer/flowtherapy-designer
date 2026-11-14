@@ -13,7 +13,7 @@ import { keepLinks, type LinkShapes } from './links';
 import { shapedFill } from './gradient';
 export { linkShapes } from './links';
 import { applyLook, lookGuides, lookOf } from './looks';
-import { applyPixelFx, hasPixelFx, hexRGB, opacityOf, type Fx, type FxId } from './fx';
+import { applyPixelFx, fxOn, hasPixelFx, hexRGB, opacityOf, type Fx, type FxId } from './fx';
 
 /**
  * Rendu de la scène sur un canevas 2D. Chaque couche est dessinée dans sa
@@ -1400,7 +1400,7 @@ function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
 
 /** Traitements de la couche : filtre dessin de la photo, puis la matière, puis les effets. */
 function pixelFx(l: Layer): Fx[] {
-  return [...(l.kind === 'photo' && l.look?.draw ? [l.look.draw] : []), ...(l.material ? [l.material] : []), ...(l.fx ?? [])];
+  return [...(l.kind === 'photo' && l.look?.draw ? [l.look.draw] : []), ...fxOn([l.material]), ...fxOn(l.fx)];
 }
 
 const fxBuffers = new Map<string, { key: string; canvas: HTMLCanvasElement; k: number }>();
@@ -1482,7 +1482,7 @@ function deviceOffset(dx: number, dy: number, o: DrawOptions) {
   return { x: (dx * cr - dy * sr) * o.scale, y: (dx * sr + dy * cr) * o.scale };
 }
 
-const fxList = (l: Layer, id: FxId) => l.fx?.filter((x) => x.id === id) ?? [];
+const fxList = (l: Layer, id: FxId) => fxOn(l.fx).filter((x) => x.id === id);
 
 /** Dans la découpe : ombre intérieure (côté lumière) et reflet brillant. */
 function drawFxInside(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, path: Path2D) {
@@ -2045,7 +2045,7 @@ function drawBump(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, 
 
 /** Ce que la surface renvoie de la lampe : hauteur de la lampe, sa couleur, le reflet du vernis. */
 function surfaceLight(l: Layer, doc: Doc, k: number): Omit<BumpLight, 'lx' | 'ly'> {
-  const ids = new Set((l.fx ?? []).map((x) => x.id));
+  const ids = new Set(fxOn(l.fx).map((x) => x.id));
   const [shine, spec] = ids.has('gloss') ? [60, 0.9] : ids.has('satin') ? [18, 0.45] : ids.has('matte-varnish') ? [0, 0] : [8, 0.12];
   return { elev: Math.atan2(1, Math.max(0.05, k)), color: hexRGB(lampOf(doc).color) as [number, number, number], shine, spec };
 }

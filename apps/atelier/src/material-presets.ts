@@ -88,6 +88,6 @@ export const MATERIAL_TYPES: MaterialType[] = [
 
 /** Le réglage d'une matière réelle, prêt à poser sur l'objet (sans lien à la palette : c'est une nouvelle matière). */
 export function presetFx(p: MaterialPreset, base: Fx): Fx {
-  const { ref: _r, ...rest } = base;
+  const { ref: _r, off: _o, ...rest } = base;
   return { ...rest, amount: p.amount, ...(p.knobs ? { knobs: { ...base.knobs, ...p.knobs } } : {}), preset: p.name };
 }

@@ -11,7 +11,7 @@ import { AlignGlyph, TextContent, useLazyText, WarpGlyph, weightName } from './t
 import { TiltPad } from './tilt';
 import { borderDefaults } from './targets';
 import { EDGE_SLOTS, EdgeGlyph, edgeName } from './edge-palette';
-import { matterSwatch, varnishOf, varnishSwatch } from './palettes';
+import { matterSwatch, toggleMatter, varnishOf, varnishSwatch } from './palettes';
 
 /**
  * Coupe de l'objet : ses couches lues comme l'objet posé, du dessus au dessous.
@@ -565,6 +565,11 @@ export function CoupePanel({
               patch({ fx: (l.fx ?? []).filter((x) => x !== v) });
               onToast('Vernis retiré', true);
             }}
+            off={v?.off}
+            onToggle={() => {
+              patch(toggleMatter(l, 'varnish'));
+              onToast(v?.off ? 'Vernis réactivé' : 'Vernis désactivé : ses réglages sont gardés', true);
+            }}
             hint="Glisse ici un vernis de la palette, ou touche le triangle pour l’assistant"
           >
             {v && <Attrs bare layer={l} doc={doc} item={{ sec: 'coat', key: `fx:${vi}`, name: '', bg: '', removable: true }} patch={patch} />}
@@ -579,6 +584,11 @@ export function CoupePanel({
             onRemove={() => {
               patch({ material: undefined });
               onToast('Matière retirée', true);
+            }}
+            off={l.material?.off}
+            onToggle={() => {
+              patch(toggleMatter(l, 'material'));
+              onToast(l.material?.off ? 'Matière réactivée' : 'Matière désactivée : ses réglages sont gardés', true);
             }}
             hint="Glisse ici une matière de la palette, ou touche l’hexagone pour l’assistant"
           >
@@ -757,9 +767,14 @@ function SlotRow({
   glyph,
   onSlot,
   onRemove,
+  off,
+  onToggle,
   hint,
   children,
 }: {
+  /** Désactivé : la plaque est grisée, ses réglages restent en place. */
+  off?: boolean;
+  onToggle?: () => void;
   drop: string;
   label: string;
   shape: string;
@@ -773,7 +788,7 @@ function SlotRow({
 }) {
   const empty = name === undefined;
   return (
-    <div className={`ap-row ${empty ? 'empty' : ''}`} data-drop={drop}>
+    <div className={`ap-row ${empty ? 'empty' : ''} ${off && !empty ? 'off' : ''}`} data-drop={drop}>
       <div className="ap-slot-col">
         <button className={`ap-slot ${shape} ${empty ? 'empty' : ''}`} style={bg ? { background: bg, backgroundSize: 'cover' } : undefined} onClick={onSlot} title={hint} aria-label={`${label} : assistant`}>
           {empty ? <span className="ap-plus">＋</span> : glyph}
@@ -788,7 +803,19 @@ function SlotRow({
           </span>
         )}
       </div>
-      <div className="ap-params">{empty ? <p className="ap-hint">{hint}.</p> : children}</div>
+      <div className="ap-params" aria-disabled={(off && !empty) || undefined}>
+        {empty ? <p className="ap-hint">{hint}.</p> : children}
+      </div>
+      {!empty && onToggle && (
+        <button
+          className={`act-toggle ap-toggle ${off ? '' : 'on'}`}
+          role="switch"
+          aria-checked={!off}
+          aria-label={`${label} : ${off ? 'réactiver' : 'désactiver'}`}
+          title={off ? `Réactiver : ${name} (ses réglages sont gardés)` : `Désactiver : ${name} (l’objet se dessine sans, ses réglages sont gardés)`}
+          onClick={onToggle}
+        />
+      )}
     </div>
   );
 }
