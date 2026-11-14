@@ -13,7 +13,8 @@ export const isVarnish = (x: Fx) => fxOf(x.id)?.group === 'lumiere';
 export const varnishOf = (l: Layer) => (l.fx ?? []).find(isVarnish);
 export const listOf = (d: Doc, k: MatterKind): PaletteMatter[] => (k === 'material' ? d.materials : d.varnishes) ?? [];
 const withList = (d: Doc, k: MatterKind, list: PaletteMatter[]): Doc => (k === 'material' ? { ...d, materials: list } : { ...d, varnishes: list });
-const bare = (x: Fx): Fx => {
+/** Le réglage seul, sans son lien à la palette, son nom ni son interrupteur. */
+export const bare = (x: Fx): Fx => {
   const { ref: _r, preset: _p, off: _o, ...rest } = x;
   return rest;
 };

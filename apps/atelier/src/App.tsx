@@ -5176,6 +5176,9 @@ export function App() {
               doc={doc}
               f={f}
               patch={(p, h) => patchLayer(sel.id, p, h)}
+              targetAt={layerAtScreen}
+              patchOther={(id, p) => patchLayer(id, p)}
+              onDoc={update}
               onClose={() => setTool('move')}
               onWizard={(t) => {
                 setWizardTab((w) => ({ t, n: w.n + 1 }));

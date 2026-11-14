@@ -2276,6 +2276,11 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 /* emplacement survolé par une pastille glissée depuis la palette */
 .ap-row.hot, .ap-tint.hot { background: var(--accent-soft); border-radius: 10px; }
 .ap-row.hot .ap-slot { box-shadow: 0 0 0 2px var(--accent); }
+/* une pastille remplie se tire : sur un autre objet (page ou liste) ou sur la palette */
+.ap-slot:not(.empty) { touch-action: none; cursor: grab; }
+.layer.slot-hot { box-shadow: inset 0 0 0 2px var(--accent); }
+.guide-btn.slot-hot, .palette-bubble.slot-hot { box-shadow: 0 0 0 2px var(--accent); }
+.drag-dot.matter-dot { width: 40px; height: 40px; margin: -20px 0 0 -20px; }
 /* Bord : trois emplacements côte à côte quand la largeur le permet */
 .ap-edges { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0 12px; }
 .ap-edges .ap-row + .ap-row { border-top: 0; }
