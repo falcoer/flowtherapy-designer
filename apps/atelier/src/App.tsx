@@ -1022,6 +1022,9 @@ export function App() {
   const shiftLatch = shiftButtonOn(shiftBtn);
   const [shiftKey, setShiftKey] = useState(false);
   const shift = shiftHeld(shiftLatch, shiftKey);
+  // lu au lâcher d'un glisser commencé avant que Maj change (dépôt d'une couleur)
+  const shiftNow = useRef(shift);
+  shiftNow.current = shift;
   useEffect(() => {
     const on = (e: KeyboardEvent) => e.key === 'Shift' && setShiftKey(e.type === 'keydown');
     const off = () => setShiftKey(false);
@@ -2546,6 +2549,15 @@ export function App() {
       return setToast(`${k === 'border' ? 'Le bord' : 'La lueur'} de « ${l.name} » prend la couleur « ${doc.guides[i]?.name} »`);
     }
     if (l.kind === 'photo') return setToast('Une photo n’a pas de couleur de fond : peins-la ou donne-lui un style');
+    // un ensemble (pièces solidaires) se colore en entier ; avec Maj, seule la pièce sous le doigt
+    const group = l.link && !shiftNow.current ? doc.layers.filter((x) => x.link === l.link && x.kind !== 'photo' && x.kind !== 'surface') : [];
+    if (group.length > 1) {
+      const ids = new Set(group.map((x) => x.id));
+      update((d) => ({ ...d, layers: d.layers.map((x) => (ids.has(x.id) ? { ...x, guide: i } : x)) }));
+      setSelected(l.id);
+      flashLink([...ids]);
+      return setToast(`L’ensemble (${ids.size} pièces) prend la couleur « ${doc.guides[i]?.name} » : avec Maj, seule la pièce visée`);
+    }
     patchLayer(l.id, { guide: i });
     setSelected(l.id);
     setToast(`« ${l.name} » prend la couleur « ${doc.guides[i]?.name} »`);
