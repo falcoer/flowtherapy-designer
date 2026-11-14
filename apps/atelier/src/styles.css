@@ -709,7 +709,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .hand-right .height-bar { right: auto; left: max(8px, env(safe-area-inset-left, 0px)); top: 64px; }
 .hand-left .height-bar { left: auto; right: max(8px, env(safe-area-inset-right, 0px)); top: 64px; }
 /* bulles ouvertes à droite : elles laissent la barre des outils visible */
-.hand-right .bubble:not(.format-bubble):not(.anchor-bubble):not(.projects-bubble):not(.act-menu):not(.act-form):not(.prefs-bubble):not(.cat-panel):not(.user-menu) { left: auto; right: calc(max(8px, env(safe-area-inset-right, 0px)) + 58px); }
+.hand-right .bubble:not(.format-bubble):not(.anchor-bubble):not(.projects-bubble):not(.act-menu):not(.act-form):not(.prefs-bubble):not(.cat-panel):not(.user-menu):not(.sp-picker):not(.sp-stage-pop) { left: auto; right: calc(max(8px, env(safe-area-inset-right, 0px)) + 58px); }
 /* éditeur d'objet : bandeau pleine largeur en bas ; les réglages s'ouvrent entre les sections et l'aperçu, qui glisse à droite */
 .coupe.with-list { left: 0; right: 0; bottom: 0; width: auto; max-height: calc(100dvh - 76px); border-radius: 18px 18px 0 0; padding: 10px max(10px, env(safe-area-inset-right, 0px)) max(10px, env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px)); }
 .cp-view { grid-template-columns: 250px 150px minmax(0, 0fr) minmax(0, 1fr); height: min(330px, 42dvh); transition: grid-template-columns 0.32s cubic-bezier(0.3, 0.7, 0.2, 1); }
@@ -2737,25 +2737,6 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .sp-history { max-width: 720px; }
 .sp-history .cm-right { border: 0; padding: 0; max-height: none; overflow: visible; }
 
-/* barre : marque, retour, titre */
-.sp-nav { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.sp-mark { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 6px; border: 0; border-radius: 19px; background: none; color: var(--accent); font: inherit; font-weight: 650; cursor: pointer; }
-.sp-mark.wide { padding: 0 14px 0 6px; background: var(--accent-soft); }
-.sp-mark:hover, .sp-mark.on { background: var(--accent-soft); }
-.sp-back { position: relative; flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 14px 0 8px; border: 0; border-radius: 18px; background: var(--accent-soft); color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
-.sp-back svg { flex: none; width: 18px; height: 18px; stroke-width: 2.4; }
-.sp-back span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sp-back:hover { background: color-mix(in srgb, var(--accent) 24%, var(--chrome-solid)); }
-.sp-back .crumb-alert { position: static; flex: none; }
-.sp-title { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border: 0; border-radius: 18px; background: none; color: var(--ink); font: inherit; font-weight: 650; font-size: 15px; cursor: pointer; }
-.sp-title-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sp-title-i { display: none; }
-.sp-title-i svg { width: 20px; height: 20px; stroke-width: 3; }
-.sp-title:hover, .sp-title.on { background: var(--accent-soft); }
-.sp-return { height: 34px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
-@media (max-width: 760px) { .sp-back-txt { max-width: 110px; } .sp-title { max-width: 150px; } .sp-return { max-width: 170px; } }
-@media (max-width: 560px) { .sp-title { padding: 0; width: 34px; justify-content: center; flex: none; } .sp-title-t { display: none; } .sp-title-i { display: grid; } .sp-back-txt { display: none; } .sp-back { padding: 0 6px; gap: 2px; } .sp-mark { padding: 0 2px; } .bar:not(.in-space) .bar-right > .sep { display: none; } }
-
 /* onglets des publications, sous la barre */
 .sp-pubs { position: absolute; top: calc(52px + env(safe-area-inset-top, 0px) + 8px); left: 50%; transform: translateX(-50%); z-index: 4; max-width: calc(100% - 140px); display: flex; gap: 4px; align-items: center; padding: 4px; border-radius: 16px; background: var(--chrome); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border: 1px solid var(--line); box-shadow: 0 4px 14px rgba(20, 16, 32, 0.12); overflow-x: auto; scrollbar-width: none; }
 .sp-pubs::-webkit-scrollbar { display: none; }
@@ -2798,7 +2779,6 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
   .sp-stage .sp-pill { width: 22px; padding: 0; font-size: 0; gap: 0; justify-content: center; }
   .sp-stage .sp-pill::before { width: 10px; height: 10px; }
   .sp-stage .sp-pill.st-published::before { background: #fff; }
-  .sp-return-t { display: none; }
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .sp-pill.st-proposed { color: #7fb0ff; }
@@ -2810,3 +2790,36 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 :root[data-theme='dark'] .sp-pill.st-approved { color: #6fcf97; }
 /* dans l'espace des campagnes, les commandes de dessin se rangent */
 .atelier.in-space .shift-big, .atelier.in-space .wheel-dock, .atelier.in-space .height-bar, .atelier.in-space .coupe, .atelier.in-space .edit-sections { display: none; }
+
+/* sous la campagne du fil d'Ariane : les récentes et « Toutes les campagnes… » */
+.sp-picker-back { position: fixed; inset: 0; z-index: 12; }
+.atelier .bubble.sp-picker { position: fixed; z-index: 13; top: calc(56px + env(safe-area-inset-top, 0px)); left: max(60px, env(safe-area-inset-left, 0px)); right: auto; width: min(360px, calc(100vw - 20px)); gap: 2px; padding: 8px; }
+@media (max-width: 560px) { .atelier .bubble.sp-picker { left: 10px; } }
+.sp-pick { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 0; border-radius: 12px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.sp-pick:hover { background: var(--accent-soft); }
+.sp-pick.on { background: var(--accent-soft); }
+.sp-pick .sp-txt { flex: 1; }
+.sp-pick .sp-txt b { white-space: nowrap; }
+.sp-pick .sp-txt small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-date.small { width: 38px; height: 40px; border-radius: 9px; }
+.sp-date.small b { font-size: 15px; }
+.sp-date.small small { font-size: 9px; margin-top: 2px; }
+.sp-date.small svg { width: 18px; height: 18px; }
+.sp-pick-cur { flex: none; font-size: 11px; font-weight: 600; color: var(--accent); }
+.sp-pick-all { margin-top: 4px; padding: 10px 8px; border: 0; border-top: 1px solid var(--line); background: none; color: var(--accent); font: inherit; font-weight: 600; text-align: left; cursor: pointer; border-radius: 0 0 10px 10px; }
+.sp-pick-all:hover { background: var(--accent-soft); }
+
+/* rédaction et paramètres de la campagne */
+.sp-write { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 760px) { .sp-write { grid-template-columns: minmax(0, 1fr); } }
+.sp-write-form { display: flex; flex-direction: column; gap: 12px; }
+.sp-field { display: flex; flex-direction: column; gap: 5px; }
+.sp-field > span, .sp-field-k { font-size: 12px; font-weight: 600; color: var(--muted); }
+.sp-field textarea { resize: vertical; min-height: 140px; font: inherit; line-height: 1.45; }
+.sp-field .pf-input.bad { border-color: var(--danger); }
+.sp-write-preview { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 8px; }
+.sp-post { white-space: pre-wrap; padding: 14px 16px; border-radius: 16px; border: 1px solid var(--line); background: var(--chrome-solid); line-height: 1.5; min-height: 120px; overflow-wrap: anywhere; }
+.sp-settings { max-width: 620px; }
+.sp-settings .cp-form { padding: 0; }
+.sp-info { display: flex; flex-direction: column; gap: 4px; }
+.pub-from-campaign { align-self: flex-start; margin: 2px 0 4px; }

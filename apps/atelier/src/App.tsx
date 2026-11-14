@@ -44,8 +44,8 @@ import { FocusRing } from './focus-ring';
 import { MediaIcon, PublicationsPanel, VariantBar, VariantPick } from './targets-ui';
 import { CampaignDialog } from './campaigns-ui';
 import { NewCompositionDialog } from './compositions-ui';
-import { CompositionMenu } from './compositions-menu';
-import { BackNav, CampaignPage, CampaignsHome, PubTabs, StageButton } from './campaigns-space';
+import { CompositionMenu, TopCrumbs } from './compositions-menu';
+import { CampaignPage, CampaignPicker, CampaignsHome, PubTabs, StageButton, campaignCaption, type SpaceTab } from './campaigns-space';
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
@@ -520,12 +520,32 @@ export function App() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const campaignKey = `ftd-campagne-${me?.team?.id ?? ''}`;
   const [campaign, setCampaignRaw] = useState('');
+  // les cinq dernières campagnes ouvertes, proposées sous la campagne du fil d'Ariane
+  const recentKey = `ftd-campagnes-recentes-${me?.team?.id ?? ''}`;
+  const readRecent = (): string[] => {
+    try {
+      const v = JSON.parse(localStorage.getItem(recentKey) ?? '[]');
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  };
+  const [recentCampaigns, setRecentCampaigns] = useState<string[]>([]);
+  useEffect(() => setRecentCampaigns(readRecent()), [recentKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const setCampaign = (id: string) => {
     setCampaignRaw(id);
     try {
       localStorage.setItem(campaignKey, id);
     } catch {
       /* stockage indisponible */
+    }
+    if (!id) return;
+    const next = [id, ...readRecent().filter((x) => x !== id)].slice(0, 5);
+    setRecentCampaigns(next);
+    try {
+      localStorage.setItem(recentKey, JSON.stringify(next));
+    } catch {
+      /* stockage indisponible : la liste vaut pour cette visite */
     }
   };
   const loadCampaigns = () => {
@@ -812,7 +832,8 @@ export function App() {
   const [campaignDialog, setCampaignDialog] = useState(false);
   // espace des campagnes, en plein écran sous la barre : la liste, ou une campagne et ses onglets
   const [space, setSpace] = useState<'campaigns' | 'campaign' | null>(null);
-  const [spaceTab, setSpaceTab] = useState<'comps' | 'plan' | 'history'>('comps');
+  const [spaceTab, setSpaceTab] = useState<SpaceTab>('comps');
+  const [picking, setPicking] = useState(false);
   const [stageOpen, setStageOpen] = useState(false);
   const [newDialog, setNewDialog] = useState(false);
   const [msgDialog, setMsgDialog] = useState(false);
@@ -1014,7 +1035,10 @@ export function App() {
   const previews = useMemo(() => (bubble === 'composition' ? (makeThumbs(doc) ?? [makeThumb(doc)]) : undefined), [bubble, doc, activity]); // eslint-disable-line react-hooks/exhaustive-deps
   // menu de la composition : l'historique de sa campagne à elle
   useEffect(() => {
-    if (bubble) setStageOpen(false);
+    if (bubble) {
+      setStageOpen(false);
+      setPicking(false);
+    }
   }, [bubble]);
   const menuOpen = bubble === 'projects' || bubble === 'composition' || space === 'campaign';
   const campaignScope = bubble === 'composition' && !space && project ? (projects.find((x) => x.id === project.id)?.campaign ?? '') : (followed?.id ?? '');
@@ -4622,26 +4646,30 @@ export function App() {
               </button>
             </div>
             <div className="bar-left">
-              {/* l'activité, le retour vers la campagne (ou la liste), le titre de la composition */}
-              <BackNav
+              {/* fil d'Ariane : l'activité › la campagne (ses récentes, toutes) › la composition ouverte */}
+              <TopCrumbs
                 team={me?.team}
-                campaign={project ? campaigns.find((c) => c.id === (projects.find((x) => x.id === project.id)?.campaign ?? doc.campaign)) : followed}
+                campaign={space ? followed : project ? (campaigns.find((c) => c.id === (projects.find((x) => x.id === project.id)?.campaign ?? doc.campaign)) ?? followed) : followed}
+                occasion={allOperations.find((o) => o.id === doc.operation)}
                 showCampaign={!!(online && me?.team)}
-                space={space}
                 title={project?.title}
+                thumb={project ? thumbUrl(projects.find((x) => x.id === project.id) ?? { id: project.id, title: project.title, updated: '' }) : undefined}
+                kind={doc.targets && doc.targets.length > 1 ? `${doc.targets.length} publications` : f.title}
                 saving={online && project ? saving : undefined}
-                activityOn={bubble === 'activity'}
-                titleOn={bubble === 'composition'}
+                open={bubble === 'activity' ? 'activity' : picking || space ? 'campaign' : bubble === 'composition' ? 'content' : null}
                 onActivity={() => {
+                  setPicking(false);
                   if (bubble !== 'activity' && online) fetchMe().then(setMe, () => {});
                   setBubble(bubble === 'activity' ? null : 'activity');
                 }}
-                onBack={() => {
-                  if (space === 'campaign') return openSpace();
-                  const own = project ? (projects.find((x) => x.id === project.id)?.campaign ?? doc.campaign) : campaign;
-                  openSpace(own && campaigns.some((c) => c.id === own) ? own : project ? '' : undefined);
+                onCampaign={() => {
+                  if (bubble) setBubble(null);
+                  setPicking(!picking);
                 }}
-                onTitle={() => {
+                onContent={() => {
+                  setPicking(false);
+                  // depuis l'espace des campagnes : retour à la composition
+                  if (space) return setSpace(null);
                   if (bubble === 'composition') return setBubble(null);
                   if (online) refreshProjects();
                   setBubble('composition');
@@ -4649,11 +4677,6 @@ export function App() {
               />
             </div>
             <div className="bar-right">
-              {space && project && (
-                <button className="sp-btn sp-return" onClick={() => setSpace(null)} title={`Revenir à « ${project.title} »`}>
-                  Revenir<span className="sp-return-t"> à « {project.title} »</span>
-                </button>
-              )}
               {!space && online && me?.team && (
                 <StageButton
                   meta={project ? projects.find((x) => x.id === project.id) : undefined}
@@ -4784,6 +4807,23 @@ export function App() {
               onAdd={addPublication}
             />
           )}
+          {picking && online && me?.team && (
+            <CampaignPicker
+              campaigns={campaigns}
+              recent={recentCampaigns}
+              current={space === 'campaign' ? campaign : (projects.find((x) => x.id === project?.id)?.campaign ?? campaign)}
+              operations={allOperations}
+              onOpen={(id) => {
+                setPicking(false);
+                openSpace(id);
+              }}
+              onAll={() => {
+                setPicking(false);
+                openSpace();
+              }}
+              onClose={() => setPicking(false)}
+            />
+          )}
           {space && (
             <div className="sp-space" onPointerDown={(e) => e.stopPropagation()}>
               {space === 'campaigns' ? (
@@ -4817,6 +4857,12 @@ export function App() {
                   tab={spaceTab}
                   onTab={setSpaceTab}
                   onSheet={() => followed && setSheet(followed.id)}
+                  onSave={async (c) => {
+                    if (!followed) return;
+                    const x = await updateCampaign(followed.id, c);
+                    setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y)));
+                    setToast('Campagne enregistrée');
+                  }}
                   onClose={(closed) =>
                     void (followed &&
                       updateCampaign(followed.id, { closed }).then(
@@ -5616,6 +5662,11 @@ export function App() {
               })}
               <div className="pub-caption">
                 <div className="b-sub">Texte d’accompagnement</div>
+                {pubCampaign && campaignCaption(pubCampaign) && doc.caption !== campaignCaption(pubCampaign) && (
+                  <button className="ab-link pub-from-campaign" onClick={() => setDoc((d) => ({ ...d, caption: campaignCaption(pubCampaign) }))} title="Le texte, le lien et les mots-dièse rédigés dans la campagne">
+                    {doc.caption ? 'Remplacer par le texte de la campagne' : 'Partir du texte de la campagne'}
+                  </button>
+                )}
                 <textarea
                   className="pf-input"
                   rows={4}

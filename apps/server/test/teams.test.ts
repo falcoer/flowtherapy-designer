@@ -272,6 +272,17 @@ describe('équipes', () => {
     ]);
   });
 
+  it('la rédaction d’une campagne : texte d’accompagnement, mots-dièse, lien', async () => {
+    const { login, as } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    const c = (await lauris.send('POST', '/api/campaigns', { name: 'Bal', caption: '  Venez danser !  ', hashtags: '#bal #juvisy', link: 'https://billets.example.org/bal' })).json().campaign;
+    expect(c).toMatchObject({ caption: 'Venez danser !', hashtags: '#bal #juvisy', link: 'https://billets.example.org/bal' });
+    const u = (await lauris.send('PATCH', `/api/campaigns/${c.id}`, { caption: '', link: 'pas un lien' })).json().campaign;
+    expect(u.caption).toBeUndefined();
+    expect(u.link).toBeUndefined();
+    expect(u.hashtags).toBe('#bal #juvisy');
+  });
+
   it('les campagnes : chacun y contribue, tout membre vote', async () => {
     const { login, as } = await setup();
     const lauris = as((await login('lauris@example.org'))!);

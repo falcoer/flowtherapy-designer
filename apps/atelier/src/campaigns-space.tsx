@@ -1,11 +1,10 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import { ActivityMark } from './activity';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CampaignForm, VoteButton } from './campaigns-ui';
 import { HistoryPanel, PubFan, campaignHistory, pubsOf } from './compositions-menu';
 import { Icon } from './icons';
 import { formatOf } from './model';
 import { thumbUrl, type ActivityEvent, type ActivityProfile, type AtelierMeta, type Campaign, type CampaignInput, type Operation, type PlanItem, type Target } from './server';
-import { channelsOf, targetLabel } from './targets';
+import { CONTACT_KINDS, channelsOf, contactsOf, targetLabel } from './targets';
 import { MediaIcon } from './targets-ui';
 
 /*
@@ -214,7 +213,8 @@ const FILTERS = [
   { id: 'templates', label: 'Modèles' },
 ] as const;
 type FilterId = (typeof FILTERS)[number]['id'];
-type Tab = 'comps' | 'plan' | 'history';
+export type SpaceTab = 'comps' | 'plan' | 'write' | 'settings' | 'history';
+type Tab = SpaceTab;
 
 export function CampaignPage(p: {
   campaign?: Campaign;
@@ -233,6 +233,7 @@ export function CampaignPage(p: {
   tab: Tab;
   onTab: (t: Tab) => void;
   onSheet: () => void;
+  onSave: (c: CampaignInput) => Promise<void>;
   onClose: (closed: boolean) => void;
   onNew: () => void;
   onOpen: (m: AtelierMeta, target?: number) => void;
@@ -303,10 +304,16 @@ export function CampaignPage(p: {
 
   const tabs: Array<[Tab, string, number | null]> = [
     ['comps', 'Compositions', mine.length],
-    ...(c ? ([['plan', 'Plan de publication', plan.length]] as Array<[Tab, string, number]>) : []),
+    ...(c
+      ? ([
+          ['plan', 'Plan de publication', plan.length],
+          ['write', 'Rédaction', null],
+          ['settings', 'Paramètres', null],
+        ] as Array<[Tab, string, number | null]>)
+      : []),
     ['history', 'Historique', null],
   ];
-  const tab = !c && p.tab === 'plan' ? 'comps' : p.tab;
+  const tab = !c && (p.tab === 'plan' || p.tab === 'write' || p.tab === 'settings') ? 'comps' : p.tab;
 
   const compCard = (m: AtelierMeta) => {
     const tpl = !!c?.templates?.includes(m.id);
@@ -454,15 +461,6 @@ export function CampaignPage(p: {
         </span>
         {c && (
           <span className="sp-head-acts">
-            <button className="sp-btn" onClick={p.onSheet} title="Infos de l’évènement, contact, plan de publication">
-              {p.canEdit ? (
-                <>
-                  <Icon name="pen" /> Modifier la campagne
-                </>
-              ) : (
-                'Fiche de la campagne'
-              )}
-            </button>
             {p.canEdit && (
               <span className="sp-rel">
                 <button
@@ -545,6 +543,31 @@ export function CampaignPage(p: {
       )}
 
       {tab === 'plan' && c && <PlanTab c={c} projects={mine} suggested={suggested} activity={p.activity} canEdit={p.canEdit} targetsOf={targetsOf} titleOf={titleOf} onOpen={p.onOpen} onSheet={p.onSheet} />}
+
+      {tab === 'write' && c && <WritingTab key={c.id} c={c} activity={p.activity} canEdit={p.canEdit} onSave={p.onSave} />}
+
+      {tab === 'settings' && c && (
+        <div className="sp-settings">
+          {p.canEdit ? (
+            <CampaignForm
+              key={c.id}
+              initial={{ id: c.id, name: c.name, operation: c.operation, date: c.date, place: c.place, time: c.time, kind: c.kind, contact: c.contact }}
+              operations={p.operations}
+              onCancel={() => p.onTab('comps')}
+              onSubmit={async ({ id: _id, ...data }) => {
+                await p.onSave(data);
+              }}
+            />
+          ) : (
+            <div className="sp-info">
+              <b>{c.name}</b>
+              <span>{subOf(c, p.operations)}</span>
+              {c.date && <span>{new Date(`${c.date}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span>}
+              {c.contact && <span>Réservation : {[c.contact.name, c.contact.phone, c.contact.email].filter(Boolean).join(', ')}</span>}
+            </div>
+          )}
+        </div>
+      )}
 
       {tab === 'history' && (
         <div className="sp-history">
@@ -647,67 +670,6 @@ function PlanTab(p: {
 }
 
 // ——— dans l'atelier ———
-
-/**
- * Gauche de la barre : la marque de l'activité (son menu), le retour vers la campagne (ou vers la
- * liste des campagnes), et le titre de la composition ouverte (son menu).
- */
-export function BackNav(p: {
-  team?: { name: string; logo?: string } | null;
-  /** où ramène le bouton retour : la campagne de la composition, sinon la liste */
-  campaign?: Campaign;
-  showCampaign: boolean;
-  /** dans l'espace des campagnes : seulement la marque, et le retour à la liste depuis une campagne */
-  space: 'campaigns' | 'campaign' | null;
-  title?: string;
-  saving?: 'saved' | 'dirty' | 'saving' | 'error';
-  activityOn: boolean;
-  titleOn: boolean;
-  onActivity: () => void;
-  onBack: () => void;
-  onTitle: () => void;
-}) {
-  const c = p.campaign;
-  const late = (c?.plan ?? []).filter((it) => !it.published && it.date && it.date < today()).length;
-  return (
-    <nav className="sp-nav" aria-label="Navigation">
-      <button className={`sp-mark ${p.activityOn ? 'on' : ''} ${p.space === 'campaigns' ? 'wide' : ''}`} onClick={p.onActivity} title={p.team ? `${p.team.name} : activité` : 'Activité'}>
-        <ActivityMark team={p.team} size={26} />
-        {p.space === 'campaigns' && <span>{p.team?.name ?? 'Atelier'}</span>}
-      </button>
-      {p.space === 'campaign' && (
-        <button className="sp-back" onClick={p.onBack}>
-          <Icon name="back" />
-          <span>Campagnes</span>
-        </button>
-      )}
-      {!p.space && p.showCampaign && (
-        <button className="sp-back" onClick={p.onBack} title={c ? `Revenir à la campagne « ${c.name} »` : 'Revenir aux campagnes'}>
-          <Icon name="back" />
-          <span className="sp-back-txt">{c ? c.name : 'Campagnes'}</span>
-          {late > 0 && (
-            <span className="crumb-alert" aria-label={`${late} rendu${late > 1 ? 's' : ''} en retard`}>
-              !
-            </span>
-          )}
-        </button>
-      )}
-      {!p.space && (
-        <button className={`sp-title ${p.titleOn ? 'on' : ''}`} onClick={p.onTitle} title="La composition : titre, publications, historique" aria-label={`Menu de la composition ${p.title ?? 'non enregistrée'}`}>
-          <span className="sp-title-t">{p.title ?? 'Page non enregistrée'}</span>
-          <span className="sp-title-i" aria-hidden>
-            <Icon name="more" />
-          </span>
-          {p.saving === 'error' && (
-            <span className="crumb-alert inline" aria-label="Non enregistrée">
-              !
-            </span>
-          )}
-        </button>
-      )}
-    </nav>
-  );
-}
 
 /** Les publications de la composition en onglets sous la barre : toucher change la page affichée, ⚙ la règle, ＋ en ajoute une. */
 export function PubTabs(p: { targets: Target[]; active: number; activity: ActivityProfile | null; editing: boolean; canEdit: boolean; onShow: (i: number) => void; onEdit: () => void; onAdd: () => void }) {
@@ -823,5 +785,107 @@ export function StageButton(p: {
         </div>
       )}
     </span>
+  );
+}
+
+/** Rédaction de la campagne : le texte qui accompagne ses publications, ses mots-dièse, son lien. */
+function WritingTab(p: { c: Campaign; activity: ActivityProfile | null; canEdit: boolean; onSave: (c: CampaignInput) => Promise<void> }) {
+  const [caption, setCaption] = useState(p.c.caption ?? '');
+  const [hashtags, setHashtags] = useState(p.c.hashtags ?? '');
+  const [link, setLink] = useState(p.c.link ?? '');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  useEffect(() => setMsg(''), [caption, hashtags, link]);
+  const dirty = caption !== (p.c.caption ?? '') || hashtags !== (p.c.hashtags ?? '') || link !== (p.c.link ?? '');
+  const linkOk = !link.trim() || /^https?:\/\/\S+$/.test(link.trim());
+  const mentions = contactsOf(p.activity).map((x) => ({ name: x.label || CONTACT_KINDS[x.kind], text: x.value }));
+  const post = campaignCaption({ caption, hashtags, link });
+  const save = async () => {
+    setBusy(true);
+    try {
+      await p.onSave({ caption, hashtags, link: link.trim() });
+      setMsg('Enregistré');
+    } catch (e) {
+      setMsg(`Impossible : ${(e as Error).message}`);
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="sp-write">
+      <div className="sp-write-form">
+        <label className="sp-field">
+          <span>Texte d’accompagnement</span>
+          <textarea className="pf-input" rows={7} value={caption} disabled={!p.canEdit} placeholder="L’annonce commune aux publications : la date, le lieu, ce qui attend le public…" onChange={(e) => setCaption(e.target.value)} />
+        </label>
+        {p.canEdit && mentions.length > 0 && (
+          <div className="pub-mentions">
+            {mentions.map((m) => (
+              <button key={`${m.name}/${m.text}`} className="pub-mention" title={m.text} onClick={() => setCaption((t) => `${t.trimEnd()}${t ? '\n' : ''}${m.text}`)}>
+                + {m.name}
+              </button>
+            ))}
+          </div>
+        )}
+        <label className="sp-field">
+          <span>Mots-dièse</span>
+          <input className="pf-input" value={hashtags} disabled={!p.canEdit} placeholder="#concert #risorangis" onChange={(e) => setHashtags(e.target.value)} />
+        </label>
+        <label className="sp-field">
+          <span>Lien (billetterie, évènement…)</span>
+          <input className={`pf-input ${linkOk ? '' : 'bad'}`} type="url" value={link} disabled={!p.canEdit} placeholder="https://…" onChange={(e) => setLink(e.target.value)} />
+          {!linkOk && <small className="pf-err">Un lien commence par https://</small>}
+        </label>
+        {p.canEdit && (
+          <div className="sp-row">
+            <button className="sp-btn primary" disabled={!dirty || busy || !linkOk} onClick={() => void save()}>
+              Enregistrer
+            </button>
+            {msg && <small className="fx-hint">{msg}</small>}
+          </div>
+        )}
+      </div>
+      <div className="sp-write-preview">
+        <span className="sp-field-k">Aperçu du post</span>
+        <div className="sp-post">{post || <span className="fx-hint">Le texte, les mots-dièse et le lien s’assemblent ici.</span>}</div>
+        <small className="fx-hint">{post.length} caractères. Chaque composition part de ce texte dans Publier, et peut l’adapter.</small>
+      </div>
+    </div>
+  );
+}
+
+/** Le texte d'une publication tel que la campagne le propose : l'annonce, puis le lien, puis les mots-dièse. */
+export function campaignCaption(c: Pick<Campaign, 'caption' | 'hashtags' | 'link'>): string {
+  return [c.caption?.trim(), c.link?.trim(), c.hashtags?.trim()].filter(Boolean).join('\n\n');
+}
+
+/** Sous la campagne du fil d'Ariane : les cinq dernières campagnes ouvertes, et l'accès à toutes. */
+export function CampaignPicker(p: { campaigns: Campaign[]; recent: string[]; current?: string; operations: Operation[]; onOpen: (id: string) => void; onAll: () => void; onClose: () => void }) {
+  const byId = new Map(p.campaigns.map((c) => [c.id, c]));
+  const t = today();
+  const list = p.recent.map((id) => byId.get(id)).filter((c): c is Campaign => !!c && !c.closed);
+  // premières visites : les prochaines campagnes complètent la liste
+  for (const c of p.campaigns.filter((x) => !x.closed && (!x.date || x.date >= t)).sort((a, b) => (a.date ?? '9').localeCompare(b.date ?? '9')))
+    if (list.length < 5 && !list.includes(c)) list.push(c);
+  return (
+    <>
+      <div className="sp-picker-back" onPointerDown={p.onClose} />
+      <div className="bubble sp-picker" role="dialog" aria-label="Campagnes récentes" onPointerDown={(e) => e.stopPropagation()}>
+        <div className="b-sub">Campagnes récentes</div>
+        {list.slice(0, 5).map((c) => (
+          <button key={c.id} className={`sp-pick ${c.id === p.current ? 'on' : ''}`} onClick={() => p.onOpen(c.id)}>
+            <DateTile c={c} small />
+            <span className="sp-txt">
+              <b>{c.name}</b>
+              <small>{subOf(c, p.operations)}</small>
+            </span>
+            {c.id === p.current && <span className="sp-pick-cur">en cours</span>}
+          </button>
+        ))}
+        {!list.length && <p className="fx-hint">Aucune campagne ouverte pour l’instant.</p>}
+        <button className="sp-pick-all" onClick={p.onAll}>
+          Toutes les campagnes…
+        </button>
+      </div>
+    </>
   );
 }

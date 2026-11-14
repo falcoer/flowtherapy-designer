@@ -960,6 +960,10 @@ export interface Campaign {
   /** Contact réservation. */
   contact?: { name?: string; phone?: string; email?: string };
   note?: string;
+  /** Rédaction : texte d'accompagnement des publications, mots-dièse, lien (billetterie…). */
+  caption?: string;
+  hashtags?: string;
+  link?: string;
   /** Compositions proposées comme modèles : chacun peut partir de l'une d'elles. */
   templates?: string[];
   /** Plan de publication : ce qu'il faut sortir, quand, avec quelle composition. */
@@ -984,7 +988,7 @@ export interface PlanItem {
   /** confiée à Postiz : écrit par le serveur seulement */
   postiz?: PlanPostiz;
 }
-export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'templates' | 'plan'>>;
+export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'caption' | 'hashtags' | 'link' | 'templates' | 'plan'>>;
 
 function cleanCampaign(c: CampaignInput) {
   const date = str(c.date, 10);
@@ -1021,6 +1025,9 @@ function cleanCampaign(c: CampaignInput) {
     ...(str(c.kind, 60) ? { kind: str(c.kind, 60) } : {}),
     ...(contact ? { contact } : {}),
     ...(str(c.note, 1000) ? { note: str(c.note, 1000) } : {}),
+    ...(str(c.caption, 2200) ? { caption: str(c.caption, 2200) } : {}),
+    ...(str(c.hashtags, 300) ? { hashtags: str(c.hashtags, 300) } : {}),
+    ...(/^https?:\/\/\S+$/.test(str(c.link, 300)) ? { link: str(c.link, 300) } : {}),
     ...(templates.length ? { templates } : {}),
     ...(plan.length ? { plan } : {}),
   };

@@ -81,6 +81,10 @@ export interface Campaign {
   /** Contact réservation. */
   contact?: { name?: string; phone?: string; email?: string };
   note?: string;
+  /** Rédaction : texte d'accompagnement des publications, mots-dièse, lien (billetterie…). */
+  caption?: string;
+  hashtags?: string;
+  link?: string;
   /** Compositions proposées comme modèles de la campagne. */
   templates?: string[];
   /** Plan de publication : ce qu'il faut sortir, quand, avec quelle composition. */
@@ -102,7 +106,7 @@ export interface PlanItem extends Target {
   /** confiée à Postiz (écrit par le serveur) */
   postiz?: { post: string; account: string; at: string; state: 'queue' | 'published' | 'error'; error?: string };
 }
-export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'templates' | 'plan'>> & { closed?: boolean };
+export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'caption' | 'hashtags' | 'link' | 'templates' | 'plan'>> & { closed?: boolean };
 export const listCampaigns = () => call<Campaign[]>('/api/campaigns');
 export const createCampaign = (c: CampaignInput) => call<{ campaign: Campaign }>('/api/campaigns', json('POST', c)).then((r) => r.campaign);
 export const updateCampaign = (id: string, c: CampaignInput) => call<{ campaign: Campaign }>(`/api/campaigns/${id}`, json('PATCH', c)).then((r) => r.campaign);
