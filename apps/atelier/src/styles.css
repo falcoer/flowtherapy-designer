@@ -2258,6 +2258,10 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .ap-x { width: 20px; height: 20px; border-radius: 10px; font-size: 14px; line-height: 20px; color: var(--muted); flex: none; }
 .ap-params { flex: 1; min-width: 0; display: flex; }
 .ap-params > .ap-hint { align-self: center; }
+/* assistant sur un objet sans surface : matière, vernis et volume grisés, les bords seuls se règlent */
+.mw-tabs button.kept:not(.on) { opacity: 0.45; }
+.mw-body.mw-hollow > :not(.mw-kept) { opacity: 0.42; filter: grayscale(0.7); pointer-events: none; }
+.mw-body > .mw-kept { margin-top: 0; flex: none; }
 /* sans surface : l'option à côté des paramètres de la forme ; Support et Volume grisés, comme un texte modelé */
 .ap-shape-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
 .ap-shape-row > .ap-shape { display: flex; align-items: center; }

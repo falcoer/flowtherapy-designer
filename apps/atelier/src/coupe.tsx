@@ -175,8 +175,13 @@ export function itemsOf(l: Layer, doc: Doc): Item[] {
   return out;
 }
 
+/** Sur un objet sans surface : ce bord ou cette lueur est-il tout ce qui se dessine encore ? */
+export const lastTrace = (l: Layer, key: string) => !!l.hollow && l.kind !== 'surface' && ((key === 'border' && !l.glow) || (key === 'glow' && !(l.border && l.border.width > 0)));
+
 /** Ce qu'on retire quand on touche la croix d'un élément. */
 export function removal(l: Layer, key: string): Partial<Layer> {
+  // sans surface, l'objet ne tient que par son bord ou sa lueur : retirer le dernier rend la surface
+  if (lastTrace(l, key)) return { [key]: undefined, hollow: undefined };
   if (key === 'border') return { border: undefined };
   if (key === 'bevel') return { bevel: 0, bevelProfile: undefined, bevelSoft: undefined, bevelAxis: undefined, bevelBorder: undefined };
   if (key === 'extrude') return { extrude: undefined };
@@ -655,7 +660,7 @@ export function CoupePanel({
                     className="ap-x"
                     onClick={() => {
                       patch(removal(l, k));
-                      onToast(`${label} retiré${k === 'glow' ? 'e' : ''}`, true);
+                      onToast(`${label} retiré${k === 'glow' ? 'e' : ''}${lastTrace(l, k) ? ' : la surface est revenue' : ''}`, true);
                     }}
                     title={`Retirer : ${edgeName(k, l)}`}
                     aria-label={`Retirer ${label}`}

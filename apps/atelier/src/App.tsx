@@ -7327,7 +7327,7 @@ export function fxPreview(l: Layer, doc: Doc, f: Format, fx: Fx[] | undefined, k
   const bh = Math.max(1e-6, bb.y1 - bb.y0);
   const s = Math.min(W / (bw * 1.25), H / (bh * 1.25));
   ctx.setTransform(s, 0, 0, s, W / 2 - ((bb.x0 + bb.x1) / 2) * s, H / 2 - ((bb.y0 + bb.y1) / 2) * s);
-  drawLayers(ctx, { ...doc, layers: [{ ...l, id: `pv-${l.id}-${key}`, fx, height: 0, inner: 0, opacity: 1, visible: true, hollow: undefined, ...patch }] }, f, { scale: s, onImage });
+  drawLayers(ctx, { ...doc, layers: [{ ...l, id: `pv-${l.id}-${key}`, fx, height: 0, inner: 0, opacity: 1, visible: true, ...patch }] }, f, { scale: s, onImage });
   return c.toDataURL('image/png');
 }
 
