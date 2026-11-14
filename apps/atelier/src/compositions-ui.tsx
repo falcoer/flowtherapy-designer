@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { thumbUrl, type AtelierMeta, type Campaign, type Operation } from './server';
 
 
-function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   return (
     <div className="cp-modal-back" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={`cp-modal ${wide ? 'wide' : ''}`} role="dialog" aria-label={title} onPointerDown={(e) => e.stopPropagation()}>

@@ -567,6 +567,8 @@ export function CompositionMenu(p: {
   onTitle: (t: string) => void;
   onShow: (i: number) => void;
   onAdd: () => void;
+  /** réglages de la publication affichée (nom, variante, résolution) */
+  onSettings: () => void;
   onRemove: (i: number) => void;
   onCampaign: () => void;
   onSaveNew: () => void;
@@ -697,6 +699,11 @@ export function CompositionMenu(p: {
                     </em>
                     <small>{pubWhen(pub)}</small>
                   </button>
+                  {i === p.active && (
+                    <button className="act-icon" onClick={p.onSettings} title="Réglages de cette publication : nom, réseau, format, variante, résolution" aria-label={`Régler ${targetLabel(pub.target, p.activity)}`}>
+                      <Icon name="settings" />
+                    </button>
+                  )}
                   {p.canEdit && n > 1 && (
                     <button className="act-icon cm-pub-del" onClick={() => p.onRemove(i)} title="Retirer cette publication" aria-label={`Retirer ${targetLabel(pub.target, p.activity)}`}>
                       <Icon name="trash" />
@@ -707,8 +714,8 @@ export function CompositionMenu(p: {
             })}
           </div>
           {p.canEdit && (
-            <button className="pf-btn comp-pubs-btn" onClick={p.onAdd} title="Ajouter une publication (copie de celle affichée), puis la régler">
-              <Icon name="plus" /> Ajouter une publication
+            <button className="pf-btn comp-pubs-btn" onClick={p.onAdd} title="Nouvelle publication avec ses propres objets : un format du plan, partie d’une voisine, d’un modèle ou d’une page vierge">
+              <Icon name="plus" /> Publication
             </button>
           )}
         </div>

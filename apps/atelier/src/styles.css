@@ -2829,3 +2829,22 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .sp-settings .cp-form { padding: 0; }
 .sp-info { display: flex; flex-direction: column; gap: 4px; }
 .pub-from-campaign { align-self: flex-start; margin: 2px 0 4px; }
+
+/* nouvelle publication : son format (plan de la campagne, ou réseau › format), puis ce dont elle part */
+.np-plan { display: flex; flex-direction: column; gap: 2px; }
+.np-row { border: 1px solid transparent; }
+.np-row.on { border-color: var(--accent); }
+.np-ico { flex: none; width: 24px; display: grid; place-items: center; font-weight: 700; color: var(--accent); }
+.np-other { display: flex; flex-direction: column; gap: 8px; }
+.np-chans { display: flex; flex-wrap: wrap; gap: 6px; }
+.np-chan { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px 0 8px; border-radius: 17px; border: 1px solid var(--line); background: var(--chrome-solid); font-size: 13px; }
+.np-chan.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.np-formats { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px; }
+.np-format { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 6px; border-radius: 12px; border: 1px solid var(--line); background: var(--chrome-solid); font-size: 12px; text-align: center; }
+.np-format.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.np-format small { color: var(--muted); font-size: 10.5px; }
+.np-from .cp-tpl { border: 2px solid transparent; }
+.np-from .cp-tpl.on { border-color: var(--accent); background: var(--accent-soft); }
+.np-thumb { display: grid; place-items: center; width: 100%; height: 72px; border-radius: 7px; background: var(--chrome); overflow: hidden; }
+.np-thumb img { width: 100%; height: 100%; aspect-ratio: auto; object-fit: contain; background: none; }
+.np-blank { background: repeating-linear-gradient(45deg, var(--chrome), var(--chrome) 6px, var(--line) 6px, var(--line) 7px); }

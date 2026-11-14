@@ -277,6 +277,12 @@ export interface Target {
   name?: string;
 }
 
+/** Les objets propres à une publication qui n'est pas affichée, et sa scène (la mise au point vise un de ses objets). */
+export interface PubPage {
+  layers: Layer[];
+  scene?: SceneLook;
+}
+
 /** Marges côté par côté, en fraction du petit côté du format (positives vers l'intérieur). */
 export interface Margins {
   top: number;
@@ -306,6 +312,11 @@ export interface Doc {
   /** Cibles du document (média, format, variante) ; `target` est celle affichée. */
   targets?: Target[];
   target?: number;
+  /**
+   * Les objets de chaque publication, alignés sur `targets` : chaque publication a sa propre disposition.
+   * Celle affichée vit dans `layers` et `scene` (sa case vaut null) ; absent dans un document d'avant, où elles partageaient leurs objets.
+   */
+  pubs?: (PubPage | null)[];
   /** Occasion dont part le document. */
   operation?: string;
   /** Campagne à laquelle il contribue. */

@@ -31,6 +31,8 @@ import { ColorDialog, swatch } from './color-dialog';
 import { GradientOverlay } from './gradient-ui';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
+import { NewPublicationDialog } from './pub-new';
+import { addPage, copyPage, packDoc, pageDoc, pubIndex, removePage, switchPage, unpackDoc, type PubViews } from './pubs';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
 import { PostizPlanActions, usePostizAccounts } from './postiz-ui';
 import { ObjetsShelf } from './objets-shelf';
@@ -325,6 +327,8 @@ function load(): Doc {
 
 /** Remet à jour un document enregistré par une version plus ancienne de l'atelier. */
 function migrate(d: Doc): Doc {
+  // images rangées une seule fois à l'enregistrement (publications autonomes) : remises dans leurs objets
+  d = unpackDoc(d);
   {
     {
       // anciens documents : découpe polygonale → tracé
@@ -406,7 +410,7 @@ export function App() {
   const pruneDue = useRef(false);
   const update = useCallback((fn: (d: Doc) => Doc) => {
     pruneDue.current = true;
-    past.current.push(JSON.stringify(docRef.current, compact));
+    past.current.push(JSON.stringify(packDoc(docRef.current), compact));
     if (past.current.length > 60) past.current.shift();
     future.current = [];
     setDoc((d) => fn(structuredClone(d)));
@@ -428,17 +432,17 @@ export function App() {
   const undo = useCallback(() => {
     const s = past.current.pop();
     if (!s) return;
-    future.current.push(JSON.stringify(docRef.current, compact));
+    future.current.push(JSON.stringify(packDoc(docRef.current), compact));
     forgetPaint();
-    setDoc(JSON.parse(s));
+    setDoc(unpackDoc(JSON.parse(s)));
     setToast('Annulé');
   }, []);
   const redo = useCallback(() => {
     const s = future.current.pop();
     if (!s) return;
-    past.current.push(JSON.stringify(docRef.current, compact));
+    past.current.push(JSON.stringify(packDoc(docRef.current), compact));
     forgetPaint();
-    setDoc(JSON.parse(s));
+    setDoc(unpackDoc(JSON.parse(s)));
     setToast('Rétabli');
   }, []);
 
@@ -446,7 +450,7 @@ export function App() {
   const localOk = useRef(true);
   useEffect(() => {
     try {
-      localStorage.setItem(STORE, JSON.stringify(doc, compact));
+      localStorage.setItem(STORE, JSON.stringify(packDoc(doc), compact));
       localOk.current = true;
     } catch {
       /* photo trop lourde pour le stockage local : on garde en mémoire */
@@ -619,7 +623,7 @@ export function App() {
     try {
       return d.targets.map((_, i) => {
         // les ancrages se résolvent avec les marges de cette publication
-        const x = docAtTarget(d, i, activity);
+        const x = pageDoc(d, i, views);
         setAnchorFrames(x);
         return makeThumb(x);
       });
@@ -631,7 +635,7 @@ export function App() {
     if (!p || !online) return;
     setSaving('saving');
     try {
-      await saveAtelier(p.id, p.title, d, makeThumb(d), makeThumbs(d));
+      await saveAtelier(p.id, p.title, packDoc(d), makeThumb(d), makeThumbs(d));
       setSaving(docRef.current === d ? 'saved' : 'dirty');
       if (docRef.current === d) setPending(null);
     } catch (err) {
@@ -769,7 +773,16 @@ export function App() {
     return { ...docForTarget(base, t, activity), formatId: t.format, targets: op.targets.map((x) => ({ ...x })), target: 0, operation: op.id };
   };
   /** Affiche une cible : format (les objets gardent leurs accroches), marge du média, couleurs de la variante. */
-  const showTarget = (i: number) => setDoc((d) => docAtTarget(d, i, activity));
+  /** Ce que deviennent les objets d'une publication à l'autre (format, marges, variante ; recalage d'une copie). */
+  const views: PubViews = {
+    look: (d, i) => ({ ...docForTarget(d, d.targets![i]!, activity), formatId: d.targets![i]!.format, target: i }),
+    at: (d, i) => docAtTarget(d, i, activity),
+  };
+  /** Affiche une publication : chacune a ses propres objets, celle qu'on quitte range les siens. */
+  const showTarget = (i: number) => {
+    if (i !== pubIndex(docRef.current)) setSelected(null);
+    setDoc((d) => switchPage(d, i, views));
+  };
   /** Édite la publication affichée (réseau, format, résolution, variante, marges) : le document suit, la publication garde ses réglages. */
   const applyPublication = (t: PubTarget) => {
     // les couleurs ne changent que si la variante change : une marge ou une résolution garde les couleurs retouchées
@@ -797,21 +810,46 @@ export function App() {
       });
       return { ...d, targets, target: cur };
     });
-  /** Nouvelle publication de la composition : une copie de celle affichée, à régler ensuite. */
-  const addPublication = () => {
-    const { name: _name, ...copy } = currentPub;
-    setDoc((d) => (d.targets?.length ? { ...d, targets: [...d.targets, copy], target: d.targets.length } : { ...d, targets: [{ ...currentPub }, copy], target: 1 }));
-    setBubble('format');
+  /** Nouvelle publication de la composition, avec ses propres objets : copie recalée d'une voisine, d'un modèle, ou page vierge. */
+  const addPublication = async (t: PubTarget, from: { pub: number } | { template: AtelierMeta } | 'blank') => {
+    let page: { layers: Layer[]; scene?: Doc['scene'] };
+    try {
+      if (from === 'blank') page = { layers: blankDoc().layers };
+      else {
+        // la source vue sur sa publication, puis recalée sur le nouveau format
+        let src: Doc;
+        let st: PubTarget;
+        if ('pub' in from) {
+          const d = docRef.current;
+          src = pageDoc(d, from.pub, views);
+          st = d.targets?.[from.pub] ?? currentPub;
+        } else {
+          const r = await readAtelier(from.template.id);
+          const md = migrate(r.doc);
+          const ts = md.targets?.length ? md.targets : [{ format: md.formatId }];
+          // la publication du modèle la plus proche : même réseau et format, sinon même format, sinon la première
+          const j = Math.max(0, ts.findIndex((x) => x.format === t.format && (x.channel ?? '') === (t.channel ?? '')), ts.findIndex((x) => x.format === t.format));
+          src = md.targets?.length ? pageDoc(md, j, views) : md;
+          st = ts[j]!;
+        }
+        const x = docAtTarget({ ...src, targets: [st, t], target: 0, pubs: undefined }, 1, activity);
+        page = { layers: x.layers, scene: x.scene };
+      }
+    } catch (err) {
+      return setToast(`Impossible : ${(err as Error).message}`);
+    } finally {
+      setAnchorFrames(docRef.current);
+    }
+    setSelected(null);
+    update((d) => addPage(d, currentPub, t, copyPage(page.layers, page.scene), views));
+    setNewPub(false);
+    setBubble(null);
+    setToast(`${targetLabel(t, activity)} ajoutée : elle a ses propres objets`);
   };
-  const removePublication = (i: number) =>
-    setDoc((d) => {
-      const targets = (d.targets ?? []).filter((_, j) => j !== i);
-      const cur = d.target ?? 0;
-      const target = Math.max(0, cur > i ? cur - 1 : Math.min(cur, targets.length - 1));
-      const next = { ...d, targets, target };
-      // la publication affichée disparaît : on montre celle qui prend sa place
-      return cur === i && targets.length ? docAtTarget(next, target, activity) : next;
-    });
+  const removePublication = (i: number) => {
+    if (i === pubIndex(docRef.current)) setSelected(null);
+    update((d) => removePage(d, i, views));
+  };
   const channels = channelsOf(activity);
   const allOperations = operationsOf(activity);
   const followed = campaigns.find((c) => c.id === campaign);
@@ -840,6 +878,7 @@ export function App() {
   const captionArea = useRef<HTMLTextAreaElement>(null);
   const [newDialog, setNewDialog] = useState(false);
   const [msgDialog, setMsgDialog] = useState(false);
+  const [newPub, setNewPub] = useState(false);
   // la composition ouverte : sa fiche, sa campagne et son étape (pastille de la barre, dialogue de l'état et des messages)
   const curMeta = project ? projects.find((x) => x.id === project.id) : undefined;
   const curCampaign = curMeta?.campaign ? campaigns.find((c) => c.id === curMeta.campaign) : undefined;
@@ -944,9 +983,9 @@ export function App() {
     // avec des cibles : chacune dans son format et sa variante ; sinon les formats cochés
     const jobs = d0.targets?.length
       ? exportTargets
-          .map((i) => d0.targets![i])
-          .filter((t): t is NonNullable<typeof t> => !!t)
-          .map((t) => ({ ff: formatOf(t.format), d: docForTarget(d0, t, activity), width: t.width, name: [project?.title ?? 'composition', t.channel].filter(Boolean).join(' ') }))
+          .filter((i) => !!d0.targets![i])
+          .map((i) => ({ i, t: d0.targets![i]! }))
+          .map(({ i, t }) => ({ ff: formatOf(t.format), d: pageDoc(d0, i, views), width: t.width, name: [project?.title ?? 'composition', t.channel].filter(Boolean).join(' ') }))
       : FORMATS.filter((x) => (exportFormats.length ? exportFormats : [d0.formatId]).includes(x.id)).map((ff) => ({ ff, d: d0, width: undefined as number | undefined, name: project?.title ?? 'composition' }));
     const list = jobs;
     setExporting(true);
@@ -1030,15 +1069,18 @@ export function App() {
   /** L'image d'un élément du plan : le rendu de la composition pour ce réseau et ce format, en JPEG. */
   const renderPlanItem = async (it: PlanItem): Promise<Blob | null> => {
     const d0 = docRef.current;
-    const t = d0.targets?.find((x) => (x.channel ?? '') === (it.channel ?? '') && x.format === it.format);
+    const i = d0.targets?.findIndex((x) => (x.channel ?? '') === (it.channel ?? '') && x.format === it.format) ?? -1;
+    const t = d0.targets?.[i];
     if (!t) return null;
-    const c = await renderDoc(docForTarget(d0, t, activity), formatOf(t.format), 4096, t.width);
+    const c = await renderDoc(pageDoc(d0, i, views), formatOf(t.format), 4096, t.width);
     return new Promise((ok, ko) => c.toBlob((b) => (b ? ok(b) : ko(new Error('Rendu impossible'))), 'image/jpeg', 0.92));
   };
   // historique du menu de la campagne : demandé au serveur pour cette campagne seulement, à l'ouverture du menu
   const [campaignFeed, setCampaignFeed] = useState<ActivityEvent[] | null>(null);
   // menu de la composition : ses publications rendues d'après le document ouvert, retouches comprises
   const previews = useMemo(() => (bubble === 'composition' ? (makeThumbs(doc) ?? [makeThumb(doc)]) : undefined), [bubble, doc, activity]); // eslint-disable-line react-hooks/exhaustive-deps
+  // nouvelle publication : l'aperçu de chaque voisine, rendu une fois à l'ouverture du dialogue
+  const newPubPreviews = useMemo(() => (newPub ? (makeThumbs(doc) ?? [makeThumb(doc)]) : undefined), [newPub]); // eslint-disable-line react-hooks/exhaustive-deps
   // menu de la composition : l'historique de sa campagne à elle
   useEffect(() => {
     if (bubble) {
@@ -4674,8 +4716,8 @@ export function App() {
                 occasion={allOperations.find((o) => o.id === doc.operation)}
                 showCampaign={!!(online && me?.team)}
                 title={project?.title}
-                thumb={project ? thumbUrl(projects.find((x) => x.id === project.id) ?? { id: project.id, title: project.title, updated: '' }) : undefined}
-                kind={doc.targets && doc.targets.length > 1 ? `${doc.targets.length} publications` : f.title}
+                thumb={project ? thumbUrl(projects.find((x) => x.id === project.id) ?? { id: project.id, title: project.title, updated: '' }, doc.targets?.length ? pubIndex(doc) : undefined) : undefined}
+                kind={doc.targets && doc.targets.length > 1 ? `${targetLabel(currentPub, activity)} · ${pubIndex(doc) + 1}/${doc.targets.length}` : doc.targets?.length ? targetLabel(currentPub, activity) : f.title}
                 saving={online && project ? saving : undefined}
                 open={bubble === 'activity' || picking ? 'activity' : space ? 'campaign' : bubble === 'composition' ? 'content' : null}
                 onActivity={() => {
@@ -4705,22 +4747,6 @@ export function App() {
               />
             </div>
             <div className="bar-right">
-              {!space && (
-                /* la publication sélectionnée (dans le menu de la composition) : son édition */
-                <button
-                  className={`btn pubs-btn ${bubble === 'format' ? 'on' : ''}`}
-                  onClick={() => setBubble(bubble === 'format' ? null : 'format')}
-                  title={`Édition de la publication : ${targetLabel(currentPub, activity)} (réseau, format, résolution, variante, marges, repères)`}
-                  aria-label="Édition de la publication"
-                >
-                  <FormatGlyph w={f.width} h={f.height} />
-                  {activeTarget?.channel && (
-                    <span className="pubs-media">
-                      <MediaIcon ch={channels.find((c) => c.id === activeTarget.channel)} size={13} />
-                    </span>
-                  )}
-                </button>
-              )}
               {!space && (
                 <>
               <button className={`btn ${bubble === 'light' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'light' ? null : 'light')} title="Scène : lumière, objectif, transformation" aria-label="Scène">
@@ -5593,6 +5619,19 @@ export function App() {
               }}
             />
           )}
+          {newPub && (
+            <NewPublicationDialog
+              targets={doc.targets?.length ? doc.targets : [currentPub]}
+              previews={newPubPreviews}
+              meta={curMeta}
+              active={pubIndex(doc)}
+              campaign={curCampaign ?? followed}
+              templates={followedTemplates}
+              activity={activity}
+              onAdd={(t, from) => void addPublication(t, from)}
+              onClose={() => setNewPub(false)}
+            />
+          )}
           {msgDialog && project && me?.team && (
             <MessagesDialog
               atelier={project.id}
@@ -5644,7 +5683,8 @@ export function App() {
               canVote={!!me?.team}
               onTitle={(t) => project && setProject({ ...project, title: t })}
               onShow={showTarget}
-              onAdd={addPublication}
+              onAdd={() => setNewPub(true)}
+              onSettings={() => setBubble('format')}
               onRemove={removePublication}
               onCampaign={() => openSpace(projects.find((x) => x.id === project?.id)?.campaign ?? campaign)}
               onSaveNew={() => void newProject('Sans titre', true)}
