@@ -53,7 +53,7 @@ import { campaignFields, draftFromOperation, fillFields, filledCaption, planCapt
 import { MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
 import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorFrames, setGuideFrame, hasZone, zoneOf, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget, type PaletteMatter, type PaletteEdge } from './model';
-import { isSilhouette, SHAPE_FAMILIES, silhouetteRatio, silhouetteRings } from './silhouettes';
+import { isSilhouette, SHAPE_FAMILIES, silhouettePieces, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import { BRUSH_TIPS, TIP_NAMES, isComposite, tipHoverSvg, type BrushTip } from './tips';
 import {
@@ -4104,6 +4104,20 @@ export function App() {
       visible: true,
       strokes: [],
     };
+    // forme en plusieurs morceaux : une couche par pièce, dans la même boîte, solidaires (chacune sa teinte, son bord)
+    const pieces = kind === 'shape' && opts.shape && isSilhouette(opts.shape) && !opts.cut ? silhouettePieces(opts.shape) : [];
+    if (pieces.length > 1) {
+      const group = uid();
+      const parts: Layer[] = pieces.map((rings, i) => ({ ...layer, id: i ? uid() : layer.id, name: `${opts.name} · pièce ${i + 1}`, cut: ringsToPath(rings, 0.0008, 30), link: group }));
+      update((d) => ({ ...d, layers: [...d.layers, ...parts] }));
+      setSelected(layer.id);
+      setBubble(null);
+      setTool(lastEdit.current);
+      setCoupeOpen((o) => ({ key: 'shape', n: (o?.n ?? 0) + 1 }));
+      setToast(`« ${opts.name} » posé en ${parts.length} pièces solidaires : touche une pièce pour sa teinte, son bord, sa lueur`);
+      setToastUndo(false);
+      return;
+    }
     update((d) => ({ ...d, layers: [...d.layers, layer] }));
     setSelected(layer.id);
     setBubble(null);

@@ -1166,17 +1166,14 @@ function build(k: SilhouetteKind): MultiPolygon {
         () => 0.11,
       );
     case 'triskel':
-      // trois spirales enroulées autour de trois centres, reliées au milieu par un bras qui s'épaissit
+      // trois spirales enroulées autour de trois centres, qui finissent tournées vers un cœur rond, à part
       return union(
         ...[0, 1, 2].map((j) => {
           const a = -Math.PI / 2 + (j * 2 * Math.PI) / 3;
-          const [cx, cy] = [Math.cos(a) * 0.46, Math.sin(a) * 0.46];
-          // la spirale finit tournée vers le centre, le bras la prolonge en tournant
-          const sp = spiralPts(cx, cy, 0.44, 1.5, a + Math.PI - 3 * Math.PI, 34);
-          const bend: P = [Math.cos(a + 1.2) * 0.2, Math.sin(a + 1.2) * 0.2];
-          return stroke([...sp, bend, [0, 0]], (t) => 0.02 + 0.11 * t ** 1.4);
+          const [cx, cy] = [Math.cos(a) * 0.52, Math.sin(a) * 0.52];
+          return stroke(spiralPts(cx, cy, 0.35, 1.5, a + Math.PI - 3 * Math.PI, 34), (t) => 0.02 + 0.07 * t ** 1.4);
         }),
-        ellipse(0, 0, 0.12, 0.12, 0, 24),
+        ellipse(0, 0, 0.1, 0.1, 0, 24),
       );
     case 'spiral':
       return stroke(spiralPts(0, 0, 1, 3, -Math.PI / 2, 72), (t) => 0.035 + 0.1 * t);
@@ -1186,7 +1183,8 @@ function build(k: SilhouetteKind): MultiPolygon {
         annulus(1, 0.84),
         minus(
           union(rect(-0.07, -0.9, 0.07, 0.9), band([0, 0.02], [-0.3, 0.32], [-0.62, 0.62], () => 0.14, 4), band([0, 0.02], [0.3, 0.32], [0.62, 0.62], () => 0.14, 4)),
-          minus(rect(-2, -2, 2, 2), ellipse(0, 0, 0.88, 0.88, 0, 64)),
+          // un fin jour entre l'anneau et les branches : deux pièces à colorer
+          minus(rect(-2, -2, 2, 2), ellipse(0, 0, 0.78, 0.78, 0, 64)),
         ),
       );
     case 'rule':
@@ -1216,9 +1214,9 @@ function build(k: SilhouetteKind): MultiPolygon {
         stroke(
           Array.from({ length: 14 }, (_, i) => {
             const u = i / 13;
-            return pol(a + 2.3 * u ** 1.6, 0.3 + 0.67 * (1 - u) ** 3);
+            return pol(a + 2.3 * u ** 1.6, 0.37 + 0.5 * (1 - u) ** 3);
           }),
-          (t) => 0.048 - 0.02 * t,
+          (t) => 0.046 - 0.018 * t,
         ),
       );
       // l'œil : spirale de deux tours, dans le sens des bras, qui finit là où arrive le premier bras
@@ -1237,19 +1235,21 @@ function build(k: SilhouetteKind): MultiPolygon {
   }
 }
 
-const cache = new Map<SilhouetteKind, { rings: Pt[][]; ratio: number }>();
+const cache = new Map<SilhouetteKind, { rings: Pt[][]; ratio: number; pieces: Pt[][][] }>();
 /** Silhouette ramenée à sa boîte : contours en 0..1 et proportions (largeur / hauteur). */
 function shapeOf(k: SilhouetteKind) {
   let c = cache.get(k);
   if (!c) {
     // les premières silhouettes sont dessinées dans un carré : on leur rend leurs proportions
     const sx = k in LEGACY ? LEGACY[k as keyof typeof LEGACY] : 1;
-    const raw = build(k).flatMap((poly) => poly.map((r) => r.slice(0, -1).map(([x, y]) => [x * sx, y] as P)));
+    const polys = build(k).map((poly) => poly.map((r) => r.slice(0, -1).map(([x, y]) => [x * sx, y] as P)));
+    const raw = polys.flat();
     const xs = raw.flat().map((p) => p[0]);
     const ys = raw.flat().map((p) => p[1]);
     const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
     const [w, h] = [x1 - x0 || 1, y1 - y0 || 1];
-    c = { rings: raw.map((r) => r.map(([x, y]) => ({ x: (x - x0) / w, y: (y - y0) / h }))), ratio: w / h };
+    const norm = (r: P[]) => r.map(([x, y]) => ({ x: (x - x0) / w, y: (y - y0) / h }));
+    c = { rings: raw.map(norm), ratio: w / h, pieces: polys.map((poly) => poly.map(norm)) };
     cache.set(k, c);
   }
   return c;
@@ -1257,6 +1257,11 @@ function shapeOf(k: SilhouetteKind) {
 
 /** Contours de la silhouette (extérieurs et ouvertures), à remplir en pair-impair. */
 export const silhouetteRings = (k: SilhouetteKind): Pt[][] => shapeOf(k).rings;
+/**
+ * Pièces de la silhouette : ses morceaux séparés (pétales du lotus, bras du symbole…), chacun avec ses
+ * ouvertures, dans la boîte de la silhouette entière. Une forme d'un seul tenant n'a qu'une pièce.
+ */
+export const silhouettePieces = (k: SilhouetteKind): Pt[][][] => shapeOf(k).pieces;
 /** Proportions de la boîte à la pose. */
 export const silhouetteRatio = (k: SilhouetteKind): number => shapeOf(k).ratio;
 
