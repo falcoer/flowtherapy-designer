@@ -2258,9 +2258,30 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 .ap-x { width: 20px; height: 20px; border-radius: 10px; font-size: 14px; line-height: 20px; color: var(--muted); flex: none; }
 .ap-params { flex: 1; min-width: 0; display: flex; }
 .ap-params > .ap-hint { align-self: center; }
+/* assistant sur un objet sans surface : matière, vernis et volume grisés, les bords seuls se règlent */
+.mw-tabs button.kept:not(.on) { opacity: 0.45; }
+.mw-body.mw-hollow > :not(.mw-kept) { opacity: 0.42; filter: grayscale(0.7); pointer-events: none; }
+.mw-body > .mw-kept { margin-top: 0; flex: none; }
+/* sans surface : l'option à côté des paramètres de la forme ; Support et Volume grisés, comme un texte modelé */
+.ap-shape-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.ap-shape-row > .ap-shape { display: flex; align-items: center; }
+.ap-pane.ap-hollow > :not(.ap-molded) { opacity: 0.42; filter: grayscale(0.7); pointer-events: none; }
+/* le bandeau en tête : visible sans faire défiler, même sur téléphone */
+.ap-pane > .ap-hollow-bar { margin-top: 0; flex: none; }
+/* vernis ou matière désactivé : la plaque reste là, grisée comme un texte modelé ; l'interrupteur la rallume */
+.ap-toggle { align-self: center; margin-left: auto; }
+.ap-row.off > .ap-params { opacity: 0.42; filter: grayscale(0.7); pointer-events: none; }
+.ap-row.off .ap-slot { opacity: 0.5; filter: grayscale(0.8); }
+.ap-row.off .ap-slot-n small { text-decoration: line-through; }
 /* emplacement survolé par une pastille glissée depuis la palette */
 .ap-row.hot, .ap-tint.hot { background: var(--accent-soft); border-radius: 10px; }
 .ap-row.hot .ap-slot { box-shadow: 0 0 0 2px var(--accent); }
+/* une pastille remplie se tire : sur un autre objet (page ou liste) ou sur la palette */
+.ap-slot:not(.empty) { touch-action: none; cursor: grab; }
+.layer.slot-hot { box-shadow: inset 0 0 0 2px var(--accent); }
+.guide-btn.slot-hot { box-shadow: 0 0 0 2px var(--accent); }
+.palette-bubble.slot-hot, .color-dialog.slot-hot { outline: 2px solid var(--accent); outline-offset: -2px; }
+.drag-dot.matter-dot { width: 40px; height: 40px; margin: -20px 0 0 -20px; }
 /* Bord : trois emplacements côte à côte quand la largeur le permet */
 .ap-edges { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0 12px; }
 .ap-edges .ap-row + .ap-row { border-top: 0; }
@@ -2595,6 +2616,17 @@ button.cm-star:hover, .cm-trash:hover { background: var(--accent-soft); }
 /* jeux de paramètres d'un élément : un petit trait d'exemple par jeu */
 .fan-ico:has(.preset-thumb) { width: 52px; }
 .preset-thumb { width: 52px; height: 32px; border-radius: 8px; object-fit: cover; display: block; }
+/* Volume : dans une plaque, chaque option tient sa ligne (son nom à gauche, son réglage à droite) et
+   les potards se rangent ensemble dessous ; rien ne passe à la ligne au milieu d'un réglage, même
+   quand la plaque est étroite (trois plaques de front sur une tablette en portrait) */
+.ap-depths .ap-ecard { gap: 4px; padding: 6px 10px; }
+.ap-pane .ap-depths .ap-ecard-b .cp-attrs { row-gap: 4px; column-gap: 4px; align-items: flex-start; }
+.ap-pane .ap-depths .ap-ecard-b .cp-attrs > .cp-row { flex: 1 1 100%; display: flex; justify-content: space-between; gap: 8px; min-width: 0; min-height: 26px; }
+.ap-pane .ap-depths .ap-ecard-b .cp-attrs > .cp-row > span:first-child { flex: none; }
+.ap-pane .ap-depths .ap-ecard-b .cp-attrs > .cp-row .seg { flex: 0 1 150px; flex-wrap: nowrap; min-width: 0; }
+.ap-pane .ap-depths .ap-ecard-b .cp-attrs > .cp-row .seg button { flex: 1 1 0; min-width: 0; height: 26px; padding: 0 1px; }
+.ap-pane .ap-depths .ap-ecard-b .cp-attrs > .cp-row input[type='checkbox'] { flex: none; margin: 0; }
+.ap-pane .ap-depths .ap-ecard-b .cp-dial { flex: 1 1 64px; max-width: 96px; }
 /* Volume › Biseau : orientation en trois petits pictogrammes */
 .cp-seg .ap-axis { padding: 3px 8px; display: inline-flex; align-items: center; justify-content: center; }
 .cp-seg .ap-axis svg { display: block; }

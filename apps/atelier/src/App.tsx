@@ -1545,7 +1545,10 @@ export function App() {
   /** Onglet de l'assistant demandé depuis un emplacement des attributs. */
   const [wizardTab, setWizardTab] = useState<{ t?: 'support' | 'coat' | 'depth' | 'edge'; n: number }>({ n: 0 });
   /** Onglet de la palette demandé depuis les attributs (toucher la teinte). */
-  const [palTabReq, setPalTabReq] = useState<{ t: PalTab; n: number } | undefined>();
+  // `open` : l'entrée dont la boîte doit s'ouvrir dans cet onglet (une pastille des attributs lâchée sur une boîte)
+  const [palTabReq, setPalTabReq] = useState<{ t: PalTab; n: number; open?: string } | undefined>();
+  const palOpenReq = palTabReq?.open ? { id: palTabReq.open, n: palTabReq.n } : undefined;
+  const palOpened = () => setPalTabReq((r) => (r?.open ? { t: r.t, n: r.n } : r));
   /** La couleur de la barre d'outils tenue : départ du doigt, glisser commencé. */
   const guideDrag = useRef<{ x: number; y: number; on: boolean } | null>(null);
   // le doigt qui glisse depuis la couleur ne fait ni défiler ni rebondir la page (et n'avale pas le toucher suivant)
@@ -3655,7 +3658,7 @@ export function App() {
       const ctx = c.getContext('2d', { willReadFrequently: true })!;
       ctx.setTransform(w / b.w, 0, 0, h / b.h, (-(b.cx - b.w / 2) * w) / b.w, (-(b.cy - b.h / 2) * h) / b.h);
       // la couche seule, à plat : sans ombre ni liseré
-      drawLayers(ctx, { ...doc, layers: [{ ...l, height: 0, bevel: 0, border: undefined, rot: 0, visible: true }] }, f, { scale: scale * dpr, onImage: redraw });
+      drawLayers(ctx, { ...doc, layers: [{ ...l, height: 0, bevel: 0, border: undefined, hollow: undefined, rot: 0, visible: true }] }, f, { scale: scale * dpr, onImage: redraw });
       analysisCache.current = { key, a: analyse(c) };
       mapCache.current = null;
     }
@@ -3681,7 +3684,7 @@ export function App() {
     ctx.fillRect(0, 0, c.width, c.height);
     ctx.setTransform(k, 0, 0, k, -(b.cx - b.w / 2 + crop.u0 * b.w) * k, -(b.cy - b.h / 2 + crop.v0 * b.h) * k);
     // la photo entière, à plat : le modèle voit tout le contexte, même hors de la découpe
-    const flat: Layer = { ...l, height: 0, bevel: 0, border: undefined, rot: 0, visible: true, ...(l.kind === 'photo' ? { cut: undefined, molded: undefined } : {}) };
+    const flat: Layer = { ...l, height: 0, bevel: 0, border: undefined, hollow: undefined, rot: 0, visible: true, ...(l.kind === 'photo' ? { cut: undefined, molded: undefined } : {}) };
     drawLayers(ctx, { ...doc, layers: [flat] }, f, { scale: k, onImage: redraw });
     const S: NonNullable<typeof subject.current> = { layer: l.id, crop, zone, state: 'busy', strokes: first, mask: null, img: null, geom: null };
     subject.current = S;
@@ -5176,13 +5179,16 @@ export function App() {
               doc={doc}
               f={f}
               patch={(p, h) => patchLayer(sel.id, p, h)}
+              targetAt={layerAtScreen}
+              patchOther={(id, p) => patchLayer(id, p)}
+              onDoc={update}
               onClose={() => setTool('move')}
               onWizard={(t) => {
                 setWizardTab((w) => ({ t, n: w.n + 1 }));
                 setWizard(true);
               }}
-              onPalette={(t) => {
-                setPalTabReq((r) => ({ t, n: (r?.n ?? 0) + 1 }));
+              onPalette={(t, open) => {
+                setPalTabReq((r) => ({ t, n: (r?.n ?? 0) + 1, open }));
                 setBubble('palette');
               }}
               openOn={coupeOpen}
@@ -6173,6 +6179,8 @@ export function App() {
                       setToastUndo(!!u);
                     }}
                     targetAt={layerAtScreen}
+                    openReq={palOpenReq}
+                    onOpened={palOpened}
                   />
                 ) : (
                 <MatterRow
@@ -6188,6 +6196,8 @@ export function App() {
                     setToastUndo(!!u);
                   }}
                   targetAt={layerAtScreen}
+                  openReq={palOpenReq}
+                  onOpened={palOpened}
                 />
                 )
               }
@@ -6404,6 +6414,14 @@ function LayerThumb({ layer, doc }: { layer: Layer; doc: Doc }) {
     const y0 = (S - h) / 2;
     const path = new Path2D();
     path.addPath(new Path2D(cutOf(layer)), new DOMMatrix([w, 0, 0, h, x0, y0]));
+    if (layer.hollow && layer.kind !== 'surface') {
+      // sans surface : le seul trait de son bord
+      ctx.strokeStyle = guideColor(doc.guides[layer.border?.guide ?? layer.guide], 0.5);
+      ctx.lineWidth = 2.5;
+      ctx.lineJoin = 'round';
+      ctx.stroke(path);
+      return;
+    }
     ctx.fillStyle = layer.kind === 'photo' ? '#8a7fa8' : guideColor(doc.guides[layer.guide], 0.5);
     ctx.fill(path, 'evenodd');
     ctx.strokeStyle = 'rgba(0,0,0,0.18)';
@@ -6753,7 +6771,7 @@ function PaletteBubble({
   /** Charger un jeu enregistré de matières, de vernis ou de bords : ses entrées rejoignent celles du document. */
   onLoadSet?: (kind: 'material' | 'varnish' | 'edge', entries: Array<PaletteMatter | PaletteEdge>) => void;
   /** Onglet demandé de l'extérieur (toucher la teinte dans les attributs). */
-  tabReq?: { t: PalTab; n: number };
+  tabReq?: { t: PalTab; n: number; open?: string };
   /** Une boîte de couleur est ouverte (ou vient de se fermer). */
   onEditing?: (on: boolean) => void;
   doc: Doc;
@@ -6831,6 +6849,10 @@ function PaletteBubble({
   useEffect(() => {
     if (!edit) setEditing(null);
   }, [edit]);
+  // la boîte d'une matière, d'un vernis ou d'un bord est demandée : celle de la couleur lui laisse la place
+  useEffect(() => {
+    if (tabReq?.open) setEditing(null);
+  }, [tabReq]);
   useEffect(() => {
     onEditing?.(editing !== null);
   }, [editing, onEditing]);

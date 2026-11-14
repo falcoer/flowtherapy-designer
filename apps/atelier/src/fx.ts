@@ -73,7 +73,12 @@ export interface Fx {
   preset?: string;
   /** Entrée de la palette (« Mes matières », « Mes vernis ») à laquelle ce réglage est lié. */
   ref?: string;
+  /** Désactivé : l'objet se dessine sans lui, ses réglages sont gardés de côté. */
+  off?: boolean;
 }
+
+/** Les réglages qui comptent au rendu : un élément désactivé est gardé, mais ne se dessine pas. */
+export const fxOn = (list: (Fx | undefined)[] | undefined): Fx[] => (list ?? []).filter((x): x is Fx => !!x && !x.off);
 
 type RGB = [number, number, number];
 
@@ -1668,7 +1673,7 @@ export function newFx(id: FxId): Fx {
 export const fxKnobs = (def: FxDef, e: Fx): Record<string, number> => Object.fromEntries((def.knobs ?? []).map((x) => [x.key, e.knobs?.[x.key] ?? x.def]));
 
 /** Opacité de l'objet : seule une matière transparente laisse voir à travers. */
-export const opacityOf = (l: { material?: Fx; opacity?: number }) => (l.material && fxOf(l.material.id)?.transparent ? (l.opacity ?? 1) : 1);
+export const opacityOf = (l: { material?: Fx; opacity?: number; hollow?: boolean }) => (l.material && !l.material.off && !l.hollow && fxOf(l.material.id)?.transparent ? (l.opacity ?? 1) : 1);
 
 export const hasPixelFx = (fx: Fx[] | undefined) => !!fx?.some((x) => fxOf(x.id)?.pixel);
 

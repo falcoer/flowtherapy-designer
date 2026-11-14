@@ -11,7 +11,8 @@ import { AlignGlyph, TextContent, useLazyText, WarpGlyph, weightName } from './t
 import { TiltPad } from './tilt';
 import { borderDefaults } from './targets';
 import { EDGE_SLOTS, EdgeGlyph, edgeName } from './edge-palette';
-import { matterSwatch, varnishOf, varnishSwatch } from './palettes';
+import { matterSwatch, toggleMatter, varnishOf, varnishSwatch } from './palettes';
+import { slotFilled, slotOnto, slotToPalette, type SlotPayload } from './slot-drag';
 
 /**
  * Coupe de l'objet : ses couches lues comme l'objet posé, du dessus au dessous.
@@ -175,8 +176,13 @@ export function itemsOf(l: Layer, doc: Doc): Item[] {
   return out;
 }
 
+/** Sur un objet sans surface : ce bord ou cette lueur est-il tout ce qui se dessine encore ? */
+export const lastTrace = (l: Layer, key: string) => !!l.hollow && l.kind !== 'surface' && ((key === 'border' && !l.glow) || (key === 'glow' && !(l.border && l.border.width > 0)));
+
 /** Ce qu'on retire quand on touche la croix d'un élément. */
 export function removal(l: Layer, key: string): Partial<Layer> {
+  // sans surface, l'objet ne tient que par son bord ou sa lueur : retirer le dernier rend la surface
+  if (lastTrace(l, key)) return { [key]: undefined, hollow: undefined };
   if (key === 'border') return { border: undefined };
   if (key === 'bevel') return { bevel: 0, bevelProfile: undefined, bevelSoft: undefined, bevelAxis: undefined, bevelBorder: undefined };
   if (key === 'extrude') return { extrude: undefined };
@@ -301,6 +307,9 @@ export function CoupePanel({
   onClose,
   onToast,
   openOn,
+  targetAt,
+  patchOther,
+  onDoc,
 }: {
   /** Liste des objets de la page, à gauche du panneau. */
   list?: React.ReactNode;
@@ -317,7 +326,8 @@ export function CoupePanel({
   /** Ouvre l'assistant sur une section (toucher un emplacement vide ou rempli). */
   onWizard?: (tab: 'support' | 'coat' | 'depth' | 'edge') => void;
   /** Ouvre la palette sur un onglet (toucher la teinte). */
-  onPalette?: (tab: 'color' | 'material' | 'varnish' | 'edge') => void;
+  /** Montre la palette sur un onglet ; `open` : l'entrée dont la boîte doit s'y ouvrir. */
+  onPalette?: (tab: 'color' | 'material' | 'varnish' | 'edge', open?: string) => void;
   layer: Layer;
   doc: Doc;
   f: Format;
@@ -326,6 +336,12 @@ export function CoupePanel({
   onToast: (msg: string, undoable?: boolean) => void;
   /** Élément à ouvrir d'emblée (une forme qu'on vient de poser : ses paramètres ; un texte touché deux fois : son contenu). */
   openOn?: { key: string; n: number; sec?: Section };
+  /** L'objet sous ce point de l'écran (une pastille tirée d'un emplacement et lâchée sur la page ou dans la liste). */
+  targetAt?: (x: number, y: number) => Layer | undefined;
+  /** Retouche d'un autre objet que celui du panneau (il reçoit la pastille lâchée). */
+  patchOther?: (id: string, p: Partial<Layer>) => void;
+  /** Changement du document, avec une étape d'annulation (une pastille rangée dans la palette). */
+  onDoc?: (fn: (d: Doc) => Doc) => void;
 }) {
   const surface = l.kind === 'surface';
   const mainOn = l.kind === 'text' || l.kind === 'shape' || l.kind === 'photo';
@@ -511,11 +527,141 @@ export function CoupePanel({
     </div>
   );
 
+  // --- une pastille tirée de son emplacement : lâchée sur un autre objet (page ou liste), il en reçoit une
+  // copie ; lâchée sur la palette (sa bulle ou son bouton), le réglage y devient une entrée à soi ---
+  const [slotGhost, setSlotGhost] = useState<{ x: number; y: number; p: SlotPayload } | null>(null);
+  const slotDrag = useRef<{ p: SlotPayload; x: number; y: number; on: boolean } | null>(null);
+  const slotDragged = useRef(false);
+  const slotHot = useRef<HTMLElement | null>(null);
+  const slotHeat = (el: HTMLElement | null) => {
+    if (slotHot.current === el) return;
+    slotHot.current?.classList.remove('slot-hot');
+    el?.classList.add('slot-hot');
+    slotHot.current = el;
+  };
+  // la palette : sa bulle, son bouton, ou la boîte d'une de ses entrées (ouverte par Modifier, elle recouvre la bulle sur un écran étroit)
+  const paletteAt = (x: number, y: number) => {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    return el?.closest<HTMLElement>('.palette-bubble, .guide-btn') ?? (document.querySelector('.palette-bubble') ? (el?.closest<HTMLElement>('.color-dialog') ?? null) : null);
+  };
+  const rowAt = (x: number, y: number) => {
+    const row = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('aside.coupe [data-layer]') ?? null;
+    return row && row.dataset.layer !== l.id ? row : null;
+  };
+  const slotName = (p: SlotPayload) => {
+    if (p.kind === 'edge') return edgeName(p.k, l);
+    const fx = p.kind === 'material' ? l.material : p.kind === 'varnish' ? varnishOf(l) : undefined;
+    return fx?.preset ?? (fx ? fxOf(fx.id)?.name : undefined) ?? '';
+  };
+  const slotDrop = (p: SlotPayload, x: number, y: number) => {
+    const zone = paletteAt(x, y);
+    if (zone) {
+      const name = slotName(p);
+      const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+      const r = slotToPalette(doc, l, p, name, id);
+      if (r.doc && onDoc) onDoc((d) => slotToPalette(d, l, p, name, id).doc ?? d);
+      if (r.msg) onToast(r.msg, !!r.doc);
+      // lâchée sur la boîte ouverte d'une entrée : la boîte montre aussitôt l'entrée qui porte le réglage
+      return onPalette?.(r.tab, zone.matches('.color-dialog') ? r.entry : undefined);
+    }
+    const to = targetAt?.(x, y);
+    if (!to || to.id === l.id) return;
+    const r = slotOnto(l, to, p);
+    if (r.patch) patchOther?.(to.id, r.patch);
+    if (r.msg) onToast(r.msg, !!r.patch);
+  };
+  /** Sur la pastille d'un emplacement : un toucher fait `tap`, un glisser emporte son réglage. */
+  const slotBind = (p: SlotPayload, tap?: () => void) => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      slotDragged.current = false;
+      if (e.button !== 0 || !slotFilled(l, p) || !targetAt) return;
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+      slotDrag.current = { p, x: e.clientX, y: e.clientY, on: false };
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const d = slotDrag.current;
+      if (!d) return;
+      if (!d.on && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) d.on = true;
+      if (!d.on) return;
+      setSlotGhost({ x: e.clientX, y: e.clientY, p });
+      slotHeat(paletteAt(e.clientX, e.clientY) ?? rowAt(e.clientX, e.clientY));
+    },
+    onPointerUp: (e: React.PointerEvent) => {
+      const d = slotDrag.current;
+      slotDrag.current = null;
+      setSlotGhost(null);
+      slotHeat(null);
+      if (!d?.on) return;
+      slotDragged.current = true;
+      slotDrop(d.p, e.clientX, e.clientY);
+    },
+    onPointerCancel: () => {
+      slotDrag.current = null;
+      setSlotGhost(null);
+      slotHeat(null);
+    },
+    onClick: () => {
+      // le toucher qui termine un glisser n'ouvre ni l'assistant ni la palette
+      if (slotDragged.current) return void (slotDragged.current = false);
+      tap?.();
+    },
+  });
+  const slotGhostDot = (() => {
+    if (!slotGhost) return null;
+    const { p, x, y } = slotGhost;
+    const at = { left: x, top: y };
+    if (p.kind === 'edge')
+      return (
+        <span className="drag-dot edge-dot" style={at}>
+          <EdgeGlyph edge={{ [p.k]: l[p.k] }} doc={doc} size={34} />
+        </span>
+      );
+    if (p.kind === 'tint') return <span className="drag-dot" style={{ ...at, background: swatch(doc.guides[l.guide]) }} />;
+    const fx = p.kind === 'material' ? l.material : varnishOf(l);
+    if (!fx) return null;
+    return <span className={`drag-dot matter-dot ${p.kind === 'material' ? 'shape-matter' : 'shape-varnish'}`} style={{ ...at, background: p.kind === 'material' ? matterSwatch(fx) : varnishSwatch(fx), backgroundSize: 'cover' }} />;
+  })();
+  const DRAG_HINT = ' ; glisse la pastille sur un autre objet pour la lui donner, ou sur la palette pour la garder';
+
+  // sans surface : seul le chemin du bord se dessine ; le support et le volume restent, gardés de côté
+  const hollow = !!l.hollow && !surface;
+  const setHollow = (on: boolean) => {
+    if (!on) {
+      patch({ hollow: undefined });
+      return onToast('Surface remise : le support et le volume sont revenus', true);
+    }
+    // sans bord, l'objet disparaîtrait : il prend un bord fin de sa propre teinte
+    const edged = l.border && l.border.width > 0;
+    patch({ hollow: true, ...(edged ? {} : { border: { style: 'round' as const, ...borderDefaults('round', undefined, doc.guides), guide: l.guide, width: 0.012 } }) });
+    onToast(edged ? 'Sans surface : seul le bord se dessine' : 'Sans surface : un bord fin a été ajouté, à régler dans l’onglet Bord', true);
+  };
+  const hollowPlate = (l.kind === 'shape' || l.kind === 'text') && (
+    <div className="ap-shape ap-hollow-opt">
+      <div className="cp-attrs ap-attrs">
+        <label className="cp-row" title="Sans surface : l’objet ne garde que son bord et sa lueur, le long de sa découpe. Sa teinte, son vernis, sa matière et son volume sont gardés de côté.">
+          <span>Sans surface</span>
+          <input type="checkbox" checked={hollow} onChange={(e) => setHollow(e.target.checked)} />
+          <output>{hollow ? 'oui' : 'non'}</output>
+        </label>
+      </div>
+    </div>
+  );
+  /** Bandeau du bas des onglets Support et Volume d'un objet sans surface : grisés jusqu'au retour. */
+  const hollowBar = hollow && (
+    <div className="ap-molded ap-hollow-bar">
+      <span>Objet sans surface : {tab === 'depth' ? 'son volume est gardé' : 'sa teinte, son vernis et sa matière sont gardés'} de côté.</span>
+      <button className="chip primary" onClick={() => setHollow(false)}>
+        Remettre la surface
+      </button>
+    </div>
+  );
+
   let body: React.ReactNode = null;
   if (tab === 'main' && l.kind === 'text' && l.text && patchText)
     body = (
       <>
         <TextTab key={l.id} text={l.text} locked={!!l.molded} onChange={patchText} typeNow={typeNow === l.id} onTyped={() => setTypeNow(null)} />
+        {hollowPlate}
         {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}
@@ -525,7 +671,10 @@ export function CoupePanel({
     const it = items.find((x) => x.key === 'shape');
     body = (
       <>
-        <div className={`ap-shape ${l.molded ? 'ap-locked' : ''}`}>{it && <Attrs bare layer={l} doc={doc} item={{ ...it, locked: false }} patch={patch} />}</div>
+        <div className="ap-shape-row">
+          <div className={`ap-shape ${l.molded ? 'ap-locked' : ''}`}>{it && <Attrs bare layer={l} doc={doc} item={{ ...it, locked: false }} patch={patch} />}</div>
+          {hollowPlate}
+        </div>
         {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}
@@ -548,7 +697,7 @@ export function CoupePanel({
       <div className="ap-support">
         {l.kind !== 'photo' && (
           <div className="ap-tint" data-drop="tint">
-            <button className="ap-slot" style={{ background: swatch(g) }} onClick={() => onPalette?.('color')} title="Teinte : glisse ici une couleur de la palette (toucher ouvre la palette)" aria-label="Teinte" />
+            <button className="ap-slot" style={{ background: swatch(g) }} {...slotBind({ kind: 'tint' }, () => onPalette?.('color'))} title="Teinte : glisse ici une couleur de la palette (toucher ouvre la palette) ; glisse la pastille sur un autre objet pour la lui donner" aria-label="Teinte" />
             <span className="ap-slot-l">Teinte</span>
             <small>{g?.name ?? '—'}</small>
           </div>
@@ -560,12 +709,18 @@ export function CoupePanel({
             shape="shape-varnish"
             name={v ? (v.preset ?? fxOf(v.id)!.name) : undefined}
             bg={v ? varnishSwatch(v) : undefined}
-            onSlot={() => onWizard?.('coat')}
+            slot={slotBind({ kind: 'varnish' }, () => onWizard?.('coat'))}
             onRemove={() => {
               patch({ fx: (l.fx ?? []).filter((x) => x !== v) });
               onToast('Vernis retiré', true);
             }}
+            off={v?.off}
+            onToggle={() => {
+              patch(toggleMatter(l, 'varnish'));
+              onToast(v?.off ? 'Vernis réactivé' : 'Vernis désactivé : ses réglages sont gardés', true);
+            }}
             hint="Glisse ici un vernis de la palette, ou touche le triangle pour l’assistant"
+            dragHint={DRAG_HINT}
           >
             {v && <Attrs bare layer={l} doc={doc} item={{ sec: 'coat', key: `fx:${vi}`, name: '', bg: '', removable: true }} patch={patch} />}
           </SlotRow>
@@ -575,12 +730,18 @@ export function CoupePanel({
             shape="shape-matter"
             name={l.material ? (l.material.preset ?? fxOf(l.material.id)!.name) : undefined}
             bg={l.material ? matterSwatch(l.material) : undefined}
-            onSlot={() => onWizard?.('support')}
+            slot={slotBind({ kind: 'material' }, () => onWizard?.('support'))}
             onRemove={() => {
               patch({ material: undefined });
               onToast('Matière retirée', true);
             }}
+            off={l.material?.off}
+            onToggle={() => {
+              patch(toggleMatter(l, 'material'));
+              onToast(l.material?.off ? 'Matière réactivée' : 'Matière désactivée : ses réglages sont gardés', true);
+            }}
             hint="Glisse ici une matière de la palette, ou touche l’hexagone pour l’assistant"
+            dragHint={DRAG_HINT}
           >
             {l.material && <Attrs bare layer={l} doc={doc} item={{ sec: 'support', key: 'material', name: '', bg: '', removable: true }} patch={patch} />}
           </SlotRow>
@@ -596,7 +757,7 @@ export function CoupePanel({
           return (
             <div key={k} className={`ap-ecard ${has ? '' : 'empty'}`} data-drop={`edge-${k}`}>
               <div className="ap-ecard-h">
-                <button className={`ap-slot shape-edge ${has ? '' : 'empty'}`} onClick={() => onWizard?.('edge')} title={`Glisse ici ${what} de la palette (onglet Bords), ou touche le carré pour l’assistant`} aria-label={`${label} : assistant`}>
+                <button className={`ap-slot shape-edge ${has ? '' : 'empty'}`} {...slotBind({ kind: 'edge', k }, () => onWizard?.('edge'))} title={`Glisse ici ${what} de la palette (onglet Bords), ou touche le carré pour l’assistant${has ? DRAG_HINT : ''}`} aria-label={`${label} : assistant`}>
                   {has ? <EdgeGlyph edge={{ [k]: l[k] }} doc={doc} size={40} /> : <span className="ap-plus">＋</span>}
                 </button>
                 <span className="ap-ecard-t">
@@ -608,7 +769,7 @@ export function CoupePanel({
                     className="ap-x"
                     onClick={() => {
                       patch(removal(l, k));
-                      onToast(`${label} retiré${k === 'glow' ? 'e' : ''}`, true);
+                      onToast(`${label} retiré${k === 'glow' ? 'e' : ''}${lastTrace(l, k) ? ' : la surface est revenue' : ''}`, true);
                     }}
                     title={`Retirer : ${edgeName(k, l)}`}
                     aria-label={`Retirer ${label}`}
@@ -738,9 +899,12 @@ export function CoupePanel({
               ×
             </button>
           </div>
-          <div className={`ap-pane ap-${tab}`} role="tabpanel">
+          <div className={`ap-pane ap-${tab} ${hollow && (tab === 'support' || tab === 'depth') ? 'ap-hollow' : ''}`} role="tabpanel">
+            {(tab === 'support' || tab === 'depth') && hollowBar}
             {body}
           </div>
+          {/* hors du panneau, qui défile : la pastille suit le doigt par-dessus tout */}
+          {slotGhostDot && createPortal(slotGhostDot, document.body)}
         </div>
       </div>
     </aside>
@@ -755,27 +919,36 @@ function SlotRow({
   name,
   bg,
   glyph,
-  onSlot,
+  slot,
   onRemove,
+  off,
+  onToggle,
   hint,
+  dragHint = '',
   children,
 }: {
+  /** Gestes de la pastille : toucher (assistant) et glisser (vers un autre objet ou la palette). */
+  slot: React.ButtonHTMLAttributes<HTMLButtonElement>;
+  /** Suite de l'infobulle quand l'emplacement est rempli. */
+  dragHint?: string;
+  /** Désactivé : la plaque est grisée, ses réglages restent en place. */
+  off?: boolean;
+  onToggle?: () => void;
   drop: string;
   label: string;
   shape: string;
   name?: string;
   bg?: string;
   glyph?: React.ReactNode;
-  onSlot: () => void;
   onRemove: () => void;
   hint: string;
   children?: React.ReactNode;
 }) {
   const empty = name === undefined;
   return (
-    <div className={`ap-row ${empty ? 'empty' : ''}`} data-drop={drop}>
+    <div className={`ap-row ${empty ? 'empty' : ''} ${off && !empty ? 'off' : ''}`} data-drop={drop}>
       <div className="ap-slot-col">
-        <button className={`ap-slot ${shape} ${empty ? 'empty' : ''}`} style={bg ? { background: bg, backgroundSize: 'cover' } : undefined} onClick={onSlot} title={hint} aria-label={`${label} : assistant`}>
+        <button className={`ap-slot ${shape} ${empty ? 'empty' : ''}`} style={bg ? { background: bg, backgroundSize: 'cover' } : undefined} {...slot} title={empty ? hint : `${hint}${dragHint}`} aria-label={`${label} : assistant`}>
           {empty ? <span className="ap-plus">＋</span> : glyph}
         </button>
         <span className="ap-slot-l">{label}</span>
@@ -788,7 +961,19 @@ function SlotRow({
           </span>
         )}
       </div>
-      <div className="ap-params">{empty ? <p className="ap-hint">{hint}.</p> : children}</div>
+      <div className="ap-params" aria-disabled={(off && !empty) || undefined}>
+        {empty ? <p className="ap-hint">{hint}.</p> : children}
+      </div>
+      {!empty && onToggle && (
+        <button
+          className={`act-toggle ap-toggle ${off ? '' : 'on'}`}
+          role="switch"
+          aria-checked={!off}
+          aria-label={`${label} : ${off ? 'réactiver' : 'désactiver'}`}
+          title={off ? `Réactiver : ${name} (ses réglages sont gardés)` : `Désactiver : ${name} (l’objet se dessine sans, ses réglages sont gardés)`}
+          onClick={onToggle}
+        />
+      )}
     </div>
   );
 }

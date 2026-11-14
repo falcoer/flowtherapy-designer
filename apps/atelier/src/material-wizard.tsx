@@ -49,7 +49,10 @@ export function MaterialWizard({
   onToast: (msg: string, undoable?: boolean) => void;
 }) {
   const tabs = TABS.filter(([t]) => l.kind !== 'surface' || t === 'support' || t === 'coat');
-  const [tab, setTab] = useState<Tab>(start && tabs.some(([t]) => t === start) ? start : 'support');
+  // objet sans surface : seuls ses bords se règlent ; matière, vernis et volume attendent, gardés de côté
+  const hollow = !!l.hollow && l.kind !== 'surface';
+  const kept = (t: Tab) => hollow && t !== 'edge';
+  const [tab, setTab] = useState<Tab>(hollow ? 'edge' : start && tabs.some(([t]) => t === start) ? start : 'support');
   const startType = MATERIAL_TYPES.find((t) => t.presets.some((p) => p.name === l.material?.preset)) ?? MATERIAL_TYPES.find((t) => t.presets.some((p) => p.fx === l.material?.id)) ?? MATERIAL_TYPES[0]!;
   const [type, setType] = useState(startType.id);
   useEffect(() => {
@@ -81,7 +84,7 @@ export function MaterialWizard({
   // vignettes : une par tâche, après une pause dans les réglages (un potard qu'on tourne ne les relance pas à chaque pas)
   const thumbs = useRef(new Map<string, string>());
   const [, tick] = useState(0);
-  const sig = JSON.stringify([tab, type, l.material, l.fx, l.volume, l.border, l.glow, l.trim, l.bevel, l.extrude, l.guide, l.w, l.h]);
+  const sig = JSON.stringify([tab, type, l.material, l.fx, l.volume, l.border, l.glow, l.trim, l.bevel, l.extrude, l.guide, l.w, l.h, hollow]);
   const lastSig = useRef(sig);
   if (lastSig.current !== sig) {
     lastSig.current = sig;
@@ -95,7 +98,8 @@ export function MaterialWizard({
       if (stop) return;
       const c = todo.shift();
       if (!c) return;
-      if (!thumbs.current.has(c.id)) thumbs.current.set(c.id, fxPreview(l, doc, f, l.fx, `mw-${c.id}`, () => tick((n) => n + 1), c.patch));
+      // les bords se voient comme sur la page (sans surface s'il y a lieu) ; un choix gardé de côté se montre avec sa surface
+      if (!thumbs.current.has(c.id)) thumbs.current.set(c.id, fxPreview(l, doc, f, l.fx, `mw-${c.id}`, () => tick((n) => n + 1), kept(tab) ? { ...c.patch, hollow: undefined } : c.patch));
       tick((n) => n + 1);
       timer = window.setTimeout(step, 0);
     };
@@ -133,12 +137,29 @@ export function MaterialWizard({
       </div>
       <div className="mw-tabs" role="tablist">
         {tabs.map(([t, name]) => (
-          <button key={t} role="tab" aria-selected={t === tab} className={t === tab ? 'on' : ''} onClick={() => setTab(t)}>
+          <button key={t} role="tab" aria-selected={t === tab} className={`${t === tab ? 'on' : ''} ${kept(t) ? 'kept' : ''}`} onClick={() => setTab(t)} title={kept(t) ? `${name} : gardé de côté, l’objet est sans surface` : undefined}>
             {name}
           </button>
         ))}
       </div>
-      <div className="mw-body">
+      <div className={`mw-body ${kept(tab) ? 'mw-hollow' : ''}`}>
+        {kept(tab) && (
+          <div className="ap-molded mw-kept">
+            <span>Objet sans surface : {tab === 'depth' ? 'son volume est gardé' : tab === 'coat' ? 'son vernis est gardé' : 'sa matière est gardée'} de côté. Seuls ses bords se règlent.</span>
+            <button className="chip" onClick={() => setTab('edge')}>
+              Régler les bords
+            </button>
+            <button
+              className="chip primary"
+              onClick={() => {
+                patch({ hollow: undefined });
+                onToast('Surface remise : le support et le volume sont revenus', true);
+              }}
+            >
+              Remettre la surface
+            </button>
+          </div>
+        )}
         {kind && (
           <div className="mw-mine">
             <span className="mw-lbl">{kind === 'material' ? 'Mes matières' : 'Mes vernis'}</span>

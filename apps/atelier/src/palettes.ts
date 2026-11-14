@@ -13,10 +13,25 @@ export const isVarnish = (x: Fx) => fxOf(x.id)?.group === 'lumiere';
 export const varnishOf = (l: Layer) => (l.fx ?? []).find(isVarnish);
 export const listOf = (d: Doc, k: MatterKind): PaletteMatter[] => (k === 'material' ? d.materials : d.varnishes) ?? [];
 const withList = (d: Doc, k: MatterKind, list: PaletteMatter[]): Doc => (k === 'material' ? { ...d, materials: list } : { ...d, varnishes: list });
-const bare = (x: Fx): Fx => {
-  const { ref: _r, preset: _p, ...rest } = x;
+/** Le réglage seul, sans son lien à la palette, son nom ni son interrupteur. */
+export const bare = (x: Fx): Fx => {
+  const { ref: _r, preset: _p, off: _o, ...rest } = x;
   return rest;
 };
+
+/** Le nouveau réglage, désactivé si l'ancien l'était. */
+const keepOff = (old: Fx, next: Fx): Fx => (old.off ? { ...next, off: true } : next);
+
+/** Désactive ou réactive le vernis ou la matière d'un objet : ses réglages restent en place. */
+export function toggleMatter(l: Layer, k: MatterKind): Partial<Layer> {
+  const flip = (x: Fx): Fx => {
+    const { off, ...rest } = x;
+    return off ? rest : { ...rest, off: true };
+  };
+  if (k === 'material') return l.material ? { material: flip(l.material) } : {};
+  const v = varnishOf(l);
+  return v ? { fx: (l.fx ?? []).map((x) => (x === v ? flip(x) : x)) } : {};
+}
 
 /** Le réglage d'une entrée, lié, prêt à poser sur un objet. */
 export const linked = (e: PaletteMatter): Fx => ({ ...e.fx, ref: e.id, preset: e.name });
@@ -31,13 +46,21 @@ export function applyPatch(l: Layer, k: MatterKind, e: PaletteMatter): Partial<L
 }
 
 /** Ajoute le réglage de l'objet à la palette et l'y lie. */
-export function addEntry(d: Doc, layerId: string, k: MatterKind, name: string): Doc {
+export function addEntry(d: Doc, layerId: string, k: MatterKind, name: string, id?: string): Doc {
   const l = d.layers.find((x) => x.id === layerId);
   const fx = l && (k === 'material' ? l.material : varnishOf(l));
   if (!l || !fx) return d;
-  const e: PaletteMatter = { id: `${k === 'material' ? 'm' : 'v'}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, name, fx: bare(fx) };
+  const e: PaletteMatter = { id: id ?? `${k === 'material' ? 'm' : 'v'}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, name, fx: bare(fx) };
   const next = withList(d, k, [...listOf(d, k), e]);
-  return { ...next, layers: next.layers.map((x) => (x.id === layerId ? { ...x, ...applyPatch(x, k, e) } : x)) };
+  return {
+    ...next,
+    layers: next.layers.map((x) => {
+      if (x.id !== layerId) return x;
+      const y = { ...x, ...applyPatch(x, k, e) };
+      // un réglage désactivé le reste une fois rangé dans la palette
+      return fx.off ? { ...y, ...toggleMatter(y, k) } : y;
+    }),
+  };
 }
 
 /** Après une retouche de l'objet : son entrée liée et les autres objets liés suivent. */
@@ -57,8 +80,9 @@ export function syncRefs(d: Doc, layerId: string): Doc {
       ...out,
       layers: out.layers.map((l) => {
         if (l.id === layerId) return l;
-        if (k === 'material') return l.material?.ref === e.id ? { ...l, material: linked(ne) } : l;
-        return varnishOf(l)?.ref === e.id ? { ...l, fx: (l.fx ?? []).map((x) => (isVarnish(x) ? linked(ne) : x)) } : l;
+        // chaque objet lié garde son propre interrupteur
+        if (k === 'material') return l.material?.ref === e.id ? { ...l, material: keepOff(l.material, linked(ne)) } : l;
+        return varnishOf(l)?.ref === e.id ? { ...l, fx: (l.fx ?? []).map((x) => (isVarnish(x) ? keepOff(x, linked(ne)) : x)) } : l;
       }),
     };
   }
@@ -133,7 +157,8 @@ export function updateEntry(d: Doc, k: MatterKind, id: string, next: { name?: st
   if (!e) return d;
   const ne: PaletteMatter = { ...e, ...(next.name !== undefined ? { name: next.name } : {}), ...(next.fx ? { fx: bare(next.fx) } : {}) };
   const out = withList(d, k, listOf(d, k).map((x) => (x.id === id ? ne : x)));
-  return relink(out, k, id, () => linked(ne));
+  // chaque objet lié garde son propre interrupteur
+  return relink(out, k, id, (fx) => keepOff(fx, linked(ne)));
 }
 
 /** Nombre d'objets liés à une entrée. */
