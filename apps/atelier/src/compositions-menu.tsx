@@ -15,7 +15,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const sameTarget = (a: Target, b: Target) => (a.channel ?? '') === (b.channel ?? '') && a.format === b.format;
 
 /** Une publication d'une composition : un de ses rendus, et ce que le plan de la campagne en prévoit. */
-interface Pub {
+export interface Pub {
   target: Target;
   rows: PlanItem[];
 }
@@ -37,14 +37,14 @@ const pubWhen = (p: Pub) => {
 };
 
 /** Les publications d'une composition : ses rendus, reliés aux lignes du plan qui la retiennent. */
-function pubsOf(m: AtelierMeta, targets: Target[], campaign: Campaign | undefined, suggested: AtelierMeta | undefined): Pub[] {
+export function pubsOf(m: AtelierMeta, targets: Target[], campaign: Campaign | undefined, suggested: AtelierMeta | undefined): Pub[] {
   const plan = campaign?.plan ?? [];
   const mine = (it: PlanItem) => it.composition === m.id || (!it.composition && suggested?.id === m.id);
   return targets.map((t) => ({ target: t, rows: plan.filter((it) => sameTarget(it, t) && mine(it)) }));
 }
 
 /** L'éventail des publications : une carte par rendu, à sa proportion, l'aperçu dedans, le média en pastille. */
-function PubFan({ m, pubs, activity, size = 38 }: { m: AtelierMeta; pubs: Pub[]; activity: ActivityProfile | null; /** hauteur d'une carte */ size?: number }) {
+export function PubFan({ m, pubs, activity, size = 38 }: { m: AtelierMeta; pubs: Pub[]; activity: ActivityProfile | null; /** hauteur d'une carte */ size?: number }) {
   const channels = channelsOf(activity);
   const n = pubs.length;
   return (
@@ -73,7 +73,7 @@ function PubFan({ m, pubs, activity, size = 38 }: { m: AtelierMeta; pubs: Pub[];
 
 const dmy = (d: string) => new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });
 /** Où en est une composition : publiée (d'après le plan de la campagne), sinon son étape de validation, et sa date. */
-function statusOf(m: AtelierMeta, c: Campaign | undefined): { kind: string; label: string; at: string } | null {
+export function statusOf(m: AtelierMeta, c: Campaign | undefined): { kind: string; label: string; at: string } | null {
   const pub = (c?.plan ?? [])
     .filter((it) => it.composition === m.id && it.published)
     .map((it) => it.published!)
@@ -84,6 +84,14 @@ function statusOf(m: AtelierMeta, c: Campaign | undefined): { kind: string; labe
   if (!r) return null;
   if (r.status === 'proposed') return { kind: r.status, label: REVIEW_LABELS.proposed, at: r.proposedAt };
   return { kind: r.status, label: REVIEW_LABELS[r.status], at: r.reviewedAt ?? r.proposedAt };
+}
+
+/** L'historique d'une campagne (ou des compositions hors campagne) : évènements du fil et publications faites. */
+export function campaignHistory(events: ActivityEvent[] | null, c: Campaign | undefined): HistoryItem[] {
+  return [
+    ...(events ?? []).filter((e) => (c ? e.inCampaign === c.id || (e.type === 'campaign' && e.campaign === c.id) : !!e.atelier && !e.inCampaign)).map((e) => ({ kind: 'event' as const, e, at: e.at })),
+    ...(c?.plan ?? []).filter((it) => it.published).map((item) => ({ kind: 'published' as const, item, at: item.published! })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
 }
 
 /** Largeur de la corbeille découverte en glissant une ligne vers la gauche. */
@@ -101,7 +109,7 @@ const FILTERS = [
 type FilterId = (typeof FILTERS)[number]['id'];
 
 /** Une ligne de l'historique : un évènement du fil, ou une publication faite d'après le plan. */
-type HistoryItem = { kind: 'event'; e: ActivityEvent; at: string } | { kind: 'published'; item: PlanItem; at: string };
+export type HistoryItem = { kind: 'event'; e: ActivityEvent; at: string } | { kind: 'published'; item: PlanItem; at: string };
 
 /**
  * Menu de la campagne : son détail sur toute la largeur (la liste des campagnes s'ouvre par les deux
@@ -230,10 +238,7 @@ export function CompositionsMenu(p: {
   const channels = channelsOf(p.activity);
 
   // historique : ce que l'équipe a fait sur la campagne (ou sur les compositions hors campagne)
-  const history: HistoryItem[] = [
-    ...(p.events ?? []).filter((e) => (c ? e.inCampaign === c.id || (e.type === 'campaign' && e.campaign === c.id) : !!e.atelier && !e.inCampaign)).map((e) => ({ kind: 'event' as const, e, at: e.at })),
-    ...(c?.plan ?? []).filter((it) => it.published).map((item) => ({ kind: 'published' as const, item, at: item.published! })),
-  ].sort((a, b) => b.at.localeCompare(a.at));
+  const history = campaignHistory(p.events, c);
   const fold = useHistoryFold();
 
   const tap = (m: AtelierMeta) => {
@@ -488,7 +493,7 @@ function useHistoryFold() {
 }
 
 /** Colonne de droite : l'historique, ou, replié, une languette pour le rouvrir. */
-function HistoryPanel(p: { items: HistoryItem[]; events: ActivityEvent[] | null; me: string; campaigns: Campaign[]; activity: ActivityProfile | null; folded: boolean; onFold: () => void; empty: string; title?: string }) {
+export function HistoryPanel(p: { items: HistoryItem[]; events: ActivityEvent[] | null; me: string; campaigns: Campaign[]; activity: ActivityProfile | null; folded: boolean; onFold?: () => void; empty: string; title?: string }) {
   if (p.folded)
     return (
       <button className="cm-hist-tab" onClick={p.onFold} title="Afficher l’historique" aria-label="Afficher l’historique" aria-expanded={false}>
@@ -502,9 +507,9 @@ function HistoryPanel(p: { items: HistoryItem[]; events: ActivityEvent[] | null;
     <div className="cm-right cm-history">
       <div className="cm-hist-head">
         <div className="b-sub">{p.title ?? 'Historique'}</div>
-        <button className="cm-fold" onClick={p.onFold} title="Replier l’historique" aria-label="Replier l’historique" aria-expanded>
+        {p.onFold && <button className="cm-fold" onClick={p.onFold} title="Replier l’historique" aria-label="Replier l’historique" aria-expanded>
           ›
-        </button>
+        </button>}
       </div>
       {p.events === null && <p className="fx-hint">L’historique s’affiche avec une activité en ligne.</p>}
       {p.events !== null && !p.items.length && <p className="fx-hint">{p.empty}</p>}

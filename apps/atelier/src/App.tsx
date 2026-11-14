@@ -37,14 +37,15 @@ import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
 import { CatalogPanel } from './catalog-ui';
-import { fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, postizSync, type PlanItem, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
+import { fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, retitleAtelier, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, postizSync, type PlanItem, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
 import { channelsOf, setCatalog, contactsOf, CONTACT_KINDS, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
 import { Knob } from './knob';
 import { FocusRing } from './focus-ring';
 import { MediaIcon, PublicationsPanel, VariantBar, VariantPick } from './targets-ui';
 import { CampaignDialog } from './campaigns-ui';
 import { NewCompositionDialog } from './compositions-ui';
-import { CompositionMenu, CompositionsMenu, TopCrumbs } from './compositions-menu';
+import { CompositionMenu } from './compositions-menu';
+import { BackNav, CampaignPage, CampaignsHome, PubTabs, StageButton } from './campaigns-space';
 import { CampaignSheet, planFromOperation } from './campaign-sheet';
 import { MessagesButton, MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
@@ -573,6 +574,10 @@ export function App() {
     setFeedSeen(readSeen());
   };
   const refreshProjects = () => void listAteliers().then(setProjects, () => {});
+  // la liste des compositions sert dès l'ouverture : pastille d'état, retour vers la campagne
+  useEffect(() => {
+    if (online) refreshProjects();
+  }, [online, me?.team?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   /** Petite image de la composition pour la liste. */
   const makeThumb = (d: Doc) => {
     const ff = formatOf(d.formatId);
@@ -812,6 +817,10 @@ export function App() {
   // dans une campagne : ses compositions, les plus votées d'abord
   const canEditTeam = !!me?.team && me.team.role !== 'viewer';
   const [campaignDialog, setCampaignDialog] = useState(false);
+  // espace des campagnes, en plein écran sous la barre : la liste, ou une campagne et ses onglets
+  const [space, setSpace] = useState<'campaigns' | 'campaign' | null>(null);
+  const [spaceTab, setSpaceTab] = useState<'comps' | 'plan' | 'history'>('comps');
+  const [stageOpen, setStageOpen] = useState(false);
   const [newDialog, setNewDialog] = useState(false);
   const [msgDialog, setMsgDialog] = useState(false);
   const [sheet, setSheet] = useState<string | null>(null);
@@ -828,11 +837,33 @@ export function App() {
       setToast(`Copie impossible : ${(err as Error).message}`);
     }
   };
+  /** Copie d'une composition dans sa campagne, sans l'ouvrir : « Affiche lama (copie) ». */
+  const duplicateComposition = async (m: AtelierMeta) => {
+    const title = `${m.title} (copie)`;
+    try {
+      await copyAtelier(m.id, newAtelierId(title), title, m.campaign);
+      refreshProjects();
+      setToast(`« ${title} » créée`);
+    } catch (err) {
+      setToast(`Copie impossible : ${(err as Error).message}`);
+    }
+  };
   /** Double toucher dans le menu de la campagne : la composition s'ouvre sur sa première publication, avec son menu. */
-  const openComposition = async (m: AtelierMeta) => {
+  const openComposition = async (m: AtelierMeta, target = 0) => {
     if (m.id !== project?.id && !(await openProject(m))) return;
-    showTarget(0);
-    setBubble('composition');
+    showTarget(target);
+    setSpace(null);
+    setBubble(null);
+  };
+  /** Ouvre l'espace des campagnes : une campagne (suivie dès lors), ou la liste. */
+  const openSpace = (id?: string) => {
+    setBubble(null);
+    setStageOpen(false);
+    if (online) refreshProjects();
+    if (id === undefined) return setSpace('campaigns');
+    if (id !== campaign) setSpaceTab('comps');
+    setCampaign(id);
+    setSpace('campaign');
   };
   const voteFor = (m: AtelierMeta) =>
     void voteAtelier(m.id, !m.voted).then(
@@ -1028,8 +1059,11 @@ export function App() {
   }, [bubble, doc, activity, stored]); // eslint-disable-line react-hooks/exhaustive-deps
   const previews = stored ? (savedThumbs?.id === project?.id ? savedThumbs?.urls : undefined) : livePreviews;
   // menu de la composition : l'historique de sa campagne à elle
-  const menuOpen = bubble === 'projects' || bubble === 'composition';
-  const campaignScope = bubble === 'composition' && project ? (projects.find((x) => x.id === project.id)?.campaign ?? '') : (followed?.id ?? '');
+  useEffect(() => {
+    if (bubble) setStageOpen(false);
+  }, [bubble]);
+  const menuOpen = bubble === 'projects' || bubble === 'composition' || space === 'campaign';
+  const campaignScope = bubble === 'composition' && !space && project ? (projects.find((x) => x.id === project.id)?.campaign ?? '') : (followed?.id ?? '');
   useEffect(() => {
     if (!menuOpen || !online || !me?.team) return;
     let live = true;
@@ -1526,7 +1560,8 @@ export function App() {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
 
   // transformation page → écran (pixels CSS)
-  const top = rendu ? 0 : TOP;
+  // sous la barre, les onglets des publications (et sur téléphone la pastille annuler/rétablir) : la page se place dessous
+  const top = rendu ? 0 : TOP + (vp.w < 560 ? 104 : 52);
   const fit = Math.min((vp.w - (rendu ? 24 : vp.w < 560 ? 84 : 150)) / f.width, (vp.h - top - 24) / f.height);
   const viewMatrix = (v: View) =>
     new DOMMatrix()
@@ -4538,7 +4573,7 @@ export function App() {
   };
 
   return (
-    <div className={`atelier ${rendu ? 'rendu' : ''} ${tips ? '' : 'no-tips'} ${lefty ? 'hand-left' : 'hand-right'}`} style={bubbleLeft ? ({ '--bubble-left': `${bubbleLeft + 8}px` } as React.CSSProperties) : undefined}>
+    <div className={`atelier ${space ? 'in-space' : ''} ${rendu ? 'rendu' : ''} ${tips ? '' : 'no-tips'} ${lefty ? 'hand-left' : 'hand-right'}`} style={bubbleLeft ? ({ '--bubble-left': `${bubbleLeft + 8}px` } as React.CSSProperties) : undefined}>
       <canvas
         ref={canvasRef}
         className="stage"
@@ -4586,13 +4621,13 @@ export function App() {
       {!rendu && (
         <>
           <header
-            className="bar"
+            className={`bar ${space ? 'in-space' : ''}`}
             onClick={(e) => {
               // toucher la barre en dehors de ses boutons : l'outil en cours se range
               if (!(e.target as HTMLElement).closest('button, input, select, textarea, a')) leaveTool();
             }}
           >
-            <div className="bar-center">
+            <div className="bar-center" hidden={!!space}>
               {(touchScreen || fingerMode !== 'auto') && (
                 <button
                   className={`btn finger-btn ${fingerDraws ? 'on' : ''}`}
@@ -4633,48 +4668,67 @@ export function App() {
               </button>
             </div>
             <div className="bar-left">
-              {/* fil d'Ariane : l'activité › la campagne (ou l'occasion) › le contenu ouvert */}
-              <TopCrumbs
+              {/* l'activité, le retour vers la campagne (ou la liste), le titre de la composition */}
+              <BackNav
                 team={me?.team}
-                campaign={followed}
-                occasion={allOperations.find((o) => o.id === doc.operation)}
+                campaign={project ? campaigns.find((c) => c.id === (projects.find((x) => x.id === project.id)?.campaign ?? doc.campaign)) : followed}
                 showCampaign={!!(online && me?.team)}
+                space={space}
                 title={project?.title}
-                thumb={project ? thumbUrl(projects.find((x) => x.id === project.id) ?? { id: project.id, title: project.title, updated: '' }) : undefined}
-                kind={doc.targets && doc.targets.length > 1 ? `${doc.targets.length} publications` : f.title}
                 saving={online && project ? saving : undefined}
-                open={bubble === 'activity' ? 'activity' : bubble === 'projects' ? 'campaign' : bubble === 'composition' ? 'content' : null}
+                activityOn={bubble === 'activity'}
+                titleOn={bubble === 'composition'}
                 onActivity={() => {
                   if (bubble !== 'activity' && online) fetchMe().then(setMe, () => {});
                   setBubble(bubble === 'activity' ? null : 'activity');
                 }}
-                onCampaign={() => {
-                  if (bubble === 'projects') return setBubble(null);
-                  if (online) refreshProjects();
-                  setBubble('projects');
+                onBack={() => {
+                  if (space === 'campaign') return openSpace();
+                  const own = project ? (projects.find((x) => x.id === project.id)?.campaign ?? doc.campaign) : campaign;
+                  openSpace(own && campaigns.some((c) => c.id === own) ? own : project ? '' : undefined);
                 }}
-                onContent={() => {
+                onTitle={() => {
                   if (bubble === 'composition') return setBubble(null);
-                  if (bubble !== 'projects' && online) refreshProjects();
+                  if (online) refreshProjects();
                   setBubble('composition');
                 }}
               />
             </div>
             <div className="bar-right">
-              {/* la publication affichée : son édition */}
-              <button
-                className={`btn pubs-btn ${bubble === 'format' ? 'on' : ''}`}
-                onClick={() => setBubble(bubble === 'format' ? null : 'format')}
-                title={`Édition de la publication : ${targetLabel(currentPub, activity)} (réseau, format, résolution, variante, marges, repères)`}
-                aria-label="Édition de la publication"
-              >
-                <FormatGlyph w={f.width} h={f.height} />
-                {activeTarget?.channel && (
-                  <span className="pubs-media">
-                    <MediaIcon ch={channels.find((c) => c.id === activeTarget.channel)} size={13} />
-                  </span>
-                )}
-              </button>
+              {space && project && (
+                <button className="sp-btn sp-return" onClick={() => setSpace(null)} title={`Revenir à « ${project.title} »`}>
+                  Revenir<span className="sp-return-t"> à « {project.title} »</span>
+                </button>
+              )}
+              {!space && online && me?.team && (
+                <StageButton
+                  meta={project ? projects.find((x) => x.id === project.id) : undefined}
+                  campaign={project ? campaigns.find((c) => c.id === projects.find((x) => x.id === project.id)?.campaign) : undefined}
+                  open={stageOpen}
+                  owner={me.team.role === 'owner'}
+                  canPropose={me.team.role !== 'viewer'}
+                  onToggle={() => {
+                    if (!stageOpen) setBubble(null);
+                    setStageOpen(!stageOpen);
+                  }}
+                  onStep={(a) => {
+                    setStageOpen(false);
+                    void sendReview(a);
+                  }}
+                  onPublish={() => {
+                    setStageOpen(false);
+                    setExportFormats([doc.formatId]);
+                    setExportTargets((doc.targets ?? []).map((_, i) => i));
+                    setBubble('export');
+                  }}
+                  onMessages={() => {
+                    setStageOpen(false);
+                    setMsgDialog(true);
+                  }}
+                />
+              )}
+              {!space && (
+                <>
               <button className={`btn ${bubble === 'light' ? 'on' : ''}`} onClick={() => setBubble(bubble === 'light' ? null : 'light')} title="Scène : lumière, objectif, transformation" aria-label="Scène">
                 <SceneGlyph color={lampOf(doc).color} on={sceneOn(doc)} />
               </button>
@@ -4744,6 +4798,8 @@ export function App() {
               >
                 <Icon name="export" />
               </button>
+                </>
+              )}
               <span className="sep" />
               {online && me?.team && (
                 <FeedButton
@@ -4762,6 +4818,86 @@ export function App() {
               />
             </div>
           </header>
+          {!space && (
+            <PubTabs
+              targets={compPubs()}
+              active={doc.targets?.length ? (doc.target ?? 0) : 0}
+              activity={activity}
+              editing={bubble === 'format'}
+              canEdit={!me?.team || canEditTeam}
+              onShow={showTarget}
+              onEdit={() => setBubble(bubble === 'format' ? null : 'format')}
+              onAdd={addPublication}
+            />
+          )}
+          {space && (
+            <div className="sp-space" onPointerDown={(e) => e.stopPropagation()}>
+              {space === 'campaigns' ? (
+                <CampaignsHome
+                  campaigns={campaigns}
+                  operations={allOperations}
+                  projects={projects}
+                  canEdit={canEditTeam}
+                  onOpen={(id) => openSpace(id)}
+                  create={async (c) => {
+                    const plan = planFromOperation(allOperations.find((o) => o.id === c.operation), c.date, activity);
+                    const x = await createCampaign(plan.length ? { ...c, plan } : c);
+                    setCampaigns((l) => [x, ...l]);
+                    return x;
+                  }}
+                />
+              ) : (
+                <CampaignPage
+                  campaign={followed}
+                  campaigns={campaigns}
+                  operations={allOperations}
+                  projects={projects}
+                  activity={activity}
+                  current={project ?? undefined}
+                  currentTargets={compPubs()}
+                  events={online && me?.team ? campaignFeed : null}
+                  me={me?.email ?? 'groupe'}
+                  canEdit={!me?.team || canEditTeam}
+                  isAdmin={!!me?.admin || me?.team?.role === 'owner'}
+                  canVote={!!me?.team}
+                  tab={spaceTab}
+                  onTab={setSpaceTab}
+                  onSheet={() => followed && setSheet(followed.id)}
+                  onClose={(closed) =>
+                    void (followed &&
+                      updateCampaign(followed.id, { closed }).then(
+                        (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
+                        (e: Error) => setToast(`Impossible : ${e.message}`),
+                      ))
+                  }
+                  onNew={() => setNewDialog(true)}
+                  onOpen={(m, t) => void openComposition(m, t)}
+                  onVote={voteFor}
+                  onTemplate={templateFor}
+                  onRename={async (m, title) => {
+                    if (m.id === project?.id) return setProject({ ...project, title });
+                    try {
+                      const meta = await retitleAtelier(m.id, title);
+                      setProjects((l) => l.map((x) => (x.id === m.id ? { ...x, title: meta.title, updated: meta.updated } : x)));
+                    } catch (e) {
+                      setToast(`Renommage impossible : ${(e as Error).message}`);
+                    }
+                  }}
+                  onDuplicate={(m) => void duplicateComposition(m)}
+                  onDelete={(m) =>
+                    void removeAtelier(m.id).then(
+                      () => {
+                        if (project?.id === m.id) setProject(null);
+                        refreshProjects();
+                        setToast(`« ${m.title} » supprimée`);
+                      },
+                      (e: Error) => setToast(`Suppression impossible : ${e.message}`),
+                    )
+                  }
+                />
+              )}
+            </div>
+          )}
           {/* Maj : gros bouton en tête de la colonne de gauche (de droite pour un gaucher) */}
           <button
             className={`shift-big ${shift ? 'on' : ''} ${shiftBtn.latched ? 'latched' : ''}`}
@@ -5459,47 +5595,13 @@ export function App() {
               onShow={showTarget}
               onAdd={addPublication}
               onRemove={removePublication}
-              onCampaign={() => setBubble('projects')}
+              onCampaign={() => openSpace(projects.find((x) => x.id === project?.id)?.campaign ?? campaign)}
               onSaveNew={() => void newProject('Sans titre', true)}
               onVote={voteFor}
               onTemplate={templateFor}
             />
           )}
-          {(bubble === 'projects' || (bubble === 'composition' && !online)) && (online ? (
-            <CompositionsMenu
-              campaigns={me?.team ? campaigns : []}
-              operations={allOperations}
-              campaign={followed}
-              counts={campaignCounts}
-              activity={activity}
-              projects={projects}
-              current={project ?? undefined}
-              currentTargets={compPubs()}
-              events={online && me?.team ? campaignFeed : null}
-              me={me?.email ?? 'groupe'}
-              canEdit={!me?.team || canEditTeam}
-              isAdmin={!!me?.admin || me?.team?.role === 'owner'}
-              canVote={!!me?.team}
-              onPickCampaign={setCampaign}
-              onAllCampaigns={() => setCampaignDialog(true)}
-              onEditCampaign={() => followed && setSheet(followed.id)}
-              onSaveNew={() => void newProject('Sans titre', true)}
-              onNew={() => setNewDialog(true)}
-              onOpen={(m) => void openComposition(m)}
-              onVote={voteFor}
-              onDelete={(m) =>
-                void removeAtelier(m.id).then(
-                  () => {
-                    if (project?.id === m.id) setProject(null);
-                    refreshProjects();
-                    setToast(`« ${m.title} » supprimée`);
-                  },
-                  (e: Error) => setToast(`Suppression impossible : ${e.message}`),
-                )
-              }
-              onTemplate={templateFor}
-            />
-          ) : (
+          {(bubble === 'projects' || (bubble === 'composition' && !online)) && (online ? null : (
             <div className="bubble projects-bubble">
               <p className="fx-hint">{online === null ? 'Connexion au serveur…' : 'Hors ligne : la page reste dans ce navigateur. Sur designer.flowtherapymusic.com, elle s’enregistre pour tout le groupe.'}</p>
             </div>

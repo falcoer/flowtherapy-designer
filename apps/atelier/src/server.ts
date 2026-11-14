@@ -106,6 +106,7 @@ export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date'
 export const listCampaigns = () => call<Campaign[]>('/api/campaigns');
 export const createCampaign = (c: CampaignInput) => call<{ campaign: Campaign }>('/api/campaigns', json('POST', c)).then((r) => r.campaign);
 export const updateCampaign = (id: string, c: CampaignInput) => call<{ campaign: Campaign }>(`/api/campaigns/${id}`, json('PATCH', c)).then((r) => r.campaign);
+export const retitleAtelier = (id: string, title: string) => call<{ meta: AtelierMeta }>(`/api/ateliers/${id}`, json('PATCH', { title })).then((r) => r.meta);
 export const copyAtelier = (id: string, to: string, title: string, campaign?: string) =>
   call<{ meta: AtelierMeta }>(`/api/ateliers/${id}/copy`, json('POST', { to, title, campaign })).then((r) => r.meta);
 export const voteAtelier = (id: string, on: boolean) => call<{ votes: string[]; voted: boolean }>(`/api/ateliers/${id}/vote`, json('POST', { on }));

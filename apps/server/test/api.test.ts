@@ -75,6 +75,21 @@ describe('API', () => {
     expect((await app.inject('/api/ateliers/affiche-2/thumb.png')).body).toBe('g');
   });
 
+  it('renomme une composition sans toucher à son document ni à ses vignettes', async () => {
+    const { app } = await setup();
+    const doc = { formatId: 'a4', layers: [{ id: 'x' }], targets: [{ format: 'a4' }] };
+    const png = (s: string) => 'data:image/png;base64,' + Buffer.from(s).toString('base64');
+    await app.inject({ method: 'PUT', url: '/api/ateliers/affiche-3', payload: { title: 'Affiche', doc, thumb: png('g'), thumbs: [png('a4')] } });
+    const r = await app.inject({ method: 'PATCH', url: '/api/ateliers/affiche-3', payload: { title: '  Affiche lama ' } });
+    expect(r.json().meta.title).toBe('Affiche lama');
+    const back = (await app.inject('/api/ateliers/affiche-3')).json();
+    expect(back.title).toBe('Affiche lama');
+    expect(back.doc).toEqual(doc);
+    expect((await app.inject('/api/ateliers/affiche-3/thumb.png?t=0')).body).toBe('a4');
+    expect((await app.inject({ method: 'PATCH', url: '/api/ateliers/affiche-3', payload: { title: ' ' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'PATCH', url: '/api/ateliers/absente', payload: { title: 'X' } })).statusCode).toBe(404);
+  });
+
   it('range un objet préparé (ses pièces) dans la bibliothèque', async () => {
     const { app } = await setup();
     const doc = { layers: [{ id: 'a', kind: 'shape', link: 'k' }, { id: 'b', kind: 'shape', link: 'k' }] };

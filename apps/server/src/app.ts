@@ -761,6 +761,16 @@ export async function buildApp(opts: AppOptions) {
       return reply.code(/programmée/.test(msg) ? 409 : 404).send({ error: msg });
     }
   });
+  // renommer une composition depuis la campagne, sans la rouvrir
+  app.patch<{ Params: { id: string }; Body: { title?: string } }>('/api/ateliers/:id', { preHandler: needs('editor') }, async (req, reply) => {
+    const title = req.body?.title?.trim();
+    if (!title) return reply.code(400).send({ error: 'Titre attendu' });
+    try {
+      return { ok: true, meta: await storesOf(req.team!.id).ateliers.retitle(req.params.id, title) };
+    } catch {
+      return reply.code(404).send({ error: 'Composition introuvable' });
+    }
+  });
   // copier une composition (modèle de campagne, ou import depuis une autre campagne)
   app.post<{ Params: { id: string }; Body: { to?: string; title?: string; campaign?: string } }>('/api/ateliers/:id/copy', { preHandler: needs('editor') }, async (req, reply) => {
     const store = storesOf(req.team!.id).ateliers;
