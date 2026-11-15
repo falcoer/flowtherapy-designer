@@ -331,6 +331,8 @@ export interface Doc {
   /** Points d'ancrage ajoutables (cases à cocher), tous présents par défaut : sommets et milieux des côtés de la page et de la marge, points des bords en répartition. */
   points?: AnchorExtras;
   guides: Guide[];
+  /** Animation : période de référence (s) et nombre de périodes ; la page animée dure leur produit, puis boucle. */
+  timing?: import('./anim').Timing;
   /** Cibles du document (média, format, variante) ; `target` est celle affichée. */
   targets?: Target[];
   target?: number;

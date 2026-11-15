@@ -5,7 +5,7 @@ import { BORDER_TYPES, fxPreview, GLOW_TYPES, Knob, swatch } from './App';
 import { FX, fxGuides, fxKnobs, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
-import { ANIM_NAMES, animRatio, countdownValues, type Anim } from './anim';
+import { ANIM_NAMES, animRatio, countdownValues, CYCLES, cycleFits, cycleName, cycleOf, cycleSeconds, timingOf, totalOf, type Anim } from './anim';
 import { GEN_DEFAULTS, LAYER_BLENDS, SKINS, VOLUMES, bevelSoftName, bevelSoftOf, volumeName, type Doc, type Layer } from './model';
 import { ensureFont, fontFamily, fontsFor, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { AlignGlyph, TextContent, useLazyText, WarpGlyph, weightName } from './textbar';
@@ -1148,7 +1148,7 @@ function DepthGlyph({ k }: { k: 'bevel' | 'extrude' }) {
 }
 
 /** Réglages d'une forme animée : vitesse, et ceux propres à chaque générateur. */
-function AnimRows({ l, anim: a, live, patch }: { l: Layer; anim: Anim; live: (p: Partial<Layer>) => void; patch: (p: Partial<Layer>, history?: boolean) => void }) {
+function AnimRows({ l, doc, anim: a, live, patch }: { l: Layer; doc: Doc; anim: Anim; live: (p: Partial<Layer>) => void; patch: (p: Partial<Layer>, history?: boolean) => void }) {
   const set = (p: Partial<Anim>) => live({ anim: { ...a, ...p } });
   // la boîte garde sa largeur et prend les proportions du nouveau compte (plus ou moins de chiffres, autre police)
   const reshape = (next: Anim) => patch({ anim: next, h: Math.round((l.w / animRatio(next)) * 1000) / 1000 }, true);
@@ -1173,13 +1173,38 @@ function AnimRows({ l, anim: a, live, patch }: { l: Layer; anim: Anim; live: (p:
       />
     </label>
   );
+  const tm = timingOf(doc.timing);
+  const cur = cycleOf(a, tm);
+  const fits = cycleFits(a, tm);
+  // calage du cycle en périodes de référence : ce que dure le décompte, un battement, un tour
+  const cycleRow = (label: string, what: string) => (
+    <>
+      <label className="cp-row" title={`${what} dure ce nombre de périodes de référence (réglées dans la barre de lecture)`}>
+        <span>{label}</span>
+        <select value={String(CYCLES.find((c) => Math.abs(c - cur) < 1e-6) ?? '')} onChange={(e) => patch({ anim: { ...a, cycle: Number(e.target.value), speed: undefined } }, true)}>
+          {!CYCLES.some((c) => Math.abs(c - cur) < 1e-6) && <option value="">{cur.toFixed(2)} pér.</option>}
+          {CYCLES.map((c) => (
+            <option key={c} value={String(c)}>
+              {cycleName(c)} période{c > 1 ? 's' : ''}
+            </option>
+          ))}
+        </select>
+        <output>{cycleSeconds(a, tm).toFixed(2)} s</output>
+      </label>
+      {!fits && (
+        <p className="cp-note cp-legend">
+          Ne tombe pas juste dans {tm.count} période{tm.count > 1 ? 's' : ''} ({totalOf(tm).toFixed(1)} s) : la boucle sautera à la fin
+        </p>
+      )}
+    </>
+  );
   if (a.kind === 'countdown') {
     const n = countdownValues(a).length;
     return (
       <>
         {num('Départ', a.from ?? 10, 0, 9999, (v) => reshape({ ...a, from: v }), 'La valeur affichée au début du décompte')}
         {num('Pas', a.step ?? 1, 1, 1000, (v) => reshape({ ...a, step: v }), 'De combien la valeur descend à chaque battement')}
-        <Range label="Vitesse" display={`${a.speed.toFixed(a.speed < 1 ? 2 : 1)} /s`} value={Math.log(a.speed / 0.1) / Math.log(100)} onChange={(v) => set({ speed: Math.round(0.1 * Math.pow(100, v) * 100) / 100 })} />
+        {cycleRow('Décompte', 'Le décompte entier')}
         <label className="cp-row">
           <span>Police</span>
           <select
@@ -1197,7 +1222,7 @@ function AnimRows({ l, anim: a, live, patch }: { l: Layer; anim: Anim; live: (p:
           </select>
         </label>
         <p className="cp-note cp-legend">
-          {n} valeur{n > 1 ? 's' : ''}, une boucle de {((n + 1) / a.speed).toFixed(1)} s
+          {n} valeur{n > 1 ? 's' : ''}, {(cycleSeconds(a, tm) / n).toFixed(2)} s chacune
         </p>
       </>
     );
@@ -1205,7 +1230,7 @@ function AnimRows({ l, anim: a, live, patch }: { l: Layer; anim: Anim; live: (p:
   if (a.kind === 'bird')
     return (
       <>
-        <Range label="Battements" display={`${a.speed.toFixed(1)} /s`} value={(a.speed - 0.3) / 5.7} onChange={(v) => set({ speed: Math.round((0.3 + v * 5.7) * 10) / 10 })} />
+        {cycleRow('Battement', 'Un battement d’ailes')}
         <Range label="Amplitude" value={((a.amp ?? 0.8) - 0.1) / 0.9} onChange={(v) => set({ amp: Math.round((0.1 + v * 0.9) * 100) / 100 })} />
       </>
     );
@@ -1213,15 +1238,11 @@ function AnimRows({ l, anim: a, live, patch }: { l: Layer; anim: Anim; live: (p:
     <>
       <Range label="Pales" display={`${a.blades ?? 3}`} value={((a.blades ?? 3) - 2) / 6} onChange={(v) => set({ blades: 2 + Math.round(v * 6) })} />
       <Range label="Largeur des pales" value={((a.width ?? 0.55) - 0.2) / 0.7} onChange={(v) => set({ width: Math.round((0.2 + v * 0.7) * 100) / 100 })} />
-      <Range
-        label="Vitesse"
-        display={`${a.speed > 0 ? '↻' : '↺'} ${Math.abs(a.speed).toFixed(2)} tr/s`}
-        value={(a.speed + 3) / 6}
-        onChange={(v) => {
-          const sp = Math.round((v * 6 - 3) * 20) / 20;
-          set({ speed: Math.abs(sp) < 0.05 ? 0.05 * Math.sign(sp || 1) : sp });
-        }}
-      />
+      {cycleRow('Tour', 'Un tour d’hélice')}
+      <label className="cp-row">
+        <span>Sens inverse</span>
+        <input type="checkbox" checked={(a.dir ?? (a.speed !== undefined && a.speed < 0 ? -1 : 1)) === -1} onChange={(e) => patch({ anim: { ...a, dir: e.target.checked ? -1 : 1 } }, true)} />
+      </label>
     </>
   );
 }
@@ -1694,7 +1715,7 @@ export function Attrs({
     const gen = genOf(l);
     body = (
       <>
-        {l.anim && <AnimRows l={l} anim={l.anim} live={live} patch={patch} />}
+        {l.anim && <AnimRows l={l} doc={doc} anim={l.anim} live={live} patch={patch} />}
         {gen && (
           <>
             <Range label="Côtés" display={`${gen.sides}`} value={(gen.sides - 3) / 21} onChange={(v) => live({ gen: { ...gen, sides: 3 + Math.round(v * 21) } })} />

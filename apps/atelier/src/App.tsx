@@ -10,7 +10,7 @@ import { steadyPath } from './steady';
 import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
 import { allStamps, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel, Dots } from './coupe';
-import { ANIM_DEFAULTS, ANIM_NAMES, animCut, animRatio, hasAnim, setAnimTime, type AnimKind } from './anim';
+import { ANIM_DEFAULTS, ANIM_NAMES, animCut, animRatio, hasAnim, setAnimTime, setAnimTiming, timingOf, totalOf, type AnimKind, type Timing } from './anim';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
 import { MatterRow } from './matter-palette';
@@ -1043,8 +1043,14 @@ export function App() {
   // horloge des formes animées : tourne tant qu'une forme animée est sur la page et que la lecture n'est pas en pause
   const [animT, setAnimT] = useState(0);
   const [animPlay, setAnimPlay] = useState(true);
-  setAnimTime(animT);
+  const totalRef = useRef(4);
+  const timing = timingOf(doc.timing);
+  const total = totalOf(timing);
+  setAnimTiming(timing);
+  // l'horloge boucle sur la durée de la page : période × nombre de périodes
+  setAnimTime(animT % total);
   const animated = hasAnim(doc.layers);
+  totalRef.current = total;
   useEffect(() => {
     if (!animated || !animPlay) return;
     let raf = 0;
@@ -1057,7 +1063,7 @@ export function App() {
       if (acc >= 1 / 30) {
         const dt = acc;
         acc = 0;
-        setAnimT((t) => t + dt);
+        setAnimT((t) => (t + dt) % totalRef.current);
       }
       raf = requestAnimationFrame(tick);
     };
@@ -6403,7 +6409,39 @@ export function App() {
               <path d="M6 5h2.5v14H6zM19 5v14L9 12z" fill="currentColor" />
             </svg>
           </button>
-          <output>{animT.toFixed(1)} s</output>
+          <output title="Temps dans la page, et la période en cours">
+            {(animT % total).toFixed(1)} / {total.toFixed(1)} s · {Math.min(timing.count, Math.floor((animT % total) / timing.period) + 1)}/{timing.count}
+          </output>
+          <label title="Période de référence, en secondes : chaque animation cale son cycle sur un multiple ou une fraction de celle-ci">
+            Période
+            <input
+              type="number"
+              inputMode="decimal"
+              min={0.1}
+              max={60}
+              step={0.1}
+              value={timing.period}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v) && v > 0) update((d) => ({ ...d, timing: timingOf({ ...timing, period: Math.round(v * 10) / 10 }) as Timing }));
+              }}
+            />
+            s
+          </label>
+          <label title="Nombre de périodes : la page animée dure période × nombre, puis recommence">
+            ×
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={120}
+              value={timing.count}
+              onChange={(e) => {
+                const v = Math.round(Number(e.target.value));
+                if (Number.isFinite(v) && v >= 1) update((d) => ({ ...d, timing: timingOf({ ...timing, count: v }) }));
+              }}
+            />
+          </label>
         </div>
       )}
       {toast && (
@@ -6529,7 +6567,7 @@ function AnimGlyph({ kind }: { kind: AnimKind }) {
   const [w, h] = r >= 1 ? [22, 22 / r] : [22 * r, 22];
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden>
-      <path d={animCut(a, kind === 'bird' ? 0.1 / a.speed : 0)} transform={`translate(${(24 - w) / 2} ${(24 - h) / 2}) scale(${w} ${h})`} fill="currentColor" fillRule="evenodd" />
+      <path d={animCut(a, kind === 'bird' ? 0.05 : 0)} transform={`translate(${(24 - w) / 2} ${(24 - h) / 2}) scale(${w} ${h})`} fill="currentColor" fillRule="evenodd" />
     </svg>
   );
 }
