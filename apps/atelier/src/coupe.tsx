@@ -1181,7 +1181,7 @@ function AnimRows({ l, doc, anim: a, live, patch }: { l: Layer; doc: Doc; anim: 
     <>
       <label className="cp-row" title={`${what} dure ce nombre de périodes de référence (réglées dans la barre de lecture)`}>
         <span>{label}</span>
-        <select value={String(CYCLES.find((c) => Math.abs(c - cur) < 1e-6) ?? '')} onChange={(e) => patch({ anim: { ...a, cycle: Number(e.target.value), speed: undefined } }, true)}>
+        <select value={String(CYCLES.find((c) => Math.abs(c - cur) < 1e-6) ?? '')} onChange={(e) => patch({ anim: { ...a, cycle: Number(e.target.value), speed: undefined, ...(a.kind === 'propeller' && !a.dir && (a.speed ?? 0) < 0 ? { dir: -1 as const } : {}) } }, true)}>
           {!CYCLES.some((c) => Math.abs(c - cur) < 1e-6) && <option value="">{cur.toFixed(2)} pér.</option>}
           {CYCLES.map((c) => (
             <option key={c} value={String(c)}>
