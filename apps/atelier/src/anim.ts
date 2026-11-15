@@ -51,7 +51,8 @@ export interface Timing {
 }
 export const DEFAULT_TIMING: Timing = { period: 1, count: 4 };
 export const timingOf = (t?: Partial<Timing>): Timing => ({
-  period: Math.max(0.1, Math.min(60, t?.period ?? DEFAULT_TIMING.period)),
+  // bornes larges : nombre (1..120) et durée totale (jusqu'à 600 s) se règlent dans la barre, la période en découle
+  period: Math.max(0.005, Math.min(600, t?.period ?? DEFAULT_TIMING.period)),
   count: Math.max(1, Math.min(120, Math.round(t?.count ?? DEFAULT_TIMING.count))),
 });
 /** Durée totale (s). */

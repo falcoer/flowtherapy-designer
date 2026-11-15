@@ -39,6 +39,9 @@ async function framer(job: VideoJob, opaque: boolean) {
   c.width = W;
   c.height = H;
   const ctx = c.getContext('2d', { willReadFrequently: !opaque })!;
+  const mask = document.createElement('canvas');
+  mask.width = W;
+  mask.height = H;
   const k = W / job.f.width;
   const d = docIn(job.doc, job.f);
   const tm = timingOf(job.doc.timing);
@@ -55,7 +58,17 @@ async function framer(job: VideoJob, opaque: boolean) {
     }
     ctx.setTransform(k, 0, 0, k, 0, 0);
     drawLayers(ctx, d, job.f, { scale: k, onImage: () => {} });
-    drawLampTint(ctx, d, job.f);
+    if (opaque) drawLampTint(ctx, d, job.f);
+    else {
+      // la teinte de la lampe couvre toute la page : sur un sticker, on la remet dans la silhouette des objets
+      mask.getContext('2d')!.clearRect(0, 0, W, H);
+      mask.getContext('2d')!.drawImage(c, 0, 0);
+      drawLampTint(ctx, d, job.f);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalCompositeOperation = 'destination-in';
+      ctx.drawImage(mask, 0, 0);
+      ctx.globalCompositeOperation = 'source-over';
+    }
   };
   return { c, ctx, W, H, draw, total };
 }
