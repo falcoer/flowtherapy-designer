@@ -11,8 +11,15 @@ export type AnimKind = 'countdown' | 'bird' | 'propeller';
 
 export interface Anim {
   kind: AnimKind;
-  /** Vitesse : valeurs par seconde (compte à rebours), battements par seconde (oiseau), tours par seconde (hélice, signe = sens). */
-  speed: number;
+  /**
+   * Calage du cycle, en nombre de périodes de référence de la page (Doc.timing) : le décompte entier,
+   * un battement d'ailes, un tour d'hélice. 1/4, 1/2, 1, 2, 3… : un cycle qui divise la durée totale boucle sans saut.
+   */
+  cycle?: number;
+  /** Hélice : sens de rotation (-1 = inverse des aiguilles d'une montre). */
+  dir?: 1 | -1;
+  /** Ancienne vitesse (par seconde), lue quand `cycle` manque. */
+  speed?: number;
   /** Compte à rebours : valeur de départ, pas de décompte, police. */
   from?: number;
   step?: number;
@@ -25,33 +32,62 @@ export interface Anim {
 }
 
 export const ANIM_DEFAULTS: Record<AnimKind, Anim> = {
-  countdown: { kind: 'countdown', speed: 1, from: 10, step: 1, font: 'anton' },
-  bird: { kind: 'bird', speed: 2, amp: 0.8 },
-  propeller: { kind: 'propeller', speed: 1, blades: 3, width: 0.55 },
+  countdown: { kind: 'countdown', cycle: 4, from: 3, step: 1, font: 'anton' },
+  bird: { kind: 'bird', cycle: 1 / 2, amp: 0.8 },
+  propeller: { kind: 'propeller', cycle: 1, blades: 3, width: 0.55 },
 };
 
 export const ANIM_NAMES: Record<AnimKind, string> = { countdown: 'Compte à rebours', bird: 'Vol d’oiseau', propeller: 'Hélice' };
 
 // --- horloge ---
 
+/**
+ * Durée de la page animée : une période de référence (s) répétée un nombre de fois.
+ * L'horloge revient à zéro au bout de période × nombre ; chaque animation cale son cycle en périodes.
+ */
+export interface Timing {
+  period: number;
+  count: number;
+}
+export const DEFAULT_TIMING: Timing = { period: 1, count: 4 };
+export const timingOf = (t?: Partial<Timing>): Timing => ({
+  period: Math.max(0.1, Math.min(60, t?.period ?? DEFAULT_TIMING.period)),
+  count: Math.max(1, Math.min(120, Math.round(t?.count ?? DEFAULT_TIMING.count))),
+});
+/** Durée totale (s). */
+export const totalOf = (t: Timing) => t.period * t.count;
+
+/** Coefficients proposés pour caler un cycle : fractions et multiples de la période. */
+export const CYCLES = [1 / 8, 1 / 6, 1 / 4, 1 / 3, 1 / 2, 1, 2, 3, 4, 6, 8, 12, 16, 24, 32];
+export const cycleName = (c: number) => (c >= 1 ? `× ${Math.round(c)}` : `1/${Math.round(1 / c)}`);
+
 let now = 0;
+let timing = DEFAULT_TIMING;
 /** Temps courant des animations (s), réglé avant chaque dessin. */
 export const animTime = () => now;
 export const setAnimTime = (t: number) => void (now = t);
+/** Période de référence de la page affichée, réglée avant chaque dessin. */
+export const setAnimTiming = (t?: Partial<Timing>) => void (timing = timingOf(t));
 
 /** Le document a-t-il au moins une forme animée ? */
 export const hasAnim = (layers: Layer[]) => layers.some((l) => l.anim && !l.cut && l.visible !== false);
 
-/** Durée d'une boucle (s) : le décompte entier puis un temps d'arrêt sur la dernière valeur ; un cycle pour les autres. */
-export function animDuration(a: Anim): number {
-  const sp = Math.max(0.05, Math.abs(a.speed));
-  if (a.kind === 'countdown') return (countdownValues(a).length + 1) / sp;
-  if (a.kind === 'bird') return 1 / sp;
-  return 1 / (sp * Math.max(1, a.blades ?? 3));
+/** Coefficient du cycle, en périodes (les animations d'avant gardent à peu près leur vitesse). */
+export function cycleOf(a: Anim, tm = timing): number {
+  if (a.cycle) return a.cycle;
+  const sp = Math.max(0.05, Math.abs(a.speed ?? 1));
+  const sec = a.kind === 'countdown' ? countdownValues(a).length / sp : 1 / sp;
+  return sec / tm.period;
 }
-
-/** Boucle commune (s) : la plus longue des animations de la page, pour l'export. */
-export const loopOf = (layers: Layer[]) => Math.max(0, ...layers.filter((l) => l.anim).map((l) => animDuration(l.anim!)));
+/** Durée d'un cycle (s). */
+export const cycleSeconds = (a: Anim, tm = timing) => cycleOf(a, tm) * tm.period;
+/** Le cycle tombe-t-il juste dans la durée totale (sinon la boucle saute) ? */
+export function cycleFits(a: Anim, tm = timing): boolean {
+  const r = tm.count / cycleOf(a, tm);
+  return Math.abs(r - Math.round(r)) < 1e-6;
+}
+/** Avancée dans le cycle à l'instant t (0..1). */
+const phaseOf = (a: Anim, t: number) => frac(t / Math.max(0.01, cycleSeconds(a)));
 
 // --- découpes ---
 
@@ -86,7 +122,8 @@ const PROP_FRAMES = 48;
 function propellerCut(a: Anim, t: number): string {
   const n = Math.max(2, Math.min(8, Math.round(a.blades ?? 3)));
   const w = Math.max(0.2, Math.min(0.9, a.width ?? 0.55));
-  const k = Math.floor(frac(t * a.speed * n) * PROP_FRAMES);
+  const dir = a.dir ?? (a.speed !== undefined && a.speed < 0 ? -1 : 1);
+  const k = Math.floor(frac(dir * phaseOf(a, t) * n) * PROP_FRAMES);
   return cached(`p|${n}|${w}|${k}`, () => {
     const turn = (2 * Math.PI) / n;
     const th = (k / PROP_FRAMES) * turn;
@@ -119,7 +156,7 @@ const BIRD_FRAMES = 40;
 const BIRD_H = 0.66;
 function birdCut(a: Anim, t: number): string {
   const amp = Math.max(0.1, Math.min(1, a.amp ?? 0.8));
-  const k = Math.floor(frac(t * a.speed) * BIRD_FRAMES);
+  const k = Math.floor(phaseOf(a, t) * BIRD_FRAMES);
   return cached(`b|${amp}|${k}`, () => {
     const ph = (k / BIRD_FRAMES) * 2 * Math.PI;
     const s = Math.sin(ph);
@@ -191,12 +228,12 @@ const styleOf = (a: Anim, content: string): TextStyle => ({ content, font: a.fon
 /** Boîte de référence : autant de 8 que la plus longue valeur, toutes les valeurs s'y centrent. */
 const refStyle = (a: Anim) => styleOf(a, '8'.repeat(String(countdownValues(a)[0] ?? 0).length));
 
-/** Valeur affichée à l'instant t, et l'avancée dans son temps (0..1). */
+/** Valeur affichée à l'instant t, et l'avancée dans son temps (0..1) : les valeurs se partagent le cycle. */
 export function countdownAt(a: Anim, t: number): { value: number; f: number } {
   const vals = countdownValues(a);
-  const x = (t * Math.max(0.05, Math.abs(a.speed))) % (vals.length + 1);
+  const x = phaseOf(a, t) * vals.length;
   const i = Math.min(vals.length - 1, Math.floor(x));
-  return { value: vals[i] ?? 0, f: i === vals.length - 1 && x >= vals.length ? 1 : frac(x) };
+  return { value: vals[i] ?? 0, f: frac(x) };
 }
 
 function countdownCut(a: Anim, t: number): string {

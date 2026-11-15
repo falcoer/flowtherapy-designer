@@ -3122,4 +3122,6 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .anim-bar { position: absolute; top: 64px; right: 84px; display: flex; align-items: center; gap: 4px; padding: 4px 10px 4px 4px; border-radius: 20px; background: var(--chrome-solid); color: var(--ink); box-shadow: 0 2px 10px rgba(0,0,0,0.18); z-index: 6; font-size: 12px; }
 .anim-bar button { width: 32px; height: 32px; border-radius: 16px; border: 0; background: transparent; color: inherit; display: grid; place-items: center; cursor: pointer; }
 .anim-bar button:hover { background: rgba(127,127,127,0.15); }
-.anim-bar output { min-width: 42px; font-variant-numeric: tabular-nums; opacity: 0.75; }
+.anim-bar output { min-width: 96px; font-variant-numeric: tabular-nums; opacity: 0.75; }
+.anim-bar label { display: flex; align-items: center; gap: 4px; margin-left: 6px; }
+.anim-bar input { width: 46px; padding: 2px 4px; border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; background: transparent; color: inherit; font: inherit; font-variant-numeric: tabular-nums; }
