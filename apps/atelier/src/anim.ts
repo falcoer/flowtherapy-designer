@@ -40,7 +40,7 @@ export const animTime = () => now;
 export const setAnimTime = (t: number) => void (now = t);
 
 /** Le document a-t-il au moins une forme animée ? */
-export const hasAnim = (layers: Layer[]) => layers.some((l) => l.anim && l.visible !== false);
+export const hasAnim = (layers: Layer[]) => layers.some((l) => l.anim && !l.cut && l.visible !== false);
 
 /** Durée d'une boucle (s) : le décompte entier puis un temps d'arrêt sur la dernière valeur ; un cycle pour les autres. */
 export function animDuration(a: Anim): number {
@@ -184,7 +184,7 @@ export function countdownValues(a: Anim): number[] {
   const from = Math.max(0, Math.min(9999, Math.round(a.from ?? 10)));
   const step = Math.max(1, Math.round(a.step ?? 1));
   const out: number[] = [];
-  for (let v = from; v >= 0 && out.length < 1000; v -= step) out.push(v);
+  for (let v = from; v >= 0; v -= step) out.push(v);
   return out;
 }
 const styleOf = (a: Anim, content: string): TextStyle => ({ content, font: a.font ?? 'anton', weight: 400, italic: false, align: 'center' });

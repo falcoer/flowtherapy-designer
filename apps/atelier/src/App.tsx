@@ -6392,7 +6392,13 @@ export function App() {
               <path d={animPlay ? 'M7 5h3.5v14H7zM13.5 5H17v14h-3.5z' : 'M8 5l11 7-11 7z'} fill="currentColor" />
             </svg>
           </button>
-          <button onClick={() => setAnimT(0)} title="Revenir au début" aria-label="Revenir au début">
+          <button
+            onClick={() => {
+              // l'aperçu de la scène gardé en pause montre l'image d'avant : il est refait au nouvel instant
+              lookCache.current = null;
+              setAnimT(0);
+            }}
+            title="Revenir au début" aria-label="Revenir au début">
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
               <path d="M6 5h2.5v14H6zM19 5v14L9 12z" fill="currentColor" />
             </svg>
