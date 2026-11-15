@@ -224,6 +224,25 @@ export function CatalogPanel(p: { onClose: () => void; onSaved: (c: Catalog) => 
                   ))}
                 </div>
               </div>
+              <div className="act-field">
+                <span className="pf-group">Vidéo</span>
+                <label className="act-check" title="Durée prévue d'une vidéo pour ce type : l'export animé (MP4) y est proposé à cette durée ; 0 = images fixes seulement">
+                  Durée prévue
+                  <input
+                    type="number"
+                    min={0}
+                    max={600}
+                    step={1}
+                    value={curM.motion ?? 0}
+                    style={{ width: 64, marginLeft: 8 }}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      if (Number.isFinite(v) && v >= 0) setM({ motion: Math.min(600, v) });
+                    }}
+                  />{' '}
+                  s
+                </label>
+              </div>
               <div className="act-checks">
                 <button className={`act-check ${curM.default ? 'on' : ''}`} onClick={() => setM({ default: !curM.default || undefined })}>
                   Coché d’office pour une nouvelle activité

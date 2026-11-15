@@ -32,6 +32,8 @@ export interface MediaType {
   fields: MediaFields;
   /** Coché d'office pour une activité qui n'a pas encore choisi. */
   default?: boolean;
+  /** Durée prévue d'une vidéo pour ce type (s) : l'export animé y est proposé ; 0 ou absente = images fixes seulement. */
+  motion?: number;
 }
 
 export interface Catalog {
@@ -81,12 +83,12 @@ export const DEFAULT_FORMATS: Format[] = [
 /** « affiche » garde son identifiant : les compositions existantes y renvoient. */
 export const DEFAULT_MEDIA: MediaType[] = [
   { id: 'affiche', name: 'Supports imprimés', kind: 'affichage', formats: ['a4'], margin: 0.06, fields: { folder: true }, default: true },
-  { id: 'facebook', name: 'Facebook', kind: 'social', formats: ['carre', 'banniere'], margin: 0.05, fields: { account: true, api: true, folder: true } },
-  { id: 'instagram', name: 'Instagram', kind: 'social', formats: ['carre', 'story'], margin: 0.05, fields: { account: true, api: true, folder: true } },
+  { id: 'facebook', name: 'Facebook', kind: 'social', formats: ['carre', 'banniere'], margin: 0.05, fields: { account: true, api: true, folder: true }, motion: 15 },
+  { id: 'instagram', name: 'Instagram', kind: 'social', formats: ['carre', 'story'], margin: 0.05, fields: { account: true, api: true, folder: true }, motion: 15 },
   { id: 'applemusic', name: 'Apple Music', kind: 'streaming', formats: ['pochette'], margin: 0.04, fields: { account: true, api: true, folder: true } },
-  { id: 'site', name: 'Site web', kind: 'site', formats: ['site-banniere', 'vignette'], margin: 0.04, fields: { account: true, folder: true } },
+  { id: 'site', name: 'Site web', kind: 'site', formats: ['site-banniere', 'vignette'], margin: 0.04, fields: { account: true, folder: true }, motion: 10 },
   // le carré sert aux posts de la communauté
-  { id: 'youtube', name: 'YouTube', kind: 'video', formats: ['yt-miniature', 'yt-banniere', 'shorts', 'yt-profil', 'yt-filigrane', 'carre'], fields: { account: true, api: true, folder: true } },
+  { id: 'youtube', name: 'YouTube', kind: 'video', formats: ['yt-miniature', 'yt-banniere', 'shorts', 'yt-profil', 'yt-filigrane', 'carre'], fields: { account: true, api: true, folder: true }, motion: 30 },
 ];
 /** Types d'origine avant l'arrivée de YouTube : les catalogues enregistrés avant les connaissent déjà. */
 const FIRST_MEDIA = ['affiche', 'facebook', 'instagram', 'applemusic', 'site'];
@@ -142,6 +144,8 @@ export function cleanCatalog(raw: unknown): Catalog {
     seenM.add(id);
     const kind = (MEDIA_KINDS as readonly string[]).includes(m?.kind as string) ? m!.kind : 'social';
     const margin = num(m?.margin, -0.25, 0.25);
+    // un catalogue enregistré avant la vidéo : les types d'origine prennent leur durée par défaut ; 0 la coupe
+    const motion = num(m?.motion, 0, 600) ?? DEFAULT_MEDIA.find((x) => x.id === id)?.motion;
     const fl = m?.fields ?? {};
     media.push({
       id,
@@ -151,6 +155,7 @@ export function cleanCatalog(raw: unknown): Catalog {
       ...(margin !== undefined ? { margin } : {}),
       fields: { ...(fl.account ? { account: true } : {}), ...(fl.api ? { api: true } : {}), ...(fl.folder ? { folder: true } : {}) },
       ...(m?.default ? { default: true } : {}),
+      ...(motion !== undefined ? { motion: Math.round(motion * 10) / 10 } : {}),
     });
   }
   if (!Array.isArray(c.media)) return { formats, media: DEFAULT_MEDIA, fonts: cleanFontUses(c.fonts), known: DEFAULT_MEDIA.map((m) => m.id) };

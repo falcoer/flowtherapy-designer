@@ -3125,3 +3125,8 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .anim-bar output { min-width: 96px; font-variant-numeric: tabular-nums; opacity: 0.75; }
 .anim-bar label { display: flex; align-items: center; gap: 4px; margin-left: 6px; }
 .anim-bar input { width: 46px; padding: 2px 4px; border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; background: transparent; color: inherit; font: inherit; font-variant-numeric: tabular-nums; }
+.anim-bar { padding-bottom: 12px; overflow: hidden; }
+.anim-track { position: absolute; left: 0; right: 0; bottom: 0; height: 8px; cursor: pointer; background: rgba(127,127,127,0.18); }
+.anim-fill { position: absolute; left: 0; top: 0; bottom: 0; background: #7a5cff; }
+.anim-tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink); opacity: 0.55; }
+.anim-tick:first-of-type { margin-left: 0; }

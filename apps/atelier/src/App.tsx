@@ -10,7 +10,7 @@ import { steadyPath } from './steady';
 import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
 import { allStamps, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel, Dots } from './coupe';
-import { ANIM_DEFAULTS, ANIM_NAMES, animCut, animRatio, hasAnim, setAnimTime, setAnimTiming, timingOf, totalOf, type AnimKind, type Timing } from './anim';
+import { ANIM_DEFAULTS, ANIM_NAMES, animCut, animRatio, hasAnim, setAnimTime, setAnimTiming, timingOf, totalOf, type AnimKind } from './anim';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
 import { MatterRow } from './matter-palette';
@@ -35,13 +35,14 @@ import { blankDoc } from './blank';
 import { NewPublicationDialog } from './pub-new';
 import { addPage, copyPage, packDoc, pageDoc, pubIndex, removePage, switchPage, unpackDoc, type PubViews } from './pubs';
 import { download, exportSize, fileName, pdfOf, pngOf, renderDoc, renderLayers } from './export';
+import { canMp4, renderGif, renderMp4 } from './video';
 import { PostizPlanActions, usePostizAccounts } from './postiz-ui';
 import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
 import { CatalogPanel } from './catalog-ui';
 import { createTeam, switchTeam, fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, retitleAtelier, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, postizSync, type PlanItem, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
-import { channelsOf, setCatalog, contactsOf, CONTACT_KINDS, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
+import { channelsOf, motionOf, setCatalog, contactsOf, CONTACT_KINDS, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
 import { Knob } from './knob';
 import { FocusRing } from './focus-ring';
 import { MediaIcon, PublicationsPanel, VariantBar, VariantPick } from './targets-ui';
@@ -967,7 +968,7 @@ export function App() {
 
   // --- export ---
   const [exportFormats, setExportFormats] = useState<string[]>([]);
-  const [exportKind, setExportKind] = useState<'png' | 'pdf'>('png');
+  const [exportKind, setExportKind] = useState<'png' | 'pdf' | 'mp4' | 'gif'>('png');
   const [exporting, setExporting] = useState(false);
   const [exportTargets, setExportTargets] = useState<number[]>([]);
   // --- publier : le plan de la campagne du document, les mentions de l'activité ---
@@ -1000,16 +1001,32 @@ export function App() {
           .map((i) => ({ i, t: d0.targets![i]! }))
           .map(({ i, t }) => ({ ff: formatOf(t.format), d: pageDoc(d0, i, views), width: t.width, name: [project?.title ?? 'composition', t.channel].filter(Boolean).join(' ') }))
       : FORMATS.filter((x) => (exportFormats.length ? exportFormats : [d0.formatId]).includes(x.id)).map((ff) => ({ ff, d: d0, width: undefined as number | undefined, name: project?.title ?? 'composition' }));
-    const list = jobs;
+    const moving = exportKind === 'mp4' || exportKind === 'gif';
+    // vidéo : seulement les publications dont le média prévoit une durée (sans cibles : la durée de la page)
+    const pageSeconds = totalOf(timingOf(d0.timing));
+    const timed = jobs.map((j, n) => ({ ...j, seconds: d0.targets?.length ? motionOf(d0.targets[exportTargets.filter((i) => !!d0.targets![i])[n]!]?.channel) : pageSeconds }));
+    const list = moving && exportKind === 'mp4' ? timed.filter((j) => j.seconds > 0 && FORMATS.find((x) => x.id === j.ff.id)?.unit !== 'mm') : timed;
+    if (moving && !list.length) {
+      setToast('Aucune des publications choisies n’accepte la vidéo : règle la durée prévue du média dans la Configuration globale');
+      return;
+    }
     setExporting(true);
     try {
-      for (const { ff, d, width, name } of jobs) {
+      for (const { ff, d, width, name, seconds } of list) {
         setToast(`Export ${ff.title}…`);
+        if (moving) {
+          const job = { doc: d, f: ff, width, seconds: exportKind === 'gif' ? pageSeconds : seconds, fps: exportKind === 'gif' ? 15 : 30, maxSide: exportKind === 'gif' ? 512 : 1920, onProgress: (x: number) => setToast(`Export ${ff.title} : ${Math.round(x * 100)} %`) };
+          const blob = exportKind === 'gif' ? await renderGif(job) : await renderMp4(job);
+          await download(blob, fileName(name, ff, exportKind));
+          continue;
+        }
         const c = await renderDoc(d, ff, 8000, width);
         const blob = exportKind === 'pdf' ? await pdfOf(c, ff) : await pngOf(c);
         await download(blob, fileName(name, ff, exportKind));
       }
-      setToast(list.length > 1 ? `${list.length} fichiers exportés` : 'Fichier exporté');
+      if (moving && list.length < jobs.length) setToast(`${list.length} vidéo${list.length > 1 ? 's' : ''} exportée${list.length > 1 ? 's' : ''} ; ${jobs.length - list.length} publication${jobs.length - list.length > 1 ? 's' : ''} sans vidéo prévue laissée${jobs.length - list.length > 1 ? 's' : ''} de côté`);
+      else
+        setToast(list.length > 1 ? `${list.length} fichiers exportés` : 'Fichier exporté');
     } catch (err) {
       setToast(`Export impossible : ${(err as Error).message}`);
     } finally {
@@ -4235,7 +4252,7 @@ export function App() {
     setAnimPlay(true);
     setTool(lastEdit.current);
     setCoupeOpen((o) => ({ key: 'shape', n: (o?.n ?? 0) + 1 }));
-    setToast(`« ${ANIM_NAMES[kind]} » s'anime : règle sa vitesse dans Forme ; teinte, bord et lueur s'appliquent comme sur une forme`);
+    setToast(`« ${ANIM_NAMES[kind]} » s'anime : cale son cycle en périodes dans Forme ; teinte, bord et lueur s'appliquent comme sur une forme`);
     setToastUndo(false);
   };
   /** Pose un texte dans le style choisi, prêt à être réécrit. */
@@ -5911,7 +5928,8 @@ export function App() {
                     <MediaIcon ch={channels.find((c) => c.id === t.channel)} />
                     <span>{targetLabel(t, activity)}</span>
                     <small className="tg-pal">
-                      {sz.w} × {sz.h} px <VariantBar pal={paletteFor(t, activity)} />
+                      {sz.w} × {sz.h} px
+                      {exportKind === 'mp4' ? (motionOf(t.channel) && x.unit !== 'mm' ? ` · vidéo ${motionOf(t.channel)} s` : ' · pas de vidéo') : ''} <VariantBar pal={paletteFor(t, activity)} />
                     </small>
                   </button>
                 );
@@ -5963,8 +5981,14 @@ export function App() {
               </div>
               <div className="pub-dl">
                 <div className="seg">
-                  {(['png', 'pdf'] as const).map((k) => (
-                    <button key={k} className={exportKind === k ? 'on' : ''} onClick={() => setExportKind(k)}>
+                  {(animated ? (['png', 'pdf', 'mp4', 'gif'] as const) : (['png', 'pdf'] as const)).map((k) => (
+                    <button
+                      key={k}
+                      className={exportKind === k ? 'on' : ''}
+                      disabled={k === 'mp4' && !canMp4()}
+                      title={k === 'mp4' ? 'Vidéo à la durée prévue pour chaque média (Configuration globale), la page animée en boucle' : k === 'gif' ? 'Sticker animé à fond transparent : une boucle de la page, 512 px' : undefined}
+                      onClick={() => setExportKind(k)}
+                    >
                       {k.toUpperCase()}
                     </button>
                   ))}
@@ -6409,27 +6433,11 @@ export function App() {
               <path d="M6 5h2.5v14H6zM19 5v14L9 12z" fill="currentColor" />
             </svg>
           </button>
-          <output title="Temps dans la page, et la période en cours">
+          <output title="Temps dans la vidéo, et la période en cours">
             {(animT % total).toFixed(1)} / {total.toFixed(1)} s · {Math.min(timing.count, Math.floor((animT % total) / timing.period) + 1)}/{timing.count}
           </output>
-          <label title="Période de référence, en secondes : chaque animation cale son cycle sur un multiple ou une fraction de celle-ci">
-            Période
-            <input
-              type="number"
-              inputMode="decimal"
-              min={0.1}
-              max={60}
-              step={0.1}
-              value={timing.period}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                if (Number.isFinite(v) && v > 0) update((d) => ({ ...d, timing: timingOf({ ...timing, period: Math.round(v * 10) / 10 }) as Timing }));
-              }}
-            />
-            s
-          </label>
-          <label title="Nombre de périodes : la page animée dure période × nombre, puis recommence">
-            ×
+          <label title="Nombre de périodes : chaque animation cale son cycle sur une fraction ou un multiple de la période">
+            Périodes
             <input
               type="number"
               inputMode="numeric"
@@ -6438,10 +6446,42 @@ export function App() {
               value={timing.count}
               onChange={(e) => {
                 const v = Math.round(Number(e.target.value));
-                if (Number.isFinite(v) && v >= 1) update((d) => ({ ...d, timing: timingOf({ ...timing, count: v }) }));
+                // la durée de la vidéo reste la même : la période se resserre ou s'allonge
+                if (Number.isFinite(v) && v >= 1) update((d) => ({ ...d, timing: timingOf({ count: v, period: total / v }) }));
               }}
             />
           </label>
+          <label title={`Durée de la vidéo, en secondes : la période vaut ${timing.period.toFixed(2)} s`}>
+            Durée
+            <input
+              type="number"
+              inputMode="decimal"
+              min={0.5}
+              max={600}
+              step={0.5}
+              value={Math.round(total * 100) / 100}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v) && v > 0) update((d) => ({ ...d, timing: timingOf({ count: timing.count, period: v / timing.count }) }));
+              }}
+            />
+            s
+          </label>
+          {/* le déroulé : la position dans la vidéo, un repère au début de chaque période ; toucher pour s'y placer */}
+          <div
+            className="anim-track"
+            onPointerDown={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              lookCache.current = null;
+              setAnimT(Math.max(0, Math.min(0.999, (e.clientX - r.left) / r.width)) * total);
+            }}
+            title="Déroulé de la vidéo : toucher pour s'y placer"
+          >
+            <span className="anim-fill" style={{ width: `${((animT % total) / total) * 100}%` }} />
+            {Array.from({ length: timing.count }, (_, i) => (
+              <span key={i} className="anim-tick" style={{ left: `${(i / timing.count) * 100}%` }} />
+            ))}
+          </div>
         </div>
       )}
       {toast && (
