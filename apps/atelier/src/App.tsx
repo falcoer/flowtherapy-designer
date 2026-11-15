@@ -10,6 +10,7 @@ import { steadyPath } from './steady';
 import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
 import { allStamps, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel, Dots } from './coupe';
+import { ANIM_DEFAULTS, ANIM_NAMES, animCut, animRatio, hasAnim, setAnimTime, type AnimKind } from './anim';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
 import { MatterRow } from './matter-palette';
@@ -393,7 +394,7 @@ export function App() {
   // polices : la liste d'abord, puis les fichiers des polices utilisées par les textes
   useEffect(() => onFontReady(redraw), [redraw]);
   const usedFonts = doc.layers
-    .map((l) => l.text?.font)
+    .map((l) => l.text?.font ?? l.anim?.font)
     .filter(Boolean)
     .join(',');
   useEffect(() => {
@@ -1039,6 +1040,30 @@ export function App() {
   }, []);
   // Modifier rouvre la dernière section utilisée
   const lastEdit = useRef<EditTool>('transform');
+  // horloge des formes animées : tourne tant qu'une forme animée est sur la page et que la lecture n'est pas en pause
+  const [animT, setAnimT] = useState(0);
+  const [animPlay, setAnimPlay] = useState(true);
+  setAnimTime(animT);
+  const animated = hasAnim(doc.layers);
+  useEffect(() => {
+    if (!animated || !animPlay) return;
+    let raf = 0;
+    let last = performance.now();
+    let acc = 0;
+    const tick = (now: number) => {
+      acc += (now - last) / 1000;
+      last = now;
+      // une trentaine d'images par seconde suffisent, et ménagent la tablette
+      if (acc >= 1 / 30) {
+        const dt = acc;
+        acc = 0;
+        setAnimT((t) => t + dt);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [animated, animPlay]);
   const [coupeOpen, setCoupeOpen] = useState<{ key: string; n: number; sec?: 'edge' | 'coat' | 'image' | 'transform' | 'support' } | undefined>();
   /** Hauteur du bandeau des attributs, quand il est ouvert : la roue du pinceau se pose au-dessus. */
   const [bandH, setBandH] = useState(0);
@@ -1992,7 +2017,8 @@ export function App() {
     const L = live.current;
     const wet = L.kind === 'paint' && L.wet && L.layer ? { id: L.layer, canvas: L.wet, win: L.win } : undefined;
     const burning = L.kind === 'paint' && L.stroke?.brush === 'burn' && L.layer ? { id: L.layer, stroke: L.stroke } : undefined;
-    const look = sceneShown && sceneOn(doc);
+    // pendant la lecture d'une animation, la page se redessine à chaque image, sans l'aperçu de la scène
+    const look = sceneShown && sceneOn(doc) && !(animated && animPlay);
     const busy = !!L.kind && L.kind !== 'view';
     const hit = lookCache.current;
     const lookS = Math.min(scale * dpr, 2400 / Math.max(f.width, f.height));
@@ -4185,6 +4211,27 @@ export function App() {
       setCoupeOpen((o) => ({ key: 'look', sec: 'image', n: (o?.n ?? 0) + 1 }));
     }
   };
+  /** Pose une forme animée (compte à rebours, oiseau, hélice) : la lecture démarre, ses réglages s'ouvrent. */
+  const addAnim = async (kind: AnimKind) => {
+    const anim = { ...ANIM_DEFAULTS[kind] };
+    if (anim.font) {
+      await loadFonts();
+      await ensureFont(anim.font);
+    }
+    const r = animRatio(anim);
+    const k = kind === 'countdown' ? 0.42 : 0.55;
+    const [w, h] = r >= 1 ? [k, k / r] : [k * r, k];
+    const a = anchorFor(reperes.frame, f, f.width / 2, f.height / 2);
+    const layer: Layer = { id: uid(), name: ANIM_NAMES[kind], kind: 'shape', anchor: a.anchor, dx: 0, dy: 0, w, h, guide, anim, height: 0.04, visible: true, strokes: [] };
+    update((d) => ({ ...d, layers: [...d.layers, layer] }));
+    setSelected(layer.id);
+    setBubble(null);
+    setAnimPlay(true);
+    setTool(lastEdit.current);
+    setCoupeOpen((o) => ({ key: 'shape', n: (o?.n ?? 0) + 1 }));
+    setToast(`« ${ANIM_NAMES[kind]} » s'anime : règle sa vitesse dans Forme ; teinte, bord et lueur s'appliquent comme sur une forme`);
+    setToastUndo(false);
+  };
   /** Pose un texte dans le style choisi, prêt à être réécrit. */
   const addText = async (p: TextPreset) => {
     await loadFonts();
@@ -6170,6 +6217,17 @@ export function App() {
                     </div>
                   ))}
                   <div className="forms-fam">
+                    <div className="b-title">Animées</div>
+                    <div className="add-grid forms-grid">
+                      {(Object.keys(ANIM_NAMES) as AnimKind[]).map((k) => (
+                        <button key={k} onClick={() => void addAnim(k)} title={`${ANIM_NAMES[k]} : une forme qui bouge avec le temps, pour un sticker animé`}>
+                          <AnimGlyph kind={k} />
+                          {ANIM_NAMES[k]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="forms-fam">
                     <div className="b-title">Vos dessins</div>
                     <div className="add-grid forms-grid kits-grid">
                       <label className="file" title="Un dessin SVG : chaque groupe devient une pièce nommée (data-volume, data-lift facultatifs)">
@@ -6327,6 +6385,21 @@ export function App() {
           <p>Appui long sur l'image pour l'enregistrer · toucher pour fermer</p>
         </div>
       )}
+      {animated && !rendu && (
+        <div className="anim-bar">
+          <button onClick={() => setAnimPlay((p) => !p)} title={animPlay ? 'Mettre les animations en pause' : 'Lire les animations'} aria-label={animPlay ? 'Pause' : 'Lecture'}>
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d={animPlay ? 'M7 5h3.5v14H7zM13.5 5H17v14h-3.5z' : 'M8 5l11 7-11 7z'} fill="currentColor" />
+            </svg>
+          </button>
+          <button onClick={() => setAnimT(0)} title="Revenir au début" aria-label="Revenir au début">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M6 5h2.5v14H6zM19 5v14L9 12z" fill="currentColor" />
+            </svg>
+          </button>
+          <output>{animT.toFixed(1)} s</output>
+        </div>
+      )}
       {toast && (
         <div className={`toast ${toastUndo ? 'with-undo' : ''}`}>
           {toast}
@@ -6432,6 +6505,25 @@ function FormatGlyph({ w, h, big }: { w: number; h: number; big?: boolean }) {
   return (
     <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`} aria-hidden>
       <rect x={(s - w * k) / 2 + 0.75} y={(s - h * k) / 2 + 0.75} width={w * k - 1.5} height={h * k - 1.5} rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+/** Vignette d'une forme animée : l'hélice et l'oiseau figés à un instant, le compte à rebours en chiffre. */
+function AnimGlyph({ kind }: { kind: AnimKind }) {
+  if (kind === 'countdown')
+    return (
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden>
+        <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="44 20" />
+        <text x="12" y="16.5" textAnchor="middle" fontSize="13" fontWeight="700" fill="currentColor">3</text>
+      </svg>
+    );
+  const a = ANIM_DEFAULTS[kind];
+  const r = animRatio(a);
+  const [w, h] = r >= 1 ? [22, 22 / r] : [22 * r, 22];
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden>
+      <path d={animCut(a, kind === 'bird' ? 0.1 / a.speed : 0)} transform={`translate(${(24 - w) / 2} ${(24 - h) / 2}) scale(${w} ${h})`} fill="currentColor" fillRule="evenodd" />
     </svg>
   );
 }
