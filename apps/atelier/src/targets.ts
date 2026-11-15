@@ -14,6 +14,8 @@ import { palettesOf, type ActivityProfile, type Channel, type ChannelPick, type 
 let catalog: Catalog = DEFAULT_CATALOG;
 /** Le catalogue en cours (celui du serveur une fois chargé). */
 export const catalogNow = () => catalog;
+/** Durée de vidéo prévue pour un type de diffusion (s) ; 0 = pas d'export animé. */
+export const motionOf = (channel?: string) => (channel ? (catalog.media.find((m) => m.id === channel)?.motion ?? 0) : 0);
 /** Range le catalogue du serveur ; ses formats rejoignent la liste de l'atelier (ceux d'origine gardent leur place). */
 export function setCatalog(c: Catalog) {
   catalog = c;

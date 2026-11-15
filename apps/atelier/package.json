@@ -11,6 +11,8 @@
   "dependencies": {
     "@ftd/core": "*",
     "@mediapipe/tasks-vision": "1.2.2",
+    "gifenc": "^1.0.3",
+    "mp4-muxer": "^5.2.2",
     "polygon-clipping": "^0.15.7",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
