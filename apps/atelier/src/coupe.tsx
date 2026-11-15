@@ -5,6 +5,7 @@ import { BORDER_TYPES, fxPreview, GLOW_TYPES, Knob, swatch } from './App';
 import { FX, fxGuides, fxKnobs, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
+import { ANIM_NAMES, animRatio, countdownValues, type Anim } from './anim';
 import { GEN_DEFAULTS, LAYER_BLENDS, SKINS, VOLUMES, bevelSoftName, bevelSoftOf, volumeName, type Doc, type Layer } from './model';
 import { ensureFont, fontFamily, fontsFor, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { AlignGlyph, TextContent, useLazyText, WarpGlyph, weightName } from './textbar';
@@ -154,7 +155,7 @@ export function itemsOf(l: Layer, doc: Doc): Item[] {
     out.push({
       sec: 'image',
       key: 'shape',
-      name: gen ? `${gen.sides} côtés` : 'Proportions',
+      name: l.anim ? ANIM_NAMES[l.anim.kind] : gen ? `${gen.sides} côtés` : 'Proportions',
       bg: 'conic-gradient(from 18deg,#8a849a 0 20%,#e8e4f0 0 40%,#8a849a 0 60%,#e8e4f0 0 80%,#8a849a 0)',
       removable: false,
     });
@@ -1146,6 +1147,85 @@ function DepthGlyph({ k }: { k: 'bevel' | 'extrude' }) {
   );
 }
 
+/** Réglages d'une forme animée : vitesse, et ceux propres à chaque générateur. */
+function AnimRows({ l, anim: a, live, patch }: { l: Layer; anim: Anim; live: (p: Partial<Layer>) => void; patch: (p: Partial<Layer>, history?: boolean) => void }) {
+  const set = (p: Partial<Anim>) => live({ anim: { ...a, ...p } });
+  // la boîte garde sa largeur et prend les proportions du nouveau compte (plus ou moins de chiffres, autre police)
+  const reshape = (next: Anim) => patch({ anim: next, h: Math.round((l.w / animRatio(next)) * 1000) / 1000 }, true);
+  const [, ready] = useState(0);
+  useEffect(() => {
+    if (a.kind === 'countdown') void loadFonts().then(() => ready((n) => n + 1));
+  }, [a.kind]);
+  const num = (label: string, value: number, min: number, max: number, on: (v: number) => void, title?: string) => (
+    <label className="cp-row" title={title}>
+      <span>{label}</span>
+      <input
+        type="number"
+        inputMode="numeric"
+        min={min}
+        max={max}
+        value={value}
+        style={{ width: 64 }}
+        onChange={(e) => {
+          const v = Math.round(Number(e.target.value));
+          if (Number.isFinite(v)) on(Math.max(min, Math.min(max, v)));
+        }}
+      />
+    </label>
+  );
+  if (a.kind === 'countdown') {
+    const n = countdownValues(a).length;
+    return (
+      <>
+        {num('Départ', a.from ?? 10, 0, 9999, (v) => reshape({ ...a, from: v }), 'La valeur affichée au début du décompte')}
+        {num('Pas', a.step ?? 1, 1, 1000, (v) => reshape({ ...a, step: v }), 'De combien la valeur descend à chaque battement')}
+        <Range label="Vitesse" display={`${a.speed.toFixed(a.speed < 1 ? 2 : 1)} /s`} value={Math.log(a.speed / 0.1) / Math.log(100)} onChange={(v) => set({ speed: Math.round(0.1 * Math.pow(100, v) * 100) / 100 })} />
+        <label className="cp-row">
+          <span>Police</span>
+          <select
+            value={a.font ?? 'anton'}
+            onChange={(e) => {
+              const font = e.target.value;
+              void ensureFont(font).then(() => reshape({ ...a, font }));
+            }}
+          >
+            {fontsFor('compositions').map((ft) => (
+              <option key={ft.id} value={ft.id}>
+                {ft.family}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="cp-note cp-legend">
+          {n} valeur{n > 1 ? 's' : ''}, une boucle de {((n + 1) / a.speed).toFixed(1)} s
+        </p>
+      </>
+    );
+  }
+  if (a.kind === 'bird')
+    return (
+      <>
+        <Range label="Battements" display={`${a.speed.toFixed(1)} /s`} value={(a.speed - 0.3) / 5.7} onChange={(v) => set({ speed: Math.round((0.3 + v * 5.7) * 10) / 10 })} />
+        <Range label="Amplitude" value={((a.amp ?? 0.8) - 0.1) / 0.9} onChange={(v) => set({ amp: Math.round((0.1 + v * 0.9) * 100) / 100 })} />
+      </>
+    );
+  return (
+    <>
+      <Range label="Pales" display={`${a.blades ?? 3}`} value={((a.blades ?? 3) - 2) / 6} onChange={(v) => set({ blades: 2 + Math.round(v * 6) })} />
+      <Range label="Largeur des pales" value={((a.width ?? 0.55) - 0.2) / 0.7} onChange={(v) => set({ width: Math.round((0.2 + v * 0.7) * 100) / 100 })} />
+      <Range
+        label="Vitesse"
+        display={`${a.speed > 0 ? '↻' : '↺'} ${Math.abs(a.speed).toFixed(2)} tr/s`}
+        value={(a.speed + 3) / 6}
+        onChange={(v) => {
+          const sp = Math.round((v * 6 - 3) * 20) / 20;
+          set({ speed: Math.abs(sp) < 0.05 ? 0.05 * Math.sign(sp || 1) : sp });
+        }}
+      />
+    </>
+  );
+}
+
 /** Boîte des polices : celles activées pour les compositions (Configuration globale › Polices), chacune montrée avec le texte. */
 function FontDialog({ text: t, onPick, onClose }: { text: TextStyle; onPick: (id: string) => void; onClose: () => void }) {
   const [, ready] = useState(0);
@@ -1614,6 +1694,7 @@ export function Attrs({
     const gen = genOf(l);
     body = (
       <>
+        {l.anim && <AnimRows l={l} anim={l.anim} live={live} patch={patch} />}
         {gen && (
           <>
             <Range label="Côtés" display={`${gen.sides}`} value={(gen.sides - 3) / 21} onChange={(v) => live({ gen: { ...gen, sides: 3 + Math.round(v * 21) } })} />

@@ -231,6 +231,8 @@ export interface Layer {
   trim?: { blur: number; float: number; zigzag: number; /** Aléa des dents (0 = régulières, 1 = déchiquetées). */ chaos?: number };
   /** Générateur de forme : polygone régulier de `sides` côtés ; `depth` (0..0.95) creuse le milieu de chaque côté vers le centre (étoile). */
   gen?: { sides: number; depth: number };
+  /** Forme animée : la découpe suit le temps (compte à rebours, oiseau, hélice…). Ignorée une fois la découpe modelée. */
+  anim?: import('./anim').Anim;
   /** Proportions libres : les poignées étirent la largeur et la hauteur séparément. */
   free?: boolean;
   /**

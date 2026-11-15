@@ -6,6 +6,7 @@ import { drawBlurred, rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring, insideRings } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
+import { animCut } from './anim';
 import { EDGE_ELEMENTS, edgeStroke } from './elements';
 import { bevelSoftOf, blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
@@ -45,6 +46,7 @@ export function shapeCut(k: ShapeKind): string {
 /** Découpe d'une couche (tracé SVG, coordonnées de la couche). */
 const genCuts = new Map<string, string>();
 export function cutOf(l: Layer): string {
+  if (!l.cut && l.anim) return animCut(l.anim);
   if (!l.cut && l.gen) {
     const key = `${l.gen.sides}|${l.gen.depth}`;
     let d = genCuts.get(key);
