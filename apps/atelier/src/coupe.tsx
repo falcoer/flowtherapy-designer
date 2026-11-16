@@ -5,7 +5,7 @@ import { BORDER_TYPES, fxPreview, GLOW_TYPES, Knob, swatch } from './App';
 import { FX, fxGuides, fxKnobs, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
-import { ANIM_NAMES, animRatio, countdownValues, CYCLES, cycleFits, cycleName, cycleOf, cycleSeconds, timingOf, totalOf, type Anim } from './anim';
+import { animName, animRatio, CYCLES, cycleFits, cycleName, cycleOf, cycleSeconds, generatorOf, timingOf, totalOf, valueOf, type Anim, type Param } from './anim';
 import { GEN_DEFAULTS, LAYER_BLENDS, SKINS, VOLUMES, bevelSoftName, bevelSoftOf, volumeName, type Doc, type Layer } from './model';
 import { ensureFont, fontFamily, fontsFor, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { AlignGlyph, TextContent, useLazyText, WarpGlyph, weightName } from './textbar';
@@ -155,7 +155,7 @@ export function itemsOf(l: Layer, doc: Doc): Item[] {
     out.push({
       sec: 'image',
       key: 'shape',
-      name: l.anim ? ANIM_NAMES[l.anim.kind] : gen ? `${gen.sides} côtés` : 'Proportions',
+      name: l.anim ? animName(l.anim) : gen ? `${gen.sides} côtés` : 'Proportions',
       bg: 'conic-gradient(from 18deg,#8a849a 0 20%,#e8e4f0 0 40%,#8a849a 0 60%,#e8e4f0 0 80%,#8a849a 0)',
       removable: false,
     });
@@ -1167,41 +1167,78 @@ function DepthGlyph({ k }: { k: 'bevel' | 'extrude' }) {
   );
 }
 
-/** Réglages d'une forme animée : vitesse, et ceux propres à chaque générateur. */
+/** Réglages d'un sticker : le calage de son cycle, puis ses paramètres, tels que son générateur les décrit. */
 function AnimRows({ l, doc, anim: a, live, patch }: { l: Layer; doc: Doc; anim: Anim; live: (p: Partial<Layer>) => void; patch: (p: Partial<Layer>, history?: boolean) => void }) {
+  const gen = generatorOf(a);
   const set = (p: Partial<Anim>) => live({ anim: { ...a, ...p } });
-  // la boîte garde sa largeur et prend les proportions du nouveau compte (plus ou moins de chiffres, autre police)
+  // la boîte garde sa largeur et prend les proportions des nouveaux réglages (plus ou moins de chiffres, autre police)
   const reshape = (next: Anim) => patch({ anim: next, h: Math.round((l.w / animRatio(next)) * 1000) / 1000 }, true);
+  const hasFont = !!gen?.params.some((p) => p.type === 'font');
   const [, ready] = useState(0);
   useEffect(() => {
-    if (a.kind === 'countdown') void loadFonts().then(() => ready((n) => n + 1));
-  }, [a.kind]);
-  const num = (label: string, value: number, min: number, max: number, on: (v: number) => void, title?: string) => (
-    <label className="cp-row" title={title}>
-      <span>{label}</span>
-      <input
-        type="number"
-        inputMode="numeric"
-        min={min}
-        max={max}
-        value={value}
-        style={{ width: 64 }}
-        onChange={(e) => {
-          const v = Math.round(Number(e.target.value));
-          if (Number.isFinite(v)) on(Math.max(min, Math.min(max, v)));
-        }}
-      />
-    </label>
-  );
+    if (hasFont) void loadFonts().then(() => ready((n) => n + 1));
+  }, [hasFont]);
+  if (!gen) return <p className="cp-note cp-legend">Ce sticker vient d’une version plus récente : ses réglages ne sont pas connus ici.</p>;
   const tm = timingOf(doc.timing);
   const cur = cycleOf(a, tm);
   const fits = cycleFits(a, tm);
-  // calage du cycle en périodes de référence : ce que dure le décompte, un battement, un tour
-  const cycleRow = (label: string, what: string) => (
+  const row = (p: Param) => {
+    const v = valueOf(p, a);
+    const [min, max] = [p.min ?? 0, p.max ?? 1];
+    const put = (x: number | string, step = false) => (p.reshape ? reshape({ ...a, [p.key]: x }) : step ? patch({ anim: { ...a, [p.key]: x } }, true) : set({ [p.key]: x }));
+    if (p.type === 'int')
+      return (
+        <label key={p.key} className="cp-row" title={p.title}>
+          <span>{p.name}</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={min}
+            max={max}
+            value={Number(v)}
+            style={{ width: 64 }}
+            onChange={(e) => {
+              const x = Math.round(Number(e.target.value));
+              if (Number.isFinite(x)) put(Math.max(min, Math.min(max, x)));
+            }}
+          />
+        </label>
+      );
+    if (p.type === 'steps') return <Range key={p.key} label={p.name} display={`${v}`} value={(Number(v) - min) / (max - min)} onChange={(x) => put(min + Math.round(x * (max - min)))} />;
+    if (p.type === 'range') return <Range key={p.key} label={p.name} value={(Number(v) - min) / (max - min)} onChange={(x) => put(Math.round((min + x * (max - min)) * 100) / 100)} />;
+    if (p.type === 'check')
+      return (
+        <label key={p.key} className="cp-row" title={p.title}>
+          <span>{p.name}</span>
+          <input type="checkbox" checked={v === p.on} onChange={(e) => put(e.target.checked ? p.on! : p.off!, true)} />
+        </label>
+      );
+    return (
+      <label key={p.key} className="cp-row" title={p.title}>
+        <span>{p.name}</span>
+        <select
+          value={String(v)}
+          onChange={(e) => {
+            const font = e.target.value;
+            void ensureFont(font).then(() => put(font));
+          }}
+        >
+          {fontsFor('compositions').map((ft) => (
+            <option key={ft.id} value={ft.id}>
+              {ft.family}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  };
+  const note = gen.note?.(a, cycleSeconds(a, tm));
+  return (
     <>
-      <label className="cp-row" title={`${what} dure ce nombre de périodes de référence (réglées dans la barre de lecture)`}>
-        <span>{label}</span>
-        <select value={String(CYCLES.find((c) => Math.abs(c - cur) < 1e-6) ?? '')} onChange={(e) => patch({ anim: { ...a, cycle: Number(e.target.value), speed: undefined, ...(a.kind === 'propeller' && !a.dir && (a.speed ?? 0) < 0 ? { dir: -1 as const } : {}) } }, true)}>
+      {/* calage du cycle en périodes de référence : ce que dure le décompte, un battement, un tour */}
+      <label className="cp-row" title={`${gen.cycleWhat} dure ce nombre de périodes de référence (réglées dans la barre d'animation)`}>
+        <span>{gen.cycleName}</span>
+        <select value={String(CYCLES.find((c) => Math.abs(c - cur) < 1e-6) ?? '')} onChange={(e) => patch({ anim: { ...a, ...gen.migrate?.(a), cycle: Number(e.target.value), speed: undefined } }, true)}>
           {!CYCLES.some((c) => Math.abs(c - cur) < 1e-6) && <option value="">{cur.toFixed(2)} pér.</option>}
           {CYCLES.map((c) => (
             <option key={c} value={String(c)}>
@@ -1216,53 +1253,8 @@ function AnimRows({ l, doc, anim: a, live, patch }: { l: Layer; doc: Doc; anim: 
           Ne tombe pas juste dans {tm.count} période{tm.count > 1 ? 's' : ''} ({totalOf(tm).toFixed(1)} s) : la boucle sautera à la fin
         </p>
       )}
-    </>
-  );
-  if (a.kind === 'countdown') {
-    const n = countdownValues(a).length;
-    return (
-      <>
-        {num('Départ', a.from ?? 10, 0, 9999, (v) => reshape({ ...a, from: v }), 'La valeur affichée au début du décompte')}
-        {num('Pas', a.step ?? 1, 1, 1000, (v) => reshape({ ...a, step: v }), 'De combien la valeur descend à chaque battement')}
-        {cycleRow('Décompte', 'Le décompte entier')}
-        <label className="cp-row">
-          <span>Police</span>
-          <select
-            value={a.font ?? 'anton'}
-            onChange={(e) => {
-              const font = e.target.value;
-              void ensureFont(font).then(() => reshape({ ...a, font }));
-            }}
-          >
-            {fontsFor('compositions').map((ft) => (
-              <option key={ft.id} value={ft.id}>
-                {ft.family}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className="cp-note cp-legend">
-          {n} valeur{n > 1 ? 's' : ''}, {(cycleSeconds(a, tm) / n).toFixed(2)} s chacune
-        </p>
-      </>
-    );
-  }
-  if (a.kind === 'bird')
-    return (
-      <>
-        {cycleRow('Battement', 'Un battement d’ailes')}
-        <Range label="Amplitude" value={((a.amp ?? 0.8) - 0.1) / 0.9} onChange={(v) => set({ amp: Math.round((0.1 + v * 0.9) * 100) / 100 })} />
-      </>
-    );
-  return (
-    <>
-      <Range label="Pales" display={`${a.blades ?? 3}`} value={((a.blades ?? 3) - 2) / 6} onChange={(v) => set({ blades: 2 + Math.round(v * 6) })} />
-      <Range label="Largeur des pales" value={((a.width ?? 0.55) - 0.2) / 0.7} onChange={(v) => set({ width: Math.round((0.2 + v * 0.7) * 100) / 100 })} />
-      {cycleRow('Tour', 'Un tour d’hélice')}
-      <label className="cp-row">
-        <span>Sens inverse</span>
-        <input type="checkbox" checked={(a.dir ?? (a.speed !== undefined && a.speed < 0 ? -1 : 1)) === -1} onChange={(e) => patch({ anim: { ...a, dir: e.target.checked ? -1 : 1 } }, true)} />
-      </label>
+      {gen.params.map(row)}
+      {note && <p className="cp-note cp-legend">{note}</p>}
     </>
   );
 }

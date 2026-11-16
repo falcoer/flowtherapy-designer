@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ACCELS, ANIM_NAMES, BRAKES, cycleName, cycleOf, gesturesOf, moveName, newMove, type Accel, type Brake, type Move, type Timing } from './anim';
+import { ACCELS, animName, BRAKES, cycleName, cycleOf, gesturesOf, moveName, newMove, type Accel, type Brake, type Move, type Timing } from './anim';
 import type { Layer } from './model';
 
 /**
@@ -122,7 +122,7 @@ export function Frise({
               {a &&
                 gesturesOf(a).map((g, gi) => (
                   <div key={g.id} className="fr-row">
-                    <button className="fr-name" onClick={() => pickOwn(l.id)} title={`${ANIM_NAMES[a.kind]} : animation propre du sticker, toucher pour la régler`}>
+                    <button className="fr-name" onClick={() => pickOwn(l.id)} title={`${animName(a)} : animation propre du sticker, toucher pour la régler`}>
                       {gi === 0 && <b>{l.name}</b>}
                       <i>{g.name}</i>
                     </button>
