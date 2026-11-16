@@ -1226,39 +1226,10 @@ function AnimRows({ l, doc, anim: base, act, live, patch }: { l: Layer; doc: Doc
         </label>
       );
     if (p.type === 'letters') {
-      // toutes les lettres, ou une seule par son numéro (compté sans les blancs) : une autre lettre = un autre geste posé
-      const n = lettersOf(l.text?.content ?? '').length;
-      const all = v === 'all';
-      const at = all ? 0 : [...lettersPicked(v, n)][0] ?? 0;
-      return (
-        <div key={p.key} className="cp-row cp-letters" title="Toutes les lettres, ou une seule par son numéro (sans compter les blancs) ; pour une autre lettre, pose un autre geste">
-          <span>{p.name}</span>
-          <span className="cp-letter-set">
-            <label>
-              <input type="checkbox" checked={all} onChange={(e) => put(e.target.checked ? 'all' : String(Math.max(0, n - 1)), true)} />
-              Toutes
-            </label>
-            {!all && (
-              <label>
-                n°
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={Math.max(1, n)}
-                  value={at + 1}
-                  style={{ width: 56 }}
-                  onChange={(e) => {
-                    const x = Math.round(Number(e.target.value));
-                    if (e.target.value !== '' && Number.isFinite(x)) put(String(Math.max(0, Math.min(Math.max(0, n - 1), x - 1))), true);
-                  }}
-                />
-                <small>sur {n}</small>
-              </label>
-            )}
-          </span>
-        </div>
-      );
+      // toutes les lettres, ou une seule : un cercle à glisser comme la teinte ; une autre lettre = un autre geste posé
+      const chars = lettersOf(l.text?.content ?? '');
+      const at = v === 'all' ? -1 : ([...lettersPicked(v, chars.length)][0] ?? -1);
+      return <LetterDial key={p.key} label={p.name} chars={chars} value={at} onPick={(i) => put(i < 0 ? 'all' : String(i), true)} />;
     }
     return (
       <label key={p.key} className="cp-row" title={p.title}>
@@ -1441,6 +1412,97 @@ export function Dots({ label, value, doc, onPick }: { label: string; value: numb
             </div>
             <span className="tint-lens" style={{ background: g ? swatch(g) : undefined }} />
             <b>{g?.name}</b>
+          </div>,
+          document.body,
+        )}
+    </div>
+  );
+}
+
+/**
+ * Lettre visée par un geste : un cercle qui montre la lettre (ou « Tout »). On le tient et on glisse à droite ou à gauche :
+ * le texte défile en bande sous le doigt, la lettre choisie dans le cercle, comme la teinte. Toucher passe à la suivante.
+ * `value` = −1 pour toutes les lettres, sinon le numéro de la lettre (sans les blancs).
+ */
+export function LetterDial({ label, chars, value, onPick }: { label: string; chars: string[]; value: number; onPick: (i: number) => void }) {
+  const n = chars.length;
+  // place sur la bande : 0 = toutes, puis chaque lettre
+  const pos = Math.max(0, Math.min(n, value + 1));
+  const pick = useRef(onPick);
+  pick.current = onPick;
+  const cur = useRef(pos);
+  cur.current = pos;
+  const drag = useRef<{ id: number; x0: number; i0: number; moved: boolean } | null>(null);
+  const [strip, setStrip] = useState<{ cx: number; top: number; d: number } | null>(null);
+  const go = (k: number) => {
+    const c = Math.max(0, Math.min(n, k));
+    if (c !== cur.current) {
+      cur.current = c;
+      pick.current(c - 1);
+    }
+  };
+  const end = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d || d.id !== e.pointerId) return;
+    drag.current = null;
+    setStrip(null);
+    if (!d.moved && e.type === 'pointerup') go((cur.current + 1) % (n + 1));
+  };
+  const items = ['Tout', ...chars];
+  const shown = items[pos] ?? 'Tout';
+  return (
+    <div className="cp-dial cp-tint cp-letter" title={`${label} : glisser à droite ou à gauche pour choisir la lettre (ou toutes), toucher pour la suivante ; pour une autre lettre, pose un autre geste`}>
+      <button
+        className={`tint-b ${strip ? 'held' : ''}`}
+        aria-label={`${label} : ${pos ? `lettre ${pos}, ${shown}` : 'toutes'}`}
+        onPointerDown={(e) => {
+          if (e.button) return;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          drag.current = { id: e.pointerId, x0: e.clientX, i0: cur.current, moved: false };
+          const r = e.currentTarget.getBoundingClientRect();
+          setStrip({ cx: r.left + r.width / 2, top: r.top + r.height / 2, d: r.width });
+        }}
+        onPointerMove={(e) => {
+          const d = drag.current;
+          if (!d || d.id !== e.pointerId) return;
+          const dx = e.clientX - d.x0;
+          if (Math.abs(dx) > 6) d.moved = true;
+          go(d.i0 + Math.round(dx / TINT_STEP));
+        }}
+        onPointerUp={end}
+        onPointerCancel={end}
+        onLostPointerCapture={end}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') go(cur.current - 1);
+          else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') go(cur.current + 1);
+          else if (e.key === 'Enter' || e.key === ' ') go((cur.current + 1) % (n + 1));
+          else return;
+          e.preventDefault();
+        }}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        <span className={`letter-face ${pos ? '' : 'all'}`}>{shown}</span>
+      </button>
+      <span className="cp-dial-l">{label}</span>
+      <output>{pos ? `${pos} sur ${n}` : 'toutes'}</output>
+      {strip &&
+        createPortal(
+          // le texte en bande, la lettre choisie dans le cercle : il défile avec le geste
+          <div className="tint-strip letter-strip" style={{ top: strip.top, left: strip.cx, ['--tint-d' as string]: `${strip.d}px` }} aria-hidden>
+            <div className="tint-band">
+              <div className="tint-reel" style={{ transform: `translateX(${-(pos + 0.5) * TINT_VIS}px)` }}>
+                {items.map((c, i) => {
+                  const k = Math.abs(i - pos);
+                  return (
+                    <i key={i} className={`${i === pos ? 'on' : ''} ${i ? '' : 'all'}`} style={{ filter: k > 1 ? `blur(${Math.min(2, (k - 1) * 0.8)}px)` : undefined }}>
+                      {c}
+                    </i>
+                  );
+                })}
+              </div>
+            </div>
+            <span className={`tint-lens letter-lens ${pos ? "" : "all"}`}>{shown}</span>
+            <b>{pos ? `Lettre ${pos} sur ${n}` : 'Toutes les lettres'}</b>
           </div>,
           document.body,
         )}
