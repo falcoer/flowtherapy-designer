@@ -15,9 +15,6 @@ export function Frise({
   onSeek,
   onSelect,
   onMotion,
-  onTiming,
-  playing,
-  onPlay,
   settings,
 }: {
   layers: Layer[];
@@ -29,18 +26,15 @@ export function Frise({
   onSelect: (id: string) => void;
   /** Nouvelles consignes d'un objet ; `history` = une étape d'annulation. */
   onMotion: (id: string, motion: Move[], history: boolean) => void;
-  /** Durée de la page : nombre de périodes et période (s). */
-  onTiming: (t: Timing) => void;
-  playing: boolean;
-  onPlay: () => void;
   /** Réglages du geste propre du sticker choisi (cycle, pales, départ…) : ouverts en touchant sa ligne. */
   settings?: React.ReactNode;
 }) {
   const [pick, setPick] = useState<{ layer: string; move: string } | null>(null);
-  const rows = layers.filter((l) => l.kind !== 'surface' && l.visible !== false && ((l.anim && !l.cut) || l.motion?.length || l.id === selected));
+  // les animations se règlent objet par objet : la frise ne montre que celles de l'objet choisi
+  const rows = layers.filter((l) => l.id === selected && l.kind !== 'surface');
   const total = timing.period * timing.count;
   const pct = (periods: number) => `${(periods / timing.count) * 100}%`;
-  const owner = pick ? layers.find((l) => l.id === pick.layer) : undefined;
+  const owner = pick && pick.layer === selected ? layers.find((l) => l.id === pick.layer) : undefined;
   const move = owner?.motion?.find((m) => m.id === pick?.move);
   // geste propre du sticker choisi (par défaut tant qu'aucune consigne n'est choisie) : ses réglages s'ouvrent sous la frise
   const ownOn = !move;
@@ -100,20 +94,6 @@ export function Frise({
   );
   return (
     <div className="frise">
-      <div className="fr-head">
-        <button className="fr-play" onClick={onPlay} title={playing ? 'Mettre les animations en pause' : 'Lire les animations'} aria-label={playing ? 'Pause' : 'Lecture'}>
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-            <path d={playing ? 'M7 5h3.5v14H7zM13.5 5H17v14h-3.5z' : 'M8 5l11 7-11 7z'} fill="currentColor" />
-          </svg>
-        </button>
-        <output>
-          {t.toFixed(1)} / {total.toFixed(1)} s
-        </output>
-        <div className="fr-line">
-          {num('Périodes', timing.count, (v) => onTiming({ count: Math.round(v), period: total / Math.round(v) }), { min: 1, max: 120, title: 'Nombre de périodes : la durée de la vidéo reste la même, la période se resserre ou s’allonge' })}
-          {num('Durée', total, (v) => onTiming({ count: timing.count, period: v / timing.count }), { min: 0.5, max: 600, step: 0.5, unit: 's', title: `Durée de la vidéo : la période vaut ${timing.period.toFixed(2)} s` })}
-        </div>
-      </div>
       <div className="fr-rows">
         <div className="fr-row fr-ruler">
           <span className="fr-name" />
@@ -133,7 +113,6 @@ export function Frise({
             <span className="fr-now" style={{ left: `${(t / total) * 100}%` }} />
           </div>
         </div>
-        {rows.length === 0 && <p className="fr-empty">Choisis un objet sur la page pour lui donner une consigne de mouvement.</p>}
         {rows.map((l) => {
           const a = l.anim && !l.cut ? l.anim : undefined;
           const c = a ? cycleOf(a, timing) : 0;

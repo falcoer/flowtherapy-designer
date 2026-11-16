@@ -4254,7 +4254,7 @@ export function App() {
     setAnimPlay(true);
     setTool(lastEdit.current);
     setCoupeOpen((o) => ({ key: 'shape', n: (o?.n ?? 0) + 1 }));
-    setToast(`« ${ANIM_NAMES[kind]} » s'anime : cale son cycle en périodes dans Forme ; teinte, bord et lueur s'appliquent comme sur une forme`);
+    setToast(`« ${ANIM_NAMES[kind]} » s'anime : son cycle et ses mouvements se règlent dans l'onglet Animation ; teinte, bord et lueur s'appliquent comme sur une forme`);
     setToastUndo(false);
   };
   /** Pose un texte dans le style choisi, prêt à être réécrit. */
@@ -5327,8 +5327,6 @@ export function App() {
                   selected={sel.id}
                   timing={timing}
                   t={animT % total}
-                  playing={animPlay}
-                  onPlay={() => setAnimPlay((p) => !p)}
                   onSeek={(t) => {
                     lookCache.current = null;
                     setAnimT(t);
@@ -5338,7 +5336,6 @@ export function App() {
                     lookCache.current = null;
                     patchLayer(id, { motion: motion.length ? motion : undefined }, h);
                   }}
-                  onTiming={(t) => update((d) => ({ ...d, timing: timingOf(t) }))}
                 />
               }
               onClose={() => setTool('move')}
@@ -6438,7 +6435,7 @@ export function App() {
         </div>
       )}
       {animated && !rendu && (
-        <div className="anim-bar">
+        <div className={`anim-bar ${bandH ? 'with-band' : ''}`} style={{ bottom: bandH + 14 }}>
           <button onClick={() => setAnimPlay((p) => !p)} title={animPlay ? 'Mettre les animations en pause' : 'Lire les animations'} aria-label={animPlay ? 'Pause' : 'Lecture'}>
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
               <path d={animPlay ? 'M7 5h3.5v14H7zM13.5 5H17v14h-3.5z' : 'M8 5l11 7-11 7z'} fill="currentColor" />
@@ -6456,8 +6453,39 @@ export function App() {
             </svg>
           </button>
           <output title="Temps dans la vidéo, et la période en cours">
-            {(animT % total).toFixed(1)} / {total.toFixed(1)} s · {Math.min(timing.count, Math.floor((animT % total) / timing.period) + 1)}/{timing.count}
+            {(animT % total).toFixed(1)} / {total.toFixed(1)} s<span className="anim-per"> · {Math.min(timing.count, Math.floor((animT % total) / timing.period) + 1)}/{timing.count}</span>
           </output>
+          <label title="Nombre de périodes de la vidéo : chaque objet cale ses cycles sur une fraction ou un multiple de la période (onglet Animation)">
+            Périodes
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={120}
+              value={timing.count}
+              onChange={(e) => {
+                const v = Math.round(Number(e.target.value));
+                // la durée de la vidéo reste la même : la période se resserre ou s'allonge
+                if (Number.isFinite(v) && v >= 1) update((d) => ({ ...d, timing: timingOf({ count: v, period: total / v }) }));
+              }}
+            />
+          </label>
+          <label title={`Durée de la vidéo, en secondes : la période vaut ${timing.period.toFixed(2)} s`}>
+            Durée
+            <input
+              type="number"
+              inputMode="decimal"
+              min={0.5}
+              max={600}
+              step={0.5}
+              value={Math.round(total * 100) / 100}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v) && v > 0) update((d) => ({ ...d, timing: timingOf({ count: timing.count, period: v / timing.count }) }));
+              }}
+            />
+            s
+          </label>
           {/* le déroulé : la position dans la vidéo, un repère au début de chaque période ; toucher pour s'y placer */}
           <div
             className="anim-track"

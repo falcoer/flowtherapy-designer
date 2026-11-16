@@ -642,8 +642,15 @@ export function CoupePanel({
     onToast(edged ? 'Sans surface : seul le bord se dessine' : 'Sans surface : un bord fin a été ajouté, à régler dans l’onglet Bord', true);
   };
   const hollowPlate = (l.kind === 'shape' || l.kind === 'text') && (
-    <div className="ap-shape ap-hollow-opt">
+    <div className="ap-shape ap-hollow-opt ap-generic">
       <div className="cp-attrs ap-attrs">
+        {l.kind === 'shape' && (
+          <label className="cp-row" title="Proportions libres : la boîte s’étire sans garder le rapport largeur / hauteur de la forme.">
+            <span>Proportions libres</span>
+            <input type="checkbox" checked={!!l.free} onChange={(e) => patch({ free: e.target.checked || undefined })} />
+            <output>{l.free ? 'oui' : 'non'}</output>
+          </label>
+        )}
         <label className="cp-row" title="Sans surface : l’objet ne garde que son bord et sa lueur, le long de sa découpe. Sa teinte, son vernis, sa matière et son volume sont gardés de côté.">
           <span>Sans surface</span>
           <input type="checkbox" checked={hollow} onChange={(e) => setHollow(e.target.checked)} />
@@ -678,7 +685,7 @@ export function CoupePanel({
     body = (
       <>
         <div className="ap-shape-row">
-          <div className={`ap-shape ${l.molded ? 'ap-locked' : ''}`}>{it && <Attrs bare layer={l} doc={doc} item={{ ...it, locked: false }} patch={patch} />}</div>
+          {it && genOf(l) && <div className={`ap-shape ${l.molded ? 'ap-locked' : ''}`}>{<Attrs bare layer={l} doc={doc} item={{ ...it, locked: false }} patch={patch} />}</div>}
           {hollowPlate}
         </div>
         {fxCard}
@@ -1734,11 +1741,13 @@ export function Attrs({
             <Range label="Creux (étoile)" value={gen.depth / 0.95} onChange={(v) => live({ gen: { ...gen, depth: Math.round(v * 95) / 100 } })} />
           </>
         )}
-        <label className="cp-row">
-          <span>Proportions libres</span>
-          <input type="checkbox" checked={!!l.free} onChange={(e) => patch({ free: e.target.checked || undefined })} />
-          <output>{l.free ? 'oui' : 'non'}</output>
-        </label>
+        {!bare && (
+          <label className="cp-row">
+            <span>Proportions libres</span>
+            <input type="checkbox" checked={!!l.free} onChange={(e) => patch({ free: e.target.checked || undefined })} />
+            <output>{l.free ? 'oui' : 'non'}</output>
+          </label>
+        )}
       </>
     );
   } else if (item.key === 'material' && l.material)
