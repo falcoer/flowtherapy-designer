@@ -1188,7 +1188,7 @@ function AnimRows({ l, doc, anim: base, act, live, patch }: { l: Layer; doc: Doc
   const merge = (p: Partial<Anim>): Anim => (act ? { ...base, acts: (withActs(base, timingOf(doc.timing)).acts ?? []).map((x) => (x.id === act.id ? ({ ...x, ...p } as Act) : x)) } : { ...base, ...p });
   const set = (p: Partial<Anim>) => live({ anim: merge(p) });
   // la boîte garde sa largeur et prend les proportions des nouveaux réglages (plus ou moins de chiffres, autre police)
-  // un choix ou un jeu de réglages = un pas d'annulation ; un potard qui change les proportions suit le geste comme les autres
+  // proportions qui changent : la boîte suit ; sans `step`, les changements rapprochés (un glissé de potard ou de bulle) font un seul pas d'annulation
   const reshape = (p: Partial<Anim>, step = true) => {
     const q = { anim: merge(p), h: Math.round((l.w / animRatio({ ...a, ...p })) * 1000) / 1000 };
     if (step) patch(q, true);
@@ -1213,7 +1213,7 @@ function AnimRows({ l, doc, anim: base, act, live, patch }: { l: Layer; doc: Doc
     if (p.type === 'choice') {
       // un type de pièce : des bulles à glisser, chacune dessine la forme qu'elle donnerait
       const opts = p.options ?? [];
-      return <ChoiceDial key={p.key} label={p.name} title={p.title} items={opts.map((o) => ({ name: o.name, face: face({ [p.key]: o.id }) }))} value={opts.findIndex((o) => o.id === v)} onPick={(i) => put(opts[i]!.id, true)} />;
+      return <ChoiceDial key={p.key} label={p.name} title={p.title} items={opts.map((o) => ({ name: o.name, face: face({ [p.key]: o.id }) }))} value={opts.findIndex((o) => o.id === v)} onPick={(i) => reshape({ [p.key]: opts[i]!.id }, false)} />;
     }
     if (p.type === 'int')
       return (
@@ -1297,7 +1297,7 @@ function AnimRows({ l, doc, anim: base, act, live, patch }: { l: Layer; doc: Doc
           items={gen.presets.map((ps) => ({ name: ps.name, face: face(ps.set) }))}
           value={gen.presets.indexOf(presetOf(gen, a)!)}
           current={face({})}
-          onPick={(i) => reshape(gen.presets![i]!.set)}
+          onPick={(i) => reshape(gen.presets![i]!.set, false)}
           title={`${gen.presetName ?? 'Modèle'} : glisser pour passer d’un jeu de réglages à l’autre ; chaque réglage s’affine ensuite`}
         />
       ) : null}
