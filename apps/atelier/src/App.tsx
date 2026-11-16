@@ -11,7 +11,7 @@ import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
 import { allStamps, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel, Dots } from './coupe';
 import { Frise } from './frise';
-import { ANIM_DEFAULTS, ANIM_NAMES, animCut, animRatio, hasAnim, setAnimTime, setAnimTiming, timingOf, totalOf, type AnimKind } from './anim';
+import { animRatio, GENERATORS, glyphCut, hasAnim, newAnim, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
 import { MatterRow } from './matter-palette';
@@ -4237,24 +4237,24 @@ export function App() {
     }
   };
   /** Pose une forme animée (compte à rebours, oiseau, hélice) : la lecture démarre, ses réglages s'ouvrent. */
-  const addAnim = async (kind: AnimKind) => {
-    const anim = { ...ANIM_DEFAULTS[kind] };
-    if (anim.font) {
+  const addAnim = async (gen: Generator) => {
+    const anim = newAnim(gen);
+    if (typeof anim.font === 'string') {
       await loadFonts();
       await ensureFont(anim.font);
     }
     const r = animRatio(anim);
-    const k = kind === 'countdown' ? 0.42 : 0.55;
+    const k = gen.size ?? 0.55;
     const [w, h] = r >= 1 ? [k, k / r] : [k * r, k];
     const a = anchorFor(reperes.frame, f, f.width / 2, f.height / 2);
-    const layer: Layer = { id: uid(), name: ANIM_NAMES[kind], kind: 'shape', anchor: a.anchor, dx: 0, dy: 0, w, h, guide, anim, height: 0.04, visible: true, strokes: [] };
+    const layer: Layer = { id: uid(), name: gen.name, kind: 'shape', anchor: a.anchor, dx: 0, dy: 0, w, h, guide, anim, height: 0.04, visible: true, strokes: [] };
     update((d) => ({ ...d, layers: [...d.layers, layer] }));
     setSelected(layer.id);
     setBubble(null);
     setAnimPlay(true);
     setTool(lastEdit.current);
     setCoupeOpen((o) => ({ key: 'shape', n: (o?.n ?? 0) + 1 }));
-    setToast(`« ${ANIM_NAMES[kind]} » s'anime : cale son cycle en périodes dans Forme ; teinte, bord et lueur s'appliquent comme sur une forme`);
+    setToast(`« ${gen.name} » s'anime : son cycle et ses mouvements se règlent dans l'onglet Animation ; teinte, bord et lueur s'appliquent comme sur une forme`);
     setToastUndo(false);
   };
   /** Pose un texte dans le style choisi, prêt à être réécrit. */
@@ -5327,8 +5327,6 @@ export function App() {
                   selected={sel.id}
                   timing={timing}
                   t={animT % total}
-                  playing={animPlay}
-                  onPlay={() => setAnimPlay((p) => !p)}
                   onSeek={(t) => {
                     lookCache.current = null;
                     setAnimT(t);
@@ -5338,7 +5336,6 @@ export function App() {
                     lookCache.current = null;
                     patchLayer(id, { motion: motion.length ? motion : undefined }, h);
                   }}
-                  onTiming={(t) => update((d) => ({ ...d, timing: timingOf(t) }))}
                 />
               }
               onClose={() => setTool('move')}
@@ -6271,10 +6268,10 @@ export function App() {
                   <div className="forms-fam">
                     <div className="b-title">Animées</div>
                     <div className="add-grid forms-grid">
-                      {(Object.keys(ANIM_NAMES) as AnimKind[]).map((k) => (
-                        <button key={k} onClick={() => void addAnim(k)} title={`${ANIM_NAMES[k]} : une forme qui bouge avec le temps, pour un sticker animé`}>
-                          <AnimGlyph kind={k} />
-                          {ANIM_NAMES[k]}
+                      {GENERATORS.map((g) => (
+                        <button key={g.kind} onClick={() => void addAnim(g)} title={`${g.name} : une forme qui bouge avec le temps, pour un sticker animé`}>
+                          <AnimGlyph gen={g} />
+                          {g.name}
                         </button>
                       ))}
                     </div>
@@ -6438,7 +6435,7 @@ export function App() {
         </div>
       )}
       {animated && !rendu && (
-        <div className="anim-bar">
+        <div className={`anim-bar ${bandH ? 'with-band' : ''}`} style={{ bottom: bandH + 14 }}>
           <button onClick={() => setAnimPlay((p) => !p)} title={animPlay ? 'Mettre les animations en pause' : 'Lire les animations'} aria-label={animPlay ? 'Pause' : 'Lecture'}>
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
               <path d={animPlay ? 'M7 5h3.5v14H7zM13.5 5H17v14h-3.5z' : 'M8 5l11 7-11 7z'} fill="currentColor" />
@@ -6456,8 +6453,39 @@ export function App() {
             </svg>
           </button>
           <output title="Temps dans la vidéo, et la période en cours">
-            {(animT % total).toFixed(1)} / {total.toFixed(1)} s · {Math.min(timing.count, Math.floor((animT % total) / timing.period) + 1)}/{timing.count}
+            {(animT % total).toFixed(1)} / {total.toFixed(1)} s<span className="anim-per"> · {Math.min(timing.count, Math.floor((animT % total) / timing.period) + 1)}/{timing.count}</span>
           </output>
+          <label title="Nombre de périodes de la vidéo : chaque objet cale ses cycles sur une fraction ou un multiple de la période (onglet Animation)">
+            Périodes
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={120}
+              value={timing.count}
+              onChange={(e) => {
+                // borné avant de servir de diviseur : la durée de la vidéo reste la même, la période se resserre ou s'allonge
+                const v = Math.min(120, Math.round(Number(e.target.value)));
+                if (Number.isFinite(v) && v >= 1) update((d) => ({ ...d, timing: timingOf({ count: v, period: total / v }) }));
+              }}
+            />
+          </label>
+          <label title={`Durée de la vidéo, en secondes : la période vaut ${timing.period.toFixed(2)} s`}>
+            Durée
+            <input
+              type="number"
+              inputMode="decimal"
+              min={0.5}
+              max={600}
+              step={0.5}
+              value={Math.round(total * 100) / 100}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v) && v > 0) update((d) => ({ ...d, timing: timingOf({ count: timing.count, period: v / timing.count }) }));
+              }}
+            />
+            s
+          </label>
           {/* le déroulé : la position dans la vidéo, un repère au début de chaque période ; toucher pour s'y placer */}
           <div
             className="anim-track"
@@ -6584,21 +6612,21 @@ function FormatGlyph({ w, h, big }: { w: number; h: number; big?: boolean }) {
   );
 }
 
-/** Vignette d'une forme animée : l'hélice et l'oiseau figés à un instant, le compte à rebours en chiffre. */
-function AnimGlyph({ kind }: { kind: AnimKind }) {
-  if (kind === 'countdown')
+/** Vignette d'un sticker : sa découpe figée à l'instant que son générateur choisit, ou son texte. */
+function AnimGlyph({ gen }: { gen: Generator }) {
+  if (gen.glyphText)
     return (
       <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden>
         <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="44 20" />
-        <text x="12" y="16.5" textAnchor="middle" fontSize="13" fontWeight="700" fill="currentColor">3</text>
+        <text x="12" y="16.5" textAnchor="middle" fontSize="13" fontWeight="700" fill="currentColor">{gen.glyphText}</text>
       </svg>
     );
-  const a = ANIM_DEFAULTS[kind];
+  const a = newAnim(gen);
   const r = animRatio(a);
   const [w, h] = r >= 1 ? [22, 22 / r] : [22 * r, 22];
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden>
-      <path d={animCut(a, kind === 'bird' ? 0.05 : 0)} transform={`translate(${(24 - w) / 2} ${(24 - h) / 2}) scale(${w} ${h})`} fill="currentColor" fillRule="evenodd" />
+      <path d={glyphCut(a)} transform={`translate(${(24 - w) / 2} ${(24 - h) / 2}) scale(${w} ${h})`} fill="currentColor" fillRule="evenodd" />
     </svg>
   );
 }
