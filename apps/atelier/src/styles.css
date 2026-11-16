@@ -3131,11 +3131,11 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .anim-tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink); opacity: 0.55; }
 .anim-tick:first-of-type { margin-left: 0; }
 
-/* Frise générale : une ligne par objet, animations propres du sticker et consignes de mouvement */
-.frise { position: absolute; top: 122px; right: 84px; width: min(620px, calc(100vw - 100px)); max-height: calc(100dvh - 300px); overflow: auto; padding: 8px 10px 10px; border-radius: 16px; background: var(--chrome-solid); color: var(--ink); border: 1px solid var(--line); box-shadow: var(--shadow); z-index: 6; font-size: 12px; }
-.fr-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
-.fr-head span { flex: 1; color: var(--muted); font-size: 11px; }
-.fr-head button { width: 28px; height: 28px; border-radius: 14px; font-size: 18px; line-height: 1; align-self: center; }
+/* Frise générale, dans l'onglet Animation des attributs : une ligne par objet, animations propres du sticker et consignes de mouvement */
+.frise { color: var(--ink); font-size: 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fr-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; }
+.fr-head output { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 84px; }
+.fr-play { width: 32px; height: 32px; border-radius: 16px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
 .fr-row { display: grid; grid-template-columns: 118px 1fr 28px; align-items: center; gap: 6px; min-height: 26px; }
 .fr-obj { padding: 3px 0; border-top: 1px solid var(--line); }
 .fr-obj.on .fr-name b { color: var(--accent); }
@@ -3156,15 +3156,10 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .fr-edge { position: absolute; top: 0; bottom: 0; right: 0; width: 12px; cursor: ew-resize; background: rgba(255,255,255,0.35); }
 .fr-add { width: 28px; height: 28px; border-radius: 14px; color: var(--accent); font-size: 16px; }
 .fr-empty { margin: 8px 0 2px; color: var(--muted); }
-.fr-edit { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.fr-edit, .fr-own-set { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
 .fr-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; }
 .fr-line label { display: flex; align-items: center; gap: 4px; color: var(--muted); }
 .fr-line input[type='number'] { width: 54px; padding: 3px 4px; border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; background: transparent; color: var(--ink); font: inherit; font-variant-numeric: tabular-nums; }
 .fr-line select { padding: 3px 4px; border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; background: var(--chrome-solid); color: var(--ink); font: inherit; }
 .fr-del { margin-left: auto; padding: 4px 10px; border-radius: 10px; color: #c0392b; }
-.anim-bar .anim-frise { width: auto; padding: 0 10px; font: inherit; }
-.anim-bar .anim-frise.on { background: var(--accent-soft); color: var(--accent); }
-@media (max-width: 720px) { .frise { right: 8px; width: calc(100vw - 16px); top: 150px; } .fr-row { grid-template-columns: 84px 1fr 28px; } }
-.ap-motion { background: rgba(127,127,127,0.1); }
-.ap-molded + .ap-motion { margin-top: 6px; }
-.fr-head { cursor: grab; touch-action: none; }
+@media (max-width: 720px) { .fr-row { grid-template-columns: 84px 1fr 28px; } }

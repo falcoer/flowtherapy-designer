@@ -15,7 +15,10 @@ export function Frise({
   onSeek,
   onSelect,
   onMotion,
-  onClose,
+  onTiming,
+  playing,
+  onPlay,
+  settings,
 }: {
   layers: Layer[];
   selected: string | null;
@@ -26,26 +29,14 @@ export function Frise({
   onSelect: (id: string) => void;
   /** Nouvelles consignes d'un objet ; `history` = une étape d'annulation. */
   onMotion: (id: string, motion: Move[], history: boolean) => void;
-  onClose: () => void;
+  /** Durée de la page : nombre de périodes et période (s). */
+  onTiming: (t: Timing) => void;
+  playing: boolean;
+  onPlay: () => void;
+  /** Réglages propres au sticker choisi (cycle, pales, départ…), posés sous la frise. */
+  settings?: React.ReactNode;
 }) {
   const [pick, setPick] = useState<{ layer: string; move: string } | null>(null);
-  // la frise se déplace par son bandeau, pour dégager l'objet que l'on règle
-  const [off, setOff] = useState({ x: 0, y: 0 });
-  const carry = (e: React.PointerEvent<HTMLElement>) => {
-    if ((e.target as HTMLElement).closest('button')) return;
-    const [x0, y0, o] = [e.clientX, e.clientY, off];
-    const el = e.currentTarget;
-    el.setPointerCapture(e.pointerId);
-    const onMove = (ev: PointerEvent) => setOff({ x: o.x + ev.clientX - x0, y: o.y + ev.clientY - y0 });
-    const onUp = () => {
-      el.removeEventListener('pointermove', onMove);
-      el.removeEventListener('pointerup', onUp);
-      el.removeEventListener('pointercancel', onUp);
-    };
-    el.addEventListener('pointermove', onMove);
-    el.addEventListener('pointerup', onUp);
-    el.addEventListener('pointercancel', onUp);
-  };
   const rows = layers.filter((l) => l.kind !== 'surface' && l.visible !== false && ((l.anim && !l.cut) || l.motion?.length || l.id === selected));
   const total = timing.period * timing.count;
   const pct = (periods: number) => `${(periods / timing.count) * 100}%`;
@@ -102,13 +93,20 @@ export function Frise({
     </label>
   );
   return (
-    <div className="frise" style={{ transform: `translate(${off.x}px, ${off.y}px)` }} onPointerDown={(e) => e.stopPropagation()}>
-      <div className="fr-head" onPointerDown={carry} title="Glisser pour déplacer la frise">
-        <b>Frise</b>
-        <span>une ligne par objet : ses animations propres, puis ses consignes de mouvement</span>
-        <button onClick={onClose} aria-label="Fermer la frise" title="Fermer la frise">
-          ×
+    <div className="frise">
+      <div className="fr-head">
+        <button className="fr-play" onClick={onPlay} title={playing ? 'Mettre les animations en pause' : 'Lire les animations'} aria-label={playing ? 'Pause' : 'Lecture'}>
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path d={playing ? 'M7 5h3.5v14H7zM13.5 5H17v14h-3.5z' : 'M8 5l11 7-11 7z'} fill="currentColor" />
+          </svg>
         </button>
+        <output>
+          {t.toFixed(1)} / {total.toFixed(1)} s
+        </output>
+        <div className="fr-line">
+          {num('Périodes', timing.count, (v) => onTiming({ count: Math.round(v), period: total / Math.round(v) }), { min: 1, max: 120, title: 'Nombre de périodes : la durée de la vidéo reste la même, la période se resserre ou s’allonge' })}
+          {num('Durée', total, (v) => onTiming({ count: timing.count, period: v / timing.count }), { min: 0.5, max: 600, step: 0.5, unit: 's', title: `Durée de la vidéo : la période vaut ${timing.period.toFixed(2)} s` })}
+        </div>
       </div>
       <div className="fr-rows">
         <div className="fr-row fr-ruler">
@@ -194,6 +192,7 @@ export function Frise({
           );
         })}
       </div>
+      {settings && <div className="fr-own-set">{settings}</div>}
       {owner && move && (
         <div className="fr-edit">
           <div className="fr-line">

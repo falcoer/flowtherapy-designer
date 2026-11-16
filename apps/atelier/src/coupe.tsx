@@ -1,5 +1,5 @@
 import type { Format } from '@ftd/core';
-import { useEffect, useRef, useState } from 'react';
+import { cloneElement, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { BORDER_TYPES, fxPreview, GLOW_TYPES, Knob, swatch } from './App';
 import { FX, fxGuides, fxKnobs, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
@@ -281,7 +281,7 @@ const SECTIONS: Array<{ sec: Section; name: string; role: string; empty: string;
 ];
 
 /** Onglets du panneau des attributs : l'objet lui-même (Texte, Forme ou Image), son support, ses bords, son volume. */
-export type AttrTab = 'main' | 'support' | 'edge' | 'depth';
+export type AttrTab = 'main' | 'support' | 'edge' | 'depth' | 'anim';
 const TAB_KEY = 'ftd-atelier-attr-tab';
 /** Section d'origine (forme qu'on vient de poser, double toucher) → onglet. */
 const tabOfSec = (sec?: Section): AttrTab => (sec === 'support' || sec === 'coat' ? 'support' : sec === 'edge' ? 'edge' : sec === 'depth' ? 'depth' : 'main');
@@ -311,10 +311,10 @@ export function CoupePanel({
   targetAt,
   patchOther,
   onDoc,
-  onFrise,
+  anim,
 }: {
-  /** Ouvre la frise générale (consignes de mouvement de l'objet). */
-  onFrise?: () => void;
+  /** Onglet Animation : la frise générale (animations propres des stickers, consignes de mouvement), reçoit les réglages du sticker choisi. */
+  anim?: React.ReactElement<{ settings?: React.ReactNode }>;
   /** Liste des objets de la page, à gauche du panneau. */
   list?: React.ReactNode;
   /** Retouche du texte (police, graisse) : les lettres gardent leur place sur la page. */
@@ -357,13 +357,14 @@ export function CoupePanel({
       : ([
           ['edge', 'Bord'],
           ['depth', 'Volume'],
+          ...(anim ? [['anim', 'Animation']] : []),
         ] as Array<[AttrTab, string]>)),
   ];
   const [tabRaw, setTabRaw] = useState<AttrTab>(() => {
     if (openOn) return tabOfSec(openOn.sec);
     try {
       const t = localStorage.getItem(TAB_KEY);
-      return t === 'support' || t === 'edge' || t === 'depth' ? t : 'main';
+      return t === 'support' || t === 'edge' || t === 'depth' || t === 'anim' ? t : 'main';
     } catch {
       return 'main';
     }
@@ -387,6 +388,7 @@ export function CoupePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openOn]);
 
+  const animStep = useRef(0);
   const [focus, setFocus] = useState<string | null>(null);
   const [adding, setAdding] = useState<Section | null>(null);
   useEffect(() => {
@@ -513,16 +515,6 @@ export function CoupePanel({
   const hasFx = (l.fx ?? []).some((x) => groupOf(x) === 'effet');
   // les transformations sont passées à la scène entière : un objet n'en garde que d'anciennes, à retirer
   const fxCard = hasFx ? card('transform', 'Anciennes transformations') : null;
-
-  /** Mouvement de l'objet : ses consignes se posent sur la frise générale. */
-  const motionBar = onFrise && l.kind !== 'surface' && (
-    <div className="ap-molded ap-motion">
-      <span>{l.motion?.length ? `Mouvement : ${l.motion.length} consigne${l.motion.length > 1 ? 's' : ''} sur la frise.` : 'Mouvement : déplacer, tourner ou agrandir l’objet au fil de la vidéo.'}</span>
-      <button className="chip" onClick={onFrise}>
-        Frise
-      </button>
-    </div>
-  );
 
   /** Bandeau du bas d'un objet modelé : ses attributs d'origine sont grisés jusqu'au retour. */
   const moldBar = l.molded && (
@@ -679,7 +671,6 @@ export function CoupePanel({
         {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}
-        {motionBar}
       </>
     );
   else if (tab === 'main' && l.kind === 'shape') {
@@ -693,7 +684,6 @@ export function CoupePanel({
         {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}
-        {motionBar}
       </>
     );
   } else if (tab === 'main') {
@@ -703,9 +693,16 @@ export function CoupePanel({
         {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}
-        {motionBar}
       </>
     );
+  } else if (tab === 'anim' && anim) {
+    // un geste de potard = un pas d'annulation
+    const liveAnim = (p: Partial<Layer>) => {
+      const now = performance.now();
+      patch(p, now - animStep.current > 700);
+      animStep.current = now;
+    };
+    body = cloneElement(anim, { settings: l.anim && !l.cut ? <div className="cp-attrs">{<AnimRows l={l} doc={doc} anim={l.anim} live={liveAnim} patch={patch} />}</div> : undefined });
   } else if (tab === 'support') {
     const v = varnishOf(l);
     const vi = v ? (l.fx ?? []).indexOf(v) : -1;
@@ -1731,7 +1728,6 @@ export function Attrs({
     const gen = genOf(l);
     body = (
       <>
-        {l.anim && <AnimRows l={l} doc={doc} anim={l.anim} live={live} patch={patch} />}
         {gen && (
           <>
             <Range label="Côtés" display={`${gen.sides}`} value={(gen.sides - 3) / 21} onChange={(v) => live({ gen: { ...gen, sides: 3 + Math.round(v * 21) } })} />
