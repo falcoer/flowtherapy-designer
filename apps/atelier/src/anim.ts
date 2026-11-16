@@ -1,8 +1,8 @@
 import type { Format } from '@ftd/core';
 import type { Layer } from './model';
-import { generatorOf, spanOf, type Act, type Anim, type Generator, type Gesture, type Progress } from './stickers';
+import { animatorFor, generatorOf, newAnim, spanOf, type Act, type ActState, type Anim, type Context, type Generator, type Gesture, type Progress } from './stickers';
 
-export { GENERATORS, generatorOf, newAnim, forPart, spanOf, valueOf } from './stickers';
+export { ANIMATORS, GENERATORS, animatorFor, generatorOf, newAnim, forPart, spanOf, valueOf } from './stickers';
 export type { Act, Anim, Generator, Gesture, Param } from './stickers';
 
 /**
@@ -44,6 +44,21 @@ export const animTime = () => now;
 export const setAnimTime = (t: number) => void (now = t);
 /** Période de référence de la page affichée, réglée avant chaque dessin. */
 export const setAnimTiming = (t?: Partial<Timing>) => void (timing = timingOf(t));
+
+/**
+ * Animation d'un objet, telle que la frise la montre : son sticker, ou pour un objet qu'un générateur sait animer
+ * (un texte) ses gestes posés, vides tant qu'on n'en a posé aucun.
+ */
+const blanks = new Map<string, Anim>();
+export function animOf(l: Layer): Anim | undefined {
+  if (l.cut) return undefined;
+  if (l.anim) return l.anim;
+  const g = animatorFor(l.kind);
+  if (!g) return undefined;
+  let a = blanks.get(g.kind);
+  if (!a) blanks.set(g.kind, (a = newAnim(g, { acts: [] })));
+  return a;
+}
 
 /** Le document a-t-il au moins une forme animée ? */
 export const hasAnim = (layers: Layer[]) => layers.some((l) => l.visible !== false && ((l.anim && !l.cut) || !!l.motion?.length));
@@ -115,7 +130,7 @@ function current(acts: Act[], g: string, T: number): Act | undefined {
   return last ?? next;
 }
 /** Le sticker à l'instant t : les réglages du geste en cours remplacent ceux du sticker, et l'avancée de chaque geste. */
-function stateAt(g: Generator, a: Anim, t: number, tm = timing): { a: Anim; phase: number; progress: Progress } {
+function stateAt(g: Generator, a: Anim, t: number, tm = timing): { a: Anim; phase: number; progress: Progress; each: Context['each'] } {
   const acts = actsOf(a, tm);
   const gestures = g.gestures(a);
   const T = t / tm.period;
@@ -137,7 +152,21 @@ function stateAt(g: Generator, a: Anim, t: number, tm = timing): { a: Anim; phas
     const act = current(acts, id, T);
     return act && act.at <= T ? Math.max(0, Math.min(1, (T - act.at) / Math.max(0.001, act.len))) : 0;
   };
-  return { a: merged, phase: frac(t / Math.max(0.01, totalOf(tm))), progress };
+  // chaque geste posé avec ses propres réglages, dans l'ordre de la frise
+  const each = (id: string): ActState[] => {
+    const ge = gestures.find((x) => x.id === id);
+    return acts
+      .filter((x) => x.g === id)
+      .sort((p, q) => p.at - q.at)
+      .map((x) => {
+        let own = a;
+        for (const k of ge?.params ?? []) if (x[k] !== undefined) own = { ...own, [k]: x[k] };
+        const c = Math.max(0.01, x.cycle ?? g.cycle);
+        const done = Math.max(0, Math.min(x.len, T - x.at));
+        return { act: x, u: Math.max(0, Math.min(1, (T - x.at) / Math.max(0.001, x.len))), turns: done / c, of: x.len / c, a: own };
+      });
+  };
+  return { a: merged, phase: frac(t / Math.max(0.01, totalOf(tm))), progress, each };
 }
 
 // --- découpes ---
@@ -146,16 +175,16 @@ const frac = (x: number) => x - Math.floor(x);
 const SQUARE = 'M0 0H1V1H0Z';
 
 /** Découpe de la forme animée à l'instant t (coordonnées 0..1 de sa boîte). */
-export function animCut(a: Anim, t = now): string {
+export function animCut(a: Anim, t = now, host?: Context['host']): string {
   const g = generatorOf(a);
   if (!g) return SQUARE;
   const s = stateAt(g, a, t);
-  return g.cut(s.a, s.phase, s.progress);
+  return g.cut(s.a, s.phase, s.progress, { each: s.each, host });
 }
 /** Découpe de la vignette d'un générateur, figée à l'avancée qu'il choisit. */
 export function glyphCut(a: Anim): string {
   const g = generatorOf(a);
-  return g ? g.cut(a, g.glyphPhase ?? 0, () => g.glyphPhase ?? 0) : SQUARE;
+  return g ? g.cut(a, g.glyphPhase ?? 0, () => g.glyphPhase ?? 0, { each: () => [] }) : SQUARE;
 }
 
 /** Proportions de la boîte (largeur / hauteur) qui conviennent à l'animation. */
@@ -236,7 +265,7 @@ export function animOrder(a: Anim, t = now): Partial<Pose> | null {
   const g = generatorOf(a);
   if (!g?.order) return null;
   const s = stateAt(g, a, t);
-  return g.order(s.a, s.phase, s.progress);
+  return g.order(s.a, s.phase, s.progress, { each: s.each });
 }
 
 /** Pose d'un objet à l'instant t : la consigne de son sticker, plus toutes ses consignes de la frise. */
