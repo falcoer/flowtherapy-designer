@@ -5,7 +5,7 @@ import { BORDER_TYPES, fxPreview, GLOW_TYPES, Knob, swatch } from './App';
 import { FX, fxGuides, fxKnobs, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
-import { animName, animRatio, CYCLES, cycleFits, cycleName, cycleOf, cycleSeconds, generatorOf, timingOf, totalOf, valueOf, type Anim, type Param } from './anim';
+import { animName, animRatio, CYCLES, cycleName, generatorOf, timingOf, valueOf, type Act, type Anim, type Param } from './anim';
 import { GEN_DEFAULTS, LAYER_BLENDS, SKINS, VOLUMES, bevelSoftName, bevelSoftOf, volumeName, type Doc, type Layer } from './model';
 import { ensureFont, fontFamily, fontsFor, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { AlignGlyph, TextContent, useLazyText, WarpGlyph, weightName } from './textbar';
@@ -314,7 +314,7 @@ export function CoupePanel({
   anim,
 }: {
   /** Onglet Animation : la frise générale (animations propres des stickers, consignes de mouvement), reçoit les réglages du sticker choisi. */
-  anim?: React.ReactElement<{ settings?: React.ReactNode }>;
+  anim?: React.ReactElement<{ settings?: (act: Act | null) => React.ReactNode }>;
   /** Liste des objets de la page, à gauche du panneau. */
   list?: React.ReactNode;
   /** Retouche du texte (police, graisse) : les lettres gardent leur place sur la page. */
@@ -709,7 +709,8 @@ export function CoupePanel({
       patch(p, now - animStep.current > 700);
       animStep.current = now;
     };
-    body = cloneElement(anim, { settings: l.anim && !l.cut ? <div className="cp-attrs">{<AnimRows l={l} doc={doc} anim={l.anim} live={liveAnim} patch={patch} />}</div> : undefined });
+    const mine = l.anim && !l.cut ? l.anim : undefined;
+    body = cloneElement(anim, { settings: mine ? (act: Act | null) => <div className="cp-attrs">{<AnimRows l={l} doc={doc} anim={mine} act={act} live={liveAnim} patch={patch} />}</div> : undefined });
   } else if (tab === 'support') {
     const v = varnishOf(l);
     const vi = v ? (l.fx ?? []).indexOf(v) : -1;
@@ -1168,11 +1169,21 @@ function DepthGlyph({ k }: { k: 'bevel' | 'extrude' }) {
 }
 
 /** Réglages d'un sticker : le calage de son cycle, puis ses paramètres, tels que son générateur les décrit. */
-function AnimRows({ l, doc, anim: a, live, patch }: { l: Layer; doc: Doc; anim: Anim; live: (p: Partial<Layer>) => void; patch: (p: Partial<Layer>, history?: boolean) => void }) {
-  const gen = generatorOf(a);
-  const set = (p: Partial<Anim>) => live({ anim: { ...a, ...p } });
+/**
+ * Réglages d'un sticker. Avec un geste posé (`act`) : les réglages propres à ce geste, gardés dans le geste posé,
+ * et son rythme s'il tourne en boucle. Sans : les réglages de la forme, communs à toute la vidéo.
+ */
+function AnimRows({ l, doc, anim: base, act, live, patch }: { l: Layer; doc: Doc; anim: Anim; act: Act | null; live: (p: Partial<Layer>) => void; patch: (p: Partial<Layer>, history?: boolean) => void }) {
+  const gen = generatorOf(base);
+  const gesture = act ? gen?.gestures(base).find((g) => g.id === act.g) : undefined;
+  // les valeurs lues : celles du geste posé par-dessus celles du sticker
+  const own = Object.fromEntries((gesture?.params ?? []).filter((k) => act?.[k] !== undefined).map((k) => [k, act![k]]));
+  const a: Anim = act ? { ...base, ...own } : base;
+  /** Écrit des réglages : dans le geste posé quand il y en a un, sinon dans le sticker. */
+  const merge = (p: Partial<Anim>): Anim => (act ? { ...base, acts: (base.acts ?? []).map((x) => (x.id === act.id ? ({ ...x, ...p } as Act) : x)) } : { ...base, ...p });
+  const set = (p: Partial<Anim>) => live({ anim: merge(p) });
   // la boîte garde sa largeur et prend les proportions des nouveaux réglages (plus ou moins de chiffres, autre police)
-  const reshape = (next: Anim) => patch({ anim: next, h: Math.round((l.w / animRatio(next)) * 1000) / 1000 }, true);
+  const reshape = (p: Partial<Anim>) => patch({ anim: merge(p), h: Math.round((l.w / animRatio({ ...a, ...p })) * 1000) / 1000 }, true);
   const hasFont = !!gen?.params.some((p) => p.type === 'font');
   const [, ready] = useState(0);
   useEffect(() => {
@@ -1180,12 +1191,10 @@ function AnimRows({ l, doc, anim: a, live, patch }: { l: Layer; doc: Doc; anim: 
   }, [hasFont]);
   if (!gen) return <p className="cp-note cp-legend">Ce sticker vient d’une version plus récente : ses réglages ne sont pas connus ici.</p>;
   const tm = timingOf(doc.timing);
-  const cur = cycleOf(a, tm);
-  const fits = cycleFits(a, tm);
   const row = (p: Param) => {
     const v = valueOf(p, a);
     const [min, max] = [p.min ?? 0, p.max ?? 1];
-    const put = (x: number | string, step = false) => (p.reshape ? reshape({ ...a, [p.key]: x }) : step ? patch({ anim: { ...a, [p.key]: x } }, true) : set({ [p.key]: x }));
+    const put = (x: number | string, step = false) => (p.reshape ? reshape({ [p.key]: x }) : step ? patch({ anim: merge({ [p.key]: x }) }, true) : set({ [p.key]: x }));
     if (p.type === 'int')
       return (
         <label key={p.key} className="cp-row" title={p.title}>
@@ -1232,29 +1241,31 @@ function AnimRows({ l, doc, anim: a, live, patch }: { l: Layer; doc: Doc; anim: 
       </label>
     );
   };
-  const note = gen.note?.(a, cycleSeconds(a, tm));
+  // paramètres d'un geste : ceux qu'il déclare ; paramètres de la forme : ceux qu'aucun geste ne déclare
+  const inGesture = new Set(gen.gestures(base).flatMap((g) => g.params ?? []));
+  const params = gen.params.filter((p) => (act ? gesture?.params?.includes(p.key) : !inGesture.has(p.key)));
+  const cur = act?.cycle ?? gen.cycle;
+  const note = act && !gesture?.loop ? gen.note?.(a, act.len * tm.period) : undefined;
   return (
     <>
-      {/* calage du cycle en périodes de référence : ce que dure le décompte, un battement, un tour */}
-      <label className="cp-row" title={`${gen.cycleWhat} dure ce nombre de périodes de référence (réglées dans la barre d'animation)`}>
-        <span>{gen.cycleName}</span>
-        <select value={String(CYCLES.find((c) => Math.abs(c - cur) < 1e-6) ?? '')} onChange={(e) => patch({ anim: { ...a, ...gen.migrate?.(a), cycle: Number(e.target.value), speed: undefined } }, true)}>
-          {!CYCLES.some((c) => Math.abs(c - cur) < 1e-6) && <option value="">{cur.toFixed(2)} pér.</option>}
-          {CYCLES.map((c) => (
-            <option key={c} value={String(c)}>
-              {cycleName(c)} période{c > 1 ? 's' : ''}
-            </option>
-          ))}
-        </select>
-        <output>{cycleSeconds(a, tm).toFixed(2)} s</output>
-      </label>
-      {!fits && (
-        <p className="cp-note cp-legend">
-          Ne tombe pas juste dans {tm.count} période{tm.count > 1 ? 's' : ''} ({totalOf(tm).toFixed(1)} s) : la boucle sautera à la fin
-        </p>
+      {/* rythme d'un geste en boucle : ce que dure un tour, un battement, en périodes de référence */}
+      {act && gesture?.loop && (
+        <label className="cp-row" title={`${gen.cycleWhat} dure ce nombre de périodes de référence (réglées dans la barre d'animation)`}>
+          <span>{gen.cycleName}</span>
+          <select value={String(CYCLES.find((c) => Math.abs(c - cur) < 1e-6) ?? '')} onChange={(e) => patch({ anim: merge({ cycle: Number(e.target.value) }) }, true)}>
+            {!CYCLES.some((c) => Math.abs(c - cur) < 1e-6) && <option value="">{cur.toFixed(2)} pér.</option>}
+            {CYCLES.map((c) => (
+              <option key={c} value={String(c)}>
+                {cycleName(c)} période{c > 1 ? 's' : ''}
+              </option>
+            ))}
+          </select>
+          <output>{(cur * tm.period).toFixed(2)} s</output>
+        </label>
       )}
-      {gen.params.map(row)}
+      {params.map(row)}
       {note && <p className="cp-note cp-legend">{note}</p>}
+      {act && !gesture?.loop && !params.length && !note && <p className="cp-note cp-legend">Ce geste n’a pas de réglage : sa place et sa durée se règlent sur sa ligne.</p>}
     </>
   );
 }

@@ -10,8 +10,8 @@ import { steadyPath } from './steady';
 import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
 import { allStamps, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel, Dots } from './coupe';
-import { Frise } from './frise';
-import { animRatio, GENERATORS, glyphCut, hasAnim, newAnim, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
+import { Frise, scrub } from './frise';
+import { animRatio, forPart, withActs, GENERATORS, glyphCut, hasAnim, newAnim, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
 import { MatterRow } from './matter-palette';
@@ -2573,7 +2573,10 @@ export function App() {
     const group = [me, ...matesOf(src, me)];
     const link = me.link ? uid() : undefined;
     const ids = new Map(group.map((g) => [g.id, uid()]));
-    const copies = group.map((g) => ({ ...structuredClone(g), id: ids.get(g.id)!, name: `${g.name} (copie)`, dx: g.dx + 0.03, dy: g.dy + 0.03, pins: undefined, ...(link ? { link } : {}) }));
+    // la copie d'un sticker en pièces est un autre sticker : ses pièces se règlent entre elles, pas avec l'original
+    const sets = new Map<string, string>();
+    const reset = (a: Layer['anim']) => (a && typeof a.set === 'string' ? { anim: { ...a, set: sets.get(a.set) ?? (sets.set(a.set, uid()), sets.get(a.set)!) } } : {});
+    const copies = group.map((g) => ({ ...structuredClone(g), id: ids.get(g.id)!, name: `${g.name} (copie)`, dx: g.dx + 0.03, dy: g.dy + 0.03, pins: undefined, ...(link ? { link } : {}), ...reset(g.anim) }));
     update((d) => {
       const at = Math.max(...group.map((g) => d.layers.findIndex((x) => x.id === g.id)));
       const layers = [...d.layers];
@@ -4238,7 +4241,8 @@ export function App() {
   };
   /** Pose une forme animée (compte à rebours, oiseau, hélice) : la lecture démarre, ses réglages s'ouvrent. */
   const addAnim = async (gen: Generator) => {
-    const anim = newAnim(gen);
+    // ses gestes de départ sont posés sur la frise : ils s'y déplacent, s'y répètent ou s'en retirent
+    const anim = withActs(newAnim(gen), timing);
     if (typeof anim.font === 'string') {
       await loadFonts();
       await ensureFont(anim.font);
@@ -4248,13 +4252,19 @@ export function App() {
     const [w, h] = r >= 1 ? [k, k / r] : [k * r, k];
     const a = anchorFor(reperes.frame, f, f.width / 2, f.height / 2);
     const layer: Layer = { id: uid(), name: gen.name, kind: 'shape', anchor: a.anchor, dx: 0, dy: 0, w, h, guide, anim, height: 0.04, visible: true, strokes: [] };
-    update((d) => ({ ...d, layers: [...d.layers, layer] }));
+    // sticker en pièces : une couche par pièce, dans la même boîte, solidaires ; chacune part sur une teinte de la palette
+    const group = uid();
+    const n = doc.guides.length || 1;
+    const parts: Layer[] = gen.parts?.length
+      ? gen.parts.map((p, i) => ({ ...layer, id: i ? uid() : layer.id, name: `${gen.name} · ${p.name}`, anim: { ...anim, part: p.id, set: group }, guide: (guide + (p.tint ?? 0)) % n, link: group }))
+      : [layer];
+    update((d) => ({ ...d, layers: [...d.layers, ...parts] }));
     setSelected(layer.id);
     setBubble(null);
     setAnimPlay(true);
     setTool(lastEdit.current);
     setCoupeOpen((o) => ({ key: 'shape', n: (o?.n ?? 0) + 1 }));
-    setToast(`« ${gen.name} » s'anime : son cycle et ses mouvements se règlent dans l'onglet Animation ; teinte, bord et lueur s'appliquent comme sur une forme`);
+    setToast(`« ${gen.name} » s'anime : ses gestes et ses mouvements se posent dans l'onglet Animation ; teinte, bord et lueur s'appliquent comme sur une forme`);
     setToastUndo(false);
   };
   /** Pose un texte dans le style choisi, prêt à être réécrit. */
@@ -4522,7 +4532,20 @@ export function App() {
     const fn = (d: Doc) => {
       const me = d.layers.find((l) => l.id === id);
       const group = 'extrude' in patch && me?.link ? me.link : null;
-      const next = { ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, ...patch } : group && l.link === group ? { ...l, extrude: patch.extrude } : l)) };
+      // sticker en pièces (œil : blanc, iris, pupille) : réglages, plages des gestes et mouvements sont ceux du sticker entier
+      // les pièces d'un même sticker se reconnaissent à `anim.set` : deux yeux rendus solidaires gardent chacun leurs réglages (miroir)
+      const kin = ('anim' in patch || 'motion' in patch) && me?.anim?.set !== undefined ? me : null;
+      const next = {
+        ...d,
+        layers: d.layers.map((l) => {
+          if (l.id === id) return { ...l, ...patch };
+          let out = group && l.link === group ? { ...l, extrude: patch.extrude } : l;
+          if (kin && l.anim && l.anim.set === kin.anim!.set && l.anim.kind === kin.anim!.kind) {
+            out = { ...out, ...('anim' in patch && patch.anim ? { anim: forPart(patch.anim, l.anim) } : {}), ...('motion' in patch ? { motion: patch.motion } : {}) };
+          }
+          return out;
+        }),
+      };
       // matière ou vernis liés à la palette : l'entrée et les autres objets liés suivent
       return 'material' in patch || 'fx' in patch ? syncRefs(next, id) : next;
     };
@@ -6493,14 +6516,16 @@ export function App() {
           {/* le déroulé : la position dans la vidéo, un repère au début de chaque période ; toucher pour s'y placer */}
           <div
             className="anim-track"
-            onPointerDown={(e) => {
-              const r = e.currentTarget.getBoundingClientRect();
-              lookCache.current = null;
-              setAnimT(Math.max(0, Math.min(0.999, (e.clientX - r.left) / r.width)) * total);
-            }}
-            title="Déroulé de la vidéo : toucher pour s'y placer"
+            onPointerDown={(e) =>
+              scrub(e, total, (t) => {
+                lookCache.current = null;
+                setAnimT(t);
+              })
+            }
+            title="Déroulé de la vidéo : toucher ou glisser pour s'y placer"
           >
             <span className="anim-fill" style={{ width: `${((animT % total) / total) * 100}%` }} />
+            <span className="anim-knob" style={{ left: `${((animT % total) / total) * 100}%` }} />
             {Array.from({ length: timing.count }, (_, i) => (
               <span key={i} className="anim-tick" style={{ left: `${(i / timing.count) * 100}%` }} />
             ))}

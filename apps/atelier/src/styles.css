@@ -3128,6 +3128,13 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .anim-bar { padding-bottom: 12px; overflow: hidden; }
 .anim-track { position: absolute; left: 0; right: 0; bottom: 0; height: 8px; cursor: pointer; background: rgba(127,127,127,0.18); }
 .anim-fill { position: absolute; left: 0; top: 0; bottom: 0; background: #7a5cff; }
+/* la piste se glisse : zone de prise plus haute que le trait, poignée à la position courante */
+.anim-bar { padding-bottom: 18px; }
+.anim-track { height: 14px; touch-action: none; cursor: ew-resize; background: none; }
+.anim-track::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 8px; background: rgba(127,127,127,0.18); }
+.anim-fill, .anim-tick { top: 6px; }
+.anim-knob { position: absolute; bottom: -1px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: #7a5cff; border: 2px solid var(--chrome-solid); box-sizing: border-box; pointer-events: none; }
+.fr-ruler .fr-track { cursor: ew-resize; }
 .anim-tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink); opacity: 0.55; }
 .anim-tick:first-of-type { margin-left: 0; }
 
@@ -3195,3 +3202,19 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .fr-own { border-style: solid; border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--ink); }
 .fr-own.order { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, transparent) 0 5px, color-mix(in srgb, var(--accent) 28%, transparent) 5px 10px); }
 .fr-own .fr-edge { width: 8px; background: color-mix(in srgb, var(--accent) 45%, transparent); }
+
+/* frise : une ligne par animation, ＋ Animation ouvre la liste (mouvement, puis gestes du sticker) */
+.fr-adder { position: relative; overflow: visible; }
+.fr-adder .fr-add { width: auto; height: 24px; padding: 0 9px; border-radius: 12px; font-size: 11.5px; white-space: nowrap; background: var(--accent-soft); color: var(--accent); }
+.fr-menu-veil { position: fixed; inset: 0; z-index: 30; }
+.fr-menu { position: absolute; left: 0; top: 28px; z-index: 31; min-width: 210px; display: flex; flex-direction: column; padding: 4px; border-radius: 12px; background: var(--chrome-solid); box-shadow: 0 6px 24px rgba(0,0,0,0.28); }
+.fr-menu button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 10px; border-radius: 8px; text-align: left; background: none; color: var(--ink); }
+.fr-menu button:hover { background: var(--accent-soft); }
+.fr-menu button:first-child { border-bottom: 1px solid var(--line); border-radius: 8px 8px 0 0; }
+.fr-menu b { font-weight: 600; }
+.fr-menu i { font-style: normal; font-size: 11px; color: var(--muted); }
+.fr-rows { overflow: visible; }
+.fr-line-add { cursor: copy; }
+.fr-own em { font-style: normal; font-size: 10px; padding: 0 10px 0 6px; white-space: nowrap; pointer-events: none; }
+.fr-own.on { outline: 2px solid var(--ink); outline-offset: -2px; }
+.fr-own { overflow: hidden; }

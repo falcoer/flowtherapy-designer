@@ -74,7 +74,7 @@ export const bird: Generator = {
   cycleName: 'Battement',
   cycleWhat: 'Un battement d’ailes',
   params: [{ key: 'amp', name: 'Amplitude', type: 'range', min: 0.1, max: 1, def: 0.8 }],
-  gestures: () => [{ id: 'flap', name: 'Battement d’ailes', note: 'un battement par cycle', params: ['amp'] }],
+  gestures: () => [{ id: 'flap', name: 'Battement d’ailes', note: 'bat des ailes', loop: true, params: ['amp'] }],
   cut,
   ratio: () => 1 / BIRD_H,
   glyphPhase: 0.1,

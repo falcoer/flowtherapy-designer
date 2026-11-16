@@ -57,7 +57,7 @@ export const countdown: Generator = {
     { key: 'step', name: 'Pas', title: 'De combien la valeur descend à chaque battement', type: 'int', min: 1, max: 1000, def: 1, reshape: true },
     { key: 'font', name: 'Police', type: 'font', def: 'anton', reshape: true },
   ],
-  gestures: (a) => [{ id: 'count', name: 'Décompte', note: `${values(a).length} valeurs par cycle`, params: ['from', 'step'] }],
+  gestures: (a) => [{ id: 'count', name: 'Décompte', note: `${values(a).length} valeurs` }],
   cut,
   ratio: (a) => textCut(refStyle(a)).ratio,
   legacyUnits: (a) => values(a).length,
