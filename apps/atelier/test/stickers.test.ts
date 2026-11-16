@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { spanOf } from '../src/anim';
+import { forPart, spanOf } from '../src/anim';
 import { animCut, animOrder, animRatio, cycleOf, ease, GENERATORS, generatorOf, gesturesOf, newAnim, poseOf, setAnimTiming, valueOf } from '../src/anim';
 import type { Layer } from '../src/model';
 
@@ -115,5 +115,37 @@ describe('mouvement général', () => {
     const end = poseOf(l, 3.999, tm)!;
     expect(end.dx).toBeCloseTo(0.2, 2);
     expect(end.scale).toBeCloseTo(1, 2);
+  });
+});
+
+describe('œil en pièces', () => {
+  const eye = generatorOf('eye')!;
+  const at = (over: Record<string, number | string>, phase = 0.02) => {
+    const a = newAnim(eye, over);
+    return eye.cut(a, phase, (id) => {
+      const g = eye.gestures(a).find((x) => x.id === id)!;
+      const s = spanOf(a, g);
+      return Math.max(0, Math.min(1, (phase - s.at) / s.len));
+    });
+  };
+  it('chaque pièce a sa surface, différente des autres', () => {
+    const cuts = eye.parts!.map((p) => at({ part: p.id }));
+    expect(new Set(cuts).size).toBe(3);
+    for (const c of cuts) expect(c).not.toContain('NaN');
+  });
+  it('la forme se règle : ronde, bridée, en miroir', () => {
+    const base = at({ part: 'white' });
+    const shapes = [at({ part: 'white', round: 1 }), at({ part: 'white', slant: 1 }), at({ part: 'white', slant: 1, mirror: 1 })];
+    expect(new Set([base, ...shapes]).size).toBe(4);
+    for (const c of shapes) expect(c).not.toContain('NaN');
+    // sans inclinaison, le miroir ne change rien
+    expect(at({ part: 'white', mirror: 1 })).toBe(base);
+  });
+  it('les réglages passent aux autres pièces, la pièce reste', () => {
+    const next = forPart({ kind: 'eye', part: 'white', round: 0.5, 'blink.at': 0.2 }, { kind: 'eye', part: 'iris' });
+    expect(next).toEqual({ kind: 'eye', part: 'iris', round: 0.5, 'blink.at': 0.2 });
+  });
+  it('un œil d’avant, sans pièce, garde sa découpe entière', () => {
+    expect(at({})).not.toBe(at({ part: 'white' }));
   });
 });

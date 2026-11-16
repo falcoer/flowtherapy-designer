@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type PointerEvent as RPointerEvent } from 'react';
 import { ACCELS, animName, BRAKES, cycleName, cycleOf, gesturesOf, moveName, newMove, spanOf, type Accel, type Anim, type Brake, type Gesture, type Move, type Timing } from './anim';
 import type { Layer } from './model';
 
@@ -7,6 +7,32 @@ import type { Layer } from './model';
  * propres du sticker (déclarées par son générateur, répétées à chaque cycle) et les consignes de mouvement
  * de l'objet, des blocs que l'on pose, déplace et étire dans les périodes.
  */
+/** Se placer dans la vidéo en touchant une piste, puis en glissant dessus : la piste garde le doigt jusqu'au lâcher. */
+export function scrub(e: RPointerEvent<HTMLElement>, total: number, seek: (t: number) => void) {
+  const el = e.currentTarget;
+  const r = el.getBoundingClientRect();
+  if (!r.width) return;
+  const at = (x: number) => seek(Math.max(0, Math.min(0.999, (x - r.left) / r.width)) * total);
+  e.preventDefault();
+  at(e.clientX);
+  const id = e.pointerId;
+  try {
+    el.setPointerCapture(id);
+  } catch {
+    /* doigt déjà levé */
+  }
+  const move = (ev: PointerEvent) => ev.pointerId === id && at(ev.clientX);
+  const end = (ev: PointerEvent) => {
+    if (ev.pointerId !== id) return;
+    el.removeEventListener('pointermove', move);
+    el.removeEventListener('pointerup', end);
+    el.removeEventListener('pointercancel', end);
+  };
+  el.addEventListener('pointermove', move);
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+}
+
 export function Frise({
   layers,
   selected,
@@ -140,11 +166,8 @@ export function Frise({
           <span className="fr-name" />
           <div
             className="fr-track"
-            onPointerDown={(e) => {
-              const r = e.currentTarget.getBoundingClientRect();
-              onSeek(Math.max(0, Math.min(0.999, (e.clientX - r.left) / r.width)) * total);
-            }}
-            title="Toucher pour se placer dans la vidéo"
+            onPointerDown={(e) => scrub(e, total, onSeek)}
+            title="Toucher ou glisser pour se placer dans la vidéo"
           >
             {Array.from({ length: timing.count }, (_, i) => (
               <span key={i} className="fr-period" style={{ left: pct(i), width: pct(1) }}>

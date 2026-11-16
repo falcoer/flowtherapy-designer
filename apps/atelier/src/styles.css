@@ -3128,6 +3128,13 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .anim-bar { padding-bottom: 12px; overflow: hidden; }
 .anim-track { position: absolute; left: 0; right: 0; bottom: 0; height: 8px; cursor: pointer; background: rgba(127,127,127,0.18); }
 .anim-fill { position: absolute; left: 0; top: 0; bottom: 0; background: #7a5cff; }
+/* la piste se glisse : zone de prise plus haute que le trait, poignée à la position courante */
+.anim-bar { padding-bottom: 18px; }
+.anim-track { height: 14px; touch-action: none; cursor: ew-resize; background: none; }
+.anim-track::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 8px; background: rgba(127,127,127,0.18); }
+.anim-fill, .anim-tick { top: 6px; }
+.anim-knob { position: absolute; bottom: -1px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: #7a5cff; border: 2px solid var(--chrome-solid); box-sizing: border-box; pointer-events: none; }
+.fr-ruler .fr-track { cursor: ew-resize; }
 .anim-tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink); opacity: 0.55; }
 .anim-tick:first-of-type { margin-left: 0; }
 

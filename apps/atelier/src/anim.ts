@@ -2,7 +2,7 @@ import type { Format } from '@ftd/core';
 import type { Layer } from './model';
 import { generatorOf, progressOf, type Anim, type Generator, type Gesture } from './stickers';
 
-export { GENERATORS, generatorOf, newAnim, spanOf, valueOf } from './stickers';
+export { GENERATORS, generatorOf, newAnim, forPart, spanOf, valueOf } from './stickers';
 export type { Anim, Generator, Gesture, Param } from './stickers';
 
 /**

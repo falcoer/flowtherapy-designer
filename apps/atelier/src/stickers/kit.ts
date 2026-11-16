@@ -98,6 +98,11 @@ export interface Generator {
   gestures: (a: Anim) => Gesture[];
   /** Découpe (coordonnées 0..1 de la boîte) à une avancée du cycle (0..1) ; `g` donne l'avancée de chaque geste. */
   cut: (a: Anim, phase: number, g: Progress) => string;
+  /**
+   * Pièces du sticker : posé, il devient une couche par pièce, dans la même boîte, solidaires (chacune sa teinte, son bord).
+   * La pièce d'une couche est dans ses données (`part`) ; les autres réglages restent communs. `tint` décale la teinte de départ.
+   */
+  parts?: { id: string; name: string; tint?: number }[];
   /** Proportions de la boîte (largeur / hauteur). */
   ratio: (a: Anim) => number;
   /** Consigne de mouvement ajoutée au plan général, à une avancée du cycle. */
@@ -121,6 +126,12 @@ export function valueOf(p: Param, a: Anim): number | string {
 }
 export function numOf(a: Anim, key: string, def: number): number {
   return typeof a[key] === 'number' ? (a[key] as number) : def;
+}
+
+/** Les mêmes réglages pour une autre pièce du même sticker : seule la pièce reste la sienne. */
+export function forPart(a: Anim, mine: Anim): Anim {
+  const { part: _p, ...rest } = a;
+  return mine.part === undefined ? rest : { ...rest, part: mine.part };
 }
 
 export const frac = (x: number) => x - Math.floor(x);
