@@ -3147,7 +3147,8 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .fr-period { position: absolute; top: 0; bottom: 0; box-sizing: border-box; border-left: 2px solid var(--ink); padding-left: 3px; font-size: 10px; line-height: 18px; color: var(--muted); opacity: 0.8; overflow: hidden; }
 .fr-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--ink); opacity: 0.18; }
 .fr-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #7a5cff; pointer-events: none; }
-.fr-own { position: absolute; top: 3px; bottom: 3px; box-sizing: border-box; border-radius: 5px; border: 1px dashed color-mix(in srgb, var(--ink) 45%, transparent); background: repeating-linear-gradient(135deg, transparent 0 5px, rgba(127,127,127,0.16) 5px 10px); padding: 0 5px; font-size: 10px; line-height: 14px; color: var(--muted); overflow: hidden; white-space: nowrap; }
+.fr-cycle { position: absolute; top: 0; bottom: 0; box-sizing: border-box; border-left: 1px dashed color-mix(in srgb, var(--ink) 35%, transparent); pointer-events: none; }
+.fr-own { cursor: grab; position: absolute; top: 3px; bottom: 3px; box-sizing: border-box; border-radius: 5px; border: 1px dashed color-mix(in srgb, var(--ink) 45%, transparent); background: repeating-linear-gradient(135deg, transparent 0 5px, rgba(127,127,127,0.16) 5px 10px); padding: 0 5px; font-size: 10px; line-height: 14px; color: var(--muted); overflow: hidden; white-space: nowrap; }
 .fr-own.order { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: repeating-linear-gradient(135deg, transparent 0 5px, var(--accent-soft) 5px 10px); }
 .fr-move { position: absolute; top: 2px; bottom: 2px; box-sizing: border-box; border-radius: 6px; background: var(--accent); color: #fff; cursor: grab; overflow: hidden; display: flex; align-items: center; opacity: 0.85; }
 .fr-move.on { opacity: 1; outline: 2px solid var(--ink); outline-offset: -2px; }
@@ -3190,3 +3191,7 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
   .anim-bar.with-band input { width: 28px; }
   .anim-bar.with-band label { margin-left: 0; }
 }
+/* plage d'un geste dans son cycle : un bloc franc, à glisser et étirer */
+.fr-own { border-style: solid; border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--ink); }
+.fr-own.order { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, transparent) 0 5px, color-mix(in srgb, var(--accent) 28%, transparent) 5px 10px); }
+.fr-own .fr-edge { width: 8px; background: color-mix(in srgb, var(--accent) 45%, transparent); }

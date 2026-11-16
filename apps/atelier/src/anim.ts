@@ -1,8 +1,8 @@
 import type { Format } from '@ftd/core';
 import type { Layer } from './model';
-import { generatorOf, type Anim, type Gesture } from './stickers';
+import { generatorOf, progressOf, type Anim, type Generator, type Gesture } from './stickers';
 
-export { GENERATORS, generatorOf, newAnim, valueOf } from './stickers';
+export { GENERATORS, generatorOf, newAnim, spanOf, valueOf } from './stickers';
 export type { Anim, Generator, Gesture, Param } from './stickers';
 
 /**
@@ -72,10 +72,15 @@ const SQUARE = 'M0 0H1V1H0Z';
 
 /** Découpe de la forme animée à l'instant t (coordonnées 0..1 de sa boîte). */
 export function animCut(a: Anim, t = now): string {
-  return generatorOf(a)?.cut(a, phaseOf(a, t)) ?? SQUARE;
+  const g = generatorOf(a);
+  return g ? cutAt(g, a, phaseOf(a, t)) : SQUARE;
 }
+const cutAt = (g: Generator, a: Anim, phase: number) => g.cut(a, phase, progressOf(a, g.gestures(a), phase));
 /** Découpe de la vignette d'un générateur, figée à l'avancée qu'il choisit. */
-export const glyphCut = (a: Anim) => generatorOf(a)?.cut(a, generatorOf(a)?.glyphPhase ?? 0) ?? SQUARE;
+export function glyphCut(a: Anim): string {
+  const g = generatorOf(a);
+  return g ? cutAt(g, a, g.glyphPhase ?? 0) : SQUARE;
+}
 
 /** Proportions de la boîte (largeur / hauteur) qui conviennent à l'animation. */
 export function animRatio(a: Anim): number {
@@ -152,7 +157,10 @@ export interface Pose {
 
 /** Consigne propre au sticker : le mouvement d'objet que son générateur ajoute au plan général. */
 export function animOrder(a: Anim, t = now): Partial<Pose> | null {
-  return generatorOf(a)?.order?.(a, phaseOf(a, t)) ?? null;
+  const g = generatorOf(a);
+  if (!g?.order) return null;
+  const phase = phaseOf(a, t);
+  return g.order(a, phase, progressOf(a, g.gestures(a), phase));
 }
 /** Gestes propres d'un sticker, tels que son générateur les déclare : ils remontent sur la frise. */
 export const gesturesOf = (a: Anim): Gesture[] => generatorOf(a)?.gestures(a) ?? [];

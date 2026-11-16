@@ -60,6 +60,31 @@ export interface Gesture {
   order?: boolean;
   /** Paramètres propres au geste (Param.key), parmi ceux du générateur. */
   params?: string[];
+  /** Plage de départ du geste dans le cycle (début et durée, 0..1) : le cycle entier si absente. */
+  at?: number;
+  len?: number;
+}
+
+/**
+ * Avancée d'un geste (0..1) à un instant du cycle : 0 avant sa plage, 1 après.
+ * C'est ce que lit un générateur pour se dessiner : chaque geste a sa place dans le cycle, réglée sur la frise.
+ */
+export type Progress = (gesture: string) => number;
+
+/** Plage d'un geste dans le cycle : celle réglée sur la frise (clés « geste.at », « geste.len »), sinon celle de départ. */
+export function spanOf(a: Anim, g: Gesture): { at: number; len: number } {
+  const at = Math.max(0, Math.min(0.98, numOf(a, `${g.id}.at`, g.at ?? 0)));
+  const len = Math.max(0.02, Math.min(1 - at, numOf(a, `${g.id}.len`, g.len ?? 1)));
+  return { at, len };
+}
+/** Avancée de chaque geste à une avancée du cycle. */
+export function progressOf(a: Anim, gestures: Gesture[], phase: number): Progress {
+  return (id) => {
+    const g = gestures.find((x) => x.id === id);
+    if (!g) return phase;
+    const { at, len } = spanOf(a, g);
+    return Math.max(0, Math.min(1, (phase - at) / len));
+  };
 }
 
 export interface Generator {
@@ -71,12 +96,12 @@ export interface Generator {
   cycleWhat: string;
   params: Param[];
   gestures: (a: Anim) => Gesture[];
-  /** Découpe (coordonnées 0..1 de la boîte) à une avancée du cycle (0..1). */
-  cut: (a: Anim, phase: number) => string;
+  /** Découpe (coordonnées 0..1 de la boîte) à une avancée du cycle (0..1) ; `g` donne l'avancée de chaque geste. */
+  cut: (a: Anim, phase: number, g: Progress) => string;
   /** Proportions de la boîte (largeur / hauteur). */
   ratio: (a: Anim) => number;
   /** Consigne de mouvement ajoutée au plan général, à une avancée du cycle. */
-  order?: (a: Anim, phase: number) => Order;
+  order?: (a: Anim, phase: number, g: Progress) => Order;
   /** Durée naturelle d'un cycle en « unités de vitesse » : sert seulement aux anciens documents réglés en vitesse. */
   legacyUnits?: (a: Anim) => number;
   /** Retouche des données quand on cale le cycle d'un ancien document. */
@@ -94,7 +119,9 @@ export interface Generator {
 export function valueOf(p: Param, a: Anim): number | string {
   return p.read ? p.read(a) : (a[p.key] ?? p.def);
 }
-export const numOf = (a: Anim, key: string, def: number) => (typeof a[key] === 'number' ? (a[key] as number) : def);
+export function numOf(a: Anim, key: string, def: number): number {
+  return typeof a[key] === 'number' ? (a[key] as number) : def;
+}
 
 export const frac = (x: number) => x - Math.floor(x);
 

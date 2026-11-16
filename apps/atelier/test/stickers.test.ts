@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { spanOf } from '../src/anim';
 import { animCut, animOrder, animRatio, cycleOf, ease, GENERATORS, generatorOf, gesturesOf, newAnim, poseOf, setAnimTiming, valueOf } from '../src/anim';
 import type { Layer } from '../src/model';
 
@@ -6,7 +7,7 @@ const layer = (p: Partial<Layer>): Layer => ({ id: 'a', name: 'a', kind: 'shape'
 
 describe('catalogue des stickers', () => {
   it('chaque générateur se décrit entièrement', () => {
-    expect(GENERATORS.map((g) => g.kind)).toEqual(['countdown', 'bird', 'propeller']);
+    expect(GENERATORS.map((g) => g.kind)).toEqual(['countdown', 'bird', 'propeller', 'eye']);
     for (const g of GENERATORS) {
       const a = newAnim(g);
       expect(a.cycle).toBe(g.cycle);
@@ -46,6 +47,43 @@ describe('catalogue des stickers', () => {
   it('les anciennes vitesses donnent un cycle en périodes', () => {
     expect(cycleOf({ kind: 'bird', speed: 2 }, { period: 1, count: 4 })).toBeCloseTo(0.5);
     expect(cycleOf({ kind: 'countdown', speed: 1, from: 3, step: 1 }, { period: 1, count: 4 })).toBeCloseTo(4);
+  });
+});
+
+describe('phases : la plage de chaque geste dans le cycle', () => {
+  it("l'œil regarde puis cligne, chacun dans sa plage", () => {
+    setAnimTiming({ period: 1, count: 4 });
+    const a = newAnim(generatorOf('eye')!);
+    const rest = animCut(a, 0);
+    // cycle de 4 s : regard de 0,4 s à 2,4 s, clignement de 3 s à 3,4 s
+    expect(animCut(a, 0.9)).not.toBe(rest);
+    expect(animCut(a, 2.7)).toBe(rest);
+    expect(animCut(a, 3.2)).not.toBe(rest);
+    expect(animCut(a, 3.7)).toBe(rest);
+  });
+
+  it('une plage déplacée sur la frise déplace le geste', () => {
+    setAnimTiming({ period: 1, count: 4 });
+    const g = generatorOf('eye')!;
+    const a = { ...newAnim(g), 'blink.at': 0.2, 'blink.len': 0.1, 'look.at': 0.5, 'look.len': 0.4 };
+    expect(spanOf(a, g.gestures(a)[1]!)).toEqual({ at: 0.2, len: 0.1 });
+    const rest = animCut(a, 0);
+    expect(animCut(a, 1)).not.toBe(rest);
+    expect(animCut(a, 3.2)).not.toBe(animCut(newAnim(g), 3.2));
+  });
+
+  it("l'hélice ne tourne que pendant la plage de sa rotation", () => {
+    setAnimTiming({ period: 1, count: 4 });
+    const a = { ...newAnim(generatorOf('propeller')!), cycle: 4, 'spin.at': 0.25, 'spin.len': 0.5 };
+    expect(animOrder(a, 0.5)?.rot).toBeCloseTo(0);
+    expect(animOrder(a, 2)?.rot).toBeCloseTo(Math.PI);
+    expect(animOrder(a, 3.5)?.rot).toBeCloseTo(2 * Math.PI);
+  });
+
+  it('une plage reste dans le cycle', () => {
+    const g = generatorOf('eye')!;
+    const sp = spanOf({ kind: 'eye', 'blink.at': 0.9, 'blink.len': 0.8 }, g.gestures({ kind: 'eye' })[1]!);
+    expect(sp.at + sp.len).toBeLessThanOrEqual(1 + 1e-9);
   });
 });
 

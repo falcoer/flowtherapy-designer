@@ -1,13 +1,14 @@
 import { ringsToPath, type Ring } from '../cut';
 import type { Pt } from '../model';
-import { cached, frac, numOf, type Anim, type Generator } from './kit';
+import { cached, frac, numOf, type Anim, type Generator, type Progress } from './kit';
 
 // oiseau vu de face : ailes en V qui battent (le bout suit le coude avec un retard), le corps monte et descend
 const BIRD_FRAMES = 40;
 const BIRD_H = 0.66;
-function cut(a: Anim, phase: number): string {
+function cut(a: Anim, _phase: number, g: Progress): string {
   const amp = Math.max(0.1, Math.min(1, numOf(a, 'amp', 0.8)));
-  const k = Math.floor(frac(phase) * BIRD_FRAMES);
+  // hors de la plage du battement, l'oiseau plane dans sa pose de départ
+  const k = Math.floor(frac(g('flap')) * BIRD_FRAMES);
   return cached(`b|${amp}|${k}`, () => {
     const ph = (k / BIRD_FRAMES) * 2 * Math.PI;
     const s = Math.sin(ph);

@@ -1,6 +1,6 @@
 import { pathToRings, ringsToPath } from '../cut';
 import { textCut, textEpoch, type TextStyle } from '../text';
-import { cached, frac, numOf, type Anim, type Generator } from './kit';
+import { cached, frac, numOf, type Anim, type Generator, type Progress } from './kit';
 
 // compte à rebours : chaque nouvelle valeur arrive en grossissant légèrement (10 images)
 const POP_FRAMES = 10;
@@ -16,15 +16,16 @@ const styleOf = (a: Anim, content: string): TextStyle => ({ content, font: typeo
 const refStyle = (a: Anim) => styleOf(a, '8'.repeat(String(values(a)[0] ?? 0).length));
 
 /** Valeur affichée à une avancée du cycle, et l'avancée dans son temps (0..1) : les valeurs se partagent le cycle. */
-function at(a: Anim, phase: number): { value: number; f: number } {
+function at(a: Anim, u: number): { value: number; f: number } {
   const vals = values(a);
-  const x = frac(phase) * vals.length;
+  // après sa plage, le décompte reste sur sa dernière valeur
+  const x = Math.min(vals.length - 1e-6, u * vals.length);
   const i = Math.min(vals.length - 1, Math.floor(x));
   return { value: vals[i] ?? 0, f: frac(x) };
 }
 
-function cut(a: Anim, phase: number): string {
-  const { value, f } = at(a, phase);
+function cut(a: Anim, _phase: number, g: Progress): string {
+  const { value, f } = at(a, g('count'));
   const k = Math.min(POP_FRAMES - 1, Math.floor(f * POP_FRAMES * 3));
   return cached(`c|${a.font}|${refStyle(a).content.length}|${value}|${k}|${textEpoch()}`, () => {
     const r = textCut(refStyle(a));
