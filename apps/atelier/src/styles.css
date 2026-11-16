@@ -3234,9 +3234,12 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .fr-name { cursor: pointer; }
 .fr-blk .fr-edge, .fr-own.fr-blk .fr-edge { width: 14px; }
 @media (pointer: coarse) { .fr-track { height: 30px; } .fr-ruler .fr-track { height: 22px; } .fr-blk .fr-edge, .fr-own.fr-blk .fr-edge { width: 22px; } }
-/* gestes des textes : toutes les lettres, ou une par son numéro */
-.cp-row.cp-letters .cp-letter-set { grid-column: 2 / 4; }
-.cp-letter-set { display: flex; flex-wrap: wrap; gap: 4px; max-width: 100%; }
-.cp-letter-set { align-items: center; gap: 12px; }
-.cp-letter-set label { display: inline-flex; align-items: center; gap: 6px; }
-.cp-letter-set small { color: var(--muted); }
+/* gestes des textes : la lettre visée, un cercle à glisser comme la teinte (le texte défile en bande) */
+.cp-letter .tint-b { background: var(--chrome-solid); color: var(--ink); }
+.cp-letter .letter-face { font: 700 20px/1 Inter, sans-serif; }
+.cp-letter .letter-face.all { font-size: 12px; letter-spacing: .02em; }
+.letter-strip .tint-reel i { display: flex; align-items: center; justify-content: center; width: 46px; height: 20px; transform: none; background: none; box-shadow: none; border-radius: 0; font: 700 15px/1 Inter, sans-serif; color: var(--ink); }
+.letter-strip .tint-reel i.on { transform: none; }
+.letter-strip .tint-reel i.all { font-size: 10px; }
+.letter-strip .letter-lens { display: flex; align-items: center; justify-content: center; background: var(--chrome-solid); color: var(--accent); font: 800 20px/1 Inter, sans-serif; }
+.letter-strip .letter-lens.all { font-size: 11px; }
