@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { forPart, spanOf } from '../src/anim';
+import { actsOf, forPart, newAct, spanOf, withActs } from '../src/anim';
 import { animCut, animOrder, animRatio, cycleOf, ease, GENERATORS, generatorOf, gesturesOf, newAnim, poseOf, setAnimTiming, valueOf } from '../src/anim';
 import type { Layer } from '../src/model';
 
@@ -78,6 +78,9 @@ describe('phases : la plage de chaque geste dans le cycle', () => {
     expect(animOrder(a, 0.5)?.rot).toBeCloseTo(0);
     expect(animOrder(a, 2)?.rot).toBeCloseTo(Math.PI);
     expect(animOrder(a, 3.5)?.rot).toBeCloseTo(2 * Math.PI);
+    // d'un cycle au suivant, les tours s'ajoutent : l'hélice ne revient pas en arrière
+    setAnimTiming({ period: 1, count: 8 });
+    expect(animOrder(a, 6)?.rot).toBeCloseTo(3 * Math.PI);
   });
 
   it('une plage reste dans le cycle', () => {
@@ -110,7 +113,7 @@ describe('mouvement général', () => {
     expect(p.dx).toBeCloseTo(0.3);
     expect(p.scale).toBeCloseTo(2);
     // un demi-tour de consigne, l'hélice elle-même revenue à un tour entier
-    expect(p.rot).toBeCloseTo(Math.PI);
+    expect(((p.rot % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)).toBeCloseTo(Math.PI);
     // l'aller-retour revient à son départ, la première consigne garde son effet
     const end = poseOf(l, 3.999, tm)!;
     expect(end.dx).toBeCloseTo(0.2, 2);
@@ -147,5 +150,57 @@ describe('œil en pièces', () => {
   });
   it('un œil d’avant, sans pièce, garde sa découpe entière', () => {
     expect(at({})).not.toBe(at({ part: 'white' }));
+  });
+});
+
+describe('gestes posés à la demande', () => {
+  const tm = { period: 1, count: 4 };
+  const eye = generatorOf('eye')!;
+  const [look, blink] = eye.gestures({ kind: 'eye' }) as [ReturnType<typeof eye.gestures>[number], ReturnType<typeof eye.gestures>[number]];
+  it('un sticker d’avant garde ses gestes, un par cycle', () => {
+    setAnimTiming(tm);
+    const a = newAnim(eye);
+    expect(actsOf(a, tm).map((x) => [x.g, x.at, x.len])).toEqual([
+      ['look', 0.4, 2],
+      ['blink', 3, 0.4],
+    ]);
+    // inscrits dans les données, ils se dessinent pareil
+    const full = withActs(a, tm);
+    for (const t of [0, 0.9, 2.7, 3.2, 3.7]) expect(animCut(full, t)).toBe(animCut(a, t));
+    expect(actsOf({ ...newAnim(generatorOf('bird')!) }, tm)).toHaveLength(1);
+  });
+  it('sans geste posé, le sticker reste au repos', () => {
+    setAnimTiming(tm);
+    const a = { ...newAnim(eye), acts: [] };
+    expect(new Set([0, 0.9, 2, 3.2].map((t) => animCut(a, t))).size).toBe(1);
+    expect(animOrder({ ...newAnim(generatorOf('propeller')!), acts: [] }, 2)?.rot).toBeCloseTo(0);
+  });
+  it('un geste se pose plusieurs fois', () => {
+    setAnimTiming(tm);
+    const base = { ...newAnim(eye), acts: [] };
+    const a = { ...base, acts: [newAct(base, blink, 0.5, tm), newAct(base, blink, 2.5, tm)] };
+    const rest = animCut(a, 0);
+    expect(animCut(a, 0.7)).not.toBe(rest);
+    expect(animCut(a, 1.5)).toBe(rest);
+    expect(animCut(a, 2.7)).toBe(animCut(a, 0.7));
+  });
+  it('chaque geste posé a ses réglages', () => {
+    setAnimTiming(tm);
+    const base = { ...newAnim(eye), acts: [] };
+    const wide = { ...newAct(base, look, 0, tm), len: 1, gaze: 1 };
+    const none = { ...newAct(base, look, 2, tm), len: 1, gaze: 0 };
+    const a = { ...base, acts: [wide, none] };
+    expect(animCut(a, 0.25)).not.toBe(animCut(a, 0));
+    // regard à zéro : l'iris ne quitte pas le centre
+    expect(animCut(a, 2.25)).toBe(animCut(a, 2));
+  });
+  it('une boucle tourne à son rythme tant qu’elle dure, puis garde sa pose', () => {
+    setAnimTiming(tm);
+    const prop = generatorOf('propeller')!;
+    const base = { ...newAnim(prop), acts: [] };
+    const a = { ...base, acts: [{ ...newAct(base, prop.gestures(base)[0]!, 1, tm), len: 1, cycle: 0.5 }] };
+    expect(animOrder(a, 0.5)?.rot).toBeCloseTo(0);
+    expect(animOrder(a, 1.25)?.rot).toBeCloseTo(Math.PI);
+    expect(animOrder(a, 3)?.rot).toBeCloseTo(4 * Math.PI);
   });
 });

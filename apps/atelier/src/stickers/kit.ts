@@ -16,7 +16,24 @@ export interface Anim {
   cycle?: number;
   /** Ancienne vitesse (par seconde), lue quand `cycle` manque. */
   speed?: number;
+  /**
+   * Gestes posés sur la frise : chaque geste propre du sticker se déclenche à la demande, autant de fois qu'il faut, ou jamais.
+   * Absent : sticker d'avant, ses gestes se répètent à chaque cycle (voir actsOf dans anim.ts).
+   */
+  acts?: Act[];
   /** Paramètres du générateur, par clé (Param.key). */
+  [key: string]: number | string | Act[] | undefined;
+}
+
+/** Un geste posé sur la frise : lequel, sa place (début et durée en périodes), puis ses réglages propres par clé. */
+export interface Act {
+  id: string;
+  /** Le geste (Gesture.id). */
+  g: string;
+  at: number;
+  len: number;
+  /** Geste en boucle : durée d'une boucle (un tour, un battement), en périodes. */
+  cycle?: number;
   [key: string]: number | string | undefined;
 }
 
@@ -58,7 +75,9 @@ export interface Gesture {
   name: string;
   note?: string;
   order?: boolean;
-  /** Paramètres propres au geste (Param.key), parmi ceux du générateur. */
+  /** Le geste tourne en boucle tant qu'il dure (rotation, battement) ; sinon il se joue une fois sur sa durée. */
+  loop?: boolean;
+  /** Paramètres propres au geste (Param.key), parmi ceux du générateur : chaque geste posé a les siens. */
   params?: string[];
   /** Plage de départ du geste dans le cycle (début et durée, 0..1) : le cycle entier si absente. */
   at?: number;
@@ -66,7 +85,8 @@ export interface Gesture {
 }
 
 /**
- * Avancée d'un geste (0..1) à un instant du cycle : 0 avant sa plage, 1 après.
+ * Avancée d'un geste à un instant : de 0 à 1 sur la durée du geste posé (0 avant le premier, 1 une fois fini) ;
+ * pour un geste en boucle, le nombre de boucles faites depuis le début de la vidéo.
  * C'est ce que lit un générateur pour se dessiner : chaque geste a sa place dans le cycle, réglée sur la frise.
  */
 export type Progress = (gesture: string) => number;
@@ -122,7 +142,8 @@ export interface Generator {
 
 /** Valeur d'un paramètre : celle des données, sinon celle de départ. */
 export function valueOf(p: Param, a: Anim): number | string {
-  return p.read ? p.read(a) : (a[p.key] ?? p.def);
+  const v = a[p.key];
+  return p.read ? p.read(a) : typeof v === 'number' || typeof v === 'string' ? v : p.def;
 }
 export function numOf(a: Anim, key: string, def: number): number {
   return typeof a[key] === 'number' ? (a[key] as number) : def;

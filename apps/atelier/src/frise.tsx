@@ -1,11 +1,12 @@
 import { useState, type PointerEvent as RPointerEvent } from 'react';
-import { ACCELS, animName, BRAKES, cycleName, cycleOf, gesturesOf, moveName, newMove, spanOf, type Accel, type Anim, type Brake, type Gesture, type Move, type Timing } from './anim';
+import { ACCELS, actsOf, BRAKES, gesturesOf, moveName, newAct, newMove, withActs, type Accel, type Act, type Anim, type Brake, type Gesture, type Move, type Timing } from './anim';
 import type { Layer } from './model';
 
 /**
- * Frise générale : le déroulé de la vidéo, une ligne par objet. Sur chaque ligne remontent les animations
- * propres du sticker (déclarées par son générateur, répétées à chaque cycle) et les consignes de mouvement
- * de l'objet, des blocs que l'on pose, déplace et étire dans les périodes.
+ * Frise de l'objet choisi : le déroulé de la vidéo, une ligne par animation. Le mouvement de l'objet et chaque geste
+ * propre de son sticker se posent à la demande (＋, ou en touchant leur ligne), autant de fois qu'il faut :
+ * des blocs que l'on déplace et étire dans les périodes. Les réglages du bloc choisi s'ouvrent dessous ;
+ * sa place et sa durée ne se règlent que sur la ligne.
  */
 /** Se placer dans la vidéo en touchant une piste, puis en glissant dessus : la piste garde le doigt jusqu'au lâcher. */
 export function scrub(e: RPointerEvent<HTMLElement>, total: number, seek: (t: number) => void) {
@@ -39,7 +40,6 @@ export function Frise({
   timing,
   t,
   onSeek,
-  onSelect,
   onMotion,
   onAnim,
   settings,
@@ -50,54 +50,75 @@ export function Frise({
   /** Temps courant (s). */
   t: number;
   onSeek: (t: number) => void;
-  onSelect: (id: string) => void;
+  onSelect?: (id: string) => void;
   /** Nouvelles consignes d'un objet ; `history` = une étape d'annulation. */
   onMotion: (id: string, motion: Move[], history: boolean) => void;
-  /** Nouvelles données du sticker d'un objet (la plage d'un geste dans son cycle). */
+  /** Nouvelles données du sticker d'un objet (ses gestes posés). */
   onAnim: (id: string, anim: Anim, history: boolean) => void;
-  /** Réglages du geste propre du sticker choisi (cycle, pales, départ…) : ouverts en touchant sa ligne. */
-  settings?: React.ReactNode;
+  /** Réglages du sticker : ceux du geste posé choisi, ou sans geste ceux de sa forme. */
+  settings?: (act: Act | null) => React.ReactNode;
 }) {
-  const [pick, setPick] = useState<{ layer: string; move: string } | null>(null);
-  // les animations se règlent objet par objet : la frise ne montre que celles de l'objet choisi
-  const rows = layers.filter((l) => l.id === selected && l.kind !== 'surface');
+  const [pick, setPick] = useState<{ layer: string; kind: 'move' | 'act'; id: string } | null>(null);
+  const [menu, setMenu] = useState(false);
+  // lignes gardées à l'écran même vides : celles que l'on vient de vider restent pour y reposer un bloc
+  const [kept, setKept] = useState<{ layer: string; lines: string[] }>({ layer: '', lines: [] });
+  const me = layers.find((l) => l.id === selected && l.kind !== 'surface');
   const total = timing.period * timing.count;
   const pct = (periods: number) => `${(periods / timing.count) * 100}%`;
-  const owner = pick && pick.layer === selected ? layers.find((l) => l.id === pick.layer) : undefined;
-  const move = owner?.motion?.find((m) => m.id === pick?.move);
-  // geste propre du sticker choisi (par défaut tant qu'aucune consigne n'est choisie) : ses réglages s'ouvrent sous la frise
-  const ownOn = !move;
-  const [gest, setGest] = useState<string | null>(null);
-  const pickOwn = (id: string, g?: string) => {
-    setPick(null);
-    if (g) setGest(g);
-    onSelect(id);
+  const a = me?.anim && !me.cut ? me.anim : undefined;
+  const gestures = a ? gesturesOf(a) : [];
+  const acts = a ? actsOf(a, timing) : [];
+  const moves = me?.motion ?? [];
+  const mine = pick && pick.layer === me?.id ? pick : null;
+  const move = mine?.kind === 'move' ? moves.find((m) => m.id === mine.id) : undefined;
+  const act = mine?.kind === 'act' ? acts.find((x) => x.id === mine.id) : undefined;
+  const lines = me && kept.layer === me.id ? kept.lines : [];
+  const shown = (line: string) => lines.includes(line) || (line === 'move' ? moves.length > 0 : acts.some((x) => x.g === line));
+  const keep = (line: string) => me && setKept({ layer: me.id, lines: lines.includes(line) ? lines : [...lines, line] });
+  const nowAt = Math.max(0, Math.min(timing.count - 0.05, t / timing.period));
+
+  /** Pose une consigne de mouvement à un instant (en périodes). */
+  const addMove = (at: number) => {
+    if (!me) return;
+    const m = { ...newMove(timing, 0), at, len: Math.min(1, timing.count - at) };
+    onMotion(me.id, [...moves, m], true);
+    setPick({ layer: me.id, kind: 'move', id: m.id });
+    keep('move');
   };
-  const me = layers.find((l) => l.id === selected);
-  const myAnim = me?.anim && !me.cut ? me.anim : undefined;
-  const myGestures = myAnim ? gesturesOf(myAnim) : [];
-  const myGesture = myGestures.find((g) => g.id === gest) ?? myGestures[0];
-  /** Plage d'un geste dans le cycle, calée au vingtième. */
-  const span = (a: Anim, g: Gesture, at: number, len: number): Anim => {
-    const q = (v: number) => Math.round(v * 20) / 20;
-    const A = Math.max(0, Math.min(0.95, q(at)));
-    return { ...a, [`${g.id}.at`]: A, [`${g.id}.len`]: Math.max(0.05, Math.min(1 - A, q(len))) };
+  /** Pose un geste du sticker à un instant : les gestes d'un sticker d'avant s'inscrivent d'abord dans ses données. */
+  const addAct = (g: Gesture, at: number) => {
+    if (!me || !a) return;
+    const full = withActs(a, timing);
+    const x = newAct(full, g, at, timing);
+    onAnim(me.id, { ...full, acts: [...(full.acts ?? []), x] }, true);
+    setPick({ layer: me.id, kind: 'act', id: x.id });
+    keep(g.id);
   };
-  /** Glisser la plage d'un geste dans son cycle : le corps la déplace, son bord droit l'étire. */
-  const grabSpan = (e: React.PointerEvent<HTMLElement>, l: Layer, a: Anim, g: Gesture, cycle: number, edge: boolean) => {
+  /** Toucher une ligne hors de ses blocs : un bloc s'y pose, calé au quart de période. */
+  const onLine = (e: RPointerEvent<HTMLElement>, add: (at: number) => void) => {
+    if (e.target !== e.currentTarget) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const at = Math.round(((e.clientX - r.left) / r.width) * timing.count * 4) / 4;
+    add(Math.max(0, Math.min(timing.count - 0.25, at)));
+  };
+  /**
+   * Glisser un bloc : le corps le déplace, son bord droit l'étire. `put` reçoit sa nouvelle place ;
+   * `base` donne la place de départ, relue après le premier geste (un sticker d'avant change alors d'identifiants).
+   */
+  const grab = (e: RPointerEvent<HTMLElement>, b: { at: number; len: number }, edge: boolean, step: number, put: (at: number, len: number, history: boolean) => void) => {
     e.stopPropagation();
     const track = e.currentTarget.closest('.fr-track') as HTMLElement;
-    const w = (track.getBoundingClientRect().width * cycle) / timing.count;
+    const w = track.getBoundingClientRect().width;
     const x0 = e.clientX;
-    const sp = spanOf(a, g);
     let moved = false;
-    pickOwn(l.id, g.id);
     const el = e.currentTarget;
     el.setPointerCapture(e.pointerId);
+    const snap = (v: number) => Math.round(v / step) * step;
     const onMove = (ev: PointerEvent) => {
       if (!moved && Math.abs(ev.clientX - x0) < 4) return;
-      const d = (ev.clientX - x0) / w;
-      onAnim(l.id, edge ? span(a, g, sp.at, sp.len + d) : span(a, g, Math.min(sp.at + d, 1 - sp.len), sp.len), !moved);
+      const d = ((ev.clientX - x0) / w) * timing.count;
+      if (edge) put(b.at, Math.max(step, Math.min(timing.count - b.at, snap(b.len + d))), !moved);
+      else put(Math.max(0, Math.min(timing.count - b.len, snap(b.at + d))), b.len, !moved);
       moved = true;
     };
     const onUp = () => {
@@ -109,37 +130,24 @@ export function Frise({
     el.addEventListener('pointerup', onUp);
     el.addEventListener('pointercancel', onUp);
   };
-  const snap = (v: number) => Math.round(v * 4) / 4;
-  const set = (p: Partial<Move>, history = true) => {
-    if (!owner || !move) return;
-    onMotion(owner.id, (owner.motion ?? []).map((m) => (m.id === move.id ? { ...m, ...p } : m)), history);
+  const grabMove = (e: RPointerEvent<HTMLElement>, m: Move, edge: boolean) => {
+    if (!me) return;
+    setPick({ layer: me.id, kind: 'move', id: m.id });
+    grab(e, m, edge, 0.25, (at, len, h) => onMotion(me.id, moves.map((x) => (x.id === m.id ? { ...m, at, len } : x)), h));
   };
-  /** Glisser un bloc : le corps le déplace, son bord droit l'étire ; calé au quart de période. */
-  const grab = (e: React.PointerEvent<HTMLElement>, l: Layer, m: Move, edge: boolean) => {
-    e.stopPropagation();
-    const track = e.currentTarget.closest('.fr-track') as HTMLElement;
-    const w = track.getBoundingClientRect().width;
-    const x0 = e.clientX;
-    const st = { moved: false };
-    setPick({ layer: l.id, move: m.id });
-    onSelect(l.id);
-    e.currentTarget.setPointerCapture(e.pointerId);
-    const el = e.currentTarget;
-    const onMove = (ev: PointerEvent) => {
-      const d = ((ev.clientX - x0) / w) * timing.count;
-      if (!st.moved && Math.abs(ev.clientX - x0) < 4) return;
-      const next = edge ? { len: Math.max(0.25, Math.min(timing.count - m.at, snap(m.len + d))) } : { at: Math.max(0, Math.min(timing.count - m.len, snap(m.at + d))) };
-      onMotion(l.id, (l.motion ?? []).map((x) => (x.id === m.id ? { ...m, ...next } : x)), !st.moved);
-      st.moved = true;
-    };
-    const onUp = () => {
-      el.removeEventListener('pointermove', onMove);
-      el.removeEventListener('pointerup', onUp);
-      el.removeEventListener('pointercancel', onUp);
-    };
-    el.addEventListener('pointermove', onMove);
-    el.addEventListener('pointerup', onUp);
-    el.addEventListener('pointercancel', onUp);
+  const grabAct = (e: RPointerEvent<HTMLElement>, x: Act, edge: boolean) => {
+    if (!me || !a) return;
+    // sticker d'avant : ses gestes s'inscrivent dans ses données au premier geste, le bloc garde sa place dans la liste
+    const full = withActs(a, timing);
+    const k = acts.indexOf(x);
+    const id = full.acts![k]!.id;
+    setPick({ layer: me.id, kind: 'act', id });
+    grab(e, x, edge, 0.05, (at, len, h) => onAnim(me.id, { ...full, acts: full.acts!.map((y, j) => (j === k ? { ...y, at: Math.round(at * 100) / 100, len: Math.round(len * 100) / 100 } : y)) }, h));
+    if (full !== a) onAnim(me.id, full, true);
+  };
+  const set = (p: Partial<Move>, history = true) => {
+    if (!me || !move) return;
+    onMotion(me.id, moves.map((m) => (m.id === move.id ? { ...m, ...p } : m)), history);
   };
   const num = (label: string, value: number, on: (v: number) => void, o: { min?: number; max?: number; step?: number; unit?: string; title?: string } = {}) => (
     <label title={o.title}>
@@ -159,126 +167,133 @@ export function Frise({
       {o.unit}
     </label>
   );
+  const now = <span className="fr-now" style={{ left: `${(t / total) * 100}%` }} />;
+  const ticks = Array.from({ length: timing.count - 1 }, (_, i) => <span key={i} className="fr-tick" style={{ left: pct(i + 1) }} />);
+  const actGesture = act ? gestures.find((g) => g.id === act.g) : undefined;
+  if (!me) return null;
   return (
     <div className="frise">
       <div className="fr-rows">
         <div className="fr-row fr-ruler">
-          <span className="fr-name" />
-          <div
-            className="fr-track"
-            onPointerDown={(e) => scrub(e, total, onSeek)}
-            title="Toucher ou glisser pour se placer dans la vidéo"
-          >
+          <span className="fr-name fr-adder">
+            <button className="fr-add" onClick={() => setMenu((m) => !m)} aria-expanded={menu} title="Ajouter une animation à l'instant affiché : un mouvement de l'objet, ou un geste propre du sticker">
+              ＋ Animation
+            </button>
+            {menu && (
+              <>
+                <span className="fr-menu-veil" onPointerDown={() => setMenu(false)} />
+                <span className="fr-menu" role="menu">
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setMenu(false);
+                      addMove(Math.floor(nowAt + 1e-6));
+                    }}
+                  >
+                    <b>Mouvement</b>
+                    <i>déplacer, tourner, grandir, monter</i>
+                  </button>
+                  {gestures.map((g) => (
+                    <button
+                      key={g.id}
+                      role="menuitem"
+                      onClick={() => {
+                        setMenu(false);
+                        addAct(g, Math.round(nowAt * 4) / 4);
+                      }}
+                    >
+                      <b>{g.name}</b>
+                      <i>{g.note}</i>
+                    </button>
+                  ))}
+                </span>
+              </>
+            )}
+          </span>
+          <div className="fr-track" onPointerDown={(e) => scrub(e, total, onSeek)} title="Toucher ou glisser pour se placer dans la vidéo">
             {Array.from({ length: timing.count }, (_, i) => (
               <span key={i} className="fr-period" style={{ left: pct(i), width: pct(1) }}>
                 {timing.count <= 24 || i % 4 === 0 ? i + 1 : ''}
               </span>
             ))}
-            <span className="fr-now" style={{ left: `${(t / total) * 100}%` }} />
+            {now}
           </div>
         </div>
-        {rows.map((l) => {
-          const a = l.anim && !l.cut ? l.anim : undefined;
-          const c = a ? cycleOf(a, timing) : 0;
-          const reps = a ? Math.min(240, Math.ceil(timing.count / c - 1e-6)) : 0;
-          return (
-            <div key={l.id} className={`fr-obj ${l.id === selected ? 'on' : ''}`}>
-              {a &&
-                gesturesOf(a).map((g, gi) => {
-                  const sp = spanOf(a, g);
-                  const on = ownOn && l.id === selected && myGesture?.id === g.id;
-                  return (
-                    <div key={g.id} className="fr-row">
-                      <button className="fr-name" onClick={() => pickOwn(l.id, g.id)} title={`${animName(a)} : geste propre du sticker, toucher pour le régler`}>
-                        {gi === 0 && <b>{l.name}</b>}
-                        <i>{g.name}</i>
-                      </button>
-                      <div className={`fr-track fr-gesture ${on ? 'on' : ''}`} onPointerDown={() => pickOwn(l.id, g.id)} title={`${g.name} : ${g.note ?? ''} (cycle ${cycleName(c)} période)${g.order ? ', ajouté au mouvement de l’objet' : ''}`}>
-                        {Array.from({ length: reps }, (_, i) => (
-                          <span key={i} className="fr-cycle" style={{ left: pct(i * c), width: pct(Math.min(c, timing.count - i * c)) }} />
-                        ))}
-                        {/* la plage du geste, répétée à chaque cycle : glisser pour la placer, tirer son bord pour l'étirer */}
-                        {Array.from({ length: reps }, (_, i) => (
-                          <span
-                            key={`s${i}`}
-                            className={`fr-own ${g.order ? 'order' : ''}`}
-                            style={{ left: pct((i + sp.at) * c), width: pct(sp.len * c) }}
-                            onPointerDown={(e) => grabSpan(e, l, a, g, c, false)}
-                            title="Plage du geste dans le cycle : glisser pour la placer, tirer son bord droit pour l'étirer"
-                          >
-                            {i === 0 ? g.note : ''}
-                            <span className="fr-edge" onPointerDown={(e) => grabSpan(e, l, a, g, c, true)} />
-                          </span>
-                        ))}
-                        <span className="fr-now" style={{ left: `${(t / total) * 100}%` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              <div className="fr-row">
-                <button className="fr-name" onClick={() => onSelect(l.id)}>
-                  {!a && <b>{l.name}</b>}
-                  <i>Mouvement</i>
-                </button>
-                <div className="fr-track">
-                  {Array.from({ length: timing.count - 1 }, (_, i) => (
-                    <span key={i} className="fr-tick" style={{ left: pct(i + 1) }} />
-                  ))}
-                  {(l.motion ?? []).map((m) => (
-                    <span
-                      key={m.id}
-                      className={`fr-move ${pick?.move === m.id ? 'on' : ''} ${m.back ? 'back' : ''}`}
-                      style={{ left: pct(m.at), width: pct(m.len) }}
-                      onPointerDown={(e) => grab(e, l, m, false)}
-                      title="Consigne de mouvement : glisser pour la déplacer, tirer son bord droit pour l'étirer"
-                    >
-                      <em>{moveName(m)}</em>
-                      <span className="fr-edge" onPointerDown={(e) => grab(e, l, m, true)} />
-                    </span>
-                  ))}
-                  <span className="fr-now" style={{ left: `${(t / total) * 100}%` }} />
-                </div>
-                <button
-                  className="fr-add"
-                  onClick={() => {
-                    const m = newMove(timing, t);
-                    onMotion(l.id, [...(l.motion ?? []), m], true);
-                    setPick({ layer: l.id, move: m.id });
-                    onSelect(l.id);
-                  }}
-                  title="Ajouter une consigne de mouvement à l'instant affiché"
-                  aria-label={`Ajouter une consigne à ${l.name}`}
-                >
-                  ＋
-                </button>
+        <div className="fr-obj on">
+          {shown('move') && (
+            <div className="fr-row">
+              <span className="fr-name">
+                <i>Mouvement</i>
+              </span>
+              <div className="fr-track fr-line-add" onPointerDown={(e) => onLine(e, addMove)} title="Mouvement de l'objet : toucher la ligne pour en poser un ici">
+                {ticks}
+                {moves.map((m) => (
+                  <span
+                    key={m.id}
+                    className={`fr-move ${move?.id === m.id ? 'on' : ''} ${m.back ? 'back' : ''}`}
+                    style={{ left: pct(m.at), width: pct(m.len) }}
+                    onPointerDown={(e) => grabMove(e, m, false)}
+                    title="Glisser pour déplacer, tirer le bord droit pour étirer"
+                  >
+                    <em>{moveName(m)}</em>
+                    <span className="fr-edge" onPointerDown={(e) => grabMove(e, m, true)} />
+                  </span>
+                ))}
+                {now}
               </div>
             </div>
-          );
-        })}
-      </div>
-      {settings && ownOn && (
-        <div className="fr-own-set">
-          {me && myAnim && myGesture && (
-            <div className="fr-line">
-              <b>
-                {me.name} · {myGesture.name}
-              </b>
-              {num('Début', spanOf(myAnim, myGesture).at * 100, (v) => onAnim(me.id, span(myAnim, myGesture, v / 100, spanOf(myAnim, myGesture).len), true), { min: 0, max: 95, step: 5, unit: '%', title: 'Où le geste commence dans le cycle' })}
-              {num('Durée', spanOf(myAnim, myGesture).len * 100, (v) => onAnim(me.id, span(myAnim, myGesture, spanOf(myAnim, myGesture).at, v / 100), true), { min: 5, max: 100, step: 5, unit: '% du cycle', title: 'Ce que dure le geste, en part du cycle ; hors de sa plage, le sticker reste au repos' })}
-            </div>
           )}
-          {settings}
+          {gestures.filter((g) => shown(g.id)).map((g) => (
+            <div key={g.id} className="fr-row">
+              <span className="fr-name">
+                <i>{g.name}</i>
+              </span>
+              <div className="fr-track fr-line-add" onPointerDown={(e) => onLine(e, (at) => addAct(g, at))} title={`${g.name} : toucher la ligne pour en poser un ici`}>
+                {ticks}
+                {acts
+                  .filter((x) => x.g === g.id)
+                  .map((x) => (
+                    <span
+                      key={x.id}
+                      className={`fr-own ${g.order ? 'order' : ''} ${act?.id === x.id ? 'on' : ''}`}
+                      style={{ left: pct(x.at), width: pct(Math.min(x.len, timing.count - x.at)) }}
+                      onPointerDown={(e) => grabAct(e, x, false)}
+                      title="Glisser pour déplacer, tirer le bord droit pour étirer"
+                    >
+                      <em>{g.note}</em>
+                      <span className="fr-edge" onPointerDown={(e) => grabAct(e, x, true)} />
+                    </span>
+                  ))}
+                {now}
+              </div>
+            </div>
+          ))}
+          {!shown('move') && !gestures.some((g) => shown(g.id)) && <p className="cp-note fr-empty">Aucune animation sur cet objet : ＋ Animation en pose une à l’instant affiché.</p>}
+        </div>
+      </div>
+      {act && actGesture && a && (
+        <div className="fr-own-set">
+          <div className="fr-line">
+            <b>{actGesture.name}</b>
+            <button
+              className="fr-del"
+              onClick={() => {
+                onAnim(me.id, { ...a, acts: acts.filter((x) => x.id !== act.id) }, true);
+                setPick(null);
+                keep(act.g);
+              }}
+            >
+              Supprimer
+            </button>
+          </div>
+          {settings?.(act)}
         </div>
       )}
-      {owner && move && (
+      {!act && !move && a && settings && <div className="fr-own-set">{settings(null)}</div>}
+      {move && (
         <div className="fr-edit">
           <div className="fr-line">
-            <b>{owner.name}</b>
-            {num('Début', move.at + 1, (v) => {
-              const at = Math.min(v - 1, timing.count - 0.25);
-              set({ at, len: Math.min(move.len, timing.count - at) });
-            }, { min: 1, max: timing.count, step: 0.25, title: 'Période où la consigne commence (1 = début de la vidéo)' })}
-            {num('Durée', move.len, (v) => set({ len: Math.min(v, Math.max(0.25, timing.count - move.at)) }), { min: 0.25, max: timing.count, step: 0.25, unit: 'pér.', title: 'Durée de la consigne, en périodes' })}
+            <b>Mouvement</b>
             <label title="L'objet revient à son état de départ sur la seconde moitié">
               <input type="checkbox" checked={!!move.back} onChange={(e) => set({ back: e.target.checked || undefined })} />
               Aller-retour
@@ -286,8 +301,9 @@ export function Frise({
             <button
               className="fr-del"
               onClick={() => {
-                onMotion(owner.id, (owner.motion ?? []).filter((m) => m.id !== move.id), true);
+                onMotion(me.id, moves.filter((m) => m.id !== move.id), true);
                 setPick(null);
+                keep('move');
               }}
             >
               Supprimer

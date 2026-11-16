@@ -49,7 +49,7 @@ export const propeller: Generator = {
     { key: 'width', name: 'Largeur des pales', type: 'range', min: 0.2, max: 0.9, def: 0.55 },
     { key: 'dir', name: 'Sens inverse', type: 'check', on: -1, off: 1, def: 1, read: dirOf },
   ],
-  gestures: () => [{ id: 'spin', name: 'Rotation', note: 'un tour par cycle', order: true, params: ['dir'] }],
+  gestures: () => [{ id: 'spin', name: 'Rotation', note: 'tourne', order: true, loop: true }],
   cut,
   ratio: () => 1,
   order: (a, _phase, g) => ({ rot: dirOf(a) * g('spin') * 2 * Math.PI }),

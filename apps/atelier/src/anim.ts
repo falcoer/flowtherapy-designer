@@ -1,9 +1,9 @@
 import type { Format } from '@ftd/core';
 import type { Layer } from './model';
-import { generatorOf, progressOf, type Anim, type Generator, type Gesture } from './stickers';
+import { generatorOf, spanOf, type Act, type Anim, type Generator, type Gesture, type Progress } from './stickers';
 
 export { GENERATORS, generatorOf, newAnim, forPart, spanOf, valueOf } from './stickers';
-export type { Anim, Generator, Gesture, Param } from './stickers';
+export type { Act, Anim, Generator, Gesture, Param } from './stickers';
 
 /**
  * Formes animées (stickers) : un générateur reçoit l'avancée de son cycle et rend la découpe de l'objet
@@ -62,8 +62,83 @@ export function cycleFits(a: Anim, tm = timing): boolean {
   const r = tm.count / cycleOf(a, tm);
   return Math.abs(r - Math.round(r)) < 1e-6;
 }
-/** Avancée dans le cycle à l'instant t (0..1). */
-const phaseOf = (a: Anim, t: number) => frac(t / Math.max(0.01, cycleSeconds(a)));
+
+// --- gestes posés sur la frise ---
+
+/** Gestes propres d'un sticker, tels que son générateur les déclare : la frise les propose. */
+export function gesturesOf(a: Anim): Gesture[] {
+  return generatorOf(a)?.gestures(a) ?? [];
+}
+
+const uid = () => Math.random().toString(36).slice(2, 9);
+const legacyActs = new WeakMap<Anim, { key: string; acts: Act[] }>();
+/**
+ * Les gestes posés d'un sticker, dans la vidéo. Un sticker d'avant n'en porte pas : ses gestes se répétaient
+ * à chaque cycle, sur leur plage ; ils sont repris tels quels, un geste posé par répétition (un seul pour une boucle continue).
+ */
+export function actsOf(a: Anim, tm = timing): Act[] {
+  if (a.acts) return a.acts;
+  const key = `${tm.period}|${tm.count}`;
+  const hit = legacyActs.get(a);
+  if (hit?.key === key) return hit.acts;
+  const c = Math.max(0.01, cycleOf(a, tm));
+  const reps = Math.min(240, Math.ceil(tm.count / c - 1e-6));
+  const acts: Act[] = [];
+  for (const g of gesturesOf(a)) {
+    const sp = spanOf(a, g);
+    if (g.loop && sp.at === 0 && sp.len === 1) acts.push({ id: `${g.id}0`, g: g.id, at: 0, len: tm.count, cycle: c });
+    else for (let i = 0; i < reps; i++) acts.push({ id: `${g.id}${i}`, g: g.id, at: (i + sp.at) * c, len: sp.len * c, ...(g.loop ? { cycle: sp.len * c } : {}) });
+  }
+  legacyActs.set(a, { key, acts });
+  return acts;
+}
+/** Le sticker avec ses gestes inscrits dans ses données : dès qu'on en pose, déplace ou règle un. */
+export const withActs = (a: Anim, tm = timing): Anim => (a.acts ? a : { ...a, acts: actsOf(a, tm).map((x) => ({ ...x, id: uid() })) });
+/** Un geste posé à un instant (en périodes) : sa durée de départ vient du générateur. */
+export function newAct(a: Anim, g: Gesture, at: number, tm = timing): Act {
+  const gen = generatorOf(a);
+  const c = gen?.cycle ?? 1;
+  const A = Math.max(0, Math.min(tm.count - 0.05, at));
+  const len = Math.max(0.05, Math.min(tm.count - A, g.loop ? Math.max(1, c) : (g.len ?? 1) * c));
+  return { id: uid(), g: g.id, at: A, len, ...(g.loop ? { cycle: c } : {}) };
+}
+/** Le geste posé qui compte à un instant : le dernier commencé, sinon le premier à venir. */
+function current(acts: Act[], g: string, T: number): Act | undefined {
+  let last: Act | undefined;
+  let next: Act | undefined;
+  for (const x of acts) {
+    if (x.g !== g) continue;
+    if (x.at <= T) {
+      if (!last || x.at > last.at) last = x;
+    } else if (!next || x.at < next.at) next = x;
+  }
+  return last ?? next;
+}
+/** Le sticker à l'instant t : les réglages du geste en cours remplacent ceux du sticker, et l'avancée de chaque geste. */
+function stateAt(g: Generator, a: Anim, t: number, tm = timing): { a: Anim; phase: number; progress: Progress } {
+  const acts = actsOf(a, tm);
+  const gestures = g.gestures(a);
+  const T = t / tm.period;
+  let merged = a;
+  for (const ge of gestures) {
+    if (!ge.params?.length) continue;
+    const act = current(acts, ge.id, T);
+    if (!act) continue;
+    for (const k of ge.params) if (act[k] !== undefined && act[k] !== a[k]) merged = { ...merged, [k]: act[k] };
+  }
+  const progress: Progress = (id) => {
+    const ge = gestures.find((x) => x.id === id);
+    if (ge?.loop) {
+      // boucle : les tours s'ajoutent d'un geste posé au suivant, l'hélice garde son angle entre deux
+      let n = 0;
+      for (const x of acts) if (x.g === id) n += Math.max(0, Math.min(x.len, T - x.at)) / Math.max(0.01, x.cycle ?? g.cycle);
+      return n;
+    }
+    const act = current(acts, id, T);
+    return act && act.at <= T ? Math.max(0, Math.min(1, (T - act.at) / Math.max(0.001, act.len))) : 0;
+  };
+  return { a: merged, phase: frac(t / Math.max(0.01, totalOf(tm))), progress };
+}
 
 // --- découpes ---
 
@@ -73,13 +148,14 @@ const SQUARE = 'M0 0H1V1H0Z';
 /** Découpe de la forme animée à l'instant t (coordonnées 0..1 de sa boîte). */
 export function animCut(a: Anim, t = now): string {
   const g = generatorOf(a);
-  return g ? cutAt(g, a, phaseOf(a, t)) : SQUARE;
+  if (!g) return SQUARE;
+  const s = stateAt(g, a, t);
+  return g.cut(s.a, s.phase, s.progress);
 }
-const cutAt = (g: Generator, a: Anim, phase: number) => g.cut(a, phase, progressOf(a, g.gestures(a), phase));
 /** Découpe de la vignette d'un générateur, figée à l'avancée qu'il choisit. */
 export function glyphCut(a: Anim): string {
   const g = generatorOf(a);
-  return g ? cutAt(g, a, g.glyphPhase ?? 0) : SQUARE;
+  return g ? g.cut(a, g.glyphPhase ?? 0, () => g.glyphPhase ?? 0) : SQUARE;
 }
 
 /** Proportions de la boîte (largeur / hauteur) qui conviennent à l'animation. */
@@ -159,11 +235,9 @@ export interface Pose {
 export function animOrder(a: Anim, t = now): Partial<Pose> | null {
   const g = generatorOf(a);
   if (!g?.order) return null;
-  const phase = phaseOf(a, t);
-  return g.order(a, phase, progressOf(a, g.gestures(a), phase));
+  const s = stateAt(g, a, t);
+  return g.order(s.a, s.phase, s.progress);
 }
-/** Gestes propres d'un sticker, tels que son générateur les déclare : ils remontent sur la frise. */
-export const gesturesOf = (a: Anim): Gesture[] => generatorOf(a)?.gestures(a) ?? [];
 
 /** Pose d'un objet à l'instant t : la consigne de son sticker, plus toutes ses consignes de la frise. */
 export function poseOf(l: Layer, t = now, tm = timing): Pose | null {

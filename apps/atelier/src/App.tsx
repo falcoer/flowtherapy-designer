@@ -11,7 +11,7 @@ import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
 import { allStamps, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel, Dots } from './coupe';
 import { Frise, scrub } from './frise';
-import { animRatio, forPart, GENERATORS, glyphCut, hasAnim, newAnim, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
+import { animRatio, forPart, withActs, GENERATORS, glyphCut, hasAnim, newAnim, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
 import { MatterRow } from './matter-palette';
@@ -4241,7 +4241,8 @@ export function App() {
   };
   /** Pose une forme animée (compte à rebours, oiseau, hélice) : la lecture démarre, ses réglages s'ouvrent. */
   const addAnim = async (gen: Generator) => {
-    const anim = newAnim(gen);
+    // ses gestes de départ sont posés sur la frise : ils s'y déplacent, s'y répètent ou s'en retirent
+    const anim = withActs(newAnim(gen), timing);
     if (typeof anim.font === 'string') {
       await loadFonts();
       await ensureFont(anim.font);
@@ -4263,7 +4264,7 @@ export function App() {
     setAnimPlay(true);
     setTool(lastEdit.current);
     setCoupeOpen((o) => ({ key: 'shape', n: (o?.n ?? 0) + 1 }));
-    setToast(`« ${gen.name} » s'anime : son cycle et ses mouvements se règlent dans l'onglet Animation ; teinte, bord et lueur s'appliquent comme sur une forme`);
+    setToast(`« ${gen.name} » s'anime : ses gestes et ses mouvements se posent dans l'onglet Animation ; teinte, bord et lueur s'appliquent comme sur une forme`);
     setToastUndo(false);
   };
   /** Pose un texte dans le style choisi, prêt à être réécrit. */
