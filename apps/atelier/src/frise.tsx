@@ -1,4 +1,4 @@
-import { useState, type PointerEvent as RPointerEvent } from 'react';
+import { Fragment, useState, type PointerEvent as RPointerEvent } from 'react';
 import { ACCELS, actsOf, BRAKES, gesturesOf, moveName, newAct, newMove, withActs, type Accel, type Act, type Anim, type Brake, type Gesture, type Move, type Timing } from './anim';
 import type { Layer } from './model';
 
@@ -85,15 +85,34 @@ export function Frise({
     setPick({ layer: me.id, kind: 'move', id: m.id });
     keep('move');
   };
+  /** La place libre autour d'un instant sur la ligne d'un geste : deux blocs d'un même geste ne se chevauchent pas. */
+  const room = (g: string, at: number, but?: Act): [number, number] => {
+    let [lo, hi] = [0, timing.count];
+    for (const x of acts) {
+      if (x.g !== g || x === but) continue;
+      if (x.at + x.len <= at + 1e-6) lo = Math.max(lo, x.at + x.len);
+      else if (x.at >= at - 1e-6) hi = Math.min(hi, x.at);
+      else return [at, at];
+    }
+    return [lo, hi];
+  };
   /** Pose un geste du sticker à un instant : les gestes d'un sticker d'avant s'inscrivent d'abord dans ses données. */
   const addAct = (g: Gesture, at: number) => {
     if (!me || !a) return;
+    // sur un bloc déjà posé : c'est lui que l'on choisit
+    const under = acts.find((x) => x.g === g.id && x.at <= at + 1e-6 && at < x.at + x.len - 1e-6);
+    if (under) return grabbed(under);
+    const [, hi] = room(g.id, at);
+    if (hi - at < 0.05) return;
     const full = withActs(a, timing);
     const x = newAct(full, g, at, timing);
+    x.len = Math.round(Math.min(x.len, hi - at) * 100) / 100;
     onAnim(me.id, { ...full, acts: [...(full.acts ?? []), x] }, true);
     setPick({ layer: me.id, kind: 'act', id: x.id });
     keep(g.id);
   };
+  /** Choisit un bloc de geste déjà posé. */
+  const grabbed = (x: Act) => me && setPick({ layer: me.id, kind: 'act', id: x.id });
   /** Toucher une ligne hors de ses blocs : un bloc s'y pose, calé au quart de période. */
   const onLine = (e: RPointerEvent<HTMLElement>, add: (at: number) => void) => {
     if (e.target !== e.currentTarget) return;
@@ -105,7 +124,7 @@ export function Frise({
    * Glisser un bloc : le corps le déplace, son bord droit l'étire. `put` reçoit sa nouvelle place ;
    * `base` donne la place de départ, relue après le premier geste (un sticker d'avant change alors d'identifiants).
    */
-  const grab = (e: RPointerEvent<HTMLElement>, b: { at: number; len: number }, edge: boolean, step: number, put: (at: number, len: number, history: boolean) => void) => {
+  const grab = (e: RPointerEvent<HTMLElement>, b: { at: number; len: number }, edge: boolean, step: number, put: (at: number, len: number, history: boolean) => void, [lo, hi]: [number, number] = [0, timing.count]) => {
     e.stopPropagation();
     const track = e.currentTarget.closest('.fr-track') as HTMLElement;
     const w = track.getBoundingClientRect().width;
@@ -117,8 +136,8 @@ export function Frise({
     const onMove = (ev: PointerEvent) => {
       if (!moved && Math.abs(ev.clientX - x0) < 4) return;
       const d = ((ev.clientX - x0) / w) * timing.count;
-      if (edge) put(b.at, Math.max(step, Math.min(timing.count - b.at, snap(b.len + d))), !moved);
-      else put(Math.max(0, Math.min(timing.count - b.len, snap(b.at + d))), b.len, !moved);
+      if (edge) put(b.at, Math.max(step, Math.min(hi - b.at, snap(b.len + d))), !moved);
+      else put(Math.max(lo, Math.min(hi - b.len, snap(b.at + d))), b.len, !moved);
       moved = true;
     };
     const onUp = () => {
@@ -142,7 +161,11 @@ export function Frise({
     const k = acts.indexOf(x);
     const id = full.acts![k]!.id;
     setPick({ layer: me.id, kind: 'act', id });
-    grab(e, x, edge, 0.05, (at, len, h) => onAnim(me.id, { ...full, acts: full.acts!.map((y, j) => (j === k ? { ...y, at: Math.round(at * 100) / 100, len: Math.round(len * 100) / 100 } : y)) }, h));
+    // le bloc glisse et s'étire entre ses voisins de la même ligne, sans les recouvrir
+    // (des blocs déjà superposés par une version d'avant restent libres, pour pouvoir les séparer)
+    const around = room(x.g, x.at + x.len / 2, x);
+    const free: [number, number] = around[1] - around[0] >= x.len - 1e-6 && around[0] <= x.at + 1e-6 && around[1] >= x.at + x.len - 1e-6 ? around : [0, timing.count];
+    grab(e, x, edge, 0.05, (at, len, h) => onAnim(me.id, { ...full, acts: full.acts!.map((y, j) => (j === k ? { ...y, at: Math.round(at * 100) / 100, len: Math.round(len * 100) / 100 } : y)) }, h), free);
     if (full !== a) onAnim(me.id, full, true);
   };
   const set = (p: Partial<Move>, history = true) => {
@@ -171,6 +194,71 @@ export function Frise({
   const ticks = Array.from({ length: timing.count - 1 }, (_, i) => <span key={i} className="fr-tick" style={{ left: pct(i + 1) }} />);
   const actGesture = act ? gestures.find((g) => g.id === act.g) : undefined;
   if (!me) return null;
+  // les réglages du bloc choisi s'ouvrent sous sa ligne, sans titre : la ligne dit déjà de quoi il s'agit
+  const actSet = act && actGesture && a && (
+    <div className="fr-own-set fr-under">
+      {settings?.(act)}
+      <button
+        className="fr-del"
+        onClick={() => {
+          onAnim(me.id, { ...a, acts: acts.filter((x) => x.id !== act.id) }, true);
+          setPick(null);
+          keep(act.g);
+        }}
+      >
+        Supprimer
+      </button>
+    </div>
+  );
+  const moveSet = move && (
+        <div className="fr-edit fr-under">
+          <div className="fr-line">
+            <label title="L'objet revient à son état de départ sur la seconde moitié">
+              <input type="checkbox" checked={!!move.back} onChange={(e) => set({ back: e.target.checked || undefined })} />
+              Aller-retour
+            </label>
+            <button
+              className="fr-del"
+              onClick={() => {
+                onMotion(me.id, moves.filter((m) => m.id !== move.id), true);
+                setPick(null);
+                keep('move');
+              }}
+            >
+              Supprimer
+            </button>
+          </div>
+          <div className="fr-line">
+            {num('Déplacement →', (move.dx ?? 0) * 100, (v) => set({ dx: v / 100 || undefined }), { min: -200, max: 200, step: 5, unit: '%', title: 'Vers la droite, en pourcentage de la largeur de la page (négatif = vers la gauche)' })}
+            {num('↓', (move.dy ?? 0) * 100, (v) => set({ dy: v / 100 || undefined }), { min: -200, max: 200, step: 5, unit: '%', title: 'Vers le bas, en pourcentage de la hauteur de la page (négatif = vers le haut)' })}
+            {num('Rotation', move.rot ?? 0, (v) => set({ rot: v || undefined }), { min: -50, max: 50, step: 0.25, unit: 'tr', title: 'En tours ; négatif = sens inverse des aiguilles' })}
+            {num('Taille', (move.scale ?? 1) * 100, (v) => set({ scale: v === 100 ? undefined : v / 100 }), { min: 5, max: 800, step: 10, unit: '%', title: 'Taille à l’arrivée (100 = inchangée)' })}
+            {num('Hauteur', (move.lift ?? 0) * 100, (v) => set({ lift: v / 100 || undefined }), { min: -100, max: 100, step: 5, title: 'Hauteur ajoutée au-dessus de la page : l’ombre s’allonge, la mise au point change' })}
+          </div>
+          <div className="fr-line">
+            <label>
+              Accélération
+              <select value={move.accel ?? 'linear'} onChange={(e) => set({ accel: e.target.value as Accel })}>
+                {ACCELS.map(([k, n]) => (
+                  <option key={k} value={k}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Freinage
+              <select value={move.brake ?? 'sharp'} onChange={(e) => set({ brake: e.target.value as Brake })}>
+                {BRAKES.map(([k, n]) => (
+                  <option key={k} value={k}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+      );
   return (
     <div className="frise">
       <div className="fr-rows">
@@ -243,8 +331,10 @@ export function Frise({
               </div>
             </div>
           )}
+          {moveSet}
           {gestures.filter((g) => shown(g.id)).map((g) => (
-            <div key={g.id} className="fr-row">
+            <Fragment key={g.id}>
+            <div className="fr-row">
               <span className="fr-name">
                 <i>{g.name}</i>
               </span>
@@ -267,79 +357,13 @@ export function Frise({
                 {now}
               </div>
             </div>
+            {act?.g === g.id && actSet}
+            </Fragment>
           ))}
           {!shown('move') && !gestures.some((g) => shown(g.id)) && <p className="cp-note fr-empty">Aucune animation sur cet objet : ＋ Animation en pose une à l’instant affiché.</p>}
         </div>
       </div>
-      {act && actGesture && a && (
-        <div className="fr-own-set">
-          <div className="fr-line">
-            <b>{actGesture.name}</b>
-            <button
-              className="fr-del"
-              onClick={() => {
-                onAnim(me.id, { ...a, acts: acts.filter((x) => x.id !== act.id) }, true);
-                setPick(null);
-                keep(act.g);
-              }}
-            >
-              Supprimer
-            </button>
-          </div>
-          {settings?.(act)}
-        </div>
-      )}
       {!act && !move && a && settings && <div className="fr-own-set">{settings(null)}</div>}
-      {move && (
-        <div className="fr-edit">
-          <div className="fr-line">
-            <b>Mouvement</b>
-            <label title="L'objet revient à son état de départ sur la seconde moitié">
-              <input type="checkbox" checked={!!move.back} onChange={(e) => set({ back: e.target.checked || undefined })} />
-              Aller-retour
-            </label>
-            <button
-              className="fr-del"
-              onClick={() => {
-                onMotion(me.id, moves.filter((m) => m.id !== move.id), true);
-                setPick(null);
-                keep('move');
-              }}
-            >
-              Supprimer
-            </button>
-          </div>
-          <div className="fr-line">
-            {num('Déplacement →', (move.dx ?? 0) * 100, (v) => set({ dx: v / 100 || undefined }), { min: -200, max: 200, step: 5, unit: '%', title: 'Vers la droite, en pourcentage de la largeur de la page (négatif = vers la gauche)' })}
-            {num('↓', (move.dy ?? 0) * 100, (v) => set({ dy: v / 100 || undefined }), { min: -200, max: 200, step: 5, unit: '%', title: 'Vers le bas, en pourcentage de la hauteur de la page (négatif = vers le haut)' })}
-            {num('Rotation', move.rot ?? 0, (v) => set({ rot: v || undefined }), { min: -50, max: 50, step: 0.25, unit: 'tr', title: 'En tours ; négatif = sens inverse des aiguilles' })}
-            {num('Taille', (move.scale ?? 1) * 100, (v) => set({ scale: v === 100 ? undefined : v / 100 }), { min: 5, max: 800, step: 10, unit: '%', title: 'Taille à l’arrivée (100 = inchangée)' })}
-            {num('Hauteur', (move.lift ?? 0) * 100, (v) => set({ lift: v / 100 || undefined }), { min: -100, max: 100, step: 5, title: 'Hauteur ajoutée au-dessus de la page : l’ombre s’allonge, la mise au point change' })}
-          </div>
-          <div className="fr-line">
-            <label>
-              Accélération
-              <select value={move.accel ?? 'linear'} onChange={(e) => set({ accel: e.target.value as Accel })}>
-                {ACCELS.map(([k, n]) => (
-                  <option key={k} value={k}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Freinage
-              <select value={move.brake ?? 'sharp'} onChange={(e) => set({ brake: e.target.value as Brake })}>
-                {BRAKES.map(([k, n]) => (
-                  <option key={k} value={k}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
