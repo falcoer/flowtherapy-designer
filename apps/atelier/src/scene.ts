@@ -6,7 +6,8 @@ import { drawBlurred, rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring, insideRings } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
-import { animCut, generatorOf, posed } from './anim';
+import { animCut, animWarp, generatorOf, posed, type Warp } from './anim';
+import { drawWarped, meshOf, type Mesh } from './warp';
 import { EDGE_ELEMENTS, edgeStroke } from './elements';
 import { bevelSoftOf, blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
@@ -1011,13 +1012,10 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       ctx.rotate(l.rot);
       ctx.translate(-b.cx, -b.cy);
     }
-    // matière et peinture, passées par les effets de matière s'il y en a
-    const buf = hasPixelFx(pixelFx(l)) ? fxBuffer(l, doc, f, o) : null;
-    if (buf instanceof HTMLCanvasElement) ctx.drawImage(buf, x0, y0, b.w, b.h);
-    // effets pas encore prêts : la peinture se montre à mesure, sans eux
-    else drawMaterial(ctx, l, doc, f, typeof buf === 'number' ? { ...o, paintAt: buf } : o);
-    if (o.wet?.id === l.id && !o.wet.win) ctx.drawImage(o.wet.canvas, x0, y0, b.w, b.h);
-    if (l.bump) drawBump(ctx, l, doc, f, b, x0, y0);
+    // forme animée qui se plie (aile qui bat) : sa surface, posée sur la forme au repos, suit le maillage
+    const wp = surfaceWarp(l);
+    if (wp) drawWarpedSurface(ctx, l, doc, f, o, meshOf(wp));
+    else drawSurface(ctx, l, doc, f, o);
     ctx.restore();
     drawFxInside(ctx, l, doc, f, o, path);
 
@@ -1431,6 +1429,56 @@ function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
   // peinture
   const paint = paintFor(l, doc, f, o.paintAt ?? o.scale, o.progressive ? { redraw: o.onImage, ms: 6 } : undefined);
   if (paint) ctx.drawImage(paint, x0, y0, b.w, b.h);
+}
+
+/** Matière et peinture de la couche (effets de matière compris), son encre fraîche et son relief, dans sa boîte. */
+function drawSurface(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions) {
+  const b = layerBox(l, f);
+  const x0 = b.cx - b.w / 2;
+  const y0 = b.cy - b.h / 2;
+  // matière et peinture, passées par les effets de matière s'il y en a
+  const buf = hasPixelFx(pixelFx(l)) ? fxBuffer(l, doc, f, o) : null;
+  if (buf instanceof HTMLCanvasElement) ctx.drawImage(buf, x0, y0, b.w, b.h);
+  // effets pas encore prêts : la peinture se montre à mesure, sans eux
+  else drawMaterial(ctx, l, doc, f, typeof buf === 'number' ? { ...o, paintAt: buf } : o);
+  if (o.wet?.id === l.id && !o.wet.win) ctx.drawImage(o.wet.canvas, x0, y0, b.w, b.h);
+  if (l.bump) drawBump(ctx, l, doc, f, b, x0, y0);
+}
+
+/** Déformation de la surface d'une forme animée à l'instant courant, si son générateur la plie (voir Generator.warp). */
+export function surfaceWarp(l: Layer): Warp | null {
+  return !l.cut && !l.text && l.anim ? animWarp(l.anim) : null;
+}
+
+// la surface au repos, rendue à part avant d'être posée sur le maillage (un seul tampon, réutilisé d'une couche à l'autre)
+let warpBuffer: HTMLCanvasElement | null = null;
+const WARP_MAX = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0 ? 1536 : 2304;
+function drawWarpedSurface(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, mesh: Mesh) {
+  const b = layerBox(l, f);
+  const x0 = b.cx - b.w / 2;
+  const y0 = b.cy - b.h / 2;
+  const T = ctx.getTransform();
+  const px = Math.hypot(T.a, T.b);
+  // à la résolution de l'écran, sans dépasser le budget d'une tablette
+  const k = Math.min(px, WARP_MAX / Math.max(b.w, b.h));
+  const iw = Math.max(1, Math.ceil(b.w * k));
+  const ih = Math.max(1, Math.ceil(b.h * k));
+  const c = (warpBuffer ??= document.createElement('canvas'));
+  if (c.width < iw || c.height < ih || c.width * c.height > 4 * iw * ih) {
+    c.width = iw;
+    c.height = ih;
+  }
+  const bx = c.getContext('2d')!;
+  bx.setTransform(1, 0, 0, 1, 0, 0);
+  bx.clearRect(0, 0, iw + 2, ih + 2);
+  bx.save();
+  bx.beginPath();
+  bx.rect(0, 0, iw, ih);
+  bx.clip();
+  bx.setTransform(iw / b.w, 0, 0, ih / b.h, (-x0 * iw) / b.w, (-y0 * ih) / b.h);
+  drawSurface(bx, l, doc, f, o);
+  bx.restore();
+  drawWarped(ctx, c, iw, ih, mesh, x0, y0, b.w, b.h, px);
 }
 
 /** Traitements de la couche : filtre dessin de la photo, puis la matière, puis les effets. */

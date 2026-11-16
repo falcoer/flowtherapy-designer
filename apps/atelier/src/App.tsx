@@ -11,6 +11,7 @@ import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
 import { allStamps, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel, Dots } from './coupe';
 import { Frise, scrub } from './frise';
+import { meshOf, unwarp } from './warp';
 import { animRatio, forPart, withActs, GENERATORS, glyphCut, hasAnim, newAnim, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
@@ -106,6 +107,7 @@ import {
   localToPage,
   pageBounds,
   pageToLocal,
+  surfaceWarp,
   pinsOf,
   drawChecker,
   drawLayers,
@@ -2566,6 +2568,12 @@ export function App() {
     return null;
   };
   const toLocal = (l: Layer, x: number, y: number) => pageToLocal(l, f, x, y);
+  /** Point de la surface sous le doigt : sur une forme qui se plie (aile qui bat), là où il est posé sur la forme au repos. */
+  const toSurface = (l: Layer, x: number, y: number) => {
+    const q = pageToLocal(l, f, x, y);
+    const w = surfaceWarp(l);
+    return w ? unwarp(meshOf(w), q.x, q.y) : q;
+  };
   /** Copie de l'élément sélectionné (et de ses objets solidaires), décalée, posée juste au-dessus. */
   const duplicate = (id: string | null = selected, src: Doc = doc) => {
     const me = src.layers.find((x) => x.id === id);
@@ -2864,7 +2872,8 @@ export function App() {
         const bb = layerBox(target, f);
         const cur = target.bump ? { w: target.bump.w, h: target.bump.h, H: bumpHeights(target.bump).slice() } : blankBump(bb.w, bb.h);
         update((d) => d);
-        const at: [number, number] = [loc.x * cur.w, loc.y * cur.h];
+        const sl = toSurface(target, p.x, p.y);
+        const at: [number, number] = [sl.x * cur.w, sl.y * cur.h];
         // Niveler garde la hauteur trouvée sous la pointe au départ du geste
         const level = swash.sculpt === 'level' ? heightUnder(cur.H, cur.w, cur.h, at[0], at[1], reliefRadius(target, cur.w), reliefTip(target)) : undefined;
         live.current = { kind: 'bump', layer: target.id, orig: target, bump: { ...cur, at, level }, last: { x: e.clientX, y: e.clientY, t: performance.now(), p: pressure(e, null) } };
@@ -3029,7 +3038,7 @@ export function App() {
     wet.height = tg.ph;
     const wetOf = (s: Stroke) => (sw ? inWin(s, sw.win) : s);
     const pr = pressure(e, null);
-    const q = toLocal(target, p.x, p.y);
+    const q = toSurface(target, p.x, p.y);
     live.current = {
       kind: 'paint',
       layer: target.id,
@@ -3315,7 +3324,7 @@ export function App() {
         const q = toPage(ev.clientX, ev.clientY);
         const pr = pressure(ev as unknown as React.PointerEvent, L.last!);
         L.last = { x: ev.clientX, y: ev.clientY, t: performance.now(), p: pr };
-        const loc = toLocal(L.orig, q.x, q.y);
+        const loc = toSurface(L.orig, q.x, q.y);
         sculpt([loc.x * L.bump.w, loc.y * L.bump.h], pr);
       }
       return;
@@ -3374,7 +3383,7 @@ export function App() {
         const q = toPage(ev.clientX, ev.clientY);
         const pr = pressure(ev as unknown as React.PointerEvent, L.last!);
         L.last = { x: ev.clientX, y: ev.clientY, t: performance.now(), p: pr };
-        const loc = toLocal(l, q.x, q.y);
+        const loc = toSurface(l, q.x, q.y);
         const prev = L.stroke.pts[L.stroke.pts.length - 1]!;
         const dist = Math.hypot((loc.x - prev.x) * l.w, (loc.y - prev.y) * l.h);
         // un tampon traîné imprime une suite d'empreintes, espacées de leur taille

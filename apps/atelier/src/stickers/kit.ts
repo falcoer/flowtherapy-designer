@@ -174,6 +174,12 @@ export interface Generator {
    * les bulles de ce réglage zooment dessus au lieu de montrer toute la forme. Absent : la forme entière.
    */
   focus?: (a: Anim, key: string) => { x: number; y: number; w: number; h: number } | undefined;
+  /**
+   * Déformation de la surface : la teinte, le dégradé, la peinture, le relief et les effets de matière se posent sur la forme
+   * au repos ; à chaque instant, le maillage les emmène là où la forme est allée (le décor suit l'aile qui bat).
+   * Absent, ou nul à cet instant : la surface reste fixe dans la boîte et la découpe bouge dessus.
+   */
+  warp?: (a: Anim, phase: number, g: Progress, ctx: Context) => Warp | null;
   /** Proportions de la boîte (largeur / hauteur). */
   ratio: (a: Anim) => number;
   /** Consigne de mouvement ajoutée au plan général, à une avancée du cycle. */
@@ -189,6 +195,18 @@ export interface Generator {
   /** Vignette : un texte, ou la découpe à cette avancée du cycle. */
   glyphText?: string;
   glyphPhase?: number;
+}
+
+/**
+ * Déformation de la surface à un instant : `map` donne où va un point de la boîte au repos (0..1), à cet instant.
+ * Le maillage passe par les colonnes `us` et les rangées `vs` (0..1, croissantes, bords compris) : y mettre les plis de la forme
+ * (épaule, coude), car entre deux lignes la surface est tirée à plat. `key` désigne la déformation (elle se calcule une fois).
+ */
+export interface Warp {
+  key: string;
+  us: number[];
+  vs: number[];
+  map: (u: number, v: number) => [number, number];
 }
 
 /** Valeur d'un paramètre : celle des données, sinon celle de départ. */
