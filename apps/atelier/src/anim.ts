@@ -1,4 +1,5 @@
 import { pathToRings, ringsToPath, type Ring } from './cut';
+import type { Format } from '@ftd/core';
 import type { Layer, Pt } from './model';
 import { textCut, textEpoch, type TextStyle } from './text';
 
@@ -71,7 +72,7 @@ export const setAnimTime = (t: number) => void (now = t);
 export const setAnimTiming = (t?: Partial<Timing>) => void (timing = timingOf(t));
 
 /** Le document a-t-il au moins une forme animée ? */
-export const hasAnim = (layers: Layer[]) => layers.some((l) => l.anim && !l.cut && l.visible !== false);
+export const hasAnim = (layers: Layer[]) => layers.some((l) => l.visible !== false && ((l.anim && !l.cut) || !!l.motion?.length));
 
 /** Coefficient du cycle, en périodes (les animations d'avant gardent à peu près leur vitesse). */
 export function cycleOf(a: Anim, tm = timing): number {
@@ -118,16 +119,16 @@ export function animRatio(a: Anim): number {
 
 const frac = (x: number) => x - Math.floor(x);
 
-// hélice : un moyeu, des pales en goutte déportée, un trou d'axe ; 48 images par pale
-const PROP_FRAMES = 48;
+// hélice : un moyeu, des pales en goutte déportée, un trou d'axe
 function propellerCut(a: Anim, t: number): string {
   const n = Math.max(2, Math.min(8, Math.round(a.blades ?? 3)));
   const w = Math.max(0.2, Math.min(0.9, a.width ?? 0.55));
-  const dir = a.dir ?? (a.speed !== undefined && a.speed < 0 ? -1 : 1);
-  const k = Math.floor(frac(dir * phaseOf(a, t) * n) * PROP_FRAMES);
-  return cached(`p|${n}|${w}|${k}`, () => {
+  // la rotation n'est plus dans la découpe : c'est une consigne (animOrder) ajoutée au mouvement de l'objet,
+  // pour que teinte, dégradé, peinture et bord tournent avec les pales
+  void t;
+  return cached(`p|${n}|${w}`, () => {
     const turn = (2 * Math.PI) / n;
-    const th = (k / PROP_FRAMES) * turn;
+    const th = 0;
     const [R0, R1] = [0.13, 0.48];
     const outer: Pt[] = [];
     const N = 90 * n;
@@ -257,4 +258,154 @@ function countdownCut(a: Anim, t: number): string {
     );
     return ringsToPath(rings, 1e-6, 55, false);
   });
+}
+
+// --- mouvement général : des consignes posées sur la frise ---
+
+export type Accel = 'linear' | 'soft' | 'fast';
+export type Brake = 'sharp' | 'damped' | 'bounce' | 'fast' | 'slow';
+export const ACCELS: Array<[Accel, string]> = [['linear', 'Linéaire'], ['soft', 'Progressive'], ['fast', 'Rapide']];
+export const BRAKES: Array<[Brake, string]> = [['sharp', 'Net'], ['damped', 'Amorti'], ['bounce', 'Rebond'], ['fast', 'Rapide'], ['slow', 'Lent']];
+
+/**
+ * Une consigne de mouvement : sur une plage de la frise (début et durée en périodes), l'objet se déplace,
+ * tourne, grandit ou monte de la quantité donnée. Les consignes s'ajoutent entre elles et à celle du sticker ;
+ * une consigne finie garde son effet jusqu'à la fin de la vidéo (sauf aller-retour).
+ */
+export interface Move {
+  id: string;
+  /** Début et durée, en périodes de référence. */
+  at: number;
+  len: number;
+  /** Déplacement, en fraction de la largeur et de la hauteur du format. */
+  dx?: number;
+  dy?: number;
+  /** Rotation, en tours (négatif = sens inverse). */
+  rot?: number;
+  /** Taille à l'arrivée (1 = inchangée). */
+  scale?: number;
+  /** Hauteur ajoutée au-dessus de la page (profondeur). */
+  lift?: number;
+  /** Modèle d'accélération au départ et de freinage à l'arrivée. */
+  accel?: Accel;
+  brake?: Brake;
+  /** Aller-retour : l'objet revient à son état de départ sur la seconde moitié de la plage. */
+  back?: boolean;
+}
+
+function bounceOut(v: number): number {
+  const [n, d] = [7.5625, 2.75];
+  if (v < 1 / d) return n * v * v;
+  if (v < 2 / d) return n * (v -= 1.5 / d) * v + 0.75;
+  if (v < 2.5 / d) return n * (v -= 2.25 / d) * v + 0.9375;
+  return n * (v -= 2.625 / d) * v + 0.984375;
+}
+/** Avancée de la consigne (0..1) selon ses modèles : l'accélération façonne le départ, le freinage l'arrivée. */
+export function ease(u: number, accel: Accel = 'linear', brake: Brake = 'sharp'): number {
+  const x = Math.max(0, Math.min(1, u));
+  const v = accel === 'soft' ? x * x : accel === 'fast' ? Math.pow(x, 0.55) : x;
+  if (brake === 'damped') return 1 - (1 - v) * (1 - v);
+  if (brake === 'slow') return 1 - Math.pow(1 - v, 3.2);
+  if (brake === 'bounce') return bounceOut(v);
+  if (brake === 'fast') {
+    // pleine vitesse jusqu'aux trois quarts, puis un freinage court
+    const c = 0.75;
+    const k = 1 / (c + (1 - c) / 2);
+    if (v < c) return k * v;
+    const w = (v - c) / (1 - c);
+    return k * c + (1 - k * c) * (2 * w - w * w);
+  }
+  return v;
+}
+
+/** Écart d'un objet par rapport à sa pose de repos, à un instant. */
+export interface Pose {
+  dx: number;
+  dy: number;
+  /** Radians. */
+  rot: number;
+  scale: number;
+  lift: number;
+}
+
+/**
+ * Consigne propre au sticker : son générateur peut demander un mouvement d'objet (l'hélice : un tour par cycle),
+ * qui s'ajoute au plan général au lieu d'être dessiné dans la découpe.
+ */
+export function animOrder(a: Anim, t = now): Partial<Pose> | null {
+  if (a.kind !== 'propeller') return null;
+  const dir = a.dir ?? (a.speed !== undefined && a.speed < 0 ? -1 : 1);
+  return { rot: dir * phaseOf(a, t) * 2 * Math.PI };
+}
+/**
+ * Animations propres d'un sticker, telles que son générateur les déclare : elles remontent sur la frise,
+ * chacune sur sa ligne, répétée à chaque cycle. `order` = l'animation passe par le plan général (mouvement d'objet).
+ */
+export interface Gesture {
+  id: string;
+  name: string;
+  note?: string;
+  order?: boolean;
+}
+export function gesturesOf(a: Anim): Gesture[] {
+  if (a.kind === 'propeller') return [{ id: 'spin', name: 'Rotation', note: 'un tour par cycle', order: true }];
+  if (a.kind === 'bird') return [{ id: 'flap', name: 'Battement d’ailes', note: 'un battement par cycle' }];
+  return [{ id: 'count', name: 'Décompte', note: `${countdownValues(a).length} valeurs par cycle` }];
+}
+
+/** Pose d'un objet à l'instant t : la consigne de son sticker, plus toutes ses consignes de la frise. */
+export function poseOf(l: Layer, t = now, tm = timing): Pose | null {
+  const own = l.anim && !l.cut ? animOrder(l.anim, t) : null;
+  if (!own && !l.motion?.length) return null;
+  const p: Pose = { dx: own?.dx ?? 0, dy: own?.dy ?? 0, rot: own?.rot ?? 0, scale: own?.scale ?? 1, lift: own?.lift ?? 0 };
+  const at = t / tm.period;
+  for (const m of l.motion ?? []) {
+    let u = (at - m.at) / Math.max(0.001, m.len);
+    if (u <= 0) continue;
+    u = Math.min(1, u);
+    if (m.back) u = u < 0.5 ? 2 * u : 2 - 2 * u;
+    const e = ease(u, m.accel, m.brake);
+    p.dx += (m.dx ?? 0) * e;
+    p.dy += (m.dy ?? 0) * e;
+    p.rot += (m.rot ?? 0) * 2 * Math.PI * e;
+    p.scale *= Math.pow(Math.max(0.02, m.scale ?? 1), e);
+    p.lift += (m.lift ?? 0) * e;
+  }
+  return p;
+}
+
+/** Les couches dans leur pose à l'instant courant (le même tableau si rien ne bouge). */
+export function posed(layers: Layer[], f: Format, t = now): Layer[] {
+  if (!layers.some((l) => l.motion?.length || (l.anim && !l.cut))) return layers;
+  const m = Math.min(f.width, f.height);
+  return layers.map((l) => {
+    const p = l.kind === 'surface' ? null : poseOf(l, t);
+    if (!p) return l;
+    const [w, h] = [l.w * p.scale, l.h * p.scale];
+    return {
+      ...l,
+      // l'objet grandit depuis son centre, même accroché par un coin
+      dx: l.dx + p.dx + ((l.grip?.x ?? 0) * (w - l.w) * m) / f.width,
+      dy: l.dy + p.dy + ((l.grip?.y ?? 0) * (h - l.h) * m) / f.height,
+      w,
+      h,
+      rot: (l.rot ?? 0) + p.rot || undefined,
+      height: Math.max(0, Math.min(1, l.height + p.lift)),
+    };
+  });
+}
+
+/** Une nouvelle consigne posée à l'instant courant : une période, sans effet tant qu'on ne la règle pas. */
+export function newMove(tm: Timing, t = now): Move {
+  const at = Math.min(tm.count - 1, Math.floor(t / tm.period + 1e-6));
+  return { id: Math.random().toString(36).slice(2, 9), at, len: Math.min(1, tm.count - at), accel: 'soft', brake: 'damped' };
+}
+/** Résumé d'une consigne, pour son bloc sur la frise. */
+export function moveName(m: Move): string {
+  const out: string[] = [];
+  if (m.dx || m.dy) out.push('déplacement');
+  if (m.rot) out.push(`${Math.round(m.rot * 100) / 100} tr`);
+  if (m.scale !== undefined && m.scale !== 1) out.push(`× ${Math.round(m.scale * 100) / 100}`);
+  if (m.lift) out.push('hauteur');
+  return out.join(' · ') || 'à régler';
 }

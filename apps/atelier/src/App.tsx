@@ -10,6 +10,7 @@ import { steadyPath } from './steady';
 import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
 import { allStamps, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel, Dots } from './coupe';
+import { Frise } from './frise';
 import { ANIM_DEFAULTS, ANIM_NAMES, animCut, animRatio, hasAnim, setAnimTime, setAnimTiming, timingOf, totalOf, type AnimKind } from './anim';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
@@ -1067,6 +1068,8 @@ export function App() {
   // l'horloge boucle sur la durée de la page : période × nombre de périodes
   setAnimTime(animT % total);
   const animated = hasAnim(doc.layers);
+  // frise générale : ouverte depuis la barre d'animation ou depuis les attributs d'un objet
+  const [frise, setFrise] = useState(false);
   totalRef.current = total;
   useEffect(() => {
     if (!animated || !animPlay) return;
@@ -5319,6 +5322,7 @@ export function App() {
               targetAt={layerAtScreen}
               patchOther={(id, p) => patchLayer(id, p)}
               onDoc={update}
+              onFrise={() => setFrise(true)}
               onClose={() => setTool('move')}
               onWizard={(t) => {
                 setWizardTab((w) => ({ t, n: w.n + 1 }));
@@ -6415,7 +6419,7 @@ export function App() {
           <p>Appui long sur l'image pour l'enregistrer · toucher pour fermer</p>
         </div>
       )}
-      {animated && !rendu && (
+      {(animated || frise) && !rendu && (
         <div className="anim-bar">
           <button onClick={() => setAnimPlay((p) => !p)} title={animPlay ? 'Mettre les animations en pause' : 'Lire les animations'} aria-label={animPlay ? 'Pause' : 'Lecture'}>
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
@@ -6467,6 +6471,9 @@ export function App() {
             />
             s
           </label>
+          <button className={`anim-frise ${frise ? 'on' : ''}`} onClick={() => setFrise((v) => !v)} title="Frise générale : les animations propres de chaque sticker et les consignes de mouvement des objets, dans le déroulé de la vidéo">
+            Frise
+          </button>
           {/* le déroulé : la position dans la vidéo, un repère au début de chaque période ; toucher pour s'y placer */}
           <div
             className="anim-track"
@@ -6483,6 +6490,24 @@ export function App() {
             ))}
           </div>
         </div>
+      )}
+      {frise && !rendu && (
+        <Frise
+          layers={doc.layers}
+          selected={selected}
+          timing={timing}
+          t={animT % total}
+          onSeek={(t) => {
+            lookCache.current = null;
+            setAnimT(t);
+          }}
+          onSelect={setSelected}
+          onMotion={(id, motion, h) => {
+            lookCache.current = null;
+            patchLayer(id, { motion: motion.length ? motion : undefined }, h);
+          }}
+          onClose={() => setFrise(false)}
+        />
       )}
       {toast && (
         <div className={`toast ${toastUndo ? 'with-undo' : ''}`}>

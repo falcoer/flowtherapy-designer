@@ -311,7 +311,10 @@ export function CoupePanel({
   targetAt,
   patchOther,
   onDoc,
+  onFrise,
 }: {
+  /** Ouvre la frise générale (consignes de mouvement de l'objet). */
+  onFrise?: () => void;
   /** Liste des objets de la page, à gauche du panneau. */
   list?: React.ReactNode;
   /** Retouche du texte (police, graisse) : les lettres gardent leur place sur la page. */
@@ -511,6 +514,16 @@ export function CoupePanel({
   // les transformations sont passées à la scène entière : un objet n'en garde que d'anciennes, à retirer
   const fxCard = hasFx ? card('transform', 'Anciennes transformations') : null;
 
+  /** Mouvement de l'objet : ses consignes se posent sur la frise générale. */
+  const motionBar = onFrise && l.kind !== 'surface' && (
+    <div className="ap-molded ap-motion">
+      <span>{l.motion?.length ? `Mouvement : ${l.motion.length} consigne${l.motion.length > 1 ? 's' : ''} sur la frise.` : 'Mouvement : déplacer, tourner ou agrandir l’objet au fil de la vidéo.'}</span>
+      <button className="chip" onClick={onFrise}>
+        Frise
+      </button>
+    </div>
+  );
+
   /** Bandeau du bas d'un objet modelé : ses attributs d'origine sont grisés jusqu'au retour. */
   const moldBar = l.molded && (
     <div className="ap-molded">
@@ -666,6 +679,7 @@ export function CoupePanel({
         {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}
+        {motionBar}
       </>
     );
   else if (tab === 'main' && l.kind === 'shape') {
@@ -679,6 +693,7 @@ export function CoupePanel({
         {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}
+        {motionBar}
       </>
     );
   } else if (tab === 'main') {
@@ -688,6 +703,7 @@ export function CoupePanel({
         {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}
+        {motionBar}
       </>
     );
   } else if (tab === 'support') {

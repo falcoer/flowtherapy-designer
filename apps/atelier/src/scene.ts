@@ -6,7 +6,7 @@ import { drawBlurred, rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring, insideRings } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
-import { animCut } from './anim';
+import { animCut, posed } from './anim';
 import { EDGE_ELEMENTS, edgeStroke } from './elements';
 import { bevelSoftOf, blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
@@ -851,6 +851,11 @@ function drawExtrude(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Forma
 
 export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o: DrawOptions) {
   const minSide = Math.min(f.width, f.height);
+  // mouvement général : au premier niveau seulement, chaque objet prend sa pose de l'instant (frise + consigne du sticker)
+  if (!depth && !flattening.size) {
+    const layers = posed(doc.layers, f);
+    if (layers !== doc.layers) doc = { ...doc, layers };
+  }
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, f.width, f.height);
