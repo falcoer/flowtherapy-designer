@@ -3,10 +3,10 @@ import { ACCELS, actsOf, BRAKES, gesturesOf, moveName, newAct, newMove, withActs
 import type { Layer } from './model';
 
 /**
- * Frise de l'objet choisi : le déroulé de la vidéo, une ligne par animation. Le mouvement de l'objet et chaque geste
- * propre de son sticker se posent à la demande (＋, ou en touchant leur ligne), autant de fois qu'il faut :
- * des blocs que l'on déplace et étire dans les périodes. Les réglages du bloc choisi s'ouvrent dessous ;
- * sa place et sa durée ne se règlent que sur la ligne.
+ * Frise de l'objet choisi : le déroulé de la vidéo, une ligne par animation posée. Chaque mouvement de l'objet et chaque
+ * geste propre de son sticker se pose à la demande (＋ Animation), autant de fois qu'il faut, et prend sa propre ligne :
+ * un bloc que l'on déplace et étire dans les périodes, ou que l'on place en touchant sa ligne. Les réglages de la ligne
+ * choisie s'ouvrent dessous ; place et durée ne se règlent que sur la ligne.
  */
 /** Se placer dans la vidéo en touchant une piste, puis en glissant dessus : la piste garde le doigt jusqu'au lâcher. */
 export function scrub(e: RPointerEvent<HTMLElement>, total: number, seek: (t: number) => void) {
@@ -60,8 +60,6 @@ export function Frise({
 }) {
   const [pick, setPick] = useState<{ layer: string; kind: 'move' | 'act'; id: string } | null>(null);
   const [menu, setMenu] = useState(false);
-  // lignes gardées à l'écran même vides : celles que l'on vient de vider restent pour y reposer un bloc
-  const [kept, setKept] = useState<{ layer: string; lines: string[] }>({ layer: '', lines: [] });
   const me = layers.find((l) => l.id === selected && l.kind !== 'surface');
   const total = timing.period * timing.count;
   const pct = (periods: number) => `${(periods / timing.count) * 100}%`;
@@ -72,101 +70,82 @@ export function Frise({
   const mine = pick && pick.layer === me?.id ? pick : null;
   const move = mine?.kind === 'move' ? moves.find((m) => m.id === mine.id) : undefined;
   const act = mine?.kind === 'act' ? acts.find((x) => x.id === mine.id) : undefined;
-  const lines = me && kept.layer === me.id ? kept.lines : [];
-  const shown = (line: string) => lines.includes(line) || (line === 'move' ? moves.length > 0 : acts.some((x) => x.g === line));
-  const keep = (line: string) => me && setKept({ layer: me.id, lines: lines.includes(line) ? lines : [...lines, line] });
   const nowAt = Math.max(0, Math.min(timing.count - 0.05, t / timing.period));
 
-  /** Pose une consigne de mouvement à un instant (en périodes). */
+  /** Pose une consigne de mouvement à un instant (en périodes) : elle prend sa ligne. */
   const addMove = (at: number) => {
     if (!me) return;
     const m = { ...newMove(timing, 0), at, len: Math.min(1, timing.count - at) };
     onMotion(me.id, [...moves, m], true);
     setPick({ layer: me.id, kind: 'move', id: m.id });
-    keep('move');
   };
-  /** La place libre autour d'un instant sur la ligne d'un geste : deux blocs d'un même geste ne se chevauchent pas. */
-  const room = (g: string, at: number, but?: Act): [number, number] => {
-    let [lo, hi] = [0, timing.count];
-    for (const x of acts) {
-      if (x.g !== g || x === but) continue;
-      if (x.at + x.len <= at + 1e-6) lo = Math.max(lo, x.at + x.len);
-      else if (x.at >= at - 1e-6) hi = Math.min(hi, x.at);
-      else return [at, at];
-    }
-    return [lo, hi];
-  };
-  /** Pose un geste du sticker à un instant : les gestes d'un sticker d'avant s'inscrivent d'abord dans ses données. */
+  /** Pose un geste du sticker à un instant, sur sa ligne : les gestes d'un sticker d'avant s'inscrivent d'abord dans ses données. */
   const addAct = (g: Gesture, at: number) => {
     if (!me || !a) return;
-    // sur un bloc déjà posé : c'est lui que l'on choisit
-    const under = acts.find((x) => x.g === g.id && x.at <= at + 1e-6 && at < x.at + x.len - 1e-6);
-    if (under) return grabbed(under);
-    const [, hi] = room(g.id, at);
-    if (hi - at < 0.05) return;
     const full = withActs(a, timing);
     const x = newAct(full, g, at, timing);
-    x.len = Math.round(Math.min(x.len, hi - at) * 100) / 100;
     onAnim(me.id, { ...full, acts: [...(full.acts ?? []), x] }, true);
     setPick({ layer: me.id, kind: 'act', id: x.id });
-    keep(g.id);
-  };
-  /** Choisit un bloc de geste déjà posé. */
-  const grabbed = (x: Act) => me && setPick({ layer: me.id, kind: 'act', id: x.id });
-  /** Toucher une ligne hors de ses blocs : un bloc s'y pose, calé au quart de période. */
-  const onLine = (e: RPointerEvent<HTMLElement>, add: (at: number) => void) => {
-    if (e.target !== e.currentTarget) return;
-    const r = e.currentTarget.getBoundingClientRect();
-    const at = Math.round(((e.clientX - r.left) / r.width) * timing.count * 4) / 4;
-    add(Math.max(0, Math.min(timing.count - 0.25, at)));
   };
   /**
-   * Glisser un bloc : le corps le déplace, son bord droit l'étire. `put` reçoit sa nouvelle place ;
-   * `base` donne la place de départ, relue après le premier geste (un sticker d'avant change alors d'identifiants).
+   * Suit le doigt sur une ligne : le corps du bloc le déplace, son bord droit l'étire. La ligne garde le doigt
+   * jusqu'au lâcher (c'est elle qui écoute, pas le bloc : il peut se redessiner sans couper le geste).
    */
-  const grab = (e: RPointerEvent<HTMLElement>, b: { at: number; len: number }, edge: boolean, step: number, put: (at: number, len: number, history: boolean) => void, [lo, hi]: [number, number] = [0, timing.count]) => {
-    e.stopPropagation();
-    const track = e.currentTarget.closest('.fr-track') as HTMLElement;
+  const follow = (e: RPointerEvent<HTMLElement>, b: { at: number; len: number }, edge: boolean, step: number, put: (at: number, len: number, history: boolean) => void, moved = false) => {
+    const track = (e.currentTarget.closest('.fr-track') ?? e.currentTarget) as HTMLElement;
     const w = track.getBoundingClientRect().width;
+    if (!w) return;
     const x0 = e.clientX;
-    let moved = false;
-    const el = e.currentTarget;
-    el.setPointerCapture(e.pointerId);
+    const id = e.pointerId;
+    try {
+      track.setPointerCapture(id);
+    } catch {
+      /* doigt déjà levé */
+    }
     const snap = (v: number) => Math.round(v / step) * step;
     const onMove = (ev: PointerEvent) => {
-      if (!moved && Math.abs(ev.clientX - x0) < 4) return;
+      if (ev.pointerId !== id || (!moved && Math.abs(ev.clientX - x0) < 4)) return;
       const d = ((ev.clientX - x0) / w) * timing.count;
-      if (edge) put(b.at, Math.max(step, Math.min(hi - b.at, snap(b.len + d))), !moved);
-      else put(Math.max(lo, Math.min(hi - b.len, snap(b.at + d))), b.len, !moved);
+      if (edge) put(b.at, Math.max(step, Math.min(timing.count - b.at, snap(b.len + d))), !moved);
+      else put(Math.max(0, Math.min(timing.count - b.len, snap(b.at + d))), b.len, !moved);
       moved = true;
     };
-    const onUp = () => {
-      el.removeEventListener('pointermove', onMove);
-      el.removeEventListener('pointerup', onUp);
-      el.removeEventListener('pointercancel', onUp);
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== id) return;
+      track.removeEventListener('pointermove', onMove);
+      track.removeEventListener('pointerup', onUp);
+      track.removeEventListener('pointercancel', onUp);
     };
-    el.addEventListener('pointermove', onMove);
-    el.addEventListener('pointerup', onUp);
-    el.addEventListener('pointercancel', onUp);
+    track.addEventListener('pointermove', onMove);
+    track.addEventListener('pointerup', onUp);
+    track.addEventListener('pointercancel', onUp);
   };
-  const grabMove = (e: RPointerEvent<HTMLElement>, m: Move, edge: boolean) => {
+  /**
+   * Geste sur la ligne d'un bloc. Sur le bloc : le déplacer ; sur son bord : l'étirer ;
+   * ailleurs sur la ligne : le bloc vient s'y placer (début au doigt), puis suit le doigt.
+   */
+  const onLine = (e: RPointerEvent<HTMLElement>, b: { at: number; len: number }, step: number, put: (at: number, len: number, history: boolean) => void) => {
+    e.preventDefault();
+    const hit = e.target as HTMLElement;
+    if (hit.closest('.fr-edge')) return follow(e, b, true, step, put);
+    if (hit.closest('.fr-blk')) return follow(e, b, false, step, put);
+    const r = e.currentTarget.getBoundingClientRect();
+    const at = Math.max(0, Math.min(timing.count - b.len, Math.round((((e.clientX - r.left) / r.width) * timing.count) / step) * step));
+    put(at, b.len, true);
+    follow(e, { at, len: b.len }, false, step, put, true);
+  };
+  const lineMove = (e: RPointerEvent<HTMLElement>, m: Move) => {
     if (!me) return;
     setPick({ layer: me.id, kind: 'move', id: m.id });
-    grab(e, m, edge, 0.25, (at, len, h) => onMotion(me.id, moves.map((x) => (x.id === m.id ? { ...m, at, len } : x)), h));
+    onLine(e, m, 0.25, (at, len, h) => onMotion(me.id, moves.map((x) => (x.id === m.id ? { ...m, at, len } : x)), h));
   };
-  const grabAct = (e: RPointerEvent<HTMLElement>, x: Act, edge: boolean) => {
+  const lineAct = (e: RPointerEvent<HTMLElement>, x: Act) => {
     if (!me || !a) return;
-    // sticker d'avant : ses gestes s'inscrivent dans ses données au premier geste, le bloc garde sa place dans la liste
+    // sticker d'avant : ses gestes s'inscrivent dans ses données au premier geste, avec les mêmes identifiants
     const full = withActs(a, timing);
-    const k = acts.indexOf(x);
-    const id = full.acts![k]!.id;
-    setPick({ layer: me.id, kind: 'act', id });
-    // le bloc glisse et s'étire entre ses voisins de la même ligne, sans les recouvrir
-    // (des blocs déjà superposés par une version d'avant restent libres, pour pouvoir les séparer)
-    const around = room(x.g, x.at + x.len / 2, x);
-    const free: [number, number] = around[1] - around[0] >= x.len - 1e-6 && around[0] <= x.at + 1e-6 && around[1] >= x.at + x.len - 1e-6 ? around : [0, timing.count];
-    grab(e, x, edge, 0.05, (at, len, h) => onAnim(me.id, { ...full, acts: full.acts!.map((y, j) => (j === k ? { ...y, at: Math.round(at * 100) / 100, len: Math.round(len * 100) / 100 } : y)) }, h), free);
-    if (full !== a) onAnim(me.id, full, true);
+    setPick({ layer: me.id, kind: 'act', id: x.id });
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    onLine(e, x, 0.05, (at, len, h) => onAnim(me.id, { ...full, acts: full.acts!.map((y) => (y.id === x.id ? { ...y, at: r2(at), len: r2(len) } : y)) }, h));
   };
   const set = (p: Partial<Move>, history = true) => {
     if (!me || !move) return;
@@ -203,7 +182,6 @@ export function Frise({
         onClick={() => {
           onAnim(me.id, { ...a, acts: acts.filter((x) => x.id !== act.id) }, true);
           setPick(null);
-          keep(act.g);
         }}
       >
         Supprimer
@@ -222,7 +200,6 @@ export function Frise({
               onClick={() => {
                 onMotion(me.id, moves.filter((m) => m.id !== move.id), true);
                 setPick(null);
-                keep('move');
               }}
             >
               Supprimer
@@ -308,59 +285,48 @@ export function Frise({
           </div>
         </div>
         <div className="fr-obj on">
-          {shown('move') && (
-            <div className="fr-row">
-              <span className="fr-name">
-                <i>Mouvement</i>
-              </span>
-              <div className="fr-track fr-line-add" onPointerDown={(e) => onLine(e, addMove)} title="Mouvement de l'objet : toucher la ligne pour en poser un ici">
-                {ticks}
-                {moves.map((m) => (
-                  <span
-                    key={m.id}
-                    className={`fr-move ${move?.id === m.id ? 'on' : ''} ${m.back ? 'back' : ''}`}
-                    style={{ left: pct(m.at), width: pct(m.len) }}
-                    onPointerDown={(e) => grabMove(e, m, false)}
-                    title="Glisser pour déplacer, tirer le bord droit pour étirer"
-                  >
+          {/* une ligne par animation posée : chaque mouvement, puis chaque geste du sticker, avec ses réglages dessous */}
+          {moves.map((m) => (
+            <Fragment key={m.id}>
+              <div className={`fr-row ${move?.id === m.id ? 'on' : ''}`}>
+                <button className="fr-name" onClick={() => setPick({ layer: me.id, kind: 'move', id: m.id })}>
+                  <i>Mouvement</i>
+                </button>
+                <div className="fr-track fr-line-put" onPointerDown={(e) => lineMove(e, m)} title="Glisser le bloc pour le déplacer, tirer son bord droit pour l'étirer ; toucher la ligne ailleurs l'y place">
+                  {ticks}
+                  <span className={`fr-blk fr-move ${move?.id === m.id ? 'on' : ''} ${m.back ? 'back' : ''}`} style={{ left: pct(m.at), width: pct(m.len) }}>
                     <em>{moveName(m)}</em>
-                    <span className="fr-edge" onPointerDown={(e) => grabMove(e, m, true)} />
+                    <span className="fr-edge" />
                   </span>
-                ))}
-                {now}
+                  {now}
+                </div>
               </div>
-            </div>
-          )}
-          {moveSet}
-          {gestures.filter((g) => shown(g.id)).map((g) => (
-            <Fragment key={g.id}>
-            <div className="fr-row">
-              <span className="fr-name">
-                <i>{g.name}</i>
-              </span>
-              <div className="fr-track fr-line-add" onPointerDown={(e) => onLine(e, (at) => addAct(g, at))} title={`${g.name} : toucher la ligne pour en poser un ici`}>
-                {ticks}
-                {acts
-                  .filter((x) => x.g === g.id)
-                  .map((x) => (
-                    <span
-                      key={x.id}
-                      className={`fr-own ${g.order ? 'order' : ''} ${act?.id === x.id ? 'on' : ''}`}
-                      style={{ left: pct(x.at), width: pct(Math.min(x.len, timing.count - x.at)) }}
-                      onPointerDown={(e) => grabAct(e, x, false)}
-                      title="Glisser pour déplacer, tirer le bord droit pour étirer"
-                    >
-                      <em>{g.note}</em>
-                      <span className="fr-edge" onPointerDown={(e) => grabAct(e, x, true)} />
-                    </span>
-                  ))}
-                {now}
-              </div>
-            </div>
-            {act?.g === g.id && actSet}
+              {move?.id === m.id && moveSet}
             </Fragment>
           ))}
-          {!shown('move') && !gestures.some((g) => shown(g.id)) && <p className="cp-note fr-empty">Aucune animation sur cet objet : ＋ Animation en pose une à l’instant affiché.</p>}
+          {acts.map((x) => {
+            const g = gestures.find((y) => y.id === x.g);
+            if (!g) return null;
+            return (
+              <Fragment key={x.id}>
+                <div className={`fr-row ${act?.id === x.id ? 'on' : ''}`}>
+                  <button className="fr-name" onClick={() => setPick({ layer: me.id, kind: 'act', id: x.id })}>
+                    <i>{g.name}</i>
+                  </button>
+                  <div className="fr-track fr-line-put" onPointerDown={(e) => lineAct(e, x)} title="Glisser le bloc pour le déplacer, tirer son bord droit pour l'étirer ; toucher la ligne ailleurs l'y place">
+                    {ticks}
+                    <span className={`fr-blk fr-own ${g.order ? 'order' : ''} ${act?.id === x.id ? 'on' : ''}`} style={{ left: pct(x.at), width: pct(Math.min(x.len, timing.count - x.at)) }}>
+                      <em>{g.note}</em>
+                      <span className="fr-edge" />
+                    </span>
+                    {now}
+                  </div>
+                </div>
+                {act?.id === x.id && actSet}
+              </Fragment>
+            );
+          })}
+          {!moves.length && !acts.length && <p className="cp-note fr-empty">Aucune animation sur cet objet : ＋ Animation en pose une à l’instant affiché.</p>}
         </div>
       </div>
       {!act && !move && a && settings && <div className="fr-own-set">{settings(null)}</div>}

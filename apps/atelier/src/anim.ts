@@ -93,7 +93,7 @@ export function actsOf(a: Anim, tm = timing): Act[] {
   return acts;
 }
 /** Le sticker avec ses gestes inscrits dans ses données : dès qu'on en pose, déplace ou règle un. */
-export const withActs = (a: Anim, tm = timing): Anim => (a.acts ? a : { ...a, acts: actsOf(a, tm).map((x) => ({ ...x, id: uid() })) });
+export const withActs = (a: Anim, tm = timing): Anim => (a.acts ? a : { ...a, acts: actsOf(a, tm).map((x) => ({ ...x })) });
 /** Un geste posé à un instant (en périodes) : sa durée de départ vient du générateur. */
 export function newAct(a: Anim, g: Gesture, at: number, tm = timing): Act {
   const gen = generatorOf(a);
