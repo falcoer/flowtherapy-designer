@@ -3163,3 +3163,5 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .fr-line select { padding: 3px 4px; border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; background: var(--chrome-solid); color: var(--ink); font: inherit; }
 .fr-del { margin-left: auto; padding: 4px 10px; border-radius: 10px; color: #c0392b; }
 @media (max-width: 720px) { .fr-row { grid-template-columns: 84px 1fr 28px; } }
+.fr-gesture { cursor: pointer; }
+.fr-gesture.on { outline: 2px solid var(--accent); outline-offset: -2px; }

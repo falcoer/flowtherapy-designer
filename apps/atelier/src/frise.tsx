@@ -33,7 +33,7 @@ export function Frise({
   onTiming: (t: Timing) => void;
   playing: boolean;
   onPlay: () => void;
-  /** Réglages propres au sticker choisi (cycle, pales, départ…), posés sous la frise. */
+  /** Réglages du geste propre du sticker choisi (cycle, pales, départ…) : ouverts en touchant sa ligne. */
   settings?: React.ReactNode;
 }) {
   const [pick, setPick] = useState<{ layer: string; move: string } | null>(null);
@@ -42,6 +42,12 @@ export function Frise({
   const pct = (periods: number) => `${(periods / timing.count) * 100}%`;
   const owner = pick ? layers.find((l) => l.id === pick.layer) : undefined;
   const move = owner?.motion?.find((m) => m.id === pick?.move);
+  // geste propre du sticker choisi (par défaut tant qu'aucune consigne n'est choisie) : ses réglages s'ouvrent sous la frise
+  const ownOn = !move;
+  const pickOwn = (id: string) => {
+    setPick(null);
+    onSelect(id);
+  };
   const snap = (v: number) => Math.round(v * 4) / 4;
   const set = (p: Partial<Move>, history = true) => {
     if (!owner || !move) return;
@@ -137,11 +143,11 @@ export function Frise({
               {a &&
                 gesturesOf(a).map((g, gi) => (
                   <div key={g.id} className="fr-row">
-                    <button className="fr-name" onClick={() => onSelect(l.id)} title={`${ANIM_NAMES[a.kind]} : animation propre du sticker`}>
+                    <button className="fr-name" onClick={() => pickOwn(l.id)} title={`${ANIM_NAMES[a.kind]} : animation propre du sticker, toucher pour la régler`}>
                       {gi === 0 && <b>{l.name}</b>}
                       <i>{g.name}</i>
                     </button>
-                    <div className="fr-track" title={`${g.name} : ${g.note ?? ''} (cycle ${cycleName(c)} période)${g.order ? ', ajoutée au mouvement de l’objet' : ''}`}>
+                    <div className={`fr-track fr-gesture ${ownOn && l.id === selected ? 'on' : ''}`} onPointerDown={() => pickOwn(l.id)} title={`${g.name} : ${g.note ?? ''} (cycle ${cycleName(c)} période)${g.order ? ', ajoutée au mouvement de l’objet' : ''}. Toucher pour la régler`}>
                       {Array.from({ length: reps }, (_, i) => (
                         <span key={i} className={`fr-own ${g.order ? 'order' : ''}`} style={{ left: pct(i * c), width: pct(Math.min(c, timing.count - i * c)) }}>
                           {i === 0 ? g.note : ''}
@@ -192,7 +198,12 @@ export function Frise({
           );
         })}
       </div>
-      {settings && <div className="fr-own-set">{settings}</div>}
+      {settings && ownOn && (
+        <div className="fr-own-set">
+          <b>{layers.find((l) => l.id === selected)?.name} · geste propre</b>
+          {settings}
+        </div>
+      )}
       {owner && move && (
         <div className="fr-edit">
           <div className="fr-line">
