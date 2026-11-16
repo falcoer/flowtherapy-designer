@@ -198,8 +198,11 @@ export function Frise({
         <div className="fr-edit">
           <div className="fr-line">
             <b>{owner.name}</b>
-            {num('Début', move.at + 1, (v) => set({ at: Math.min(v - 1, timing.count - 0.25) }), { min: 1, max: timing.count, step: 0.25, title: 'Période où la consigne commence (1 = début de la vidéo)' })}
-            {num('Durée', move.len, (v) => set({ len: v }), { min: 0.25, max: timing.count, step: 0.25, unit: 'pér.', title: 'Durée de la consigne, en périodes' })}
+            {num('Début', move.at + 1, (v) => {
+              const at = Math.min(v - 1, timing.count - 0.25);
+              set({ at, len: Math.min(move.len, timing.count - at) });
+            }, { min: 1, max: timing.count, step: 0.25, title: 'Période où la consigne commence (1 = début de la vidéo)' })}
+            {num('Durée', move.len, (v) => set({ len: Math.min(v, Math.max(0.25, timing.count - move.at)) }), { min: 0.25, max: timing.count, step: 0.25, unit: 'pér.', title: 'Durée de la consigne, en périodes' })}
             <label title="L'objet revient à son état de départ sur la seconde moitié">
               <input type="checkbox" checked={!!move.back} onChange={(e) => set({ back: e.target.checked || undefined })} />
               Aller-retour
