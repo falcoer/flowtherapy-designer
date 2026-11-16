@@ -1227,9 +1227,10 @@ function AnimRows({ l, doc, anim: base, act, live, patch }: { l: Layer; doc: Doc
       );
     if (p.type === 'letters') {
       // toutes les lettres, ou une seule : un cercle à glisser comme la teinte ; une autre lettre = un autre geste posé
+      // (un glissé = un seul pas d'annulation, comme un potard)
       const chars = lettersOf(l.text?.content ?? '');
       const at = v === 'all' ? -1 : ([...lettersPicked(v, chars.length)][0] ?? -1);
-      return <LetterDial key={p.key} label={p.name} chars={chars} value={at} onPick={(i) => put(i < 0 ? 'all' : String(i), true)} />;
+      return <LetterDial key={p.key} label={p.name} chars={chars} value={at} onPick={(i) => put(i < 0 ? 'all' : String(i))} />;
     }
     return (
       <label key={p.key} className="cp-row" title={p.title}>
