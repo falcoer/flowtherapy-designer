@@ -10,6 +10,7 @@ import { steadyPath } from './steady';
 import { afterPen, fingerDrawsFor, ignoreTouch, pointerTool } from './finger';
 import { allStamps, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel, Dots } from './coupe';
+import { Frise } from './frise';
 import { ANIM_DEFAULTS, ANIM_NAMES, animCut, animRatio, hasAnim, setAnimTime, setAnimTiming, timingOf, totalOf, type AnimKind } from './anim';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
@@ -1869,6 +1870,7 @@ export function App() {
           lookCache.current = null;
           redraw();
         },
+        posed: true,
       });
       drawLampTint(bx, d, ff);
       applySceneLook(full, d, ff);
@@ -2055,7 +2057,7 @@ export function App() {
     } else {
       // édition : la page nette, sans objectif, transformation ni flou de mise au point ;
       // l'aperçu (s'il est allumé) se calcule une fois le geste fini
-      drawLayers(ctx, sceneless(doc), f, { scale: scale * dpr, rot: view.rot, onImage: redraw, progressive: true, wet, burning });
+      drawLayers(ctx, sceneless(doc), f, { scale: scale * dpr, rot: view.rot, onImage: redraw, progressive: true, wet, burning, posed: true });
       drawLampTint(ctx, doc, f);
       if (look && !busy) scheduleLook(doc, f, lookS);
       else if (!look) {
@@ -4681,7 +4683,7 @@ export function App() {
     const ctx = c.getContext('2d')!;
     ctx.setTransform(k, 0, 0, k, 0, 0);
     forgetPaint();
-    drawLayers(ctx, doc, f, { scale: k, onImage: () => {} });
+    drawLayers(ctx, doc, f, { scale: k, onImage: () => {}, posed: true });
     drawLampTint(ctx, doc, f);
     forgetPaint();
     applySceneLook(c, doc, f);
@@ -5319,6 +5321,26 @@ export function App() {
               targetAt={layerAtScreen}
               patchOther={(id, p) => patchLayer(id, p)}
               onDoc={update}
+              anim={
+                <Frise
+                  layers={doc.layers}
+                  selected={sel.id}
+                  timing={timing}
+                  t={animT % total}
+                  playing={animPlay}
+                  onPlay={() => setAnimPlay((p) => !p)}
+                  onSeek={(t) => {
+                    lookCache.current = null;
+                    setAnimT(t);
+                  }}
+                  onSelect={setSelected}
+                  onMotion={(id, motion, h) => {
+                    lookCache.current = null;
+                    patchLayer(id, { motion: motion.length ? motion : undefined }, h);
+                  }}
+                  onTiming={(t) => update((d) => ({ ...d, timing: timingOf(t) }))}
+                />
+              }
               onClose={() => setTool('move')}
               onWizard={(t) => {
                 setWizardTab((w) => ({ t, n: w.n + 1 }));
@@ -6436,37 +6458,6 @@ export function App() {
           <output title="Temps dans la vidéo, et la période en cours">
             {(animT % total).toFixed(1)} / {total.toFixed(1)} s · {Math.min(timing.count, Math.floor((animT % total) / timing.period) + 1)}/{timing.count}
           </output>
-          <label title="Nombre de périodes : chaque animation cale son cycle sur une fraction ou un multiple de la période">
-            Périodes
-            <input
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={120}
-              value={timing.count}
-              onChange={(e) => {
-                const v = Math.round(Number(e.target.value));
-                // la durée de la vidéo reste la même : la période se resserre ou s'allonge
-                if (Number.isFinite(v) && v >= 1) update((d) => ({ ...d, timing: timingOf({ count: v, period: total / v }) }));
-              }}
-            />
-          </label>
-          <label title={`Durée de la vidéo, en secondes : la période vaut ${timing.period.toFixed(2)} s`}>
-            Durée
-            <input
-              type="number"
-              inputMode="decimal"
-              min={0.5}
-              max={600}
-              step={0.5}
-              value={Math.round(total * 100) / 100}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                if (Number.isFinite(v) && v > 0) update((d) => ({ ...d, timing: timingOf({ count: timing.count, period: v / timing.count }) }));
-              }}
-            />
-            s
-          </label>
           {/* le déroulé : la position dans la vidéo, un repère au début de chaque période ; toucher pour s'y placer */}
           <div
             className="anim-track"

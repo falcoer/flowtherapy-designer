@@ -233,6 +233,8 @@ export interface Layer {
   gen?: { sides: number; depth: number };
   /** Forme animée : la découpe suit le temps (compte à rebours, oiseau, hélice…). Ignorée une fois la découpe modelée. */
   anim?: import('./anim').Anim;
+  /** Mouvement général : consignes posées sur la frise (déplacement, rotation, taille, hauteur), ajoutées à celle du sticker. */
+  motion?: import('./anim').Move[];
   /** Proportions libres : les poignées étirent la largeur et la hauteur séparément. */
   free?: boolean;
   /**
