@@ -1420,8 +1420,12 @@ function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
       blendStops(g.stops, g.blend).forEach(([p, c]) => grad.addColorStop(p, c));
       ctx.fillStyle = grad;
     } else ctx.fillStyle = guideColor(g);
-    // lettres animées (chute, décrochage) : elles sortent de la boîte, la teinte les suit au-delà
-    if (l.text && l.anim) ctx.fillRect(x0 - 4 * b.w, y0 - 4 * b.h, 9 * b.w, 9 * b.h);
+    // lettres animées (chute, décrochage) : elles sortent de la boîte, la teinte les suit partout où la page les montre
+    // (un carré autour de l'objet qui couvre toute la page, même tourné ; la découpe limite le remplissage)
+    if (l.text && l.anim) {
+      const R = 2 * (f.width + f.height + b.w + b.h);
+      ctx.fillRect(b.cx - R, b.cy - R, 2 * R, 2 * R);
+    }
     else ctx.fillRect(x0, y0, b.w, b.h);
   }
   // peinture
