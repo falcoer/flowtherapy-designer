@@ -3227,6 +3227,13 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 @media (max-width: 720px) { .fr-under { margin-left: 0; } }
 .fr-under > .cp-attrs { background: none; box-shadow: none; border: 0; padding: 0; min-height: 0; }
 
+/* une ligne par animation posée : toucher la ligne y place son bloc ; bord d'étirement large au doigt */
+.fr-line-put { cursor: pointer; }
+.fr-blk { cursor: grab; }
+.fr-row.on .fr-name i { color: var(--accent); font-weight: 600; }
+.fr-name { cursor: pointer; }
+.fr-blk .fr-edge, .fr-own.fr-blk .fr-edge { width: 14px; }
+@media (pointer: coarse) { .fr-track { height: 30px; } .fr-ruler .fr-track { height: 22px; } .fr-blk .fr-edge, .fr-own.fr-blk .fr-edge { width: 22px; } }
 /* gestes des textes : toutes les lettres, ou une par son numéro */
 .cp-row.cp-letters .cp-letter-set { grid-column: 2 / 4; }
 .cp-letter-set { display: flex; flex-wrap: wrap; gap: 4px; max-width: 100%; }
