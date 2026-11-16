@@ -2573,7 +2573,10 @@ export function App() {
     const group = [me, ...matesOf(src, me)];
     const link = me.link ? uid() : undefined;
     const ids = new Map(group.map((g) => [g.id, uid()]));
-    const copies = group.map((g) => ({ ...structuredClone(g), id: ids.get(g.id)!, name: `${g.name} (copie)`, dx: g.dx + 0.03, dy: g.dy + 0.03, pins: undefined, ...(link ? { link } : {}) }));
+    // la copie d'un sticker en pièces est un autre sticker : ses pièces se règlent entre elles, pas avec l'original
+    const sets = new Map<string, string>();
+    const reset = (a: Layer['anim']) => (a && typeof a.set === 'string' ? { anim: { ...a, set: sets.get(a.set) ?? (sets.set(a.set, uid()), sets.get(a.set)!) } } : {});
+    const copies = group.map((g) => ({ ...structuredClone(g), id: ids.get(g.id)!, name: `${g.name} (copie)`, dx: g.dx + 0.03, dy: g.dy + 0.03, pins: undefined, ...(link ? { link } : {}), ...reset(g.anim) }));
     update((d) => {
       const at = Math.max(...group.map((g) => d.layers.findIndex((x) => x.id === g.id)));
       const layers = [...d.layers];
@@ -4252,7 +4255,7 @@ export function App() {
     const group = uid();
     const n = doc.guides.length || 1;
     const parts: Layer[] = gen.parts?.length
-      ? gen.parts.map((p, i) => ({ ...layer, id: i ? uid() : layer.id, name: `${gen.name} · ${p.name}`, anim: { ...anim, part: p.id }, guide: (guide + (p.tint ?? 0)) % n, link: group }))
+      ? gen.parts.map((p, i) => ({ ...layer, id: i ? uid() : layer.id, name: `${gen.name} · ${p.name}`, anim: { ...anim, part: p.id, set: group }, guide: (guide + (p.tint ?? 0)) % n, link: group }))
       : [layer];
     update((d) => ({ ...d, layers: [...d.layers, ...parts] }));
     setSelected(layer.id);
@@ -4529,13 +4532,14 @@ export function App() {
       const me = d.layers.find((l) => l.id === id);
       const group = 'extrude' in patch && me?.link ? me.link : null;
       // sticker en pièces (œil : blanc, iris, pupille) : réglages, plages des gestes et mouvements sont ceux du sticker entier
-      const kin = ('anim' in patch || 'motion' in patch) && me?.link && me.anim?.part !== undefined ? me : null;
+      // les pièces d'un même sticker se reconnaissent à `anim.set` : deux yeux rendus solidaires gardent chacun leurs réglages (miroir)
+      const kin = ('anim' in patch || 'motion' in patch) && me?.anim?.set !== undefined ? me : null;
       const next = {
         ...d,
         layers: d.layers.map((l) => {
           if (l.id === id) return { ...l, ...patch };
           let out = group && l.link === group ? { ...l, extrude: patch.extrude } : l;
-          if (kin && l.link === kin.link && l.anim && l.anim.kind === kin.anim!.kind && l.anim.part !== undefined) {
+          if (kin && l.anim && l.anim.set === kin.anim!.set && l.anim.kind === kin.anim!.kind) {
             out = { ...out, ...('anim' in patch && patch.anim ? { anim: forPart(patch.anim, l.anim) } : {}), ...('motion' in patch ? { motion: patch.motion } : {}) };
           }
           return out;
