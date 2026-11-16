@@ -62,7 +62,10 @@ interface P {
   y: number;
   t: number;
   s?: number;
+  /** Pièce du contour : la bulle d'un type de pièce zoome sur elle. */
+  p?: Part;
 }
+type Part = 'head' | 'wing' | 'tail';
 
 // ailes : [s le long de l'aile (0 épaule → 1 bout), f à travers (0 bord d'attaque → 1 bord de fuite), raideur]
 type W = [number, number, number];
@@ -105,6 +108,9 @@ function half(m: Morph): P[] {
     return yr - 0.03 * bump + sweepK * Lw * Math.pow(Math.max(0, s), 1.5);
   };
   const out: P[] = [];
+  const tag = (from: number, p: Part) => {
+    for (let i = from; i < out.length; i++) out[i]!.p = p;
+  };
   // tête et bec
   const hr = 0.03 + 0.05 * m.head;
   const yh = -bodyLen / 2 - hr * 0.55;
@@ -113,10 +119,13 @@ function half(m: Morph): P[] {
   else if (m.beak === 'long') out.push({ x: 0, y: yh - hr - 0.15, t: 1 }, { x: hr * 0.2, y: yh - hr * 0.95, t: 0.5 });
   else out.push({ x: 0, y: yh - hr * 0.95, t: 0.2 }, { x: hr * 0.45, y: yh - hr * 1.05, t: 0.3 }, { x: hr * 0.8, y: yh - hr * 2, t: 1 }, { x: hr * 1.08, y: yh - hr * 0.55, t: 0.4 });
   if (m.beak !== 'snout') out.push({ x: hr, y: yh, t: 0 });
+  tag(0, 'head');
   out.push({ x: Math.max(bw * 0.8, hr * 0.6), y: -bodyLen / 2 + 0.01, t: 0.3 });
+  const w0 = out.length;
   // aile
   const W = WING_SHAPES[m.wing];
   for (const [s, f, t] of W.pts) out.push({ x: x0 + s * Lw, y: le(s) + f * c0 * (1 - W.taper * Math.min(1, s)), t, s });
+  tag(w0, 'wing');
   // queue : sa base suit la fin de l'aile
   const last = out[out.length - 1]!;
   const tw = bw * 0.85;
@@ -129,7 +138,9 @@ function half(m: Morph): P[] {
     point: [[tw, 0, 0.3], [tw * 0.6, TL * 0.7, 0.2], [0, TL * 1.2, 1]],
     membrane: [[tw * 1.1, 0, 0.3], [tw * 2.4, TL * 0.55, 1], [tw * 1.2, TL * 0.8, 0.2], [0, TL * 0.95, 0.3]],
   };
+  const t0 = out.length;
   for (const [x, dy, t] of T[m.tailT]) out.push({ x, y: yt + dy, t });
+  tag(t0, 'tail');
   return out;
 }
 
@@ -161,7 +172,7 @@ function pose(m: Morph, amp: number, k: number): P[] {
         H += re * Math.sin(f1) + (r - re) * Math.sin(f1 + f2);
       }
     }
-    return { x: X, y: p.y * ct - H * st, t: p.t };
+    return { ...p, x: X, y: p.y * ct - H * st };
   });
 }
 
@@ -212,9 +223,10 @@ function frameOf(m: Morph) {
   return f;
 }
 
+const ampOf = (a: Anim) => Math.max(0, Math.min(1, numOf(a, 'amp', 0.8)));
 function cut(a: Anim, _phase: number, g: Progress): string {
   const m = morphOf(a);
-  const amp = Math.max(0, Math.min(1, numOf(a, 'amp', 0.8)));
+  const amp = ampOf(a);
   // hors du battement, l'oiseau plane, ailes à plat
   const k = Math.floor(frac(g('flap')) * FRAMES);
   return cached(`b2|${keyOf(m)}|${amp}|${k}`, () => {
@@ -222,6 +234,34 @@ function cut(a: Anim, _phase: number, g: Progress): string {
     const pts = spline(pose(m, amp, k), m.sharp).map((p) => ({ x: (p.x - f.x0) / f.w, y: (p.y - f.y0) / f.h }));
     return ringsToPath([pts], 0.0004, 30, false);
   });
+}
+
+/**
+ * Où regarder pour un réglage (coordonnées 0..1 de la boîte), dans la pose de la vignette : la tête pour le bec,
+ * le bout de l'aile droite pour le type d'aile, la queue pour la queue. Les bulles de ces choix zooment dessus.
+ */
+const FOCUS: Record<string, (p: P) => boolean> = {
+  beak: (p) => p.p === 'head',
+  wing: (p) => p.p === 'wing' && p.x > 0 && (p.s ?? 0) >= 0.4,
+  tailT: (p) => p.p === 'tail',
+};
+function focus(a: Anim, key: string) {
+  const keep = FOCUS[key];
+  if (!keep) return undefined;
+  const m = morphOf(a);
+  const f = frameOf(m);
+  const k = Math.floor(frac(bird.glyphPhase ?? 0) * FRAMES);
+  const pts = pose(m, ampOf(a), k).filter(keep);
+  if (!pts.length) return undefined;
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const p of pts) {
+    x0 = Math.min(x0, p.x);
+    x1 = Math.max(x1, p.x);
+    y0 = Math.min(y0, p.y);
+    y1 = Math.max(y1, p.y);
+  }
+  const pad = 0.25 * Math.max(x1 - x0, y1 - y0, 0.05);
+  return { x: (x0 - pad - f.x0) / f.w, y: (y0 - pad - f.y0) / f.h, w: (x1 - x0 + 2 * pad) / f.w, h: (y1 - y0 + 2 * pad) / f.h };
 }
 
 const shape = (key: string, name: string, title: string, def: number): Param => ({ key, name, title, type: 'range', min: 0, max: 1, def, reshape: true });
@@ -300,6 +340,7 @@ export const bird: Generator = {
   ],
   gestures: () => [{ id: 'flap', name: 'Battement d’ailes', note: 'bat des ailes', loop: true, params: ['amp'] }],
   cut,
+  focus,
   ratio: (a) => {
     const f = frameOf(morphOf(a));
     return f.w / f.h;
