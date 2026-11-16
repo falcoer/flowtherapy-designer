@@ -1872,6 +1872,7 @@ export function App() {
           lookCache.current = null;
           redraw();
         },
+        posed: true,
       });
       drawLampTint(bx, d, ff);
       applySceneLook(full, d, ff);
@@ -2058,7 +2059,7 @@ export function App() {
     } else {
       // édition : la page nette, sans objectif, transformation ni flou de mise au point ;
       // l'aperçu (s'il est allumé) se calcule une fois le geste fini
-      drawLayers(ctx, sceneless(doc), f, { scale: scale * dpr, rot: view.rot, onImage: redraw, progressive: true, wet, burning });
+      drawLayers(ctx, sceneless(doc), f, { scale: scale * dpr, rot: view.rot, onImage: redraw, progressive: true, wet, burning, posed: true });
       drawLampTint(ctx, doc, f);
       if (look && !busy) scheduleLook(doc, f, lookS);
       else if (!look) {
@@ -4684,7 +4685,7 @@ export function App() {
     const ctx = c.getContext('2d')!;
     ctx.setTransform(k, 0, 0, k, 0, 0);
     forgetPaint();
-    drawLayers(ctx, doc, f, { scale: k, onImage: () => {} });
+    drawLayers(ctx, doc, f, { scale: k, onImage: () => {}, posed: true });
     drawLampTint(ctx, doc, f);
     forgetPaint();
     applySceneLook(c, doc, f);

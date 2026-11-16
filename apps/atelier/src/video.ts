@@ -57,7 +57,7 @@ async function framer(job: VideoJob, opaque: boolean) {
       ctx.fillRect(0, 0, W, H);
     }
     ctx.setTransform(k, 0, 0, k, 0, 0);
-    drawLayers(ctx, d, job.f, { scale: k, onImage: () => {} });
+    drawLayers(ctx, d, job.f, { scale: k, onImage: () => {}, posed: true });
     if (opaque) drawLampTint(ctx, d, job.f);
     else {
       // la teinte de la lampe couvre toute la page : sur un sticker, on la remet dans la silhouette des objets

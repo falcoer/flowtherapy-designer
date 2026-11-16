@@ -27,7 +27,7 @@ export async function renderDoc(doc: Doc, f: Format, maxSide = 6000, width?: num
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.setTransform(k, 0, 0, k, 0, 0);
     forgetPaint();
-    drawLayers(ctx, d, f, { scale: k, onImage: () => late++ });
+    drawLayers(ctx, d, f, { scale: k, onImage: () => late++, posed: true });
     drawLampTint(ctx, d, f);
   };
   draw();

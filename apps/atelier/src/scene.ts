@@ -598,6 +598,8 @@ export interface DrawOptions {
   /** Rotation de la vue (radians) : les décalages d'ombre du canevas ne la suivent pas. */
   rot?: number;
   onImage: () => void;
+  /** Page entière à l'instant courant : chaque objet prend sa pose (frise, consigne du sticker). Jamais pour un rendu cadré sur un objet au repos. */
+  posed?: boolean;
   /** Rendu de l'écran : la peinture lourde se fait par morceaux (voir paintFor), jamais pour un export. */
   progressive?: boolean;
   /** Résolution de la peinture quand elle diffère de `scale` (celle du tampon d'effets en cours de calcul). */
@@ -851,8 +853,8 @@ function drawExtrude(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Forma
 
 export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o: DrawOptions) {
   const minSide = Math.min(f.width, f.height);
-  // mouvement général : au premier niveau seulement, chaque objet prend sa pose de l'instant (frise + consigne du sticker)
-  if (!depth && !flattening.size) {
+  // mouvement général : sur une page entière et au premier niveau seulement, chaque objet prend sa pose de l'instant (frise + consigne du sticker)
+  if (o.posed && !depth && !flattening.size) {
     const layers = posed(doc.layers, f);
     if (layers !== doc.layers) doc = { ...doc, layers };
   }
