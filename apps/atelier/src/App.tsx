@@ -5336,6 +5336,10 @@ export function App() {
                     lookCache.current = null;
                     patchLayer(id, { motion: motion.length ? motion : undefined }, h);
                   }}
+                  onAnim={(id, anim, h) => {
+                    lookCache.current = null;
+                    patchLayer(id, { anim }, h);
+                  }}
                 />
               }
               onClose={() => setTool('move')}

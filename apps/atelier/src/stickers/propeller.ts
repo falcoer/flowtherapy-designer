@@ -52,6 +52,6 @@ export const propeller: Generator = {
   gestures: () => [{ id: 'spin', name: 'Rotation', note: 'un tour par cycle', order: true, params: ['dir'] }],
   cut,
   ratio: () => 1,
-  order: (a, phase) => ({ rot: dirOf(a) * phase * 2 * Math.PI }),
+  order: (a, _phase, g) => ({ rot: dirOf(a) * g('spin') * 2 * Math.PI }),
   migrate: (a) => (a.dir === undefined && (a.speed ?? 0) < 0 ? { dir: -1 } : {}),
 };

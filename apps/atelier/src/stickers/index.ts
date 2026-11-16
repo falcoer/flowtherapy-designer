@@ -1,12 +1,13 @@
 import { bird } from './bird';
 import { countdown } from './countdown';
+import { eye } from './eye';
 import type { Anim, Generator } from './kit';
 import { propeller } from './propeller';
 
 export * from './kit';
 
 /** Le catalogue des stickers, dans l'ordre du rayon « Animées ». */
-export const GENERATORS: Generator[] = [countdown, bird, propeller];
+export const GENERATORS: Generator[] = [countdown, bird, propeller, eye];
 
 const byKind = new Map(GENERATORS.map((g) => [g.kind, g]));
 /** Générateur d'un sticker ; absent si la composition vient d'une version qui en connaît d'autres. */
