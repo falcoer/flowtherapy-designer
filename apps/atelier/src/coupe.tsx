@@ -5,7 +5,7 @@ import { BORDER_TYPES, fxPreview, GLOW_TYPES, Knob, swatch } from './App';
 import { FX, fxGuides, fxKnobs, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
-import { animName, animRatio, CYCLES, cycleName, generatorOf, timingOf, valueOf, type Act, type Anim, type Param } from './anim';
+import { animName, animRatio, CYCLES, cycleName, generatorOf, timingOf, valueOf, withActs, type Act, type Anim, type Param } from './anim';
 import { GEN_DEFAULTS, LAYER_BLENDS, SKINS, VOLUMES, bevelSoftName, bevelSoftOf, volumeName, type Doc, type Layer } from './model';
 import { ensureFont, fontFamily, fontsFor, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { AlignGlyph, TextContent, useLazyText, WarpGlyph, weightName } from './textbar';
@@ -1179,8 +1179,8 @@ function AnimRows({ l, doc, anim: base, act, live, patch }: { l: Layer; doc: Doc
   // les valeurs lues : celles du geste posé par-dessus celles du sticker
   const own = Object.fromEntries((gesture?.params ?? []).filter((k) => act?.[k] !== undefined).map((k) => [k, act![k]]));
   const a: Anim = act ? { ...base, ...own } : base;
-  /** Écrit des réglages : dans le geste posé quand il y en a un, sinon dans le sticker. */
-  const merge = (p: Partial<Anim>): Anim => (act ? { ...base, acts: (base.acts ?? []).map((x) => (x.id === act.id ? ({ ...x, ...p } as Act) : x)) } : { ...base, ...p });
+  /** Écrit des réglages : dans le geste posé quand il y en a un (ceux d'un sticker d'avant s'inscrivent alors dans ses données), sinon dans le sticker. */
+  const merge = (p: Partial<Anim>): Anim => (act ? { ...base, acts: (withActs(base, timingOf(doc.timing)).acts ?? []).map((x) => (x.id === act.id ? ({ ...x, ...p } as Act) : x)) } : { ...base, ...p });
   const set = (p: Partial<Anim>) => live({ anim: merge(p) });
   // la boîte garde sa largeur et prend les proportions des nouveaux réglages (plus ou moins de chiffres, autre police)
   const reshape = (p: Partial<Anim>) => patch({ anim: merge(p), h: Math.round((l.w / animRatio({ ...a, ...p })) * 1000) / 1000 }, true);
