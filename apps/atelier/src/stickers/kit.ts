@@ -45,11 +45,14 @@ export interface Param {
   /**
    * `int` : nombre saisi ; `range` : potard continu ; `steps` : potard à crans entiers ; `check` : case (valeurs on / off) ; `font` : police ;
    * `letters` : lettres visées d'un texte, toutes (« all ») ou une seule par son numéro (depuis 0, sans les blancs ; « mid », « last » au départ). Une autre lettre = un autre geste posé.
+   * `choice` : un type de pièce parmi `options` (forme d'aile, de bec…), présenté en bulles à glisser, chacune montrant la forme qu'elle donne.
    */
-  type: 'int' | 'range' | 'steps' | 'check' | 'font' | 'letters';
+  type: 'int' | 'range' | 'steps' | 'check' | 'font' | 'letters' | 'choice';
   min?: number;
   max?: number;
   def: number | string;
+  /** Choix : les types proposés, dans l'ordre de la bande. */
+  options?: { id: string; name: string }[];
   /** Case : valeur cochée et décochée. */
   on?: number;
   off?: number;
@@ -57,6 +60,16 @@ export interface Param {
   reshape?: boolean;
   /** Lecture de la valeur quand elle ne se lit pas telle quelle (anciens documents). */
   read?: (a: Anim) => number | string;
+}
+
+/**
+ * Un jeu de réglages tout prêt (une espèce, un modèle) : il pose d'un coup les valeurs de plusieurs paramètres,
+ * qu'on affine ensuite un par un. Reconnu tant que les valeurs sont les siennes.
+ */
+export interface Preset {
+  id: string;
+  name: string;
+  set: Partial<Anim>;
 }
 
 /** Écart demandé à la pose de l'objet : s'ajoute aux consignes de la frise. */
@@ -145,6 +158,9 @@ export interface Generator {
   cycleName: string;
   cycleWhat: string;
   params: Param[];
+  /** Jeux de réglages tout prêts, proposés en premier dans les réglages de la forme, sous le nom `presetName`. */
+  presets?: Preset[];
+  presetName?: string;
   gestures: (a: Anim) => Gesture[];
   /** Découpe (coordonnées 0..1 de la boîte) à une avancée du cycle (0..1) ; `g` donne l'avancée de chaque geste. */
   cut: (a: Anim, phase: number, g: Progress, ctx: Context) => string;
@@ -174,6 +190,13 @@ export interface Generator {
 export function valueOf(p: Param, a: Anim): number | string {
   const v = a[p.key];
   return p.read ? p.read(a) : typeof v === 'number' || typeof v === 'string' ? v : p.def;
+}
+/** Le jeu de réglages dont les valeurs sont celles des données, s'il y en a un. */
+export function presetOf(g: Generator, a: Anim): Preset | undefined {
+  return g.presets?.find((p) => Object.entries(p.set).every(([k, v]) => {
+    const prm = g.params.find((x) => x.key === k);
+    return (prm ? valueOf(prm, a) : a[k]) === v;
+  }));
 }
 export function numOf(a: Anim, key: string, def: number): number {
   return typeof a[key] === 'number' ? (a[key] as number) : def;

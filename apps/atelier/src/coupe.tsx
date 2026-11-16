@@ -5,7 +5,9 @@ import { BORDER_TYPES, fxPreview, GLOW_TYPES, Knob, swatch } from './App';
 import { FX, fxGuides, fxKnobs, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
-import { animName, animOf, animRatio, CYCLES, cycleName, generatorOf, timingOf, valueOf, withActs, type Act, type Anim, type Param } from './anim';
+import { animName, animOf, animRatio, CYCLES, cycleName, generatorOf, glyphCut, timingOf, valueOf, withActs, type Act, type Anim, type Param } from './anim';
+import { presetOf } from './stickers';
+import { ChoiceDial, ShapeFace } from './shape-dial';
 import { GEN_DEFAULTS, LAYER_BLENDS, SKINS, VOLUMES, bevelSoftName, bevelSoftOf, volumeName, type Doc, type Layer } from './model';
 import { ensureFont, lettersOf, fontFamily, fontsFor, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { lettersPicked } from './stickers/letters';
@@ -1186,7 +1188,17 @@ function AnimRows({ l, doc, anim: base, act, live, patch }: { l: Layer; doc: Doc
   const merge = (p: Partial<Anim>): Anim => (act ? { ...base, acts: (withActs(base, timingOf(doc.timing)).acts ?? []).map((x) => (x.id === act.id ? ({ ...x, ...p } as Act) : x)) } : { ...base, ...p });
   const set = (p: Partial<Anim>) => live({ anim: merge(p) });
   // la boîte garde sa largeur et prend les proportions des nouveaux réglages (plus ou moins de chiffres, autre police)
-  const reshape = (p: Partial<Anim>) => patch({ anim: merge(p), h: Math.round((l.w / animRatio({ ...a, ...p })) * 1000) / 1000 }, true);
+  // proportions qui changent : la boîte suit ; sans `step`, les changements rapprochés (un glissé de potard ou de bulle) font un seul pas d'annulation
+  const reshape = (p: Partial<Anim>, step = true) => {
+    const q = { anim: merge(p), h: Math.round((l.w / animRatio({ ...a, ...p })) * 1000) / 1000 };
+    if (step) patch(q, true);
+    else live(q);
+  };
+  /** La forme que donneraient ces réglages, en vignette. */
+  const face = (p: Partial<Anim>) => {
+    const b = { ...a, ...p };
+    return <ShapeFace d={glyphCut(b)} ratio={animRatio(b)} />;
+  };
   const hasFont = !!gen?.params.some((p) => p.type === 'font');
   const [, ready] = useState(0);
   useEffect(() => {
@@ -1197,7 +1209,12 @@ function AnimRows({ l, doc, anim: base, act, live, patch }: { l: Layer; doc: Doc
   const row = (p: Param) => {
     const v = valueOf(p, a);
     const [min, max] = [p.min ?? 0, p.max ?? 1];
-    const put = (x: number | string, step = false) => (p.reshape ? reshape({ [p.key]: x }) : step ? patch({ anim: merge({ [p.key]: x }) }, true) : set({ [p.key]: x }));
+    const put = (x: number | string, step = false) => (p.reshape ? reshape({ [p.key]: x }, step || p.type !== 'range') : step ? patch({ anim: merge({ [p.key]: x }) }, true) : set({ [p.key]: x }));
+    if (p.type === 'choice') {
+      // un type de pièce : des bulles à glisser, chacune dessine la forme qu'elle donnerait
+      const opts = p.options ?? [];
+      return <ChoiceDial key={p.key} label={p.name} title={p.title} items={opts.map((o) => ({ name: o.name, face: face({ [p.key]: o.id }) }))} value={opts.findIndex((o) => o.id === v)} onPick={(i) => reshape({ [p.key]: opts[i]!.id }, false)} />;
+    }
     if (p.type === 'int')
       return (
         <label key={p.key} className="cp-row" title={p.title}>
@@ -1273,6 +1290,17 @@ function AnimRows({ l, doc, anim: base, act, live, patch }: { l: Layer; doc: Doc
           <output>{(cur * tm.period).toFixed(2)} s</output>
         </label>
       )}
+      {/* jeux de réglages tout prêts (espèces) : en premier, ils posent d'un coup la forme qu'on affine ensuite */}
+      {!act && gen.presets?.length ? (
+        <ChoiceDial
+          label={gen.presetName ?? 'Modèle'}
+          items={gen.presets.map((ps) => ({ name: ps.name, face: face(ps.set) }))}
+          value={gen.presets.indexOf(presetOf(gen, a)!)}
+          current={face({})}
+          onPick={(i) => reshape(gen.presets![i]!.set, false)}
+          title={`${gen.presetName ?? 'Modèle'} : glisser pour passer d’un jeu de réglages à l’autre ; chaque réglage s’affine ensuite`}
+        />
+      ) : null}
       {params.map(row)}
       {note && <p className="cp-note cp-legend">{note}</p>}
       {act && !gesture?.loop && !params.length && !note && <p className="cp-note cp-legend">Ce geste n’a pas de réglage : sa place et sa durée se règlent sur sa ligne.</p>}

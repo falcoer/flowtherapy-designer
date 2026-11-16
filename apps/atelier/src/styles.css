@@ -3243,3 +3243,15 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .letter-strip .tint-reel i.all { font-size: 10px; }
 .letter-strip .letter-lens { display: flex; align-items: center; justify-content: center; background: var(--chrome-solid); color: var(--accent); font: 800 20px/1 Inter, sans-serif; }
 .letter-strip .letter-lens.all { font-size: 11px; }
+
+/* Choix d'un type (espèce, ailes, bec, queue) : une bulle qui montre la forme, la bande des formes sous le doigt */
+.cp-shape .tint-b { display: grid; place-items: center; color: var(--ink); background: var(--chrome-solid); box-shadow: inset 0 0 0 1px var(--line), var(--tool-lift, 0 1px 2px rgba(0,0,0,.15)); }
+.cp-shape .sd-in { display: grid; place-items: center; width: 90%; height: 90%; pointer-events: none; }
+.sd-face { width: 100%; height: 100%; display: block; overflow: visible; }
+.cp-shape output { font-size: 11px; }
+.shape-strip { width: 380px; height: 52px; }
+.shape-strip .tint-reel { margin-top: -19px; }
+.shape-strip .sd-it { box-sizing: border-box; width: 52px; height: 38px; flex: none; display: grid; place-items: center; padding: 0 6px; color: var(--muted); }
+.shape-strip .sd-it.on { color: var(--ink); }
+.shape-strip .tint-lens.sd-lens { display: grid; place-items: center; background: var(--chrome-solid); color: var(--ink); }
+.shape-strip .sd-lens .sd-face { width: 76%; height: 76%; }
