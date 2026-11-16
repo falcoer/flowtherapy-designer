@@ -672,6 +672,22 @@ export function CoupePanel({
     </div>
   );
 
+  // un geste de potard = un pas d'annulation
+  const liveAnim = (p: Partial<Layer>) => {
+    const now = performance.now();
+    patch(p, now - animStep.current > 700);
+    animStep.current = now;
+  };
+  /** Forme d'un sticker (espèce, types de pièces, morphologie) : dans l'onglet Forme ; l'onglet Animation ne garde que les gestes. */
+  const formAnim = l.anim && generatorOf(l.anim) && !generatorOf(l.anim)?.on ? l.anim : undefined;
+  const animForm = formAnim && (
+    <div className="ap-shape ap-anim-form">
+      <div className="cp-attrs ap-attrs">
+        <AnimRows l={l} doc={doc} anim={formAnim} act={null} live={liveAnim} patch={patch} />
+      </div>
+    </div>
+  );
+
   let body: React.ReactNode = null;
   if (tab === 'main' && l.kind === 'text' && l.text && patchText)
     body = (
@@ -689,6 +705,7 @@ export function CoupePanel({
       <>
         <div className="ap-shape-row">
           {it && genOf(l) && <div className={`ap-shape ${l.molded ? 'ap-locked' : ''}`}>{<Attrs bare layer={l} doc={doc} item={{ ...it, locked: false }} patch={patch} />}</div>}
+          {animForm}
           {hollowPlate}
         </div>
         {fxCard}
@@ -706,16 +723,9 @@ export function CoupePanel({
       </>
     );
   } else if (tab === 'anim' && anim) {
-    // un geste de potard = un pas d'annulation
-    const liveAnim = (p: Partial<Layer>) => {
-      const now = performance.now();
-      patch(p, now - animStep.current > 700);
-      animStep.current = now;
-    };
     const mine = animOf(l);
-    // un objet animé par ses gestes (texte) n'a pas de réglage hors des gestes posés
-    const bare = !!mine && !!generatorOf(mine)?.on;
-    body = cloneElement(anim, { settings: mine ? (act: Act | null) => (act || !bare ? <div className="cp-attrs">{<AnimRows l={l} doc={doc} anim={mine} act={act} live={liveAnim} patch={patch} />}</div> : null) : undefined });
+    // ici seulement les réglages du geste choisi : la forme se règle dans l'onglet Forme
+    body = cloneElement(anim, { settings: mine ? (act: Act | null) => (act ? <div className="cp-attrs">{<AnimRows l={l} doc={doc} anim={mine} act={act} live={liveAnim} patch={patch} />}</div> : null) : undefined });
   } else if (tab === 'support') {
     const v = varnishOf(l);
     const vi = v ? (l.fx ?? []).indexOf(v) : -1;
