@@ -3226,3 +3226,10 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .fr-under .fr-del { align-self: flex-start; }
 @media (max-width: 720px) { .fr-under { margin-left: 0; } }
 .fr-under > .cp-attrs { background: none; box-shadow: none; border: 0; padding: 0; min-height: 0; }
+
+/* gestes des textes : toutes les lettres, ou une par son numéro */
+.cp-row.cp-letters .cp-letter-set { grid-column: 2 / 4; }
+.cp-letter-set { display: flex; flex-wrap: wrap; gap: 4px; max-width: 100%; }
+.cp-letter-set { align-items: center; gap: 12px; }
+.cp-letter-set label { display: inline-flex; align-items: center; gap: 6px; }
+.cp-letter-set small { color: var(--muted); }

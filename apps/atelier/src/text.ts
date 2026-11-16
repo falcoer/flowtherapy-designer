@@ -484,7 +484,16 @@ interface TextCut {
   /** Bloc de lignes (cadre de l'enveloppe), au corps de rendu. */
   fw: number;
   fh: number;
+  /** Les contours de la découpe (0..1 de la boîte) et la lettre à laquelle chacun appartient : pour animer les lettres une à une. */
+  rings: Ring[];
+  owner: number[];
+  /** Ligne de chaque lettre (sans les blancs, dans l'ordre de lecture). */
+  lines: number[];
+  /** Corps, en hauteur de boîte. */
+  em: number;
 }
+/** Les lettres d'un texte, sans les blancs, dans l'ordre de lecture : celles que les gestes d'animation visent par leur numéro. */
+export const lettersOf = (content: string) => Array.from(content).filter((c) => !/\s/.test(c));
 const cache = new Map<string, TextCut>();
 /** Même objet de style, même découpe : évite de recalculer la clé (paraphes et modelages compris) à chaque image. */
 const byStyle = new WeakMap<TextStyle, { epoch: number; c: TextCut }>();
@@ -516,6 +525,11 @@ interface Base {
   size: number;
   widest: number;
   fh: number;
+  /** Place de chaque lettre (sans les blancs) : sa ligne et son étendue en x, avant l'inclinaison. */
+  letters: { line: number; x0: number; x1: number }[];
+  /** Inclinaison et pied du bloc (pour retrouver la place d'un contour avant l'inclinaison). */
+  skew: number;
+  foot: number;
 }
 const baseKey = (t: TextStyle) => JSON.stringify([t.content, t.font, t.weight, t.italic, t.slant ?? 0, t.align, t.tracking ?? 0, t.leading ?? 1.1, t.swashes ?? 0, fontEpoch]);
 const bases = new Map<string, Base>();
@@ -554,9 +568,28 @@ function trace(t: TextStyle): TextCut {
   const lead = t.leading ?? 1.1;
   if (!b.raw.length) {
     // texte vide : une boîte pleine, pour qu'on puisse encore toucher l'objet
-    return { d: 'M0 0L1 0L1 1L0 1Z', ratio: Math.max(0.2, 0.6 / lead), bw: BODY * 0.6, bh: lead * BODY, ox: 0, oy: 0, fw: BODY * 0.6, fh: lead * BODY };
+    return { d: 'M0 0L1 0L1 1L0 1Z', ratio: Math.max(0.2, 0.6 / lead), bw: BODY * 0.6, bh: lead * BODY, ox: 0, oy: 0, fw: BODY * 0.6, fh: lead * BODY, rings: [], owner: [], lines: [], em: 1 };
   }
-  const rings = moldedRings(t, b).map((r) =>
+  const pre = moldedRings(t, b);
+  // chaque contour appartient à la lettre où tombe son centre (avant l'enveloppe et l'inclinaison) : les trous et les points des i suivent leur lettre
+  const owner = pre.map((r) => {
+    let [cx, cy] = [0, 0];
+    for (const p of r) {
+      cx += p.x;
+      cy += p.y;
+    }
+    [cx, cy] = [cx / r.length, cy / r.length];
+    const line = Math.max(0, Math.floor((cy - Y0) / (lead * size)));
+    const x = cx + b.skew * (cy - b.foot);
+    let best = -1;
+    let dist = Infinity;
+    b.letters.forEach((L, i) => {
+      const d = (L.line === line ? 0 : 1e6 * Math.abs(L.line - line)) + (x < L.x0 ? L.x0 - x : x > L.x1 ? x - L.x1 : -1 / (1 + Math.abs(x - (L.x0 + L.x1) / 2)));
+      if (d < dist) [dist, best] = [d, i];
+    });
+    return best;
+  });
+  const rings = pre.map((r) =>
     t.warp?.amount
       ? r.map((p) => {
           const [x, y] = warpPoint(t.warp, widest, fh, p.x - X0, p.y - Y0);
@@ -576,7 +609,20 @@ function trace(t: TextStyle): TextCut {
     }
   const [bw, bh] = [x1 - x0 || 1, y1 - y0 || 1];
   const norm = rings.map((r) => simplifyRing(r, 0.35).map((p) => ({ x: (p.x - x0) / bw, y: (p.y - y0) / bh })));
-  return { d: ringsToPath(norm, 1e-6, 55, false), ratio: bw / bh, bw: bw * toBody, bh: bh * toBody, ox: (x0 - X0) * toBody, oy: (y0 - Y0) * toBody, fw: widest * toBody, fh: fh * toBody };
+  return {
+    d: ringsToPath(norm, 1e-6, 55, false),
+    ratio: bw / bh,
+    bw: bw * toBody,
+    bh: bh * toBody,
+    ox: (x0 - X0) * toBody,
+    oy: (y0 - Y0) * toBody,
+    fw: widest * toBody,
+    fh: fh * toBody,
+    rings: norm,
+    owner,
+    lines: b.letters.map((L) => L.line),
+    em: size / bh,
+  };
 }
 
 function render(t: TextStyle, key: string): Base {
@@ -635,6 +681,19 @@ function render(t: TextStyle, key: string): Base {
     const w = ctx.measureText(line).width;
     return X0 + (t.align === 'left' ? 0 : t.align === 'right' ? widest - w : (widest - w) / 2);
   };
+  // place de chaque lettre, mesurée sur le début de sa ligne (crénage et interlettrage compris)
+  const letters: Base['letters'] = [];
+  lines.forEach((line, i) => {
+    const x = lineX(line);
+    const chars = Array.from(line);
+    let pre = '';
+    for (const ch of chars) {
+      const x0 = x + ctx.measureText(pre).width;
+      pre += ch;
+      if (/\s/.test(ch)) continue;
+      letters.push({ line: i, x0, x1: Math.max(x0 + 1, x + ctx.measureText(pre).width - (t.tracking ?? 0) * size) });
+    }
+  });
   lines.forEach((line, i) => {
     const x = lineX(line);
     const y = Y0 + (i + 0.8) * lead * size;
@@ -655,7 +714,7 @@ function render(t: TextStyle, key: string): Base {
   const alpha = ctx.getImageData(0, 0, W, H).data;
   // contours allégés dès le départ : moins de points à modeler et à redessiner
   const raw = contours(alpha, W, H, 128).map((r) => simplifyRing(r, 0.2));
-  return { key, raw, X0, Y0, size, widest, fh: lines.length * lead * size };
+  return { key, raw, X0, Y0, size, widest, fh: lines.length * lead * size, letters, skew, foot: Y0 + lines.length * lead * size };
 }
 
 /** Point de la boîte des lettres (0..1) vers les coordonnées d'un paraphe (corps, avant l'enveloppe). */

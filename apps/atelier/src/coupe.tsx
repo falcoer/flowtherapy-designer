@@ -5,9 +5,10 @@ import { BORDER_TYPES, fxPreview, GLOW_TYPES, Knob, swatch } from './App';
 import { FX, fxGuides, fxKnobs, fxOf, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { Icon } from './icons';
 import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
-import { animName, animRatio, CYCLES, cycleName, generatorOf, timingOf, valueOf, type Act, type Anim, type Param } from './anim';
+import { animName, animOf, animRatio, CYCLES, cycleName, generatorOf, timingOf, valueOf, type Act, type Anim, type Param } from './anim';
 import { GEN_DEFAULTS, LAYER_BLENDS, SKINS, VOLUMES, bevelSoftName, bevelSoftOf, volumeName, type Doc, type Layer } from './model';
-import { ensureFont, fontFamily, fontsFor, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
+import { ensureFont, lettersOf, fontFamily, fontsFor, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
+import { lettersPicked } from './stickers/letters';
 import { AlignGlyph, TextContent, useLazyText, WarpGlyph, weightName } from './textbar';
 import { TiltPad } from './tilt';
 import { borderDefaults } from './targets';
@@ -709,8 +710,10 @@ export function CoupePanel({
       patch(p, now - animStep.current > 700);
       animStep.current = now;
     };
-    const mine = l.anim && !l.cut ? l.anim : undefined;
-    body = cloneElement(anim, { settings: mine ? (act: Act | null) => <div className="cp-attrs">{<AnimRows l={l} doc={doc} anim={mine} act={act} live={liveAnim} patch={patch} />}</div> : undefined });
+    const mine = animOf(l);
+    // un objet animé par ses gestes (texte) n'a pas de réglage hors des gestes posés
+    const bare = !!mine && !!generatorOf(mine)?.on;
+    body = cloneElement(anim, { settings: mine ? (act: Act | null) => (act || !bare ? <div className="cp-attrs">{<AnimRows l={l} doc={doc} anim={mine} act={act} live={liveAnim} patch={patch} />}</div> : null) : undefined });
   } else if (tab === 'support') {
     const v = varnishOf(l);
     const vi = v ? (l.fx ?? []).indexOf(v) : -1;
@@ -1222,6 +1225,41 @@ function AnimRows({ l, doc, anim: base, act, live, patch }: { l: Layer; doc: Doc
           <input type="checkbox" checked={v === p.on} onChange={(e) => put(e.target.checked ? p.on! : p.off!, true)} />
         </label>
       );
+    if (p.type === 'letters') {
+      // toutes les lettres, ou une seule par son numéro (compté sans les blancs) : une autre lettre = un autre geste posé
+      const n = lettersOf(l.text?.content ?? '').length;
+      const all = v === 'all';
+      const at = all ? 0 : [...lettersPicked(v, n)][0] ?? 0;
+      return (
+        <div key={p.key} className="cp-row cp-letters" title="Toutes les lettres, ou une seule par son numéro (sans compter les blancs) ; pour une autre lettre, pose un autre geste">
+          <span>{p.name}</span>
+          <span className="cp-letter-set">
+            <label>
+              <input type="checkbox" checked={all} onChange={(e) => put(e.target.checked ? 'all' : String(Math.max(0, n - 1)), true)} />
+              Toutes
+            </label>
+            {!all && (
+              <label>
+                n°
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={Math.max(1, n)}
+                  value={at + 1}
+                  style={{ width: 56 }}
+                  onChange={(e) => {
+                    const x = Math.round(Number(e.target.value));
+                    if (e.target.value !== '' && Number.isFinite(x)) put(String(Math.max(0, Math.min(Math.max(0, n - 1), x - 1))), true);
+                  }}
+                />
+                <small>sur {n}</small>
+              </label>
+            )}
+          </span>
+        </div>
+      );
+    }
     return (
       <label key={p.key} className="cp-row" title={p.title}>
         <span>{p.name}</span>
