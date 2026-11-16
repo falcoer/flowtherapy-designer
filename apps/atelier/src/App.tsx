@@ -6464,8 +6464,8 @@ export function App() {
               max={120}
               value={timing.count}
               onChange={(e) => {
-                const v = Math.round(Number(e.target.value));
-                // la durée de la vidéo reste la même : la période se resserre ou s'allonge
+                // borné avant de servir de diviseur : la durée de la vidéo reste la même, la période se resserre ou s'allonge
+                const v = Math.min(120, Math.round(Number(e.target.value)));
                 if (Number.isFinite(v) && v >= 1) update((d) => ({ ...d, timing: timingOf({ count: v, period: total / v }) }));
               }}
             />
