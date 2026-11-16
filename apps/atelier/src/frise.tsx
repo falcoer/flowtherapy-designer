@@ -1,5 +1,5 @@
 import { Fragment, useState, type PointerEvent as RPointerEvent } from 'react';
-import { ACCELS, actsOf, BRAKES, gesturesOf, moveName, newAct, newMove, withActs, type Accel, type Act, type Anim, type Brake, type Gesture, type Move, type Timing } from './anim';
+import { ACCELS, actsOf, animOf, BRAKES, gesturesOf, moveName, newAct, newMove, withActs, type Accel, type Act, type Anim, type Brake, type Gesture, type Move, type Timing } from './anim';
 import type { Layer } from './model';
 
 /**
@@ -63,7 +63,8 @@ export function Frise({
   const me = layers.find((l) => l.id === selected && l.kind !== 'surface');
   const total = timing.period * timing.count;
   const pct = (periods: number) => `${(periods / timing.count) * 100}%`;
-  const a = me?.anim && !me.cut ? me.anim : undefined;
+  // le sticker de l'objet, ou les gestes d'un texte (vides tant qu'aucun n'est posé)
+  const a = me ? animOf(me) : undefined;
   const gestures = a ? gesturesOf(a) : [];
   const acts = a ? actsOf(a, timing) : [];
   const moves = me?.motion ?? [];
@@ -241,7 +242,7 @@ export function Frise({
       <div className="fr-rows">
         <div className="fr-row fr-ruler">
           <span className="fr-name fr-adder">
-            <button className="fr-add" onClick={() => setMenu((m) => !m)} aria-expanded={menu} title="Ajouter une animation à l'instant affiché : un mouvement de l'objet, ou un geste propre du sticker">
+            <button className="fr-add" onClick={() => setMenu((m) => !m)} aria-expanded={menu} title="Ajouter une animation à l'instant affiché : un mouvement de l'objet, ou un de ses gestes propres (sticker, texte)">
               ＋ Animation
             </button>
             {menu && (
@@ -329,7 +330,10 @@ export function Frise({
           {!moves.length && !acts.length && <p className="cp-note fr-empty">Aucune animation sur cet objet : ＋ Animation en pose une à l’instant affiché.</p>}
         </div>
       </div>
-      {!act && !move && a && settings && <div className="fr-own-set">{settings(null)}</div>}
+      {!act && !move && a && settings && (() => {
+        const own = settings(null);
+        return own ? <div className="fr-own-set">{own}</div> : null;
+      })()}
     </div>
   );
 }

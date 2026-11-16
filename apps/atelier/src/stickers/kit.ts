@@ -42,8 +42,11 @@ export interface Param {
   key: string;
   name: string;
   title?: string;
-  /** `int` : nombre saisi ; `range` : potard continu ; `steps` : potard à crans entiers ; `check` : case (valeurs on / off) ; `font` : police. */
-  type: 'int' | 'range' | 'steps' | 'check' | 'font';
+  /**
+   * `int` : nombre saisi ; `range` : potard continu ; `steps` : potard à crans entiers ; `check` : case (valeurs on / off) ; `font` : police ;
+   * `letters` : lettres visées d'un texte, toutes (« all ») ou une seule par son numéro (depuis 0, sans les blancs ; « mid », « last » au départ). Une autre lettre = un autre geste posé.
+   */
+  type: 'int' | 'range' | 'steps' | 'check' | 'font' | 'letters';
   min?: number;
   max?: number;
   def: number | string;
@@ -91,6 +94,28 @@ export interface Gesture {
  */
 export type Progress = (gesture: string) => number;
 
+/** Un geste posé, vu à un instant : son avancée et ses propres réglages (ceux de l'objet, remplacés par les siens). */
+export interface ActState {
+  act: Act;
+  /** Avancée sur sa durée : 0 avant son début, 1 une fois fini. */
+  u: number;
+  /** Geste en boucle : boucles faites depuis son début (arrêté à sa fin), et boucles sur toute sa durée. */
+  turns: number;
+  of: number;
+  /** Réglages vus par ce geste posé. */
+  a: Anim;
+}
+
+/**
+ * Ce qu'un générateur reçoit en plus de son avancée : chaque geste posé avec ses réglages (pour qu'ils s'additionnent
+ * au lieu de se remplacer : deux lettres qui tombent l'une après l'autre), et l'objet animé quand le générateur
+ * anime un objet existant (`Generator.on`) au lieu de dessiner sa propre forme.
+ */
+export interface Context {
+  each: (gesture: string) => ActState[];
+  host?: { text?: import('../text').TextStyle };
+}
+
 /** Plage d'un geste dans le cycle : celle réglée sur la frise (clés « geste.at », « geste.len »), sinon celle de départ. */
 export function spanOf(a: Anim, g: Gesture): { at: number; len: number } {
   const at = Math.max(0, Math.min(0.98, numOf(a, `${g.id}.at`, g.at ?? 0)));
@@ -110,6 +135,11 @@ export function progressOf(a: Anim, gestures: Gesture[], phase: number): Progres
 export interface Generator {
   kind: string;
   name: string;
+  /**
+   * Sorte d'objet que ce générateur anime (« text ») : il ne se pose pas comme un sticker, ses gestes s'offrent sur la frise
+   * de tout objet de cette sorte, et sa découpe part de celle de l'objet (reçue dans `ctx.host`). Absent : un sticker.
+   */
+  on?: string;
   /** Cycle de départ (en périodes), son nom dans les réglages et ce qu'il dure. */
   cycle: number;
   cycleName: string;
@@ -117,7 +147,7 @@ export interface Generator {
   params: Param[];
   gestures: (a: Anim) => Gesture[];
   /** Découpe (coordonnées 0..1 de la boîte) à une avancée du cycle (0..1) ; `g` donne l'avancée de chaque geste. */
-  cut: (a: Anim, phase: number, g: Progress) => string;
+  cut: (a: Anim, phase: number, g: Progress, ctx: Context) => string;
   /**
    * Pièces du sticker : posé, il devient une couche par pièce, dans la même boîte, solidaires (chacune sa teinte, son bord).
    * La pièce d'une couche est dans ses données (`part`), avec l'identifiant du sticker posé (`set`) ; les autres réglages restent communs. `tint` décale la teinte de départ.
@@ -126,7 +156,7 @@ export interface Generator {
   /** Proportions de la boîte (largeur / hauteur). */
   ratio: (a: Anim) => number;
   /** Consigne de mouvement ajoutée au plan général, à une avancée du cycle. */
-  order?: (a: Anim, phase: number, g: Progress) => Order;
+  order?: (a: Anim, phase: number, g: Progress, ctx: Context) => Order;
   /** Durée naturelle d'un cycle en « unités de vitesse » : sert seulement aux anciens documents réglés en vitesse. */
   legacyUnits?: (a: Anim) => number;
   /** Retouche des données quand on cale le cycle d'un ancien document. */

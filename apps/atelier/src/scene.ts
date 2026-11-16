@@ -6,7 +6,7 @@ import { drawBlurred, rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring, insideRings } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
-import { animCut, posed } from './anim';
+import { animCut, generatorOf, posed } from './anim';
 import { EDGE_ELEMENTS, edgeStroke } from './elements';
 import { bevelSoftOf, blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
@@ -46,7 +46,8 @@ export function shapeCut(k: ShapeKind): string {
 /** Découpe d'une couche (tracé SVG, coordonnées de la couche). */
 const genCuts = new Map<string, string>();
 export function cutOf(l: Layer): string {
-  if (!l.cut && l.anim) return animCut(l.anim);
+  // un objet animé par un générateur (texte) : sa découpe de l'instant part de la sienne ; générateur inconnu = la découpe de l'objet
+  if (!l.cut && l.anim && (!l.text || generatorOf(l.anim))) return animCut(l.anim, undefined, l.text ? { text: l.text } : undefined);
   if (!l.cut && l.gen) {
     const key = `${l.gen.sides}|${l.gen.depth}`;
     let d = genCuts.get(key);
@@ -1419,7 +1420,13 @@ function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
       blendStops(g.stops, g.blend).forEach(([p, c]) => grad.addColorStop(p, c));
       ctx.fillStyle = grad;
     } else ctx.fillStyle = guideColor(g);
-    ctx.fillRect(x0, y0, b.w, b.h);
+    // lettres animées (chute, décrochage) : elles sortent de la boîte, la teinte les suit partout où la page les montre
+    // (un carré autour de l'objet qui couvre toute la page, même tourné ; la découpe limite le remplissage)
+    if (l.text && l.anim) {
+      const R = 2 * (f.width + f.height + b.w + b.h);
+      ctx.fillRect(b.cx - R, b.cy - R, 2 * R, 2 * R);
+    }
+    else ctx.fillRect(x0, y0, b.w, b.h);
   }
   // peinture
   const paint = paintFor(l, doc, f, o.paintAt ?? o.scale, o.progressive ? { redraw: o.onImage, ms: 6 } : undefined);
