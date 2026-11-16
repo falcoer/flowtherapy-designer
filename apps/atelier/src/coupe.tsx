@@ -679,7 +679,8 @@ export function CoupePanel({
     animStep.current = now;
   };
   /** Forme d'un sticker (espèce, types de pièces, morphologie) : dans l'onglet Forme ; l'onglet Animation ne garde que les gestes. */
-  const formAnim = l.anim && generatorOf(l.anim) && !generatorOf(l.anim)?.on ? l.anim : undefined;
+  // un sticker modelé garde sa découpe figée : sa forme ne se règle plus (comme les autres réglages de forme d'un objet modelé)
+  const formAnim = l.anim && !l.cut && generatorOf(l.anim) && !generatorOf(l.anim)?.on ? l.anim : undefined;
   const animForm = formAnim && (
     <div className="ap-shape ap-anim-form">
       <div className="cp-attrs ap-attrs">
