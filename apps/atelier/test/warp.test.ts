@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generatorOf, newAnim, type Anim } from '../src/anim';
 import { pathToRings } from '../src/cut';
-import { meshOf, piecesOf, unwarp } from '../src/warp';
+import { meshOf, piecesOf, rewarp, unwarp } from '../src/warp';
 
 const bird = generatorOf('bird')!;
 const at = (k: number) => () => k;
@@ -47,6 +47,19 @@ describe("surface déformée de l'oiseau", () => {
       const [x, y] = w.map(u, v);
       const back = unwarp(m, x, y);
       expect(Math.hypot(back.x - u, back.y - v)).toBeLessThan(0.01);
+    }
+  });
+});
+
+describe('forme figée dans sa pose', () => {
+  it('rewarp et unwarp sont réciproques', () => {
+    const a = newAnim(bird);
+    const w = bird.warp!(a, 0.3, at(0.3), { each: () => [] })!;
+    const m = meshOf(w);
+    for (const [u, v] of [[0.15, 0.45], [0.5, 0.6], [0.8, 0.4]] as const) {
+      const q = rewarp(m, u, v);
+      const back = unwarp(m, q.x, q.y);
+      expect(Math.hypot(back.x - u, back.y - v)).toBeLessThan(1e-6);
     }
   });
 });

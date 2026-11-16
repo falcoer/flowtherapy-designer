@@ -108,6 +108,7 @@ import {
   pageBounds,
   pageToLocal,
   surfaceWarp,
+  bakeWarp,
   pinsOf,
   drawChecker,
   drawLayers,
@@ -418,7 +419,14 @@ export function App() {
     past.current.push(JSON.stringify(packDoc(docRef.current), compact));
     if (past.current.length > 60) past.current.shift();
     future.current = [];
-    setDoc((d) => fn(structuredClone(d)));
+    setDoc((d) => {
+      const next = fn(structuredClone(d));
+      // une forme qui se plie, figée dans sa pose de l'instant (découpée, modelée) : sa peinture et son relief
+      // passent d'abord dans cette pose, puis la modification se refait dessus
+      const frozen = new Set(next.layers.filter((l) => l.cut).map((l) => l.id));
+      if (!d.layers.some((l) => frozen.has(l.id) && surfaceWarp(l))) return next;
+      return fn(structuredClone({ ...d, layers: d.layers.map((l) => (frozen.has(l.id) && surfaceWarp(l) ? bakeWarp(l) : l)) }));
+    });
   }, []);
   /** Réglage en direct d'une couleur : la peinture posée attend la fin du geste pour se refaire. */
   const liveT = useRef(0);
@@ -2887,7 +2895,8 @@ export function App() {
       live.current = {
         kind: 'mold',
         layer: target.id,
-        orig: target,
+        // une forme qui se plie se fige dans sa pose de l'instant : sa peinture et son relief la suivent
+        orig: bakeWarp(target),
         base: currentPx(target),
         pristine: pristinePx(target),
         mold:
@@ -3031,7 +3040,8 @@ export function App() {
     const target = sel && insideRings(maskRings(sel, f), p.x, p.y) ? sel : spills && sel && sel.kind !== 'surface' && (!under || under.kind === 'surface') ? sel : under;
     if (!target) return;
     if (target.id !== selected) setSelected(target.id);
-    const sw = spills && target.kind !== 'surface' ? spillWindow(target, f, scale * dpr) : null;
+    // une forme qui se plie (aile qui bat) garde son encre dans sa découpe : l'aperçu débordant ne suit pas le maillage
+    const sw = spills && target.kind !== 'surface' && !surfaceWarp(target) ? spillWindow(target, f, scale * dpr) : null;
     const tg = sw?.t ?? paintTarget(target, f, scale * dpr);
     const wet = document.createElement('canvas');
     wet.width = tg.pw;

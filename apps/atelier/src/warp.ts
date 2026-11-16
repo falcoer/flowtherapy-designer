@@ -189,3 +189,25 @@ export function unwarp(m: Mesh, u: number, v: number): { x: number; y: number } 
       }
   return best ?? { x: u, y: v };
 }
+
+/** Un point de la boîte au repos, porté à sa place de l'instant à travers le maillage (l'inverse d'`unwarp`). */
+export function rewarp(m: Mesh, u: number, v: number): { x: number; y: number } {
+  const { us, vs, P } = m;
+  const nu = us.length;
+  const i = Math.max(0, Math.min(nu - 2, lowerIndex(us, u)));
+  const j = Math.max(0, Math.min(vs.length - 2, lowerIndex(vs, v)));
+  const [a, b] = [us[i]!, us[i + 1]!];
+  const [c, d] = [vs[j]!, vs[j + 1]!];
+  const s = (u - a) / Math.max(1e-12, b - a);
+  const t = (v - c) / Math.max(1e-12, d - c);
+  const at = (x: number, y: number, k: number) => P[(y * nu + x) * 2 + k]!;
+  // même découpage en triangles que le dessin : diagonale du coin haut-gauche au coin bas-droit
+  const pick = (k: number) =>
+    s >= t ? at(i, j, k) + s * (at(i + 1, j, k) - at(i, j, k)) + t * (at(i + 1, j + 1, k) - at(i + 1, j, k)) : at(i, j, k) + t * (at(i, j + 1, k) - at(i, j, k)) + s * (at(i + 1, j + 1, k) - at(i, j + 1, k));
+  return { x: pick(0), y: pick(1) };
+}
+function lowerIndex(xs: number[], x: number): number {
+  let i = 0;
+  while (i + 1 < xs.length && xs[i + 1]! <= x) i++;
+  return i;
+}
