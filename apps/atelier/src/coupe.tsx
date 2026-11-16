@@ -1205,9 +1205,10 @@ function AnimRows({ l, doc, anim: base, act, live, patch }: { l: Layer; doc: Doc
     else live(q);
   };
   /** La forme que donneraient ces réglages, en vignette. */
-  const face = (p: Partial<Anim>) => {
+  const face = (p: Partial<Anim>, key?: string) => {
     const b = { ...a, ...p };
-    return <ShapeFace d={glyphCut(b)} ratio={animRatio(b)} />;
+    // la bulle d'un type de pièce zoome sur cette pièce (la tête, le bout de l'aile…), celle d'une espèce montre tout
+    return <ShapeFace d={glyphCut(b)} ratio={animRatio(b)} view={key ? gen?.focus?.(b, key) : undefined} />;
   };
   const hasFont = !!gen?.params.some((p) => p.type === 'font');
   const [, ready] = useState(0);
@@ -1223,7 +1224,7 @@ function AnimRows({ l, doc, anim: base, act, live, patch }: { l: Layer; doc: Doc
     if (p.type === 'choice') {
       // un type de pièce : des bulles à glisser, chacune dessine la forme qu'elle donnerait
       const opts = p.options ?? [];
-      return <ChoiceDial key={p.key} label={p.name} title={p.title} items={opts.map((o) => ({ name: o.name, face: face({ [p.key]: o.id }) }))} value={opts.findIndex((o) => o.id === v)} onPick={(i) => reshape({ [p.key]: opts[i]!.id }, false)} />;
+      return <ChoiceDial key={p.key} label={p.name} title={p.title} items={opts.map((o) => ({ name: o.name, face: face({ [p.key]: o.id }, p.key) }))} value={opts.findIndex((o) => o.id === v)} onPick={(i) => reshape({ [p.key]: opts[i]!.id }, false)} />;
     }
     if (p.type === 'int')
       return (

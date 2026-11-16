@@ -169,6 +169,11 @@ export interface Generator {
    * La pièce d'une couche est dans ses données (`part`), avec l'identifiant du sticker posé (`set`) ; les autres réglages restent communs. `tint` décale la teinte de départ.
    */
   parts?: { id: string; name: string; tint?: number }[];
+  /**
+   * Partie de la forme qu'un réglage change (coordonnées 0..1 de la boîte, à la pose de la vignette) :
+   * les bulles de ce réglage zooment dessus au lieu de montrer toute la forme. Absent : la forme entière.
+   */
+  focus?: (a: Anim, key: string) => { x: number; y: number; w: number; h: number } | undefined;
   /** Proportions de la boîte (largeur / hauteur). */
   ratio: (a: Anim) => number;
   /** Consigne de mouvement ajoutée au plan général, à une avancée du cycle. */

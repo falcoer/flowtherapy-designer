@@ -5,12 +5,18 @@ import { createPortal } from 'react-dom';
 const STEP = 28;
 const VIS = 52;
 
-/** Une forme dessinée par sa découpe (coordonnées 0..1 de sa boîte), à ses proportions, dans un carré. */
-export function ShapeFace({ d, ratio }: { d: string; ratio: number }) {
-  const [w, h] = ratio >= 1 ? [1, 1 / ratio] : [ratio, 1];
+/**
+ * Une forme dessinée par sa découpe (coordonnées 0..1 de sa boîte), à ses proportions, dans un carré.
+ * `view` (coordonnées 0..1 de la boîte) : la partie à montrer en gros, celle que le réglage change.
+ */
+export function ShapeFace({ d, ratio, view }: { d: string; ratio: number; view?: { x: number; y: number; w: number; h: number } }) {
+  // la boîte en unités : `ratio` de large, 1 de haut ; la vue se met au carré autour de son centre
+  const v = view ?? { x: 0, y: 0, w: 1, h: 1 };
+  const [cx, cy] = [(v.x + v.w / 2) * ratio, v.y + v.h / 2];
+  const side = Math.max(v.w * ratio, v.h) * 1.08;
   return (
-    <svg className="sd-face" viewBox="-0.04 -0.04 1.08 1.08" aria-hidden>
-      <path d={d} transform={`translate(${(1 - w) / 2} ${(1 - h) / 2}) scale(${w} ${h})`} fill="currentColor" fillRule="evenodd" />
+    <svg className="sd-face" viewBox={`${cx - side / 2} ${cy - side / 2} ${side} ${side}`} aria-hidden>
+      <path d={d} transform={`scale(${ratio} 1)`} fill="currentColor" fillRule="evenodd" />
     </svg>
   );
 }
