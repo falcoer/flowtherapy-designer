@@ -3227,12 +3227,9 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 @media (max-width: 720px) { .fr-under { margin-left: 0; } }
 .fr-under > .cp-attrs { background: none; box-shadow: none; border: 0; padding: 0; min-height: 0; }
 
-/* gestes des textes : les lettres visées, à toucher */
+/* gestes des textes : toutes les lettres, ou une par son numéro */
 .cp-row.cp-letters .cp-letter-set { grid-column: 2 / 4; }
 .cp-letter-set { display: flex; flex-wrap: wrap; gap: 4px; max-width: 100%; }
-.cp-letter-set button {
-  min-width: 30px; height: 30px; padding: 0 7px; border-radius: 8px;
-  border: 1px solid var(--line, rgba(127,127,127,.35)); background: transparent; color: inherit;
-  font: inherit; font-weight: 600; cursor: pointer;
-}
-.cp-letter-set button.on { background: var(--accent, #7a5cff); border-color: transparent; color: #fff; }
+.cp-letter-set { align-items: center; gap: 12px; }
+.cp-letter-set label { display: inline-flex; align-items: center; gap: 6px; }
+.cp-letter-set small { color: var(--muted); }

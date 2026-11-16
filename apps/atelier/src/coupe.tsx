@@ -1226,28 +1226,36 @@ function AnimRows({ l, doc, anim: base, act, live, patch }: { l: Layer; doc: Doc
         </label>
       );
     if (p.type === 'letters') {
-      // les lettres du texte, à toucher pour les viser ; « Toutes » les reprend toutes
-      const chars = lettersOf(l.text?.content ?? '');
-      const on = lettersPicked(v, chars.length);
+      // toutes les lettres, ou une seule par son numéro (compté sans les blancs) : une autre lettre = un autre geste posé
+      const n = lettersOf(l.text?.content ?? '').length;
       const all = v === 'all';
-      const flip = (i: number) => {
-        const next = new Set(all ? [] : on);
-        if (next.has(i)) next.delete(i);
-        else next.add(i);
-        put(next.size && next.size < chars.length ? [...next].sort((x, y) => x - y).join(',') : 'all', true);
-      };
+      const at = all ? 0 : [...lettersPicked(v, n)][0] ?? 0;
       return (
-        <div key={p.key} className="cp-row cp-letters" title="Les lettres que vise ce geste">
+        <div key={p.key} className="cp-row cp-letters" title="Toutes les lettres, ou une seule par son numéro (sans compter les blancs) ; pour une autre lettre, pose un autre geste">
           <span>{p.name}</span>
           <span className="cp-letter-set">
-            <button className={all ? 'on' : ''} onClick={() => put('all', true)} aria-pressed={all}>
+            <label>
+              <input type="checkbox" checked={all} onChange={(e) => put(e.target.checked ? 'all' : String(Math.max(0, n - 1)), true)} />
               Toutes
-            </button>
-            {chars.map((c, i) => (
-              <button key={i} className={!all && on.has(i) ? 'on' : ''} onClick={() => flip(i)} aria-pressed={!all && on.has(i)} title={`Lettre ${i + 1} : ${c}`}>
-                {c}
-              </button>
-            ))}
+            </label>
+            {!all && (
+              <label>
+                n°
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={Math.max(1, n)}
+                  value={at + 1}
+                  style={{ width: 56 }}
+                  onChange={(e) => {
+                    const x = Math.round(Number(e.target.value));
+                    if (e.target.value !== '' && Number.isFinite(x)) put(String(Math.max(0, Math.min(Math.max(0, n - 1), x - 1))), true);
+                  }}
+                />
+                <small>sur {n}</small>
+              </label>
+            )}
           </span>
         </div>
       );

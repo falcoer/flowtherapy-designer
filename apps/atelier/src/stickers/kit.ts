@@ -44,7 +44,7 @@ export interface Param {
   title?: string;
   /**
    * `int` : nombre saisi ; `range` : potard continu ; `steps` : potard à crans entiers ; `check` : case (valeurs on / off) ; `font` : police ;
-   * `letters` : lettres visées d'un texte (« all », « mid », « last », ou leurs numéros séparés par des virgules, en comptant depuis 0 sans les blancs).
+   * `letters` : lettres visées d'un texte, toutes (« all ») ou une seule par son numéro (depuis 0, sans les blancs ; « mid », « last » au départ). Une autre lettre = un autre geste posé.
    */
   type: 'int' | 'range' | 'steps' | 'check' | 'font' | 'letters';
   min?: number;

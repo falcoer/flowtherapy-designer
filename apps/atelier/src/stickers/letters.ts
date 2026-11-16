@@ -32,17 +32,19 @@ const hash = (a: number, b = 0) => {
   return s - Math.floor(s);
 };
 
-/** Les lettres visées par un réglage `letters` : toutes, celle du milieu, la dernière, ou une liste de numéros. */
+/** Les lettres visées par un réglage `letters` : toutes, celle du milieu, la dernière, ou une lettre par son numéro (depuis 0, sans les blancs). */
 export function lettersPicked(v: unknown, n: number): Set<number> {
   const s = typeof v === 'string' ? v : 'all';
   if (s === 'all' || !n) return new Set(Array.from({ length: n }, (_, i) => i));
   if (s === 'last') return new Set([n - 1]);
   if (s === 'mid') return new Set([Math.floor((n - 1) / 2)]);
+  // un numéro (une liste pour les documents d'avant) ; au-delà de la dernière lettre (texte raccourci), la dernière
   const out = new Set(
     s
       .split(',')
       .map(Number)
-      .filter((i) => Number.isInteger(i) && i >= 0 && i < n),
+      .filter((i) => Number.isInteger(i) && i >= 0)
+      .map((i) => Math.min(n - 1, i)),
   );
   return out.size ? out : new Set(Array.from({ length: n }, (_, i) => i));
 }
