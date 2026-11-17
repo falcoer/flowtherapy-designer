@@ -1,4 +1,4 @@
-import { axisDist, bevelField, bevelProfile, blurField, fullField, distField, lightKey, seedOf, shadeBump, shadeField, skinField, soften, volumeField, type BumpLight } from './bump';
+import { axisDist, bevelField, bevelProfile, blurField, bumpHeights, encodeBump, fullField, distField, lightKey, seedOf, shadeBump, shadeField, skinField, soften, volumeField, type BumpLight } from './bump';
 import { burnLayers, paintStroke, paintWash, type Target } from './brush';
 import type { Flames } from './fire';
 import { paintPass, passKind } from './fresh';
@@ -6,7 +6,8 @@ import { drawBlurred, rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring, insideRings } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
-import { animCut, generatorOf, posed } from './anim';
+import { animCut, animWarp, generatorOf, posed, type Warp } from './anim';
+import { drawWarped, meshOf, rewarp, unwarp, type Mesh } from './warp';
 import { EDGE_ELEMENTS, edgeStroke } from './elements';
 import { bevelSoftOf, blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
@@ -1011,13 +1012,10 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
       ctx.rotate(l.rot);
       ctx.translate(-b.cx, -b.cy);
     }
-    // matière et peinture, passées par les effets de matière s'il y en a
-    const buf = hasPixelFx(pixelFx(l)) ? fxBuffer(l, doc, f, o) : null;
-    if (buf instanceof HTMLCanvasElement) ctx.drawImage(buf, x0, y0, b.w, b.h);
-    // effets pas encore prêts : la peinture se montre à mesure, sans eux
-    else drawMaterial(ctx, l, doc, f, typeof buf === 'number' ? { ...o, paintAt: buf } : o);
-    if (o.wet?.id === l.id && !o.wet.win) ctx.drawImage(o.wet.canvas, x0, y0, b.w, b.h);
-    if (l.bump) drawBump(ctx, l, doc, f, b, x0, y0);
+    // forme animée qui se plie (aile qui bat) : sa surface, posée sur la forme au repos, suit le maillage
+    const wp = surfaceWarp(l);
+    if (wp) drawWarpedSurface(ctx, l, doc, f, o, meshOf(wp));
+    else drawSurface(ctx, l, doc, f, o);
     ctx.restore();
     drawFxInside(ctx, l, doc, f, o, path);
 
@@ -1431,6 +1429,56 @@ function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
   // peinture
   const paint = paintFor(l, doc, f, o.paintAt ?? o.scale, o.progressive ? { redraw: o.onImage, ms: 6 } : undefined);
   if (paint) ctx.drawImage(paint, x0, y0, b.w, b.h);
+}
+
+/** Matière et peinture de la couche (effets de matière compris), son encre fraîche et son relief, dans sa boîte. */
+function drawSurface(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions) {
+  const b = layerBox(l, f);
+  const x0 = b.cx - b.w / 2;
+  const y0 = b.cy - b.h / 2;
+  // matière et peinture, passées par les effets de matière s'il y en a
+  const buf = hasPixelFx(pixelFx(l)) ? fxBuffer(l, doc, f, o) : null;
+  if (buf instanceof HTMLCanvasElement) ctx.drawImage(buf, x0, y0, b.w, b.h);
+  // effets pas encore prêts : la peinture se montre à mesure, sans eux
+  else drawMaterial(ctx, l, doc, f, typeof buf === 'number' ? { ...o, paintAt: buf } : o);
+  if (o.wet?.id === l.id && !o.wet.win) ctx.drawImage(o.wet.canvas, x0, y0, b.w, b.h);
+  if (l.bump) drawBump(ctx, l, doc, f, b, x0, y0);
+}
+
+/** Déformation de la surface d'une forme animée à l'instant courant, si son générateur la plie (voir Generator.warp). */
+export function surfaceWarp(l: Layer): Warp | null {
+  return !l.cut && !l.text && l.anim ? animWarp(l.anim) : null;
+}
+
+// la surface au repos, rendue à part avant d'être posée sur le maillage (un seul tampon, réutilisé d'une couche à l'autre)
+let warpBuffer: HTMLCanvasElement | null = null;
+const WARP_MAX = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0 ? 1536 : 2304;
+function drawWarpedSurface(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, mesh: Mesh) {
+  const b = layerBox(l, f);
+  const x0 = b.cx - b.w / 2;
+  const y0 = b.cy - b.h / 2;
+  const T = ctx.getTransform();
+  const px = Math.hypot(T.a, T.b);
+  // à la résolution de l'écran, sans dépasser le budget d'une tablette
+  const k = Math.min(px, WARP_MAX / Math.max(b.w, b.h));
+  const iw = Math.max(1, Math.ceil(b.w * k));
+  const ih = Math.max(1, Math.ceil(b.h * k));
+  const c = (warpBuffer ??= document.createElement('canvas'));
+  if (c.width < iw || c.height < ih || c.width * c.height > 4 * iw * ih) {
+    c.width = iw;
+    c.height = ih;
+  }
+  const bx = c.getContext('2d')!;
+  bx.setTransform(1, 0, 0, 1, 0, 0);
+  bx.clearRect(0, 0, iw + 2, ih + 2);
+  bx.save();
+  bx.beginPath();
+  bx.rect(0, 0, iw, ih);
+  bx.clip();
+  bx.setTransform(iw / b.w, 0, 0, ih / b.h, (-x0 * iw) / b.w, (-y0 * ih) / b.h);
+  drawSurface(bx, l, doc, f, o);
+  bx.restore();
+  drawWarped(ctx, c, iw, ih, mesh, x0, y0, b.w, b.h, px);
 }
 
 /** Traitements de la couche : filtre dessin de la photo, puis la matière, puis les effets. */
@@ -2270,4 +2318,40 @@ function cutMask(path: Path2D, gw: number, gh: number, s: number, r: number, b: 
   const out = new Float32Array(gw * gh);
   for (let n = 0; n < out.length; n++) out[n] = px[n * 4 + 3]! / 255;
   return out;
+}
+
+/**
+ * Une forme animée qu'on fige dans sa pose de l'instant (découpée, modelée) : sa peinture et son relief, posés
+ * sur la forme au repos, sont emmenés là où la surface se trouve à cet instant, pour rester sur la pièce qu'on voit.
+ */
+export function bakeWarp(l: Layer): Layer {
+  const w = surfaceWarp(l);
+  if (!w) return l;
+  const m = meshOf(w);
+  // les traits sont d'abord redécoupés finement : un trait droit sur l'aile au repos se plie avec elle
+  const fine = (pts: Pt[]): Pt[] =>
+    pts.flatMap((p, i) => {
+      const q = pts[i + 1];
+      if (!q) return [p];
+      const n = Math.min(64, Math.ceil(Math.hypot(q.x - p.x, q.y - p.y) / 0.01));
+      return Array.from({ length: n }, (_, k) => {
+        const t = k / n;
+        return { ...p, x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t, ...(p.p !== undefined && q.p !== undefined ? { p: p.p + (q.p - p.p) * t } : {}) };
+      });
+    });
+  const strokes = l.strokes.map((s) => ({ ...s, pts: fine(s.pts).map((p) => ({ ...p, ...rewarp(m, p.x, p.y) })) }));
+  let bump = l.bump;
+  if (bump) {
+    // chaque pixel de la carte de l'instant va lire la hauteur sous lui, sur la forme au repos
+    const H = bumpHeights(bump);
+    const out = new Float32Array(bump.w * bump.h);
+    for (let y = 0; y < bump.h; y++)
+      for (let x = 0; x < bump.w; x++) {
+        const q = unwarp(m, (x + 0.5) / bump.w, (y + 0.5) / bump.h);
+        const [sx, sy] = [Math.floor(q.x * bump.w), Math.floor(q.y * bump.h)];
+        out[y * bump.w + x] = sx >= 0 && sy >= 0 && sx < bump.w && sy < bump.h ? H[sy * bump.w + sx]! : 0;
+      }
+    bump = encodeBump(bump.w, bump.h, out);
+  }
+  return { ...l, strokes, ...(bump ? { bump } : {}) };
 }

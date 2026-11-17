@@ -1,5 +1,5 @@
 import { ringsToPath } from '../cut';
-import { cached, frac, numOf, type Anim, type Generator, type Param, type Preset, type Progress } from './kit';
+import { cached, frac, numOf, type Anim, type Generator, type Param, type Preset, type Progress, type Warp } from './kit';
 
 /*
  * Volatile paramétrique, vu de dessous en vol (la tête en haut) : de la chauve-souris à l'aigle royal.
@@ -144,36 +144,136 @@ function half(m: Morph): P[] {
   return out;
 }
 
-/** Silhouette entière à une image du battement : points à l'écran avec leur raideur. */
-function pose(m: Morph, amp: number, k: number): P[] {
-  const R = half(m);
-  const ring = [...R, ...R.slice(1, -1).reverse().map((p) => ({ ...p, x: -p.x }))];
+/** Le battement à une image : angles de l'épaule et du coude, descente du corps, et la vue penchée. */
+interface Flap {
+  f1: number;
+  f2: number;
+  bob: number;
+  /** Épaule (distance à l'axe) et longueur du bras jusqu'au coude. */
+  x0: number;
+  re: number;
+  ct: number;
+  st: number;
+}
+function flapOf(m: Morph, amp: number, k: number): Flap {
   const ph = (k / FRAMES) * 2 * Math.PI;
   const tilt = ((20 + 50 * m.view) * Math.PI) / 180;
-  const [ct, st] = [Math.cos(tilt), Math.sin(tilt)];
   const bw = 0.03 + 0.045 * m.body;
-  const x0 = bw * 0.9;
-  const re = 0.45 * (0.32 + 0.78 * m.span);
   // l'épaule mène, le bout suit avec du retard ; le corps descend quand les ailes montent
-  const f1 = amp * 0.7 * Math.sin(ph);
-  const f2 = amp * 0.55 * Math.sin(ph - 0.8);
-  const bob = -0.035 * amp * Math.sin(ph);
-  return ring.map((p) => {
-    let X = p.x;
-    let H = bob;
-    if (p.s !== undefined) {
-      const sx = Math.sign(p.x) || 1;
-      const r = Math.abs(p.x) - x0;
-      if (r <= re) {
-        X = sx * (x0 + r * Math.cos(f1));
-        H += r * Math.sin(f1);
-      } else {
-        X = sx * (x0 + re * Math.cos(f1) + (r - re) * Math.cos(f1 + f2));
-        H += re * Math.sin(f1) + (r - re) * Math.sin(f1 + f2);
+  return {
+    f1: amp * 0.7 * Math.sin(ph),
+    f2: amp * 0.55 * Math.sin(ph - 0.8),
+    bob: -0.035 * amp * Math.sin(ph),
+    x0: bw * 0.9,
+    re: 0.45 * (0.32 + 0.78 * m.span),
+    ct: Math.cos(tilt),
+    st: Math.sin(tilt),
+  };
+}
+/** Un point de l'aile (à plat, x signé) tourné autour de l'axe du corps : sa place en travers et sa hauteur. */
+function bend(F: Flap, x: number): [number, number] {
+  const sx = Math.sign(x) || 1;
+  const r = Math.max(0, Math.abs(x) - F.x0);
+  if (r <= F.re) return [sx * (F.x0 + r * Math.cos(F.f1)), r * Math.sin(F.f1)];
+  return [sx * (F.x0 + F.re * Math.cos(F.f1) + (r - F.re) * Math.cos(F.f1 + F.f2)), F.re * Math.sin(F.f1) + (r - F.re) * Math.sin(F.f1 + F.f2)];
+}
+
+/**
+ * Le battement comme une déformation du plan : un point de l'oiseau à plat (x signé, y vers l'arrière) va à sa place
+ * à l'écran à cette image. Le contour et la surface (étape 3 : teinte, peinture, relief) passent par la même,
+ * si bien que le décor reste exactement sur l'aile qui bat.
+ * Sur l'aile, chaque point tourne autour de l'axe du corps (épaule, puis coude en retard) et le corps descend avec le battement.
+ * La tête et la queue restent avec le corps : la part de l'aile s'efface à leur hauteur (sur une courte rampe),
+ * sauf au-delà de leur largeur, où il ne peut y avoir que l'aile.
+ */
+const RAMP = 0.025;
+const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+interface Bend {
+  F: Flap;
+  /** Le cou (y du point juste avant l'aile), le début de la queue, et les demi-largeurs de la tête et de la queue. */
+  neck: number;
+  yt: number;
+  xHead: number;
+  xTail: number;
+  at: (x: number, y: number) => [number, number];
+}
+function bender(m: Morph, amp: number, k: number, R = half(m)): Bend {
+  const F = flapOf(m, amp, k);
+  const wi = R.findIndex((p) => p.p === 'wing');
+  const neck = R[wi - 1]!.y;
+  const tails = R.filter((p) => p.p === 'tail');
+  const yt = tails[0]!.y;
+  const xHead = Math.max(...R.slice(0, wi).map((p) => p.x));
+  const xTail = Math.max(...tails.map((p) => p.x));
+  const at = (x: number, y: number): [number, number] => {
+    const ax = Math.abs(x);
+    let X = x;
+    let H = F.bob;
+    if (ax > F.x0) {
+      const front = Math.max(clamp01((y - neck) / RAMP), clamp01((ax - xHead) / RAMP));
+      const back = Math.max(clamp01((yt - y) / RAMP), clamp01((ax - xTail) / RAMP));
+      const w = front * back;
+      if (w > 0) {
+        const [bx, bh] = bend(F, x);
+        X = x + (bx - x) * w;
+        H += bh * w;
       }
     }
-    return { ...p, x: X, y: p.y * ct - H * st };
+    return [X, y * F.ct - H * F.st];
+  };
+  return { F, neck, yt, xHead, xTail, at };
+}
+
+/** Contour à plat : la demi-silhouette et son miroir, en un anneau. */
+function flat(m: Morph): P[] {
+  const R = half(m);
+  return [...R, ...R.slice(1, -1).reverse().map((p) => ({ ...p, x: -p.x }))];
+}
+/** Silhouette entière à une image du battement : points de contrôle à l'écran avec leur raideur (pour viser une pièce). */
+function pose(m: Morph, amp: number, k: number): P[] {
+  const B = bender(m, amp, k);
+  return flat(m).map((p) => {
+    const [x, y] = B.at(p.x, p.y);
+    return { ...p, x, y };
   });
+}
+/** Contour à l'écran à une image : la courbe tracée à plat, puis pliée par le battement. */
+function outline(m: Morph, amp: number, k: number, n = 8): Array<{ x: number; y: number }> {
+  const B = bender(m, amp, k);
+  return spline(flat(m), m.sharp, n).map((p) => {
+    const [x, y] = B.at(p.x, p.y);
+    return { x, y };
+  });
+}
+
+/** Déformation de la surface (Generator.warp) : de l'oiseau au repos (ailes à plat) à l'oiseau de cette image. */
+function warp(a: Anim, _phase: number, g: Progress): Warp | null {
+  const m = morphOf(a);
+  const amp = ampOf(a);
+  const k = Math.floor(frac(g('flap')) * FRAMES);
+  const fr = frameOf(m);
+  const B = bender(m, amp, k);
+  const ct = B.F.ct;
+  const map = (u: number, v: number): [number, number] => {
+    // au repos, ailes à plat : y à l'écran = y à plat × cos(vue)
+    const [X, Y] = B.at(fr.x0 + u * fr.w, (fr.y0 + v * fr.h) / ct);
+    return [(X - fr.x0) / fr.w, (Y - fr.y0) / fr.h];
+  };
+  // plis : axe, épaules, coudes, bords de la tête et de la queue (avec leur rampe) ; rangées aux rampes du cou et de la queue
+  const xs = [0, B.F.x0, B.F.x0 + B.F.re, B.xHead, B.xHead + RAMP, B.xTail, B.xTail + RAMP];
+  const us = lines([...xs.flatMap((x) => [(x - fr.x0) / fr.w, (-x - fr.x0) / fr.w]), ...even(12)]);
+  const ys = [B.neck, B.neck + RAMP / 2, B.neck + RAMP, B.yt - RAMP, B.yt - RAMP / 2, B.yt];
+  const vs = lines([...ys.map((y) => (y * ct - fr.y0) / fr.h), ...even(6)]);
+  return { key: `b|${keyOf(m)}|${amp}|${k}`, us, vs, map };
+}
+const even = (n: number) => Array.from({ length: n + 1 }, (_, i) => i / n);
+/** Lignes du maillage : dans la boîte, triées, sans doublons trop proches. */
+function lines(xs: number[]): number[] {
+  const out = [0];
+  for (const x of xs.filter((x) => x > 0 && x < 1).sort((p, q) => p - q)) if (x - out[out.length - 1]! > 0.004) out.push(x);
+  if (1 - out[out.length - 1]! < 0.004) out.pop();
+  out.push(1);
+  return out;
 }
 
 /** Courbe fermée par les points, chaque point sa raideur : 0 = courbe douce, 1 = coin (les segments voisins deviennent droits). */
@@ -208,7 +308,7 @@ function frameOf(m: Morph) {
   if (!f) {
     let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
     for (let k = 0; k < FRAMES; k += 2)
-      for (const p of spline(pose(m, 1, k), m.sharp, 4)) {
+      for (const p of outline(m, 1, k, 4)) {
         x0 = Math.min(x0, p.x);
         x1 = Math.max(x1, p.x);
         y0 = Math.min(y0, p.y);
@@ -229,9 +329,9 @@ function cut(a: Anim, _phase: number, g: Progress): string {
   const amp = ampOf(a);
   // hors du battement, l'oiseau plane, ailes à plat
   const k = Math.floor(frac(g('flap')) * FRAMES);
-  return cached(`b2|${keyOf(m)}|${amp}|${k}`, () => {
+  return cached(`b3|${keyOf(m)}|${amp}|${k}`, () => {
     const f = frameOf(m);
-    const pts = spline(pose(m, amp, k), m.sharp).map((p) => ({ x: (p.x - f.x0) / f.w, y: (p.y - f.y0) / f.h }));
+    const pts = outline(m, amp, k).map((p) => ({ x: (p.x - f.x0) / f.w, y: (p.y - f.y0) / f.h }));
     return ringsToPath([pts], 0.0004, 30, false);
   });
 }
@@ -340,6 +440,7 @@ export const bird: Generator = {
   ],
   gestures: () => [{ id: 'flap', name: 'Battement d’ailes', note: 'bat des ailes', loop: true, params: ['amp'] }],
   cut,
+  warp,
   focus,
   ratio: (a) => {
     const f = frameOf(morphOf(a));

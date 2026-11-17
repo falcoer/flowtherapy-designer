@@ -1,9 +1,9 @@
 import type { Format } from '@ftd/core';
 import type { Layer } from './model';
-import { animatorFor, generatorOf, newAnim, spanOf, type Act, type ActState, type Anim, type Context, type Generator, type Gesture, type Progress } from './stickers';
+import { animatorFor, generatorOf, newAnim, spanOf, type Act, type ActState, type Anim, type Context, type Generator, type Gesture, type Progress, type Warp } from './stickers';
 
 export { ANIMATORS, GENERATORS, animatorFor, generatorOf, newAnim, forPart, spanOf, valueOf } from './stickers';
-export type { Act, Anim, Generator, Gesture, Param } from './stickers';
+export type { Act, Anim, Generator, Gesture, Param, Warp } from './stickers';
 
 /**
  * Formes animées (stickers) : un générateur reçoit l'avancée de son cycle et rend la découpe de l'objet
@@ -180,6 +180,13 @@ export function animCut(a: Anim, t = now, host?: Context['host']): string {
   if (!g) return SQUARE;
   const s = stateAt(g, a, t);
   return g.cut(s.a, s.phase, s.progress, { each: s.each, host });
+}
+/** Déformation de la surface de la forme animée à l'instant t, si son générateur en a une (voir Generator.warp). */
+export function animWarp(a: Anim, t = now): Warp | null {
+  const g = generatorOf(a);
+  if (!g?.warp) return null;
+  const s = stateAt(g, a, t);
+  return g.warp(s.a, s.phase, s.progress, { each: s.each });
 }
 /** Découpe de la vignette d'un générateur, figée à l'avancée qu'il choisit. */
 export function glyphCut(a: Anim): string {
