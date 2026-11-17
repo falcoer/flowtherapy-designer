@@ -27,7 +27,7 @@ import { ParallaxView } from './parallax';
 import { kitFromSvg, nearestOf, SAME_COLOR, type Kit } from './kits';
 import { KITS } from './kit-samples';
 import { blankBump, bumpHeights, dab, encodeBump, heightUnder, smoothBump } from './bump';
-import { currentPx, growPatch, localToPx, MOLD_UNIT, moldPatch, pristinePx, unitPx, unmoldPatch } from './mold';
+import { currentPx, growPatch, localToPx, MOLD_UNIT, moldPatch, pristinePx, refit, unitPx, unmoldPatch } from './mold';
 import { ensureFont, fontFamily, fontUses, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
 import { type SwashTool } from './textbar';
 import { ColorDialog, swatch } from './color-dialog';
@@ -2584,7 +2584,9 @@ export function App() {
   const carve = (l: Layer, patch: Partial<Layer>, t?: number): Partial<Layer> => {
     if (!patch.cut || !l.anim || l.text || !generatorOf(l.anim)?.warp || (l.cut && !l.anim.carved)) return patch;
     const next = { ...l, ...patch };
-    return { ...patch, cut: restCut(next, patch.cut, t), anim: { ...l.anim, carved: 1 } };
+    const cut = restCut(next, patch.cut, t);
+    // modelée : la boîte s'ajuste à la forme au repos (qui peut dépasser celle de l'instant)
+    return { ...patch, cut, anim: { ...l.anim, carved: 1 }, ...(next.molded ? refit({ ...next, cut }, f, cut) : {}) };
   };
   /** Copie de l'élément sélectionné (et de ses objets solidaires), décalée, posée juste au-dessus. */
   const duplicate = (id: string | null = selected, src: Doc = doc) => {

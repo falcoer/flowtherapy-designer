@@ -126,3 +126,26 @@ export function unmoldPatch(l: Layer, f: Format): Partial<Layer> {
   if (!l.molded) return {};
   return { cut: l.molded.cut, molded: undefined, ...(l.kind === 'photo' ? {} : { ...rebox(l, f, l.molded.frame, NONE), strokes: restroke(l, l.molded.frame, NONE) }) };
 }
+
+/**
+ * Forme animée sculptée (voir warp.ts restCut) : sa découpe au repos peut sortir de la boîte, taillée sur la forme de l'instant.
+ * La boîte s'élargit pour la contenir, et pour contenir la boîte d'origine du sticker (son battement entier) :
+ * toute la surface au repos est rendue, et la sélection ne rapetisse pas à chaque geste. La peinture reste en place.
+ */
+export function refit(l: Layer, f: Format, cut: string): Partial<Layer> {
+  const fr = l.molded?.frame ?? NONE;
+  const [W, H] = [fr[2] - fr[0] || 1, fr[3] - fr[1] || 1];
+  const rings = pathToRings(cut).map((r) => r.map((p) => ({ x: fr[0] + p.x * W, y: fr[1] + p.y * H })));
+  let [x0, y0, x1, y1] = [0, 0, 1, 1];
+  for (const r of rings)
+    for (const p of r) {
+      x0 = Math.min(x0, p.x);
+      y0 = Math.min(y0, p.y);
+      x1 = Math.max(x1, p.x);
+      y1 = Math.max(y1, p.y);
+    }
+  const b: Frame = [x0, y0, x1, y1];
+  if (b.every((v, i) => Math.abs(v - fr[i]!) < 1e-9)) return { cut };
+  const norm = rings.map((r) => r.map((p) => ({ x: (p.x - x0) / (x1 - x0), y: (p.y - y0) / (y1 - y0) })));
+  return { cut: ringsToPath(norm, 1e-6, 55, false), molded: { cut: l.molded?.cut, frame: b }, ...rebox(l, f, fr, b), strokes: restroke(l, fr, b) };
+}

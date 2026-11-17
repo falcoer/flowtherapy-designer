@@ -165,6 +165,9 @@ export function unwarp(m: Mesh, u: number, v: number): { x: number; y: number } 
   const at = (i: number, j: number): Pt2 => [P[(j * nu + i) * 2]!, P[(j * nu + i) * 2 + 1]!];
   const src = (i: number, j: number): Pt2 => [us[i]!, vs[j]!];
   let best: { x: number; y: number } | null = null;
+  // hors du maillage : la maille la plus proche, prolongée (jamais le point tel quel, qui n'est pas dans le même repère)
+  let near: { x: number; y: number } | null = null;
+  let nearScore = -Infinity;
   for (let j = 0; j + 1 < vs.length && !best; j++)
     for (let i = 0; i + 1 < nu && !best; i++)
       for (const tri of [
@@ -185,12 +188,19 @@ export function unwarp(m: Mesh, u: number, v: number): { x: number; y: number } 
         const l1 = ((B[1] - C[1]) * (u - C[0]) + (C[0] - B[0]) * (v - C[1])) / det;
         const l2 = ((C[1] - A[1]) * (u - C[0]) + (A[0] - C[0]) * (v - C[1])) / det;
         const l3 = 1 - l1 - l2;
-        if (l1 < -1e-9 || l2 < -1e-9 || l3 < -1e-9) continue;
         const [sA, sB, sC] = tri.map(([x, y]) => src(x, y)) as [Pt2, Pt2, Pt2];
-        best = { x: l1 * sA[0] + l2 * sB[0] + l3 * sC[0], y: l1 * sA[1] + l2 * sB[1] + l3 * sC[1] };
-        break;
+        const hit = { x: l1 * sA[0] + l2 * sB[0] + l3 * sC[0], y: l1 * sA[1] + l2 * sB[1] + l3 * sC[1] };
+        const score = Math.min(l1, l2, l3);
+        if (score >= -1e-9) {
+          best = hit;
+          break;
+        }
+        if (score > nearScore) {
+          nearScore = score;
+          near = hit;
+        }
       }
-  return best ?? { x: u, y: v };
+  return best ?? near ?? { x: u, y: v };
 }
 
 /** Un point de la boîte au repos, porté à sa place de l'instant à travers le maillage (l'inverse d'`unwarp`). */
@@ -282,7 +292,17 @@ export function bentCut(rest: string, w: Warp): string {
 export function restCut(l: Layer, d: string, t?: number): string {
   const w = warpFor(l, t);
   if (!w) return d;
-  const m = meshOf(w);
+  // la forme au repos peut déborder de la boîte (taillée sur la forme de l'instant) : le maillage s'étend bien au-delà
+  const fr = l.molded?.frame ?? [0, 0, 1, 1];
+  const [W, H] = [fr[2] - fr[0] || 1, fr[3] - fr[1] || 1];
+  const span = (lo: number, hi: number, xs: number[]) => {
+    const out = new Set(xs);
+    for (let k = 0; k <= 24; k++) out.add(lo + ((hi - lo) * k) / 24);
+    return [...out].sort((p, q) => p - q).filter((x, i, a) => i === 0 || x - a[i - 1]! > 1e-4);
+  };
+  const us = span(Math.min(0, (-0.4 - fr[0]) / W), Math.max(1, (1.4 - fr[0]) / W), w.us);
+  const vs = span(Math.min(0, (-0.4 - fr[1]) / H), Math.max(1, (1.4 - fr[1]) / H), w.vs);
+  const m = meshOf({ ...w, key: `${w.key}|large`, us, vs });
   const rings = fineRings(pathToRings(d)).map((r) => simplifyRing(r.map((p) => unwarp(m, p.x, p.y)), 0.0004));
   return ringsToPath(rings, 0.0002, 30, false);
 }
