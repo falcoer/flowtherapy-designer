@@ -51,7 +51,7 @@ export const setAnimTiming = (t?: Partial<Timing>) => void (timing = timingOf(t)
  */
 const blanks = new Map<string, Anim>();
 export function animOf(l: Layer): Anim | undefined {
-  if (l.cut) return undefined;
+  if (l.cut && !carved(l)) return undefined;
   if (l.anim) return l.anim;
   const g = animatorFor(l.kind);
   if (!g) return undefined;
@@ -60,8 +60,16 @@ export function animOf(l: Layer): Anim | undefined {
   return a;
 }
 
+/**
+ * Forme animée sculptée (découpée, modelée) qui garde son animation : son générateur plie la forme (Generator.warp),
+ * et sa découpe a été ramenée sur la forme au repos (`anim.carved`). Les formes figées d'avant n'ont pas la marque.
+ */
+export const carved = (l: Layer) => !!l.cut && !!l.anim && !l.text && !!l.anim.carved && !!generatorOf(l.anim)?.warp;
+/** L'objet bouge-t-il de lui-même (sticker, forme sculptée qui garde son animation) ? */
+const lives = (l: Layer) => !!l.anim && (!l.cut || carved(l));
+
 /** Le document a-t-il au moins une forme animée ? */
-export const hasAnim = (layers: Layer[]) => layers.some((l) => l.visible !== false && ((l.anim && !l.cut) || !!l.motion?.length));
+export const hasAnim = (layers: Layer[]) => layers.some((l) => l.visible !== false && (lives(l) || !!l.motion?.length));
 
 /** Coefficient du cycle, en périodes (les animations d'avant gardent à peu près leur vitesse). */
 export function cycleOf(a: Anim, tm = timing): number {
@@ -277,7 +285,7 @@ export function animOrder(a: Anim, t = now): Partial<Pose> | null {
 
 /** Pose d'un objet à l'instant t : la consigne de son sticker, plus toutes ses consignes de la frise. */
 export function poseOf(l: Layer, t = now, tm = timing): Pose | null {
-  const own = l.anim && !l.cut ? animOrder(l.anim, t) : null;
+  const own = lives(l) ? animOrder(l.anim!, t) : null;
   if (!own && !l.motion?.length) return null;
   const p: Pose = { dx: own?.dx ?? 0, dy: own?.dy ?? 0, rot: own?.rot ?? 0, scale: own?.scale ?? 1, lift: own?.lift ?? 0 };
   const at = t / tm.period;
@@ -298,7 +306,7 @@ export function poseOf(l: Layer, t = now, tm = timing): Pose | null {
 
 /** Les couches dans leur pose à l'instant courant (le même tableau si rien ne bouge). */
 export function posed(layers: Layer[], f: Format, t = now): Layer[] {
-  if (!layers.some((l) => l.motion?.length || (l.anim && !l.cut))) return layers;
+  if (!layers.some((l) => l.motion?.length || lives(l))) return layers;
   const m = Math.min(f.width, f.height);
   return layers.map((l) => {
     const p = l.kind === 'surface' ? null : poseOf(l, t);
