@@ -1,3 +1,6 @@
+import { animWarp, carved } from './anim';
+import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
+import type { Layer } from './model';
 import type { Warp } from './stickers';
 
 /**
@@ -210,4 +213,76 @@ function lowerIndex(xs: number[], x: number): number {
   let i = 0;
   while (i + 1 < xs.length && xs[i + 1]! <= x) i++;
   return i;
+}
+
+/** Déformation de la surface d'une forme animée à l'instant courant, si son générateur la plie (voir Generator.warp). */
+export function surfaceWarp(l: Layer): Warp | null {
+  return (!l.cut || carved(l)) && !l.text && l.anim ? warpFor(l) : null;
+}
+
+/**
+ * Déformation dans la boîte de la couche, à l'instant t. Le générateur la donne dans la boîte d'origine ;
+ * une forme modelée a pu agrandir sa boîte (Layer.molded.frame : la boîte actuelle dans le repère d'origine).
+ */
+export function warpFor(l: Layer, t?: number): Warp | null {
+  const w = l.anim ? animWarp(l.anim, t) : null;
+  const fr = l.molded?.frame;
+  if (!w || !fr || (fr[0] === 0 && fr[1] === 0 && fr[2] === 1 && fr[3] === 1)) return w;
+  const [a, b, c, d] = fr;
+  const [W, H] = [c - a || 1, d - b || 1];
+  const inside = (xs: number[]) => {
+    const out = [0];
+    for (const x of xs.filter((x) => x > 0 && x < 1).sort((p, q) => p - q)) if (x - out[out.length - 1]! > 0.004) out.push(x);
+    if (1 - out[out.length - 1]! < 0.004) out.pop();
+    out.push(1);
+    return out;
+  };
+  return {
+    key: `${w.key}|${fr.join(',')}`,
+    us: inside(w.us.map((u) => (u - a) / W)),
+    vs: inside(w.vs.map((v) => (v - b) / H)),
+    map: (u, v) => {
+      const [x, y] = w.map(a + u * W, b + v * H);
+      return [(x - a) / W, (y - b) / H];
+    },
+  };
+}
+
+/** Contours redécoupés finement (pas de 0,01 de la boîte) : un bord droit au repos se plie avec la forme. */
+function fineRings(rings: Ring[]): Ring[] {
+  return rings.map((r) =>
+    r.flatMap((p, i) => {
+      const q = r[(i + 1) % r.length]!;
+      const n = Math.min(64, Math.max(1, Math.ceil(Math.hypot(q.x - p.x, q.y - p.y) / 0.01)));
+      return Array.from({ length: n }, (_, k) => ({ x: p.x + ((q.x - p.x) * k) / n, y: p.y + ((q.y - p.y) * k) / n }));
+    }),
+  );
+}
+const bentCuts = new Map<string, { key: string; d: string }>();
+/** Découpe au repos (sculptée) pliée par la déformation de l'instant. */
+export function bentCut(rest: string, w: Warp): string {
+  const hit = bentCuts.get(rest);
+  if (hit?.key === w.key) return hit.d;
+  const rings = fineRings(pathToRings(rest)).map((r) =>
+    r.map((p) => {
+      const [x, y] = w.map(p.x, p.y);
+      return { x, y };
+    }),
+  );
+  const d = ringsToPath(rings, 0.0003, 30, false);
+  if (bentCuts.size > 300) bentCuts.clear();
+  bentCuts.set(rest, { key: w.key, d });
+  return d;
+}
+
+/**
+ * Découpe tracée sur la forme telle qu'elle est à l'instant t (couper, modeler) → la même découpe sur la forme au repos :
+ * la forme sculptée garde son animation, le geste suivant la plie à nouveau. `l` porte déjà sa nouvelle boîte.
+ */
+export function restCut(l: Layer, d: string, t?: number): string {
+  const w = warpFor(l, t);
+  if (!w) return d;
+  const m = meshOf(w);
+  const rings = fineRings(pathToRings(d)).map((r) => simplifyRing(r.map((p) => unwarp(m, p.x, p.y)), 0.0004));
+  return ringsToPath(rings, 0.0002, 30, false);
 }

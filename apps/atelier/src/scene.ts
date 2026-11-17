@@ -6,8 +6,9 @@ import { drawBlurred, rng } from './brush';
 import { pathToRings, ringsToPath, simplifyRing, type Ring, insideRings } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
-import { animCut, animWarp, generatorOf, posed, type Warp } from './anim';
-import { drawWarped, meshOf, rewarp, unwarp, type Mesh } from './warp';
+import { animCut, carved, generatorOf, posed } from './anim';
+import { bentCut, drawWarped, meshOf, surfaceWarp, type Mesh } from './warp';
+export { restCut, surfaceWarp, warpFor } from './warp';
 import { EDGE_ELEMENTS, edgeStroke } from './elements';
 import { bevelSoftOf, blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
@@ -49,6 +50,11 @@ const genCuts = new Map<string, string>();
 export function cutOf(l: Layer): string {
   // un objet animé par un générateur (texte) : sa découpe de l'instant part de la sienne ; générateur inconnu = la découpe de l'objet
   if (!l.cut && l.anim && (!l.text || generatorOf(l.anim))) return animCut(l.anim, undefined, l.text ? { text: l.text } : undefined);
+  // forme animée sculptée : sa découpe est celle de la forme au repos, pliée comme la surface
+  if (l.cut && carved(l)) {
+    const w = surfaceWarp(l);
+    if (w) return bentCut(l.cut, w);
+  }
   if (!l.cut && l.gen) {
     const key = `${l.gen.sides}|${l.gen.depth}`;
     let d = genCuts.get(key);
@@ -1445,10 +1451,6 @@ function drawSurface(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Forma
   if (l.bump) drawBump(ctx, l, doc, f, b, x0, y0);
 }
 
-/** Déformation de la surface d'une forme animée à l'instant courant, si son générateur la plie (voir Generator.warp). */
-export function surfaceWarp(l: Layer): Warp | null {
-  return !l.cut && !l.text && l.anim ? animWarp(l.anim) : null;
-}
 
 // la surface au repos, rendue à part avant d'être posée sur le maillage (un seul tampon, réutilisé d'une couche à l'autre)
 let warpBuffer: HTMLCanvasElement | null = null;
@@ -2318,40 +2320,4 @@ function cutMask(path: Path2D, gw: number, gh: number, s: number, r: number, b: 
   const out = new Float32Array(gw * gh);
   for (let n = 0; n < out.length; n++) out[n] = px[n * 4 + 3]! / 255;
   return out;
-}
-
-/**
- * Une forme animée qu'on fige dans sa pose de l'instant (découpée, modelée) : sa peinture et son relief, posés
- * sur la forme au repos, sont emmenés là où la surface se trouve à cet instant, pour rester sur la pièce qu'on voit.
- */
-export function bakeWarp(l: Layer): Layer {
-  const w = surfaceWarp(l);
-  if (!w) return l;
-  const m = meshOf(w);
-  // les traits sont d'abord redécoupés finement : un trait droit sur l'aile au repos se plie avec elle
-  const fine = (pts: Pt[]): Pt[] =>
-    pts.flatMap((p, i) => {
-      const q = pts[i + 1];
-      if (!q) return [p];
-      const n = Math.min(64, Math.ceil(Math.hypot(q.x - p.x, q.y - p.y) / 0.01));
-      return Array.from({ length: n }, (_, k) => {
-        const t = k / n;
-        return { ...p, x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t, ...(p.p !== undefined && q.p !== undefined ? { p: p.p + (q.p - p.p) * t } : {}) };
-      });
-    });
-  const strokes = l.strokes.map((s) => ({ ...s, pts: fine(s.pts).map((p) => ({ ...p, ...rewarp(m, p.x, p.y) })) }));
-  let bump = l.bump;
-  if (bump) {
-    // chaque pixel de la carte de l'instant va lire la hauteur sous lui, sur la forme au repos
-    const H = bumpHeights(bump);
-    const out = new Float32Array(bump.w * bump.h);
-    for (let y = 0; y < bump.h; y++)
-      for (let x = 0; x < bump.w; x++) {
-        const q = unwarp(m, (x + 0.5) / bump.w, (y + 0.5) / bump.h);
-        const [sx, sy] = [Math.floor(q.x * bump.w), Math.floor(q.y * bump.h)];
-        out[y * bump.w + x] = sx >= 0 && sy >= 0 && sx < bump.w && sy < bump.h ? H[sy * bump.w + sx]! : 0;
-      }
-    bump = encodeBump(bump.w, bump.h, out);
-  }
-  return { ...l, strokes, ...(bump ? { bump } : {}) };
 }

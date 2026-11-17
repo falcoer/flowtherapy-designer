@@ -12,7 +12,7 @@ import { allStamps, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel, Dots } from './coupe';
 import { Frise, scrub } from './frise';
 import { meshOf, unwarp } from './warp';
-import { animRatio, forPart, withActs, GENERATORS, glyphCut, hasAnim, newAnim, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
+import { animRatio, animTime, forPart, generatorOf, withActs, GENERATORS, glyphCut, hasAnim, newAnim, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
 import { MatterRow } from './matter-palette';
@@ -108,7 +108,7 @@ import {
   pageBounds,
   pageToLocal,
   surfaceWarp,
-  bakeWarp,
+  restCut,
   pinsOf,
   drawChecker,
   drawLayers,
@@ -419,14 +419,7 @@ export function App() {
     past.current.push(JSON.stringify(packDoc(docRef.current), compact));
     if (past.current.length > 60) past.current.shift();
     future.current = [];
-    setDoc((d) => {
-      const next = fn(structuredClone(d));
-      // une forme qui se plie, figée dans sa pose de l'instant (découpée, modelée) : sa peinture et son relief
-      // passent d'abord dans cette pose, puis la modification se refait dessus
-      const frozen = new Set(next.layers.filter((l) => l.cut).map((l) => l.id));
-      if (!d.layers.some((l) => frozen.has(l.id) && surfaceWarp(l))) return next;
-      return fn(structuredClone({ ...d, layers: d.layers.map((l) => (frozen.has(l.id) && surfaceWarp(l) ? bakeWarp(l) : l)) }));
-    });
+    setDoc((d) => fn(structuredClone(d)));
   }, []);
   /** Réglage en direct d'une couleur : la peinture posée attend la fin du geste pour se refaire. */
   const liveT = useRef(0);
@@ -1896,6 +1889,8 @@ export function App() {
     /** Outil Modeler : découpe de départ et découpe d'origine, en pixels de travail. */
     base?: Ring[];
     pristine?: Ring[];
+    /** Modeler : instant du départ du geste (forme qui se plie). */
+    t0?: number;
     /** Prolongement de lettre en cours de tracé. */
     sw?: Swash;
     /** Modelage du contour en cours. */
@@ -2582,6 +2577,15 @@ export function App() {
     const w = surfaceWarp(l);
     return w ? unwarp(meshOf(w), q.x, q.y) : q;
   };
+  /**
+   * Nouvelle découpe d'une forme qui se plie (oiseau qui bat des ailes), tracée sur la forme de l'instant : elle est
+   * ramenée sur la forme au repos et la forme garde son animation. Sans effet sur les autres formes.
+   */
+  const carve = (l: Layer, patch: Partial<Layer>, t?: number): Partial<Layer> => {
+    if (!patch.cut || !l.anim || l.text || !generatorOf(l.anim)?.warp || (l.cut && !l.anim.carved)) return patch;
+    const next = { ...l, ...patch };
+    return { ...patch, cut: restCut(next, patch.cut, t), anim: { ...l.anim, carved: 1 } };
+  };
   /** Copie de l'élément sélectionné (et de ses objets solidaires), décalée, posée juste au-dessus. */
   const duplicate = (id: string | null = selected, src: Doc = doc) => {
     const me = src.layers.find((x) => x.id === id);
@@ -2895,8 +2899,9 @@ export function App() {
       live.current = {
         kind: 'mold',
         layer: target.id,
-        // une forme qui se plie se fige dans sa pose de l'instant : sa peinture et son relief la suivent
-        orig: bakeWarp(target),
+        orig: target,
+        // une forme qui se plie (aile qui bat) : le geste se reporte sur la forme au repos telle qu'elle était à son départ
+        t0: animTime(),
         base: currentPx(target),
         pristine: pristinePx(target),
         mold:
@@ -4038,9 +4043,9 @@ export function App() {
     }
     const eps = 0.6 / (scale * Math.max(b.w, b.h));
     const cuts = parts.map((x) => ringsToPath(x.rings, eps));
-    const extra: Layer[] = cuts.slice(1).map((c, i) => ({ ...structuredClone(sel), id: uid(), name: `${sel.name} · morceau ${i + 2}`, cut: c }));
+    const extra: Layer[] = cuts.slice(1).map((c, i) => ({ ...structuredClone(sel), id: uid(), name: `${sel.name} · morceau ${i + 2}`, ...carve(sel, { cut: c }) }));
     update((d) => {
-      const layers = d.layers.map((x) => (x.id === sel.id ? { ...x, cut: cuts[0] } : x));
+      const layers = d.layers.map((x) => (x.id === sel.id ? { ...x, ...carve(sel, { cut: cuts[0] }) } : x));
       layers.splice(layers.findIndex((x) => x.id === sel.id) + 1, 0, ...extra);
       return { ...d, layers };
     });
@@ -4056,7 +4061,7 @@ export function App() {
     const b = layerBox(l, f);
     const eps = 0.6 / (scale * Math.max(b.w, b.h));
     const pieceCut = ringsToPath(ringsOfGeom(piece), eps);
-    const restCut = ringsToPath(ringsOfGeom(rest), eps);
+    const restPath = ringsToPath(ringsOfGeom(rest), eps);
     const m = Math.min(f.width, f.height);
     const scalpel = how === 'scalpel';
     const group = scalpel ? (l.link ?? uid()) : undefined;
@@ -4064,7 +4069,7 @@ export function App() {
       ...structuredClone(l),
       id: uid(),
       name: `${l.name} · ${label}`,
-      cut: pieceCut,
+      ...carve(l, { cut: pieceCut }),
       height: l.height,
       // ciseaux : légèrement décalé, comme un morceau qu'on vient de détacher ; scalpel : en place, lié
       dx: scalpel ? l.dx : l.dx + (0.012 * m) / f.width,
@@ -4072,7 +4077,7 @@ export function App() {
       ...(scalpel ? { link: group } : {}),
     };
     update((d) => {
-      const layers = d.layers.map((x) => (x.id === l.id ? { ...x, cut: restCut, ...(scalpel ? { link: group } : {}) } : x));
+      const layers = d.layers.map((x) => (x.id === l.id ? { ...x, ...carve(l, { cut: restPath }), ...(scalpel ? { link: group } : {}) } : x));
       layers.splice(layers.findIndex((x) => x.id === l.id) + 1, 0, morceau);
       return { ...d, layers };
     });
@@ -4426,13 +4431,13 @@ export function App() {
       return void setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? o : x)) }));
     }
     const m = { ...L.mold, pts: [...L.mold.pts], ...(L.mold.orn ? { orn: { ...L.mold.orn, pts: [...L.mold.orn.pts] } } : {}), live: !final };
-    const patch = moldPatch(o, f, L.base, L.pristine, m);
+    const patch = carve(o, moldPatch(o, f, L.base, L.pristine, m), L.t0);
     setDoc((d) => ({ ...d, layers: d.layers.map((x) => (x.id === o.id ? { ...o, ...patch } : x)) }));
   };
   /** Lisser : seules les parties modelées s'adoucissent, le reste garde son dessin d'origine. */
   const smoothMold = (l: Layer) => {
     if (!l.molded) return;
-    patchLayer(l.id, moldPatch(l, f, currentPx(l), pristinePx(l), { pts: [], r: 0, smooth: 0.035 * unitPx(l) }), true);
+    patchLayer(l.id, carve(l, moldPatch(l, f, currentPx(l), pristinePx(l), { pts: [], r: 0, smooth: 0.035 * unitPx(l) })), true);
   };
   const toggleSpill = () => {
     setSpill(!spill);

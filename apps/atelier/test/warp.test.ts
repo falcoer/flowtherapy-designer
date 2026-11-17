@@ -63,3 +63,30 @@ describe('forme figée dans sa pose', () => {
     }
   });
 });
+
+describe('oiseau sculpté', () => {
+  it('une découpe tracée sur l’oiseau de l’instant revient sur l’oiseau au repos, puis se replie à l’identique', async () => {
+    const { restCut, bentCut, surfaceWarp } = await import('../src/warp');
+    const { animCut, setAnimTime, setAnimTiming, withActs } = await import('../src/anim');
+    // la découpe montrée, comme scene.cutOf : celle du générateur, ou la forme sculptée pliée
+    const cutOf = (x: import('../src/model').Layer) => (x.cut ? bentCut(x.cut, surfaceWarp(x)!) : animCut(x.anim!));
+    setAnimTiming({ period: 1, count: 4 });
+    const a = withActs(newAnim(bird));
+    const l = { id: 'b', name: 'b', kind: 'shape', anchor: { frame: 'page', point: 'c' }, dx: 0, dy: 0, w: 0.5, h: 0.25, guide: 0, height: 0, visible: true, strokes: [], anim: a } as never as import('../src/model').Layer;
+    setAnimTime(0.1);
+    const shown = cutOf(l);
+    const rest = restCut(l, shown);
+    const carved = { ...l, cut: rest, anim: { ...a, carved: 1 } };
+    // même instant : la forme sculptée (sans rien enlever) se montre comme l'oiseau d'origine
+    const again = pathToRings(cutOf(carved))[0]!;
+    let worst = 0;
+    for (const p of pathToRings(shown)[0]!) worst = Math.max(worst, dist(again, p.x, p.y));
+    expect(worst).toBeLessThan(0.006);
+    // un autre instant : elle bat des ailes comme l'oiseau
+    setAnimTime(0.3);
+    const later = pathToRings(cutOf(l))[0]!;
+    let w2 = 0;
+    for (const p of pathToRings(cutOf(carved))[0]!) w2 = Math.max(w2, dist(later, p.x, p.y));
+    expect(w2).toBeLessThan(0.01);
+  });
+});
