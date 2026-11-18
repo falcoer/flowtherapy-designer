@@ -3331,13 +3331,18 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .hand-left .anim-bar { animation: anim-out 0.28s cubic-bezier(0.3, 0.7, 0.2, 1); }
 
 /* Boutons des coins (Maj, ＋, lecture) : un gros disque à anneau dans une enveloppe, comme les boutons de la roue.
-   L'enveloppe de Maj et de ＋ se prolonge dans la barre posée dessous : une seule forme, de la largeur de l'enveloppe.
+   L'enveloppe de Maj et de ＋ se prolonge dans la barre posée dessous (barre de largeur inchangée) ; entre les deux,
+   une courbe douce rentrante, comme entre le disque de la roue et ses boutons : une seule forme par coin.
    Le bouton ne fait pas de contexte d'empilement : son enveloppe (::after) passe sous la barre, son disque (::before)
-   et son contenu au-dessus ; l'ombre de l'enveloppe s'arrête à mi-hauteur, celle de la barre commence là. */
-.atelier { --corner: 64px; --corner-in: 54px; --corner-top: 64px; --corner-lift: 0 6px 16px rgba(20, 16, 30, 0.18); }
+   et son contenu au-dessus ; l'ombre de l'enveloppe s'arrête où la barre la rejoint, celle de la barre commence là. */
+.atelier {
+  --R: 32; --rho: 40; --corner: calc(var(--R) * 2px); --corner-in: 54px; --corner-top: 64px;
+  --edge-l: max(4px, env(safe-area-inset-left, 0px)); --edge-r: max(4px, env(safe-area-inset-right, 0px));
+  --corner-lift: 0 6px 16px rgba(20, 16, 30, 0.18);
+}
 @media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .atelier { --corner-lift: 0 6px 16px rgba(0, 0, 0, 0.5); } }
 :root[data-theme='dark'] .atelier { --corner-lift: 0 6px 16px rgba(0, 0, 0, 0.5); }
-@media (max-width: 560px), (max-height: 520px) { .atelier { --corner: 56px; --corner-in: 46px; } }
+@media (max-width: 560px), (max-height: 520px) { .atelier { --R: 28; --corner-in: 46px; } }
 .atelier .corner-btn {
   position: absolute; z-index: auto; top: var(--corner-top); width: var(--corner); height: var(--corner); border-radius: 50%;
   border: 0; padding: 0; background: transparent; box-shadow: none; transform: none; color: var(--ink); cursor: pointer;
@@ -3357,45 +3362,63 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .atelier .corner-btn svg { width: 24px; height: 24px; }
 .atelier .corner-btn.on { color: var(--accent); }
 .atelier .corner-btn.on::before { background: color-mix(in srgb, var(--accent) 14%, var(--chrome-solid)); box-shadow: inset 0 0 0 4px var(--accent); transform: scale(0.96); }
-.atelier .shift-big { left: max(8px, env(safe-area-inset-left, 0px)); transition: none; }
+.atelier .shift-big { left: var(--edge-l); transition: none; }
 .atelier .shift-big.on { transform: none; box-shadow: none; background: transparent; }
 .atelier .shift-big.latched { color: #fff; background: transparent; box-shadow: none; }
 .atelier .shift-big.latched::before { background: var(--accent); box-shadow: inset 0 0 0 4px color-mix(in srgb, #fff 35%, var(--accent)); transform: none; }
-.hand-left .shift-big { left: auto; right: max(8px, env(safe-area-inset-right, 0px)); }
-.atelier .plus-big { left: auto; right: max(8px, env(safe-area-inset-right, 0px)); }
+.hand-left .shift-big { left: auto; right: var(--edge-r); }
+.atelier .plus-big { left: auto; right: var(--edge-r); }
 .atelier .plus-big svg { width: 26px; height: 26px; }
+.hand-left .plus-big { right: auto; left: var(--edge-l); }
 /* ＋ reste au niveau de sa barre d'outils (sous les vues posées dessus : campagnes, rendu) */
 .atelier .plus-big::before, .atelier .plus-big > * { z-index: 5; }
 .atelier.in-space .plus-big { display: none; }
-.hand-left .plus-big { right: auto; left: max(8px, env(safe-area-inset-left, 0px)); }
-/* une barre est posée dessous : l'enveloppe du bouton s'arrête à mi-hauteur, la barre prend la suite */
-.atelier:has(.tools-bar) .plus-big::after,
-.atelier:has(.side:not(.tools-bar) .side-params > *) .shift-big::after,
-.atelier:has(.height-bar) .shift-big::after { clip-path: inset(-40px -40px 50% -40px); }
 
-/* barres sous Maj et ＋ : de la largeur de l'enveloppe, elles partent du milieu du bouton */
+/* géométrie du raccord : disque de rayon R, barre de demi-largeur h, courbe rentrante de rayon rho,
+   tangente au bord de la barre et au disque ; (tx, ty) = point où elle quitte le disque, y0 = où elle rejoint la barre */
+.atelier, .atelier .side, .atelier .height-bar {
+  --Rr: calc(var(--R) + var(--rho)); --hr: calc(var(--h) + var(--rho));
+  --y0: sqrt(var(--Rr) * var(--Rr) - var(--hr) * var(--hr));
+  --tx: calc(var(--hr) * var(--R) / var(--Rr)); --ty: calc(var(--y0) * var(--R) / var(--Rr));
+}
+.atelier { --h: 24; }
+.atelier .side { --h: 24; }
+.atelier .edit-rail { --h: 26; }
+@media (max-width: 540px), (max-height: 520px) { .atelier .edit-rail { --h: 21; } }
 .atelier .side, .atelier .height-bar {
-  top: calc(var(--corner-top) + var(--corner) / 2); min-width: var(--corner); box-sizing: border-box;
-  padding: calc(var(--corner) / 2 + 10px) 8px 12px; border-radius: 0 0 calc(var(--corner) / 2) calc(var(--corner) / 2);
-  box-shadow: none; align-items: center;
+  top: calc(var(--corner-top) + var(--corner) / 2); box-shadow: none;
+  padding-top: calc(var(--R) * 1px + 8px);
+  border-top-left-radius: 0; border-top-right-radius: 0;
 }
 .atelier .side::before, .atelier .height-bar::before {
   content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
-  box-shadow: 0 0 0 1px var(--line), var(--corner-lift); clip-path: inset(0 -40px -40px -40px);
+  box-shadow: 0 0 0 1px var(--line), var(--tool-lift);
+  clip-path: polygon(0 calc(var(--ty) * 1px), 100% calc(var(--ty) * 1px), calc(100% + 40px) calc(var(--ty) * 1px + 40px), calc(100% + 40px) calc(100% + 40px), -40px calc(100% + 40px), -40px calc(var(--ty) * 1px + 40px));
 }
-.atelier .side.tools-bar { top: calc(var(--corner-top) + var(--corner) / 2); }
-.hand-right .side:not(.tools-bar), .hand-right .height-bar { left: max(8px, env(safe-area-inset-left, 0px)); right: auto; top: calc(var(--corner-top) + var(--corner) / 2); }
-.hand-left .side:not(.tools-bar), .hand-left .height-bar { right: max(8px, env(safe-area-inset-right, 0px)); left: auto; top: calc(var(--corner-top) + var(--corner) / 2); }
-.hand-right .side.tools-bar { right: max(8px, env(safe-area-inset-right, 0px)); left: auto; }
-.hand-left .side.tools-bar { left: max(8px, env(safe-area-inset-left, 0px)); right: auto; }
-/* réglages sur deux colonnes : la barre déborde du bouton, son coin libre reste arrondi */
-.hand-right .side:not(.tools-bar):has(.side-params.two) { border-top-right-radius: calc(var(--corner) / 2); }
-.hand-left .side:not(.tools-bar):has(.side-params.two) { border-top-left-radius: calc(var(--corner) / 2); }
-.atelier .side .btn.small { width: 40px; height: 40px; }
-@media (max-width: 560px), (max-height: 520px) {
-  .atelier .side, .atelier .height-bar { padding: calc(var(--corner) / 2 + 8px) 6px 10px; }
-  .atelier .side .btn.small { width: 38px; height: 38px; }
+/* les deux courbes rentrantes, de part et d'autre du haut de la barre */
+.atelier .side::after, .atelier .height-bar::after {
+  --w: calc((var(--tx) - var(--h)) * 1px); --fh: calc((var(--y0) - var(--ty)) * 1px);
+  --fy: calc((var(--y0) - var(--ty)) * 1px); --r: calc(var(--rho) * 1px);
+  content: ''; position: absolute; pointer-events: none; z-index: 0;
+  top: calc(var(--ty) * 1px); left: calc(-1 * var(--w)); right: calc(-1 * var(--w)); height: var(--fh);
+  background:
+    radial-gradient(circle calc(var(--r) + 0.5px) at calc(var(--w) - var(--r)) var(--fy), transparent calc(var(--r) - 1px), var(--line) calc(var(--r) - 1px), var(--line) var(--r), var(--chrome-solid) calc(var(--r) + 0.5px)) left top / var(--w) 100% no-repeat,
+    radial-gradient(circle calc(var(--r) + 0.5px) at var(--r) var(--fy), transparent calc(var(--r) - 1px), var(--line) calc(var(--r) - 1px), var(--line) var(--r), var(--chrome-solid) calc(var(--r) + 0.5px)) right top / var(--w) 100% no-repeat;
 }
+/* barre centrée sous le disque */
+.hand-right .side:not(.tools-bar), .hand-right .height-bar { left: calc(var(--edge-l) + (var(--R) - var(--h)) * 1px); right: auto; top: calc(var(--corner-top) + var(--corner) / 2); }
+.hand-left .side:not(.tools-bar), .hand-left .height-bar { right: calc(var(--edge-r) + (var(--R) - var(--h)) * 1px); left: auto; top: calc(var(--corner-top) + var(--corner) / 2); }
+.hand-right .side.tools-bar { right: calc(var(--edge-r) + (var(--R) - var(--h)) * 1px); left: auto; }
+.hand-left .side.tools-bar { left: calc(var(--edge-l) + (var(--R) - var(--h)) * 1px); right: auto; }
+/* réglages sur deux colonnes : la barre déborde du bouton d'un côté, son coin libre reste arrondi, pas de courbe */
+.atelier .side:has(.side-params.two)::after { display: none; }
+.hand-right .side:not(.tools-bar):has(.side-params.two) { border-top-right-radius: 28px; }
+.hand-left .side:not(.tools-bar):has(.side-params.two) { border-top-left-radius: 28px; }
+
+/* bulles posées contre la barre d'outils : elles s'écartent du gros bouton ＋ */
+.hand-right .bubble:not(.format-bubble):not(.anchor-bubble):not(.projects-bubble):not(.act-menu):not(.act-form):not(.prefs-bubble):not(.cat-panel):not(.user-menu):not(.sp-picker) { right: calc(var(--edge-r) + var(--corner) + 6px); }
+.hand-left .add-bubble { left: calc(var(--edge-l) + var(--corner) + 6px); }
+.lamp-panel { right: calc(var(--edge-r) + var(--corner) + 6px); }
 
 /* lecture : même disque que Maj et ＋ ; allumée (mode animation), le disque se remplit */
 .atelier .anim-corner { z-index: 10; top: auto; width: var(--corner); height: var(--corner); border-radius: 50%; background: transparent; box-shadow: none; }
@@ -3408,11 +3431,7 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .anim-corner, .hand-left .anim-corner { left: calc(100% - var(--anim-r) - var(--corner)); }
 .hand-left .anim-corner { left: var(--anim-l); }
 .anim-corner.open, .hand-left .anim-corner.open { left: var(--anim-l); }
-.anim-bar, .anim-bar.with-band, .hand-left .anim-bar, .hand-left .anim-bar.with-band { padding-left: calc(var(--corner) + 8px); min-height: var(--corner); border-radius: calc(var(--corner) / 2); box-shadow: 0 0 0 1px var(--line), var(--corner-lift); }
+.anim-bar, .anim-bar.with-band, .hand-left .anim-bar, .hand-left .anim-bar.with-band { padding-left: calc(var(--corner) + 8px); box-shadow: 0 0 0 1px var(--line), var(--corner-lift); }
 .anim-bar .anim-track { left: calc(var(--corner) + 8px); }
-@keyframes anim-out { from { clip-path: inset(0 calc(100% - var(--corner)) 0 0 round 32px); } to { clip-path: inset(0 0 0 0 round 32px); } }
-@keyframes anim-out-r { from { clip-path: inset(0 0 0 calc(100% - var(--corner)) round 32px); } to { clip-path: inset(0 0 0 0 round 32px); } }
-/* bulles posées contre la barre d'outils : elles s'écartent de son enveloppe élargie */
-.hand-right .bubble:not(.format-bubble):not(.anchor-bubble):not(.projects-bubble):not(.act-menu):not(.act-form):not(.prefs-bubble):not(.cat-panel):not(.user-menu):not(.sp-picker) { right: calc(max(8px, env(safe-area-inset-right, 0px)) + var(--corner) + 8px); }
-.hand-left .add-bubble { left: calc(max(8px, env(safe-area-inset-left, 0px)) + var(--corner) + 8px); }
-.lamp-panel { right: calc(max(8px, env(safe-area-inset-right, 0px)) + var(--corner) + 8px); }
+@keyframes anim-out { from { clip-path: inset(0 calc(100% - var(--corner)) 0 0 round 20px); } to { clip-path: inset(0 0 0 0 round 20px); } }
+@keyframes anim-out-r { from { clip-path: inset(0 0 0 calc(100% - var(--corner)) round 20px); } to { clip-path: inset(0 0 0 0 round 20px); } }
