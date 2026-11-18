@@ -51,6 +51,18 @@ export const propeller: Generator = {
   ],
   gestures: () => [{ id: 'spin', name: 'Rotation', note: 'tourne', order: true, loop: true }],
   cut,
+  // une pale = un os, du moyeu à son bout ; la rotation est celle de l'objet (order), les os tournent avec lui
+  skeleton: (a) => {
+    const n = Math.max(2, Math.min(8, Math.round(numOf(a, 'blades', 3))));
+    const w = Math.max(0.2, Math.min(0.9, numOf(a, 'width', 0.55)));
+    return Array.from({ length: n }, (_, i): [[number, number], [number, number]] => {
+      const phi = ((i + 0.344 * w) / n) * 2 * Math.PI;
+      return [
+        [0.5, 0.5],
+        [0.5 + 0.44 * Math.cos(phi), 0.5 + 0.44 * Math.sin(phi)],
+      ];
+    });
+  },
   ratio: () => 1,
   order: (a, _phase, g) => ({ rot: dirOf(a) * g('spin') * 2 * Math.PI }),
   migrate: (a) => (a.dir === undefined && (a.speed ?? 0) < 0 ? { dir: -1 } : {}),

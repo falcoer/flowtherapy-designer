@@ -3,6 +3,9 @@ import { actsOf, forPart, newAct, spanOf, withActs } from '../src/anim';
 import { animCut, animFollow, animOrder, posed, animRatio, cycleOf, ease, GENERATORS, generatorOf, gesturesOf, newAnim, poseOf, setAnimTiming, valueOf } from '../src/anim';
 import type { Layer } from '../src/model';
 import { bonesOf } from '../src/warp';
+import { ringsToPath } from '../src/cut';
+import { silhouetteRings } from '../src/silhouettes';
+import { animOf, animSkeleton } from '../src/anim';
 import { setAnimTime } from '../src/anim';
 
 const layer = (p: Partial<Layer>): Layer => ({ id: 'a', name: 'a', kind: 'shape', anchor: { frame: 'page', point: 'c' } as Layer['anchor'], dx: 0, dy: 0, w: 0.5, h: 0.5, guide: 0, height: 0, visible: true, strokes: [], ...p }) as Layer;
@@ -352,6 +355,66 @@ describe('objets attachés à un sticker', () => {
   });
   it('sans squelette, le point reste en place', () => {
     setAnimTiming(tm);
-    expect(animFollow({ ...newAnim(generatorOf('eye')!), acts: [] }, 0.5, 0.5, 1)).toBeNull();
+    expect(animFollow({ ...newAnim(generatorOf('countdown')!), acts: [] }, 0.5, 0.5, 1)).toBeNull();
+  });
+});
+
+describe('os des stickers existants', () => {
+  const tm = { period: 1, count: 4 };
+  it('œil : un reflet posé sur l’iris suit le regard, pas un objet sous la paupière du bas', () => {
+    setAnimTiming(tm);
+    const eye = generatorOf('eye')!;
+    const base = { ...newAnim(eye), acts: [] };
+    const look = eye.gestures(base).find((g) => g.id === 'look')!;
+    const a = { ...base, acts: [{ ...newAct(base, look, 0, tm), len: 2 }] };
+    expect(animFollow(a, 0.5, 0.5, 0)!.dx).toBeCloseTo(0);
+    expect(Math.abs(animFollow(a, 0.5, 0.5, 0.5)!.dx)).toBeGreaterThan(0.05);
+    expect(Math.abs(animFollow(a, 0.5, 0.95, 0.5)!.dx)).toBeLessThan(0.01);
+    expect(animSkeleton(a, 0.5)).toHaveLength(3);
+  });
+  it('oiseau : les os se plient avec le battement et emmènent un objet posé au bout de l’aile', () => {
+    setAnimTiming(tm);
+    const a = newAnim(generatorOf('bird')!);
+    const frames = [0, 0.13, 0.27, 0.4].map((t) => JSON.stringify(animSkeleton(a, t)));
+    expect(new Set(frames).size).toBeGreaterThan(1);
+    const moves = [0, 0.13, 0.27, 0.4].map((t) => animFollow(a, 0.95, 0.4, t)!);
+    expect(moves.some((m) => Math.abs(m.dx) + Math.abs(m.dy) > 0.01)).toBe(true);
+    for (const m of moves) expect(Number.isFinite(m.dx + m.dy + m.rot)).toBe(true);
+  });
+  it('hélice : un os par pale', () => {
+    const prop = generatorOf('propeller')!;
+    expect(animSkeleton(newAnim(prop, { blades: 5 }), 0)).toHaveLength(5);
+  });
+});
+
+describe('goutte qui s’étale en flaque', () => {
+  const tm = { period: 1, count: 4 };
+  const drop = layer({ kind: 'shape', shape: 'drop' as Layer['shape'] });
+  it('la forme Goutte offre le geste Flaque, une autre forme non', () => {
+    expect(gesturesOf(animOf(drop)!).map((g) => g.name)).toEqual(['Flaque']);
+    expect(animOf(layer({ kind: 'shape', shape: 'heart' as Layer['shape'] }))).toBeUndefined();
+  });
+  it('au repos c’est la goutte, puis elle s’étale au bas de la boîte et y reste', () => {
+    setAnimTiming(tm);
+    const gen = generatorOf('puddle')!;
+    const base = { ...newAnim(gen), acts: [] };
+    // la même découpe que la forme sans animation (voir shapeCut dans scene.ts)
+    expect(animCut(base, 1)).toBe(ringsToPath(silhouetteRings('drop'), 0.0008, 30));
+    const a = { ...base, acts: [{ ...newAct(base, gen.gestures(base)[0]!, 1, tm), len: 1 }] };
+    expect(animCut(a, 0.5)).toBe(animCut(base, 0));
+    const box = (d: string) => {
+      const n = [...d.matchAll(/-?\d*\.?\d+/g)].map(Number);
+      const [xs, ys] = [n.filter((_, i) => i % 2 === 0), n.filter((_, i) => i % 2 === 1)];
+      return { w: Math.max(...xs) - Math.min(...xs), top: Math.min(...ys), bottom: Math.max(...ys) };
+    };
+    const [rest, mid, end] = [box(animCut(a, 0)), box(animCut(a, 1.5)), box(animCut(a, 2))];
+    expect(mid.top).toBeGreaterThan(rest.top + 0.1);
+    // deux largeurs de goutte par défaut : la flaque déborde de la boîte
+    expect(end.w).toBeCloseTo(2, 1);
+    expect(mid.w).toBeGreaterThanOrEqual(0.99);
+    expect(end.top).toBeGreaterThan(0.8);
+    expect(end.bottom).toBeLessThanOrEqual(1.001);
+    expect(animCut(a, 3.5)).toBe(animCut(a, 2));
+    for (const t of [1.1, 1.3, 1.6, 1.9]) expect(animCut(a, t)).not.toContain('NaN');
   });
 });

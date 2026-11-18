@@ -53,7 +53,7 @@ const blanks = new Map<string, Anim>();
 export function animOf(l: Layer): Anim | undefined {
   if (l.cut && !carved(l)) return undefined;
   if (l.anim) return l.anim;
-  const g = animatorFor(l.kind);
+  const g = animatorFor(l.kind === 'shape' && l.shape ? `shape:${l.shape}` : l.kind);
   if (!g) return undefined;
   let a = blanks.get(g.kind);
   if (!a) blanks.set(g.kind, (a = newAnim(g, { acts: [] })));

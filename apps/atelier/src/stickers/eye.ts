@@ -14,43 +14,53 @@ const PARTS = [
   { id: 'pupil', name: 'Pupille', tint: 2 },
 ];
 
+const KEYS = ['open', 'iris', 'gaze', 'round', 'slant', 'mirror'];
 const unit = (a: Anim, key: string, def: number, min = 0, max = 1) => Math.max(min, Math.min(max, numOf(a, key, def)));
 
-function cut(a: Anim, _phase: number, g: Progress): string {
+/** Géométrie de l'œil à une image du clignement (kb) et du regard (kl) : paupières, iris. En unités de largeur. */
+function geom(a: Anim, kb: number, kl: number) {
   const open = unit(a, 'open', 0.85, 0.3);
   const iris = unit(a, 'iris', 0.7, 0.3, 0.95);
   const gaze = unit(a, 'gaze', 0.6);
   const round = unit(a, 'round', 0);
   const slant = unit(a, 'slant', 0);
   const flip = a.mirror === 1 ? -1 : 1;
+  const shut = kb / BLINK_FRAMES;
+  const o = open * (1 - 0.96 * shut);
+  // en unités de largeur : l'œil en amande va de x = 0,04 à 0,96, l'œil rond se resserre ; son axe est à mi-hauteur de la boîte
+  const cy = EYE_H / 2;
+  const half = 0.46 * (1 - 0.45 * round);
+  const [x0, x1] = [0.5 - half, 0.5 + half];
+  /** Position le long de l'œil, de −1 (coin gauche) à 1 (coin droit), gardée dans l'œil. */
+  const along = (x: number) => Math.max(-1, Math.min(1, (x - 0.5) / half));
+  // profil des paupières : en amande (pointu aux coins), il tend vers l'arc de cercle quand l'œil s'arrondit
+  const arc = (u: number, p: number) => Math.pow(Math.cos((Math.PI * u) / 2), p) * (1 - round) + Math.sqrt(Math.max(0, 1 - u * u)) * round;
+  // œil bridé : le coin extérieur remonte, la paupière du haut s'aplatit et son sommet part vers le coin intérieur
+  const tilt = (u: number) => -0.075 * slant * flip * u;
+  const lean = (u: number) => Math.max(-1, Math.min(1, u + 0.3 * slant * flip * (1 - u * u)));
+  const [ampUp, ampLo] = [0.25 + (half - 0.25) * round, 0.2 + (half - 0.2) * round];
+  const up = (x: number) => {
+    const u = along(x);
+    return cy + tilt(u) - ampUp * (1 - 0.4 * slant) * o * arc(lean(u), 0.75);
+  };
+  // la paupière du bas bouge peu : c'est celle du haut qui ferme l'œil
+  const lo = (x: number) => {
+    const u = along(x);
+    return cy + tilt(u) + ampLo * (1 - 0.25 * slant) * open * (1 - 0.8 * shut) * arc(u, 0.85);
+  };
+  const R = Math.min(0.2 * iris, half * 0.8);
+  const cx = 0.5 - gaze * Math.max(0, half - R - 0.1 * (1 - 0.8 * round)) * Math.sin(2 * Math.PI * (kl / LOOK_FRAMES));
+  return { x0, x1, cy, up, lo, R, cx };
+}
+/** Images du clignement et du regard à une avancée des gestes. */
+const framesOf = (g: Progress): [number, number] => [Math.round(Math.sin(Math.PI * g('blink')) * BLINK_FRAMES), Math.round(g('look') * LOOK_FRAMES) % LOOK_FRAMES];
+
+function cut(a: Anim, _phase: number, g: Progress): string {
   const part = typeof a.part === 'string' ? a.part : '';
   // clignement : la paupière descend puis remonte sur sa plage ; regard : un aller à gauche, un aller à droite, retour au centre
-  const kb = Math.round(Math.sin(Math.PI * g('blink')) * BLINK_FRAMES);
-  const kl = Math.round(g('look') * LOOK_FRAMES) % LOOK_FRAMES;
-  return cached(`e|${part}|${open}|${iris}|${gaze}|${round}|${slant}|${flip}|${kb}|${kl}`, () => {
-    const shut = kb / BLINK_FRAMES;
-    const o = open * (1 - 0.96 * shut);
-    // en unités de largeur : l'œil en amande va de x = 0,04 à 0,96, l'œil rond se resserre ; son axe est à mi-hauteur de la boîte
-    const cy = EYE_H / 2;
-    const half = 0.46 * (1 - 0.45 * round);
-    const [x0, x1] = [0.5 - half, 0.5 + half];
-    /** Position le long de l'œil, de −1 (coin gauche) à 1 (coin droit), gardée dans l'œil. */
-    const along = (x: number) => Math.max(-1, Math.min(1, (x - 0.5) / half));
-    // profil des paupières : en amande (pointu aux coins), il tend vers l'arc de cercle quand l'œil s'arrondit
-    const arc = (u: number, p: number) => Math.pow(Math.cos((Math.PI * u) / 2), p) * (1 - round) + Math.sqrt(Math.max(0, 1 - u * u)) * round;
-    // œil bridé : le coin extérieur remonte, la paupière du haut s'aplatit et son sommet part vers le coin intérieur
-    const tilt = (u: number) => -0.075 * slant * flip * u;
-    const lean = (u: number) => Math.max(-1, Math.min(1, u + 0.3 * slant * flip * (1 - u * u)));
-    const [ampUp, ampLo] = [0.25 + (half - 0.25) * round, 0.2 + (half - 0.2) * round];
-    const up = (x: number) => {
-      const u = along(x);
-      return cy + tilt(u) - ampUp * (1 - 0.4 * slant) * o * arc(lean(u), 0.75);
-    };
-    // la paupière du bas bouge peu : c'est celle du haut qui ferme l'œil
-    const lo = (x: number) => {
-      const u = along(x);
-      return cy + tilt(u) + ampLo * (1 - 0.25 * slant) * open * (1 - 0.8 * shut) * arc(u, 0.85);
-    };
+  const [kb, kl] = framesOf(g);
+  return cached(`e|${part}|${KEYS.map((k) => a[k] ?? '').join('|')}|${kb}|${kl}`, () => {
+    const { x0, x1, cy, up, lo, R, cx } = geom(a, kb, kl);
     const N = 48;
     const lids: Pt[] = [];
     for (let i = 0; i <= N; i++) {
@@ -61,8 +71,6 @@ function cut(a: Anim, _phase: number, g: Progress): string {
       const x = x0 + ((x1 - x0) * i) / N;
       lids.push({ x, y: lo(x) });
     }
-    const R = Math.min(0.2 * iris, half * 0.8);
-    const cx = 0.5 - gaze * Math.max(0, half - R - 0.1 * (1 - 0.8 * round)) * Math.sin(2 * Math.PI * (kl / LOOK_FRAMES));
     // iris et pupille restent sous les paupières : leurs points sont ramenés dans l'œil
     const disc = (r: number, inset: number): Pt[] => {
       const out: Pt[] = [];
@@ -82,6 +90,18 @@ function cut(a: Anim, _phase: number, g: Progress): string {
       30,
     );
   });
+}
+
+/** Os de l'œil (Generator.skeleton) : le regard (du centre à l'iris), la paupière du haut et celle du bas, depuis l'axe de l'œil. */
+function skeleton(a: Anim, _phase: number, g: Progress): Array<[[number, number], [number, number]]> {
+  const [kb, kl] = framesOf(g);
+  const { cy, up, lo, cx } = geom(a, kb, kl);
+  const at = (x: number, y: number): [number, number] => [x, y / EYE_H];
+  return [
+    [at(cx, cy + 0.06), at(cx, cy)],
+    [at(0.5, cy), at(0.5, up(0.5))],
+    [at(0.5, cy), at(0.5, lo(0.5))],
+  ];
 }
 
 export const eye: Generator = {
@@ -104,6 +124,7 @@ export const eye: Generator = {
   ],
   parts: PARTS,
   cut,
+  skeleton,
   ratio: () => 1 / EYE_H,
   size: 0.6,
 };

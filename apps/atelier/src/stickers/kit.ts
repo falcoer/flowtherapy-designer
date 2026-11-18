@@ -158,7 +158,7 @@ export interface Generator {
   kind: string;
   name: string;
   /**
-   * Sorte d'objet que ce générateur anime (« text ») : il ne se pose pas comme un sticker, ses gestes s'offrent sur la frise
+   * Sorte d'objet que ce générateur anime (« text », ou une forme par son nom : « shape:drop ») : il ne se pose pas comme un sticker, ses gestes s'offrent sur la frise
    * de tout objet de cette sorte, et sa découpe part de celle de l'objet (reçue dans `ctx.host`). Absent : un sticker.
    */
   on?: string;
