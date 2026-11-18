@@ -3221,12 +3221,10 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .fr-adder { position: relative; overflow: visible; }
 .fr-adder .fr-add { width: auto; height: 24px; padding: 0 9px; border-radius: 12px; font-size: 11.5px; white-space: nowrap; background: var(--accent-soft); color: var(--accent); }
 .fr-menu-veil { position: fixed; inset: 0; z-index: 30; }
-.fr-menu { position: absolute; left: 0; top: 28px; z-index: 31; min-width: 210px; display: flex; flex-direction: column; padding: 4px; border-radius: 12px; background: var(--chrome-solid); box-shadow: 0 6px 24px rgba(0,0,0,0.28); }
-.fr-menu button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 10px; border-radius: 8px; text-align: left; background: none; color: var(--ink); }
-.fr-menu button:hover { background: var(--accent-soft); }
-.fr-menu button:first-child { border-bottom: 1px solid var(--line); border-radius: 8px 8px 0 0; }
-.fr-menu b { font-weight: 600; }
-.fr-menu i { font-style: normal; font-size: 11px; color: var(--muted); }
+.fr-fan { position: absolute; left: calc(100% + 6px); top: 50%; height: 0; z-index: 31; }
+.fr-fan .fan { max-width: min(560px, calc(100vw - 220px)); }
+.fan-ico svg.fr-fan-ico { width: auto; height: auto; }
+.fr-fan-letter { font-size: 17px; font-weight: 600; }
 .fr-rows { overflow: visible; }
 .fr-line-add { cursor: copy; }
 .fr-own em { font-style: normal; font-size: 10px; padding: 0 10px 0 6px; white-space: nowrap; pointer-events: none; }

@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState, type PointerEvent as RPointerEvent } from 'react';
-import { ACCELS, actsOf, animOf, BRAKES, gesturesOf, moveName, newAct, newMove, withActs, type Accel, type Act, type Anim, type Brake, type Gesture, type Move, type Timing } from './anim';
+import { ACCELS, actsOf, animOf, BRAKES, generatorOf, gesturesOf, moveName, newAct, newMove, withActs, type Accel, type Act, type Anim, type Brake, type Gesture, type Move, type Timing } from './anim';
+import { Fan } from './fan';
 import type { Layer } from './model';
 
 /**
@@ -32,6 +33,35 @@ export function scrub(e: RPointerEvent<HTMLElement>, total: number, seek: (t: nu
   el.addEventListener('pointermove', move);
   el.addEventListener('pointerup', end);
   el.addEventListener('pointercancel', end);
+}
+
+const MOVE_ICON = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" />
+  </svg>
+);
+
+/** Vignette d'un geste dans le choix : le sticker entier, pris au milieu du geste. Un texte (pas de forme à lui) garde une lettre. */
+function gestureIcon(a: Anim, g: Gesture, tm: Timing) {
+  const gen = generatorOf(a);
+  if (gen && gen.on !== 'text')
+    try {
+      const whole: Anim = { ...a, acts: [] };
+      delete whole.part;
+      const act = { ...newAct(whole, g, 0, tm), len: 2 };
+      const u = g.loop ? 0.3 : 0.5;
+      const d = gen.cut(whole, 0, (id) => (id === g.id ? u : 0), { each: (id) => (id === g.id ? [{ act, u, turns: 0.3, of: 2, a: { ...whole, ...act } }] : []) });
+      const r = gen.ratio(whole);
+      if (d && !d.includes('NaN'))
+        return (
+          <svg className="fr-fan-ico" viewBox="0 0 1 1" preserveAspectRatio="none" style={{ width: 30 * Math.min(1, r), height: 30 * Math.min(1, 1 / r) }}>
+            <path d={d} fill="currentColor" fillRule="evenodd" />
+          </svg>
+        );
+    } catch {
+      /* pas de vignette : la lettre */
+    }
+  return <b className="fr-fan-letter">{g.name.slice(0, 1)}</b>;
 }
 
 export function Frise({
@@ -262,30 +292,21 @@ export function Frise({
             {menu && (
               <>
                 <span className="fr-menu-veil" onPointerDown={() => setMenu(false)} />
-                <span className="fr-menu" role="menu">
-                  <button
-                    role="menuitem"
-                    onClick={() => {
+                {/* le choix se déroule à l'horizontale depuis le bouton, comme celui des brosses */}
+                <span className="fr-fan">
+                  <Fan
+                    dir="right"
+                    items={[
+                      { key: '', icon: MOVE_ICON, label: 'Mouvement', hint: 'déplacer, tourner, grandir, monter' },
+                      ...gestures.map((g) => ({ key: g.id, icon: a ? gestureIcon(a, g, timing) : null, label: g.name, hint: g.note })),
+                    ]}
+                    onPick={(k) => {
                       setMenu(false);
-                      addMove(Math.floor(nowAt + 1e-6));
+                      const g = gestures.find((x) => x.id === k);
+                      if (g) addAct(g, Math.round(nowAt * 4) / 4);
+                      else addMove(Math.floor(nowAt + 1e-6));
                     }}
-                  >
-                    <b>Mouvement</b>
-                    <i>déplacer, tourner, grandir, monter</i>
-                  </button>
-                  {gestures.map((g) => (
-                    <button
-                      key={g.id}
-                      role="menuitem"
-                      onClick={() => {
-                        setMenu(false);
-                        addAct(g, Math.round(nowAt * 4) / 4);
-                      }}
-                    >
-                      <b>{g.name}</b>
-                      <i>{g.note}</i>
-                    </button>
-                  ))}
+                  />
                 </span>
               </>
             )}
