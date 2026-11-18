@@ -8,7 +8,8 @@ import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
 import { animCut, carved, generatorOf, posed } from './anim';
 import { bentCut, bonesOf, meshOf, moldMesh, surfaceWarp, type Mesh } from './warp';
-import { drawFlatOnMesh, pruneWarpSurfaces } from './warp-gl';
+import { drawFlatOnMesh, drawFlatPieces, pruneWarpSurfaces } from './warp-gl';
+import type { Warp } from './stickers';
 export { restCut, surfaceWarp, warpFor } from './warp';
 import { EDGE_ELEMENTS, edgeStroke } from './elements';
 import { bevelLift, bevelSoftOf, blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
@@ -1033,7 +1034,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     }
     // forme animée qui se plie (aile qui bat) : sa surface, posée sur la forme au repos, suit le maillage
     const wp = surfaceWarp(l);
-    if (wp) drawWarpedSurface(ctx, l, doc, f, o, meshOf(wp));
+    if (wp) drawWarpedSurface(ctx, l, doc, f, o, wp);
     else drawSurface(ctx, l, doc, f, o);
     ctx.restore();
     drawFxInside(ctx, l, doc, f, o, path);
@@ -1645,7 +1646,7 @@ const WARP_MAX = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 
  * Surface d'une forme qui se plie : rendue à plat sur la forme au repos, gardée tant qu'elle ne change pas,
  * puis posée sur le maillage (par la carte graphique quand elle est là, voir warp-gl.ts).
  */
-function drawWarpedSurface(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, mesh: Mesh) {
+function drawWarpedSurface(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, wp: Warp) {
   const b = layerBox(l, f);
   const x0 = b.cx - b.w / 2;
   const y0 = b.cy - b.h / 2;
@@ -1656,13 +1657,16 @@ function drawWarpedSurface(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f:
   const iw = Math.max(1, Math.ceil(b.w * k));
   const ih = Math.max(1, Math.ceil(b.h * k));
   const key = o.wet?.id === l.id || o.burning?.id === l.id ? null : flatKey(l, doc, f, iw, ih);
-  drawFlatOnMesh(ctx, l.id, key, iw, ih, (bx) => {
+  const flat = (bx: CanvasRenderingContext2D) => {
     bx.beginPath();
     bx.rect(0, 0, iw, ih);
     bx.clip();
     bx.setTransform(iw / b.w, 0, 0, ih / b.h, (-x0 * iw) / b.w, (-y0 * ih) / b.h);
     return drawSurface(bx, l, doc, f, o);
-  }, mesh, x0, y0, b.w, b.h);
+  };
+  // personnage détouré : en pièces rigides, comme une marionnette ; sinon la surface suit le maillage
+  if (wp.pieces) drawFlatPieces(ctx, l.id, key, iw, ih, flat, wp.pieces, x0, y0, b.w, b.h);
+  else drawFlatOnMesh(ctx, l.id, key, iw, ih, flat, meshOf(wp), x0, y0, b.w, b.h);
 }
 
 /** Traitements de la couche : filtre dessin de la photo, puis la matière, puis les effets. */

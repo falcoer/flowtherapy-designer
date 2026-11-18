@@ -116,7 +116,7 @@ export function LibraryShelf({
   const mirrored = (it: LibItem) => !!turned[it.id]?.endsWith('-gauche') && !it.views?.some((x) => x.view === turned[it.id]);
   const ringOf = (it: LibItem) => {
     const has = new Set(it.views!.map((v) => v.view));
-    return [...has, ...['trois-quarts', 'profil'].filter((b) => has.has(b)).map((b) => `${b}-gauche`)];
+    return [...has, ...['trois-quarts', 'profil', 'dos-trois-quarts'].filter((b) => has.has(b)).map((b) => `${b}-gauche`)];
   };
   const press = useRef<{ item: LibItem; x: number; y: number; drag: boolean } | null>(null);
   useEffect(() => {

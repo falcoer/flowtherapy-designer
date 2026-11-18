@@ -1,4 +1,4 @@
-import { baseOf, keyFor, showView, viewsOf, VIEWS } from './views';
+import { baseOf, BASES, keyFor, showView, viewsOf } from './views';
 import type { Format } from '@ftd/core';
 import { layerBox, type Layer } from './model';
 import { animatorFor, boneCarry, boneFrames, generatorOf, nearestBones, newAnim, spanOf, type Act, type ActState, type Anim, type Bone, type Context, type Generator, type Gesture, type Progress, type Warp } from './stickers';
@@ -417,7 +417,7 @@ function viewAt(l: Layer, p: Pose | null): { key: string; patch: Partial<Layer>;
   const go = (k: string, sx = 1) => ({ key: k, patch: k === l.view || !all.includes(k) ? {} : showView(l, k), sx });
   if (p?.view) return go(keyFor(p.view, l.facing));
   if (p?.turn === undefined) return go(here);
-  const main = VIEWS.map((b) => keyFor(b, l.facing)).filter((k) => all.includes(k));
+  const main = BASES.map((b) => keyFor(b, l.facing)).filter((k) => all.includes(k));
   const at = Math.max(0, main.indexOf(keyFor(baseOf(here), l.facing)));
   // vers la vue la plus éloignée : le dos depuis la face, la face depuis le dos
   const seq = at < main.length - 1 - at ? main.slice(at) : main.slice(0, at + 1).reverse();

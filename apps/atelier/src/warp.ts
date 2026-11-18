@@ -1,5 +1,5 @@
 import { animSkeleton, animWarp, carved, generatorOf } from './anim';
-import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
+import { pathToRings, ringsOfGeom, ringsToPath, simplifyRing, unionAll, type Ring } from './cut';
 import type { Layer } from './model';
 import type { Warp } from './stickers';
 
@@ -253,7 +253,7 @@ export function surfaceWarp(l: Layer): Warp | null {
  * une forme modelée a pu agrandir sa boîte (Layer.molded.frame : la boîte actuelle dans le repère d'origine).
  */
 export function warpFor(l: Layer, t?: number): Warp | null {
-  const w = l.anim ? animWarp(l.anim, t, l.text ? { text: l.text } : undefined) : null;
+  const w = l.anim ? animWarp(l.anim, t, l.text ? { text: l.text } : l.cut ? { cut: l.cut } : undefined) : null;
   const fr = l.molded?.frame;
   if (!w || !fr || (fr[0] === 0 && fr[1] === 0 && fr[2] === 1 && fr[3] === 1)) return w;
   const [a, b, c, d] = fr;
@@ -310,6 +310,14 @@ const bentCuts = new Map<string, { key: string; d: string }>();
 export function bentCut(rest: string, w: Warp): string {
   const hit = bentCuts.get(rest);
   if (hit?.key === w.key) return hit.d;
+  if (w.pieces) {
+    // marionnette : la silhouette est la réunion des pièces posées (elles se chevauchent aux articulations)
+    const posed = w.pieces.map((p) => p.rings.map((r) => r.map(({ x, y }) => ({ x: p.A[0] * x + p.A[2] * y + p.A[4], y: p.A[1] * x + p.A[3] * y + p.A[5] }))));
+    const d = ringsToPath(ringsOfGeom(unionAll(posed)), 0.0003, 30, false);
+    if (bentCuts.size > 300) bentCuts.clear();
+    bentCuts.set(rest, { key: w.key, d });
+    return d;
+  }
   const rings = fineRings(pathToRings(rest)).map((r) =>
     r.map((p) => {
       const [x, y] = w.map(p.x, p.y);

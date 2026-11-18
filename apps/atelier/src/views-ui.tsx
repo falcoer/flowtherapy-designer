@@ -3,7 +3,7 @@ import type { BoxMap } from './gradient-ui';
 import { RingBand, ringMid, RING_BOX } from './ring-icon';
 import type { Layer } from './model';
 import { cutOf } from './scene';
-import { baseOf, keyFor, leftViews, loadImage, nearestView, RING, ringViews, setView, showView, turnTo, turned, viewsOf, VIEWS, VIEW_NAMES, type ViewKind } from './views';
+import { baseOf, keyFor, leftViews, loadImage, nearestView, RING, ringViews, setView, showView, turnTo, turned, viewsOf, BASES, VIEW_NAMES, type ViewKind } from './views';
 
 /**
  * Les vues d'un personnage en plusieurs angles, en rangée : toucher une vue la montre, ＋ ajoute l'image d'une vue
@@ -55,7 +55,7 @@ export function ViewRow({ l, patch, onToast }: { l: Layer; patch: (p: Partial<La
           {left ? 'À gauche' : 'À droite'}
         </button>
       )}
-      {VIEWS.map((v) => {
+      {BASES.map((v) => {
         // une vue tournée se montre dans le sens où regarde l'objet (celle de gauche si elle existe)
         const has = all.find((x) => x.view === keyFor(v, l.facing)) ?? all.find((x) => x.view === v);
         const on = all.length ? baseOf(l.view ?? 'face') === v : v === 'face';
