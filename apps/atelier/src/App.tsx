@@ -12,7 +12,8 @@ import { allStamps, stampOf, stampSvg, type StampDef } from './stamps';
 import { CoupePanel, Dots } from './coupe';
 import { Frise, scrub } from './frise';
 import { meshOf, unwarp } from './warp';
-import { animRatio, animTime, forPart, generatorOf, withActs, GENERATORS, glyphCut, hasAnim, newAnim, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
+import { animRatio, animTime, forPart, generatorOf, withActs, GENERATORS, glyphCut, hasAnim, newAnim, newRig, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
+import { RigOverlay } from './rig-ui';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
 import { MatterRow } from './matter-palette';
@@ -5398,6 +5399,28 @@ export function App() {
       />
 
       {!rendu &&
+        sel?.anim?.kind === 'rig' &&
+        animated &&
+        animMode &&
+        bonesOn &&
+        (() => {
+          // squelette posé dans l'objet : ses articulations se calent sur l'image, au repos
+          const b = layerBox(sel, f);
+          const map = {
+            ar: b.w / Math.max(1e-6, b.h),
+            toScreen: (u: number, v: number) => {
+              const p = localToPage(sel, f, u, v);
+              const q = matrix.transformPoint(new DOMPoint(p.x, p.y));
+              return { x: q.x, y: q.y };
+            },
+            fromScreen: (x: number, y: number) => {
+              const p = toPage(x, y);
+              return pageToLocal(sel, f, p.x, p.y);
+            },
+          };
+          return <RigOverlay anim={sel.anim!} map={map} frame={sel.molded?.frame} onChange={(a, commit) => patchLayer(sel.id, { anim: a }, commit)} />;
+        })()}
+      {!rendu &&
         tool === 'move' &&
         sel &&
         sel.kind !== 'photo' &&
@@ -5928,6 +5951,19 @@ export function App() {
                   onAnim={(id, anim, h) => {
                     lookCache.current = null;
                     patchLayer(id, { anim }, h);
+                  }}
+                  onRig={(id, on) => {
+                    lookCache.current = null;
+                    const l = doc.layers.find((x) => x.id === id);
+                    if (!l) return;
+                    if (!on) return patchLayer(id, { anim: undefined }, true);
+                    // les articulations se gardent dans la boîte d'origine (celle d'avant un modelage)
+                    const fr = l.molded?.frame ?? [0, 0, 1, 1];
+                    const ratio = l.w / (fr[2] - fr[0] || 1) / (l.h / (fr[3] - fr[1] || 1));
+                    patchLayer(id, { anim: newRig(ratio), cut: l.cut ?? cutOf(l) }, true);
+                    setAnimMode(true);
+                    setBonesOn(true);
+                    setToast('Squelette posé : glisse ses articulations sur l’image, puis ＋ Animation pour le faire saluer, marcher, sauter ou danser');
                   }}
                 />
               }

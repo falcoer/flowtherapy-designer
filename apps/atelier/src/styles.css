@@ -3476,3 +3476,17 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .pal-sec.coats .guide .sw { background-size: cover !important; }
 .pal-sec.coats .pal-empty { font-size: 12px; color: var(--muted, #6b6577); }
 .img-hot { outline: 2.5px solid var(--accent); outline-offset: 2px; border-radius: 12px; }
+
+/* squelette posé dans un objet : articulations à caler sur l'image (vue des os) */
+.rig-overlay .rig-guide circle, .rig-overlay .rig-guide line { stroke: rgba(255, 255, 255, 0.28); fill: rgba(255, 255, 255, 0.28); stroke-linecap: round; }
+.rig-overlay .rig-guide { mix-blend-mode: normal; }
+.rig-bar { position: absolute; transform: translate(-50%, calc(-100% - 10px)); display: flex; gap: 6px; pointer-events: auto; }
+.rig-bar button { font: 600 12px/1 system-ui, sans-serif; padding: 7px 11px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.6); background: rgba(20, 16, 40, 0.75); color: #fff; white-space: nowrap; cursor: pointer; }
+.rig-bar button.on { background: #7a5cff; border-color: #fff; }
+.rig-overlay .rig-bone { stroke: #fff; stroke-width: 5; stroke-linecap: round; opacity: 0.9; }
+.rig-overlay .rig-bone.l { stroke: #ffd166; }
+.rig-overlay .rig-bone.r { stroke: #5ce1e6; }
+.rig-pt { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; pointer-events: auto; touch-action: none; cursor: grab; background: #7a5cff; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35); }
+.rig-pt.l { background: #e0a800; }
+.rig-pt.r { background: #12a6ad; }
+.rig-pt em { position: absolute; left: 50%; top: 100%; transform: translate(-50%, 3px); font: 600 10px/1.2 system-ui, sans-serif; font-style: normal; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); white-space: nowrap; pointer-events: none; }

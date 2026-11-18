@@ -2,7 +2,7 @@ import type { Format } from '@ftd/core';
 import { layerBox, type Layer } from './model';
 import { animatorFor, boneCarry, boneFrames, generatorOf, nearestBones, newAnim, spanOf, type Act, type ActState, type Anim, type Bone, type Context, type Generator, type Gesture, type Progress, type Warp } from './stickers';
 
-export { ANIMATORS, GENERATORS, animatorFor, generatorOf, newAnim, forPart, spanOf, valueOf } from './stickers';
+export { ANIMATORS, GENERATORS, animatorFor, generatorOf, newAnim, forPart, spanOf, valueOf, newRig, jointsText, rigJoints, RIG_BONES, RIG_JOINTS, RIG_NAMES, TEMPLATE_WIDTH, templateOf } from './stickers';
 export type { Act, Anim, Generator, Gesture, Param, Warp } from './stickers';
 
 /**
