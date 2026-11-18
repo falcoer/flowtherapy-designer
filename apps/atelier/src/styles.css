@@ -3345,7 +3345,7 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
   touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
 }
 .atelier .corner-btn::after {
-  content: ''; position: absolute; inset: 0; border-radius: 50%; z-index: 3; pointer-events: auto;
+  content: ''; position: absolute; inset: 0; border-radius: 50%; z-index: 4; pointer-events: auto;
   background: var(--chrome-solid); box-shadow: 0 0 0 1px var(--line), var(--corner-lift);
 }
 .atelier .corner-btn::before {
@@ -3364,6 +3364,9 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .hand-left .shift-big { left: auto; right: max(8px, env(safe-area-inset-right, 0px)); }
 .atelier .plus-big { left: auto; right: max(8px, env(safe-area-inset-right, 0px)); }
 .atelier .plus-big svg { width: 26px; height: 26px; }
+/* ＋ reste au niveau de sa barre d'outils (sous les vues posées dessus : campagnes, rendu) */
+.atelier .plus-big::before, .atelier .plus-big > * { z-index: 5; }
+.atelier.in-space .plus-big { display: none; }
 .hand-left .plus-big { right: auto; left: max(8px, env(safe-area-inset-left, 0px)); }
 /* une barre est posée dessous : l'enveloppe du bouton s'arrête à mi-hauteur, la barre prend la suite */
 .atelier:has(.tools-bar) .plus-big::after,
