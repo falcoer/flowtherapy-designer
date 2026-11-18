@@ -5518,7 +5518,6 @@ export function App() {
           return <RigOverlay anim={sel.anim!} map={map} frame={sel.molded?.frame} onChange={(a, commit) => patchLayer(sel.id, { anim: a }, commit)} />;
         })()}
       {!rendu &&
-        tool === 'move' &&
         sel &&
         !!sel.views?.length &&
         !(sel.anim?.kind === 'rig' && animated && animMode && bonesOn) &&
