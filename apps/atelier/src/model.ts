@@ -194,8 +194,10 @@ export interface Layer {
    * Modelé (outil Modeler) : la découpe a été tirée ou repoussée, elle est dans `cut`.
    * On garde la découpe d'avant (absente = celle de la forme ou du texte) et le cadre actuel
    * dans le repère de la boîte d'origine, pour pouvoir revenir à la forme ou au texte.
+   * `mesh` : la surface (teinte, dégradé, image) suit le modelage : les nœuds d'une grille régulière posée sur la boîte d'origine
+   * (MOLD_GRID + 1 nœuds de côté, rangée par rangée, x puis y), déplacés comme le contour, dans le repère de la boîte d'origine.
    */
-  molded?: { cut?: string; frame: [number, number, number, number] };
+  molded?: { cut?: string; frame: [number, number, number, number]; mesh?: number[] };
   /** Texte : contenu et typographie ; la découpe suit les lettres. */
   text?: import('./text').TextStyle;
   /** Guide de couleur du support ou de la forme. */

@@ -1,7 +1,7 @@
 import polygonClipping from 'polygon-clipping';
 import { ringsToPath } from '../cut';
 import type { Pt } from '../model';
-import { cached, numOf, type Anim, type Generator, type Progress } from './kit';
+import { cached, numOf, type Anim, type Generator, type Progress, type Warp } from './kit';
 
 // œil : les paupières (en amande, bridées ou rondes), l'iris, la pupille, la paupière du haut et les cils, en pièces solidaires ; deux gestes, le clignement et le regard
 const EYE_H = 0.56;
@@ -169,6 +169,40 @@ function cut(a: Anim, _phase: number, g: Progress): string {
   });
 }
 
+const even = (n: number) => Array.from({ length: n + 1 }, (_, i) => i / n);
+/**
+ * Déformation de la surface (Generator.warp) : l'iris et la pupille glissent avec le regard ; le blanc et la paupière
+ * s'étirent avec le clignement (le bord de la paupière descend, son pli reste). Les cils, hors de la boîte, restent tels quels.
+ */
+function warp(a: Anim, _phase: number, g: Progress): Warp | null {
+  const part = typeof a.part === 'string' ? a.part : '';
+  if (part === 'lashes') return null;
+  const [kb, kl] = framesOf(g);
+  const R0 = geom(a, 0, 0);
+  const G = geom(a, kb, kl);
+  const key = `ew|${part}|${KEYS.map((k) => a[k] ?? '').join('|')}`;
+  if (part === 'iris' || part === 'pupil') {
+    const dx = G.cx - R0.cx;
+    if (Math.abs(dx) < 1e-6) return null;
+    return { key: `${key}|${kl}`, us: [0, 1], vs: [0, 1], map: (u, v) => [u + dx, v] };
+  }
+  if (!kb) return null;
+  // le long d'une colonne : le haut jusqu'au pli ne bouge pas, puis chaque tranche (pli → bord du haut → bord du bas → bas) s'étire vers la sienne
+  const map = (u: number, v: number): [number, number] => {
+    const y = v * EYE_H;
+    const from = [0, R0.crease(u), R0.up(u), R0.lo(u), EYE_H];
+    const to = [0, G.crease(u), G.up(u), G.lo(u), EYE_H];
+    for (let i = 1; i < from.length; i++) {
+      if (y > from[i]! && i < from.length - 1) continue;
+      const [a0, a1, b0, b1] = [from[i - 1]!, from[i]!, to[i - 1]!, to[i]!];
+      const t = a1 - a0 > 1e-6 ? Math.max(0, Math.min(1, (y - a0) / (a1 - a0))) : 0.5;
+      return [u, (b0 + (b1 - b0) * t) / EYE_H];
+    }
+    return [u, v];
+  };
+  return { key: `${key}|${kb}`, us: even(18), vs: even(18), map };
+}
+
 /** Os de l'œil (Generator.skeleton) : le regard (du centre à l'iris), la paupière du haut et celle du bas, depuis l'axe de l'œil. */
 function skeleton(a: Anim, _phase: number, g: Progress): Array<[[number, number], [number, number]]> {
   const [kb, kl] = framesOf(g);
@@ -206,6 +240,7 @@ export const eye: Generator = {
   parts: PARTS,
   cut,
   skeleton,
+  warp,
   // les cils dépassent de la boîte de l'œil
   spill: (a) => a.part === 'lashes',
   ratio: () => 1 / EYE_H,

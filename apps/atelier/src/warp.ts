@@ -17,6 +17,8 @@ export interface Mesh {
   vs: number[];
   /** Nœuds déplacés (coordonnées 0..1 de la boîte), rangée par rangée : x puis y. */
   P: Float64Array;
+  /** Morceau de chaque nœud (Warp.part), s'il y en a : les mailles à cheval sur deux morceaux ne se posent pas. */
+  parts?: Int32Array;
 }
 
 const meshes = new Map<string, Mesh>();
@@ -33,8 +35,14 @@ export function meshOf(w: Warp): Mesh {
         P[(j * nu + i) * 2 + 1] = y;
       }),
     );
+    let parts: Int32Array | undefined;
+    if (w.part) {
+      const part = w.part;
+      parts = new Int32Array(nu * w.vs.length);
+      w.vs.forEach((v, j) => w.us.forEach((u, i) => (parts![j * nu + i] = part(u, v))));
+    }
     if (meshes.size > 400) meshes.clear();
-    meshes.set(w.key, (m = { key: w.key, us: w.us, vs: w.vs, P }));
+    meshes.set(w.key, (m = { key: w.key, us: w.us, vs: w.vs, P, parts }));
   }
   return m;
 }
@@ -73,14 +81,20 @@ export function piecesOf(m: Mesh, tol: number): Piece[] {
   const src = (i: number, j: number): Pt2 => [us[i]!, vs[j]!];
   const near = (p: Pt2, q: Pt2) => Math.abs(p[0] - q[0]) <= tol && Math.abs(p[1] - q[1]) <= tol;
   const out: Piece[] = [];
+  const G = m.parts;
+  const torn = (i: number, j: number) => !!G && !(G[j * nu + i] === G[j * nu + i + 1] && G[j * nu + i] === G[(j + 1) * nu + i] && G[j * nu + i] === G[(j + 1) * nu + i + 1]);
   for (let j = 0; j + 1 < vs.length; j++) {
     let i = 0;
     while (i + 1 < nu) {
+      if (torn(i, j)) {
+        i++;
+        continue;
+      }
       const A = affine(src(i, j), src(i + 1, j), src(i, j + 1), at(i, j), at(i + 1, j), at(i, j + 1));
       if (A && near(apply(A, src(i + 1, j + 1)), at(i + 1, j + 1))) {
         // maille plate : on l'étend tant que les suivantes suivent la même transformation
         let e = i + 1;
-        while (e + 1 < nu && near(apply(A, src(e + 1, j)), at(e + 1, j)) && near(apply(A, src(e + 1, j + 1)), at(e + 1, j + 1))) e++;
+        while (e + 1 < nu && !torn(e, j) && near(apply(A, src(e + 1, j)), at(e + 1, j)) && near(apply(A, src(e + 1, j + 1)), at(e + 1, j + 1))) e++;
         out.push({ src: [src(i, j), src(e, j), src(e, j + 1), src(i, j + 1)], A });
         i = e;
         continue;
@@ -168,8 +182,11 @@ export function unwarp(m: Mesh, u: number, v: number): { x: number; y: number } 
   // hors du maillage : la maille la plus proche, prolongée (jamais le point tel quel, qui n'est pas dans le même repère)
   let near: { x: number; y: number } | null = null;
   let nearScore = -Infinity;
+  const G = m.parts;
   for (let j = 0; j + 1 < vs.length && !best; j++)
-    for (let i = 0; i + 1 < nu && !best; i++)
+    for (let i = 0; i + 1 < nu && !best; i++) {
+      // maille déchirée (entre deux lettres) : elle n'est pas posée, rien n'y est peint
+      if (G && !(G[j * nu + i] === G[j * nu + i + 1] && G[j * nu + i] === G[(j + 1) * nu + i] && G[j * nu + i] === G[(j + 1) * nu + i + 1])) continue;
       for (const tri of [
         [
           [i, j],
@@ -200,6 +217,7 @@ export function unwarp(m: Mesh, u: number, v: number): { x: number; y: number } 
           near = hit;
         }
       }
+    }
   return best ?? near ?? { x: u, y: v };
 }
 
@@ -227,7 +245,7 @@ function lowerIndex(xs: number[], x: number): number {
 
 /** Déformation de la surface d'une forme animée à l'instant courant, si son générateur la plie (voir Generator.warp). */
 export function surfaceWarp(l: Layer): Warp | null {
-  return (!l.cut || carved(l)) && !l.text && l.anim ? warpFor(l) : null;
+  return (!l.cut || carved(l)) && l.anim ? warpFor(l) : null;
 }
 
 /**
@@ -235,7 +253,7 @@ export function surfaceWarp(l: Layer): Warp | null {
  * une forme modelée a pu agrandir sa boîte (Layer.molded.frame : la boîte actuelle dans le repère d'origine).
  */
 export function warpFor(l: Layer, t?: number): Warp | null {
-  const w = l.anim ? animWarp(l.anim, t) : null;
+  const w = l.anim ? animWarp(l.anim, t, l.text ? { text: l.text } : undefined) : null;
   const fr = l.molded?.frame;
   if (!w || !fr || (fr[0] === 0 && fr[1] === 0 && fr[2] === 1 && fr[3] === 1)) return w;
   const [a, b, c, d] = fr;
@@ -255,6 +273,7 @@ export function warpFor(l: Layer, t?: number): Warp | null {
       const [x, y] = w.map(a + u * W, b + v * H);
       return [(x - a) / W, (y - b) / H];
     },
+    ...(w.part ? { part: (u: number, v: number) => w.part!(a + u * W, b + v * H) } : {}),
   };
 }
 
@@ -326,4 +345,28 @@ export function restCut(l: Layer, d: string, t?: number): string {
   const m = meshOf({ ...w, key: `${w.key}|large`, us, vs });
   const rings = fineRings(pathToRings(d)).map((r) => simplifyRing(r.map((p) => unwarp(m, p.x, p.y)), 0.0004));
   return ringsToPath(rings, 0.0002, 30, false);
+}
+
+/** Grille de la surface d'une forme modelée (Layer.molded.mesh) : MOLD_GRID mailles de côté sur la boîte d'origine. */
+export const MOLD_GRID = 20;
+const moldLines = Array.from({ length: MOLD_GRID + 1 }, (_, i) => i / MOLD_GRID);
+/** Nœuds de la grille au repos, rangée par rangée (x puis y), dans le repère de la boîte d'origine. */
+export function restGrid(): number[] {
+  return moldLines.flatMap((v) => moldLines.flatMap((u) => [u, v]));
+}
+let moldMeshes = new WeakMap<number[], Mesh>();
+let moldId = 0;
+/**
+ * Maillage de la surface d'une forme modelée, dans la boîte d'origine (avant tout modelage) : la teinte, le dégradé
+ * ou l'image posés sur la forme d'origine suivent la matière tirée. Null si la forme n'a pas de grille (modelée avant).
+ */
+export function moldMesh(l: Layer): Mesh | null {
+  const g = l.molded?.mesh;
+  if (!g || g.length !== (MOLD_GRID + 1) ** 2 * 2) return null;
+  let m = moldMeshes.get(g);
+  if (!m) {
+    if (moldId > 1e6) [moldMeshes, moldId] = [new WeakMap(), 0];
+    moldMeshes.set(g, (m = { key: `mold|${++moldId}`, us: moldLines, vs: moldLines, P: Float64Array.from(g) }));
+  }
+  return m;
 }

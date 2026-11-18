@@ -1,6 +1,6 @@
 import { ringsToPath, type Ring } from '../cut';
 import { textCut, lettersOf, type TextStyle } from '../text';
-import { cached, numOf, type ActState, type Anim, type Context, type Generator } from './kit';
+import { cached, numOf, type ActState, type Anim, type Context, type Generator, type Warp } from './kit';
 
 /**
  * Gestes des textes : le générateur ne dessine pas sa forme, il anime les lettres d'un objet texte (Generator.on = 'text').
@@ -108,12 +108,13 @@ const envelope = (s: ActState) => (s.u <= 0 || s.u >= 1 ? 0 : Math.min(1, s.turn
 const ids = new WeakMap<object, number>();
 let lastId = 0;
 
-function cut(_a: Anim, _phase: number, _g: unknown, ctx: Context): string {
+/** La pose de chaque lettre à l'instant, d'après les gestes posés ; null pour un texte vide. */
+function posesOf(ctx: Context) {
   const t: TextStyle | undefined = ctx.host?.text;
-  if (!t) return 'M0 0H1V1H0Z';
+  if (!t) return null;
   const tc = textCut(t);
   const n = lettersOf(t.content).length;
-  if (!n || !tc.rings.length) return tc.d;
+  if (!n || !tc.rings.length) return null;
   const ratio = tc.ratio;
   const em = tc.em;
   const B = boxes(tc.rings, tc.owner, n, ratio);
@@ -234,11 +235,37 @@ function cut(_a: Anim, _phase: number, _g: unknown, ctx: Context): string {
     }
   }
 
-  if (!changed) return tc.d;
-  // clé de cache : l'état de chaque lettre, arrondi à ce que l'œil voit
-  const q = (v: number) => Math.round(v * 2000);
   let id = ids.get(tc);
   if (id === undefined) ids.set(tc, (id = ++lastId));
+  return { tc, n, B, P, changed, reveal, oneByOne, em, ratio, id };
+}
+
+/** Une lettre gonflée (elle grandit) ou dégonflée (elle s'affaisse sur sa base et penche) : la même transformation pour sa découpe et sa surface. */
+function pressAt(b: { x0: number; y0: number; x1: number; y1: number }, press: number, i: number) {
+  const sx = press > 0 ? 1 + 0.08 * press : 1 - 0.05 * press;
+  const sy = press > 0 ? 1 + 0.08 * press : 1 + 0.45 * press;
+  const cx = (b.x0 + b.x1) / 2;
+  const cy = press > 0 ? (b.y0 + b.y1) / 2 : b.y1;
+  const lean = press < 0 ? -press * 0.25 * (hash(i, 3) - 0.5) : 0;
+  return (x: number, y: number): [number, number] => [cx + (x - cx) * sx + lean * (b.y1 - y), cy + (y - cy) * sy];
+}
+/** Une lettre tournée autour de son pivot puis déplacée. */
+function turnAt(p: Pose) {
+  const [c, s] = [Math.cos(p.rot), Math.sin(p.rot)];
+  return (x: number, y: number): [number, number] => {
+    const [u, v] = [x - p.px, y - p.py];
+    return [p.px + u * c - v * s + p.dx, p.py + u * s + v * c + p.dy];
+  };
+}
+const q = (v: number) => Math.round(v * 2000);
+const moved = (p: Pose) => !!(p.dx || p.dy || p.rot || p.press);
+
+function cut(_a: Anim, _phase: number, _g: unknown, ctx: Context): string {
+  const st = posesOf(ctx);
+  if (!st) return ctx.host?.text ? textCut(ctx.host.text).d : 'M0 0H1V1H0Z';
+  const { tc, B, P, changed, reveal, oneByOne, em, ratio, id } = st;
+  if (!changed) return tc.d;
+  // clé de cache : l'état de chaque lettre, arrondi à ce que l'œil voit
   const key = `L|${id}|${reveal === null ? '' : q(reveal)}|${oneByOne ? 1 : 0}|${P.map((p) => (p.hide ? 'h' : `${q(p.dx)},${q(p.dy)},${q(p.rot)},${q(p.px)},${q(p.py)},${q(p.press)}`)).join(';')}`;
   return cached(key, () => {
     // plume : jusqu'où chaque ligne est écrite (les lignes s'écrivent l'une après l'autre)
@@ -299,21 +326,17 @@ function cut(_a: Anim, _phase: number, _g: unknown, ctx: Context): string {
         const b = B[i]!;
         // gonfle : la lettre s'épaissit et grandit un peu ; dégonfle : elle maigrit, s'affaisse sur sa base et penche
         r = pressed(r, p.press * (p.press > 0 ? 0.04 : 0.03) * em, holes[k]!);
-        const sx = p.press > 0 ? 1 + 0.08 * p.press : 1 - 0.05 * p.press;
-        const sy = p.press > 0 ? 1 + 0.08 * p.press : 1 + 0.45 * p.press;
-        const cx = (b.x0 + b.x1) / 2;
-        const cy = p.press > 0 ? (b.y0 + b.y1) / 2 : b.y1;
-        const lean = p.press < 0 ? -p.press * 0.25 * (hash(i, 3) - 0.5) : 0;
+        const f = pressAt(b, p.press, i);
         r = r.map((pt) => {
-          const x = cx + (pt.x - cx) * sx + lean * (b.y1 - pt.y);
-          return { x, y: cy + (pt.y - cy) * sy };
+          const [x, y] = f(pt.x, pt.y);
+          return { x, y };
         });
       }
       if (p.rot || p.dx || p.dy) {
-        const [c, s] = [Math.cos(p.rot), Math.sin(p.rot)];
+        const f = turnAt(p);
         r = r.map((pt) => {
-          const [x, y] = [pt.x - p.px, pt.y - p.py];
-          return { x: p.px + x * c - y * s + p.dx, y: p.py + x * s + y * c + p.dy };
+          const [x, y] = f(pt.x, pt.y);
+          return { x, y };
         });
       }
       out.push(r);
@@ -326,6 +349,91 @@ function cut(_a: Anim, _phase: number, _g: unknown, ctx: Context): string {
       false,
     );
   });
+}
+
+/**
+ * Déformation de la surface (Generator.warp) : la teinte, le dégradé, l'image et la peinture de chaque lettre la suivent
+ * quand elle ondule, gonfle, tombe ou se décroche. Le maillage passe par les bords de chaque lettre et de chaque ligne :
+ * dans une lettre, la surface bouge d'un bloc ; entre les lettres, elle reste en place.
+ */
+function warp(_a: Anim, _phase: number, _g: unknown, ctx: Context): Warp | null {
+  const st = posesOf(ctx);
+  if (!st || !st.P.some(moved)) return null;
+  const { tc, P, ratio, id, n, em } = st;
+  // chaque lettre un peu élargie : son bord (lissé, adouci) reste sur la lettre, pas sur la maille tirée vers sa voisine
+  // sans dépasser les deux cinquièmes du blanc qui la sépare de ses voisines : au milieu du blanc, la surface reste en place
+  const pad = 0.05 * em;
+  const lineOf = tc.lines;
+  const B = st.B.map((b, i) => {
+    if (b.x1 <= b.x0) return b;
+    let [l, r] = [pad, pad];
+    st.B.forEach((o, j) => {
+      if (j === i || o.x1 <= o.x0 || (lineOf[j] ?? 0) !== (lineOf[i] ?? 0)) return;
+      if (o.x0 + o.x1 < b.x0 + b.x1) l = Math.min(l, Math.max(0, 0.4 * (b.x0 - o.x1)));
+      else r = Math.min(r, Math.max(0, 0.4 * (o.x0 - b.x1)));
+    });
+    return { x0: b.x0 - l, y0: b.y0 - pad, x1: b.x1 + r, y1: b.y1 + pad };
+  });
+  // lignes de texte : leur hauteur, d'après leurs lettres
+  const rows = new Map<number, [number, number]>();
+  B.forEach((b, i) => {
+    if (b.x1 <= b.x0) return;
+    const L = lineOf[i] ?? 0;
+    const r = rows.get(L) ?? [Infinity, -Infinity];
+    rows.set(L, [Math.min(r[0], b.y0), Math.max(r[1], b.y1)]);
+  });
+  const moves = P.map((p, i) => {
+    if (!moved(p)) return null;
+    const b = st.B[i]!;
+    const press = p.press ? pressAt(b, p.press, i) : null;
+    // gonflée, la lettre s'épaissit aussi (son contour part le long de sa normale) : sa surface grandit d'autant, jusqu'au bord de la boîte compris
+    const d = p.press > 0 ? p.press * 0.04 * em : 0;
+    const [cx, cy, kx, ky] = [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 1 + d / Math.max(1e-3, (b.x1 - b.x0) / 2), 1 + d / Math.max(1e-3, (b.y1 - b.y0) / 2)];
+    const turn = p.rot || p.dx || p.dy ? turnAt(p) : null;
+    return (x: number, y: number): [number, number] => {
+      let pt: [number, number] = d ? [cx + (x - cx) * kx, cy + (y - cy) * ky] : [x, y];
+      if (press) pt = press(pt[0], pt[1]);
+      if (turn) pt = turn(pt[0], pt[1]);
+      return pt;
+    };
+  });
+  /** La lettre sous un point (en unités de hauteur) : dans sa ligne, celle dont il est dans la boîte, sinon la plus près de sa boîte ; à égalité, la plus proche par son milieu. */
+  const letterAt = (x: number, y: number) => {
+    let best = -1;
+    let score = Infinity;
+    for (let i = 0; i < n; i++) {
+      const b = B[i]!;
+      const row = rows.get(lineOf[i] ?? 0);
+      if (!row || b.x1 <= b.x0 || x < b.x0 || x > b.x1 || y < row[0] || y > row[1]) continue;
+      const o = st.B[i]!;
+      const out = Math.max(0, o.x0 - x, x - o.x1);
+      const d = out * 1e3 + Math.abs(x - (b.x0 + b.x1) / 2);
+      if (d < score) [best, score] = [i, d];
+    }
+    return best;
+  };
+  const part = (u: number, v: number) => letterAt(u * ratio, v);
+  const map = (u: number, v: number): [number, number] => {
+    const x = u * ratio;
+    const i = letterAt(x, v);
+    const f = i >= 0 ? moves[i] : null;
+    if (!f) return [u, v];
+    const [X, Y] = f(x, v);
+    return [X / ratio, Y];
+  };
+  const lines = (xs: number[]) => {
+    const all = [...xs, ...Array.from({ length: 9 }, (_, k) => k / 8)].filter((x) => x >= 0 && x <= 1).sort((a, b) => a - b);
+    const out = [0];
+    for (const x of all) if (x - out[out.length - 1]! > 0.0005) out.push(x);
+    if (1 - out[out.length - 1]! < 0.0005) out.pop();
+    out.push(1);
+    return out;
+  };
+  // les bords et le milieu de chaque lettre, de chaque ligne
+  const us = lines(B.flatMap((b, i) => (b.x1 > b.x0 ? [b.x0, b.x1, st.B[i]!.x0, st.B[i]!.x1, (b.x0 + b.x1) / 2, b.x1 + (b.x1 - st.B[i]!.x1) / 4].map((x) => x / ratio) : [])));
+  const vs = lines([...rows.values()].flatMap(([a, b]) => [a, b, (a + b) / 2]));
+  const key = `LW|${id}|${P.map((p) => (moved(p) ? `${q(p.dx)},${q(p.dy)},${q(p.rot)},${q(p.px)},${q(p.py)},${q(p.press)}` : '')).join(';')}`;
+  return { key, us, vs, map, part };
 }
 
 function bounceOut(v: number): number {
@@ -377,6 +485,7 @@ export const letters: Generator = {
     { id: 'hang', name: 'Décrochage', note: 'lâche et pendouille', len: 2, params: ['hangOn', 'hangSide', 'hangSway'] },
   ],
   cut,
+  warp,
   ratio: () => 1,
 };
 
