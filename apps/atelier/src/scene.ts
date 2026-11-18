@@ -1580,6 +1580,8 @@ function drawSurface(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Forma
   if (l.bump) drawBump(ctx, l, doc, f, b, x0, y0);
   return (
     typeof buf !== 'number' &&
+    // couleur de la palette réglée en direct : peinture et effets montrés tels qu'avant, à refaire au lâcher
+    !held &&
     !wet &&
     o.burning?.id !== l.id &&
     !(l.kind === 'photo' && l.src && !imageFor(l.src, o.onImage)) &&
@@ -1628,6 +1630,8 @@ function flatKey(l: Layer, doc: Doc, f: Format, iw: number, ih: number): string 
     l.rot ?? 0,
     Math.round(li.deg / 8),
     l.bump ? Math.round(li.k * 20) : 0,
+    // le relief prend la teinte de la lampe
+    l.bump ? lampOf(doc).color : '',
   ]);
 }
 
