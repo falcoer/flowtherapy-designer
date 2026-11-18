@@ -1,4 +1,5 @@
 import { drawWarped, type Mesh } from './warp';
+import type { Warp } from './stickers';
 
 /**
  * Surface déformée posée par la carte graphique. La surface au repos d'une forme qui se plie (teinte, dégradé, image,
@@ -207,6 +208,12 @@ export function drawFlatOnMesh(ctx: CanvasRenderingContext2D, id: string, key: s
   const G = testing.gl && forced() !== '2d' ? setup() : null;
   if (G && !G.g.isContextLost() && glDraw(G, ctx, T, id, key, iw, ih, render, mesh, x0, y0, bw, bh)) return;
   // sans carte graphique : la surface gardée dans un canevas, posée par morceaux
+  drawWarped(ctx, flatCanvas(id, key, iw, ih, render), iw, ih, mesh, x0, y0, bw, bh, px);
+}
+
+/** La surface à plat de `id` dans un canevas, gardée tant que sa clé ne change pas (voir drawFlatOnMesh). */
+function flatCanvas(id: string, key: string | null, iw: number, ih: number, render: FlatRender): HTMLCanvasElement {
+  if (!testing.cache) key = null;
   let s = surfaces.get(id);
   if (s && (s.tex || !s.canvas)) {
     drop(id);
@@ -227,7 +234,31 @@ export function drawFlatOnMesh(ctx: CanvasRenderingContext2D, id: string, key: s
   }
   if (s) s.at = performance.now();
   prune(id);
-  drawWarped(ctx, img, iw, ih, mesh, x0, y0, bw, bh, px);
+  return img;
+}
+
+/**
+ * Pose la surface à plat de `id` en pièces rigides (marionnette, voir Warp.pieces) : chaque pièce, prise sur la surface au repos,
+ * est découpée puis posée par sa transformation, dans l'ordre (les premières dessous). Repère et découpe en cours comme drawFlatOnMesh.
+ */
+export function drawFlatPieces(ctx: CanvasRenderingContext2D, id: string, key: string | null, iw: number, ih: number, render: FlatRender, pieces: NonNullable<Warp['pieces']>, x0: number, y0: number, bw: number, bh: number) {
+  const img = flatCanvas(id, key, iw, ih, render);
+  for (const p of pieces) {
+    ctx.save();
+    ctx.translate(x0, y0);
+    ctx.scale(bw, bh);
+    const [a, b, c, d, e, f] = p.A;
+    ctx.transform(a, b, c, d, e, f);
+    // la pièce est découpée sur la surface au repos, puis posée avec elle
+    const path = new Path2D();
+    for (const r of p.rings) {
+      r.forEach((q, i) => (i ? path.lineTo(q.x, q.y) : path.moveTo(q.x, q.y)));
+      path.closePath();
+    }
+    ctx.clip(path, 'evenodd');
+    ctx.drawImage(img, 0, 0, 1, 1);
+    ctx.restore();
+  }
 }
 
 // nœuds et triangles envoyés à chaque dessin (réutilisés d'un dessin à l'autre)

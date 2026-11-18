@@ -1,3 +1,5 @@
+import { contours, intersect, ringsOfGeom, simplifyRing, union, type Ring } from '../cut';
+
 /**
  * Contrat d'un générateur de sticker. Un sticker est une forme dont la découpe dépend du temps :
  * son générateur décrit ses paramètres (annotés : nom, bornes, valeur de départ), ses gestes propres,
@@ -142,7 +144,8 @@ export interface ActState {
  */
 export interface Context {
   each: (gesture: string) => ActState[];
-  host?: { text?: import('../text').TextStyle };
+  /** L'objet qui porte l'animation : son texte, ou sa découpe au repos (une silhouette que la peau suit). */
+  host?: { text?: import('../text').TextStyle; cut?: string };
 }
 
 /** Plage d'un geste dans le cycle : celle réglée sur la frise (clés « geste.at », « geste.len »), sinon celle de départ. */
@@ -244,6 +247,12 @@ export interface Warp {
    * une maille dont les coins vont à des morceaux différents n'est pas posée (elle ne porte rien, et tirée elle couvrirait ses voisines).
    */
   part?: (u: number, v: number) => number;
+  /**
+   * Marionnette : la surface en pièces rigides (une par os), posées dans l'ordre (les premières dessous). Chaque pièce garde
+   * ses anneaux pris sur la surface au repos (coordonnées 0..1 de la boîte) et la transformation affine qui la pose
+   * ([a, b, c, d, e, f] : x' = a·x + c·y + e, y' = b·x + d·y + f). Quand elles sont là, la surface se dessine par pièces, sans maillage.
+   */
+  pieces?: Array<{ rings: Ring[]; A: [number, number, number, number, number, number] }>;
 }
 
 /** Valeur d'un paramètre : celle des données, sinon celle de départ. */
@@ -346,17 +355,19 @@ export function nearestBones(frames: BoneFrame[], x: number, y: number) {
  * `ratio` : largeur / hauteur de la boîte (les distances se mesurent à unités égales). `flesh` : chair de chaque os (Generator.flesh).
  * Nul quand les os n'ont pas bougé.
  */
-export function skinWarp(key: string, rest: Bone[], cur: Bone[], ratio: number, only?: number[], band = 0.035, flesh?: number[]): Warp | null {
+export function skinWarp(key: string, rest: Bone[], cur: Bone[], ratio: number, only?: number[], band = 0.035, flesh?: number[], fieldOf?: () => BoneField | undefined, order?: number[]): Warp | null {
   const ids = (only ?? rest.map((_, i) => i)).filter((i) => rest[i] && cur[i]);
   const q = (v: number) => Math.round(v * 2000);
   const sig = (bs: Bone[]) => ids.map((i) => bs[i]!.flat().map(q).join(',')).join(';');
   const now = sig(cur);
   if (!ids.length || now === sig(rest)) return null;
+  // le champ des os ne se calcule qu'une fois le squelette en mouvement (caler les articulations à la main n'en a pas besoin)
+  const field = fieldOf?.();
   const r = ratio || 1;
   const frames = boneFrames(rest, cur, r, ids, flesh);
   const map = (u: number, v: number): [number, number] => {
     const [x, y] = [u * r, v];
-    const { b1, d1, k1, b2, d2, k2 } = nearestBones(frames, x, y);
+    const { b1, d1, k1, b2, d2, k2 } = field ? fieldBones(field, frames, u, v, x, y) : nearestBones(frames, x, y);
     let [X, Y] = boneCarry(frames[b1]!, k1, x, y);
     if (b2 >= 0 && d2 - d1 < band) {
       const t = 0.5 * (1 - (d2 - d1) / band);
@@ -366,13 +377,320 @@ export function skinWarp(key: string, rest: Bone[], cur: Bone[], ratio: number, 
     return [X / r, Y];
   };
   // maillage : régulier, plus une ligne par articulation (là où la peau se plie)
+  // une silhouette suivie (image détourée) : maillage plus fin, la peau se plie au ras du bras au lieu d'emmener ses voisins
+  const fine = field ? 33 : 17;
   const lines = (pick: (p: [number, number]) => number) => {
-    const xs = [...Array.from({ length: 17 }, (_, i) => i / 16), ...ids.flatMap((i) => rest[i]!.map(pick))].filter((x) => x >= 0 && x <= 1).sort((a, b) => a - b);
+    const xs = [...Array.from({ length: fine }, (_, i) => i / (fine - 1)), ...ids.flatMap((i) => rest[i]!.map(pick))].filter((x) => x >= 0 && x <= 1).sort((a, b) => a - b);
     const out = [0];
     for (const x of xs) if (x - out[out.length - 1]! > 0.01) out.push(x);
     if (1 - out[out.length - 1]! < 0.01) out.pop();
     out.push(1);
     return out;
   };
-  return { key: `${key}|${now}|${flesh ? ids.map((i) => q(flesh[i] ?? 0)).join(',') : ''}`, us: lines((p) => p[0]), vs: lines((p) => p[1]), map };
+  const w: Warp = { key: `${key}|${now}|${flesh ? ids.map((i) => q(flesh[i] ?? 0)).join(',') : ''}|${field?.id ?? ''}`, us: lines((p) => p[0]), vs: lines((p) => p[1]), map };
+  if (field) {
+    const parts = restPieces(field, rest, r, flesh);
+    const byBone = new Map(frames.map((F) => [F.i, F]));
+    w.pieces = (order ?? ids)
+      .filter((i) => parts[i]?.length && byBone.has(i))
+      .map((i) => ({ rings: parts[i]!, A: boneAffine(byBone.get(i)!, r) }));
+  }
+  return w;
+}
+
+/**
+ * Transformation qui emmène tout le plan avec un os (comme boneCarry, sans borner la place le long de l'os),
+ * dans les coordonnées 0..1 de la boîte : [a, b, c, d, e, f].
+ */
+export function boneAffine(F: BoneFrame, r: number): [number, number, number, number, number, number] {
+  // en unités égales (x × r) : p ↦ S + k·w + R·(p − P − k·v), k = (p − P)·v / |v|²
+  const [vx, vy] = F.v;
+  const [wx, wy] = F.w;
+  const L = F.len2;
+  const [c, sn] = [F.c, F.sn];
+  // partie linéaire M = w·vᵀ/L + R·(I − v·vᵀ/L)
+  const [p00, p01, p11] = [1 - (vx * vx) / L, -(vx * vy) / L, 1 - (vy * vy) / L];
+  const M00 = (wx * vx) / L + c * p00 - sn * p01;
+  const M01 = (wx * vy) / L + c * p01 - sn * p11;
+  const M10 = (wy * vx) / L + sn * p00 + c * p01;
+  const M11 = (wy * vy) / L + sn * p01 + c * p11;
+  const [P0, P1] = F.p;
+  const [S0, S1] = F.s;
+  const t0 = S0 - (M00 * P0 + M01 * P1);
+  const t1 = S1 - (M10 * P0 + M11 * P1);
+  // retour aux coordonnées de la boîte (x / r)
+  return [M00, M10 * r, M01 / r, M11, t0 / r, t1];
+}
+
+/**
+ * Pièces de la marionnette au repos : pour chaque os, la part de la silhouette qu'il emmène (champ des os), un peu élargie
+ * pour que les pièces se chevauchent sans fil de jour, plus un disque autour de son attache (l'épaule reste ronde quand le bras tourne).
+ */
+function restPieces(F: BoneField, rest: Bone[], r: number, flesh?: number[]): Array<Ring[] | null> {
+  if (F.parts) return F.parts;
+  const { cols, rows } = F;
+  const N = cols * rows;
+  const owner = new Int16Array(N).fill(-1);
+  for (let c = 0; c < N; c++) {
+    let [b, d] = [-1, Infinity];
+    F.d.forEach((D, i) => {
+      if (D && D[c]! < d) [b, d] = [i, D[c]!];
+    });
+    owner[c] = b;
+  }
+  // hors de la silhouette, chaque case prend l'os de la case de la silhouette la plus proche : les parts coupent le bord
+  // de l'image franchement, au lieu de le longer (ce qui laisserait des fils)
+  {
+    const q: number[] = [];
+    const seen = new Uint8Array(N);
+    for (let c = 0; c < N; c++) if (F.inside[c]) (seen[c] = 1), q.push(c);
+    for (let h = 0; h < q.length; h++) {
+      const c = q[h]!;
+      const [k, j] = [c % cols, (c / cols) | 0];
+      for (const [dk, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const [kk, jj] = [k + dk, j + dj];
+        if (kk < 0 || jj < 0 || kk >= cols || jj >= rows) continue;
+        const nc = jj * cols + kk;
+        if (seen[nc]) continue;
+        seen[nc] = 1;
+        owner[nc] = owner[c]!;
+        q.push(nc);
+      }
+    }
+  }
+  // os voisins : qui partagent une articulation (le bras et la clavicule)
+  const touch = (bi: number, bj: number) => {
+    const [A, B] = [rest[bi], rest[bj]];
+    if (!A || !B) return false;
+    const same = (p: [number, number], q: [number, number]) => Math.abs(p[0] - q[0]) < 1e-6 && Math.abs(p[1] - q[1]) < 1e-6;
+    return same(A[0], B[1]) || same(A[1], B[0]) || same(A[0], B[0]) || same(A[1], B[1]);
+  };
+  // ou par un os entre eux (la cuisse et le tronc, par la hanche)
+  const near = (bi: number, bj: number) => touch(bi, bj) || rest.some((_, k) => k !== bi && k !== bj && touch(bi, k) && touch(k, bj));
+  const cell = Math.max(r / cols, 1 / rows);
+  F.parts = rest.map((b, i) => {
+    if (!b) return null;
+    // la part de l'os dans la silhouette, sans ses fils de deux cases (ouverture : rognée puis regonflée), élargie d'une case ;
+    // dehors, les cases qu'il emmène (le bord de l'image y passe)
+    let m = new Uint8Array(N);
+    for (let c = 0; c < N; c++) m[c] = owner[c] === i && F.inside[c] ? 1 : 0;
+    const grow = (src: Uint8Array, keep: boolean) => {
+      const out = new Uint8Array(N);
+      for (let j = 0; j < rows; j++)
+        for (let k = 0; k < cols; k++) {
+          let all = true;
+          let one = false;
+          for (let dj = -1; dj <= 1; dj++)
+            for (let dk = -1; dk <= 1; dk++) {
+              const [jj, kk] = [j + dj, k + dk];
+              const v = jj >= 0 && kk >= 0 && jj < rows && kk < cols ? src[jj * cols + kk]! : 0;
+              if (v) one = true;
+              else all = false;
+            }
+          out[j * cols + k] = (keep ? all : one) ? 1 : 0;
+        }
+      return out;
+    };
+    m = grow(grow(m, true), false);
+    // élargie d'une case vers les os voisins seulement (ceux d'une même articulation) : les pièces se chevauchent aux jointures,
+    // sans qu'une main collée à la hanche n'emporte une bande de hanche
+    const wide = grow(m, false);
+    for (let c = 0; c < N; c++) if (wide[c] && !m[c] && owner[c]! >= 0 && near(i, owner[c]!)) m[c] = 1;
+    for (let c = 0; c < N; c++) if (owner[c] === i && !F.inside[c]) m[c] = 1;
+    const px = new Uint8ClampedArray(N * 4);
+    let any = false;
+    for (let c = 0; c < N; c++)
+      if (m[c]) {
+        px[c * 4 + 3] = 255;
+        any = true;
+      }
+    if (!any) return null;
+    let rings: Ring[] = contours(px, cols, rows, 128).map((ring) => ring.map((p) => ({ x: p.x / cols, y: p.y / rows })));
+    // l'attache : un disque autour de l'articulation d'où part l'os, pris sur la part de l'os et de ses voisins
+    if (i !== 1) {
+      const R = Math.max(2 * cell, 0.5 * (flesh?.[i] ?? 0));
+      const [ax, ay] = b[0];
+      const disc: Ring = Array.from({ length: 20 }, (_, n) => {
+        const t = (n / 20) * 2 * Math.PI;
+        return { x: ax + (Math.cos(t) * R) / r, y: ay + Math.sin(t) * R };
+      });
+      const kin = new Uint8ClampedArray(N * 4);
+      for (let c = 0; c < N; c++) if (owner[c] === i || (owner[c]! >= 0 && near(i, owner[c]!))) kin[c * 4 + 3] = 255;
+      const around = contours(kin, cols, rows, 128).map((ring) => ring.map((p) => ({ x: p.x / cols, y: p.y / rows })));
+      const cap = ringsOfGeom(intersect([disc], around));
+      if (cap.length) rings = ringsOfGeom(union(rings, cap));
+    }
+    // les éclats (un bout de tronc sous l'aisselle rattaché au bras) restent avec leur voisin : seules les vraies parts de l'os comptent
+    const geo = intersect(F.rings, rings);
+    const area = (poly: (typeof geo)[number]) => Math.abs(poly[0]!.reduce((a, p, k) => { const q = poly[0]![(k + 1) % poly[0]!.length]!; return a + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
+    const big = Math.max(0, ...geo.map(area));
+    const out = ringsOfGeom(geo.filter((poly) => area(poly) >= 0.2 * big)).map((ring) => simplifyRing(ring, 0.0015)).filter((ring) => ring.length >= 3);
+    return out.length ? out : null;
+  });
+  return F.parts;
+}
+
+/**
+ * Distances le long de la silhouette (au repos) de chaque point de la boîte à chaque os, chair déduite : un bras collé au tronc
+ * dans l'image n'est rejoint par le tronc qu'en passant par l'épaule, il n'emmène donc pas la moitié du bras quand celui-ci se lève.
+ * Grille de `cols` × `rows` cases (centres), une couche de distances par os (indices du squelette).
+ */
+export interface BoneField {
+  id: number;
+  cols: number;
+  rows: number;
+  d: Array<Float32Array | null>;
+  /** La silhouette au repos, et ses cases. */
+  rings: Ring[];
+  inside: Uint8Array;
+  /** Pièces de la marionnette au repos, par os (calculées une fois). */
+  parts?: Array<Ring[] | null>;
+}
+
+/** Cases de la grille dans la silhouette (anneaux en coordonnées 0..1 de la boîte, pair-impair). */
+export function maskOf(rings: Array<Array<{ x: number; y: number }>>, cols: number, rows: number): Uint8Array {
+  const m = new Uint8Array(cols * rows);
+  for (let j = 0; j < rows; j++) {
+    const y = (j + 0.5) / rows;
+    const xs: number[] = [];
+    for (const r of rings)
+      r.forEach((p, i) => {
+        const q = r[(i + 1) % r.length]!;
+        if (p.y <= y !== q.y <= y) xs.push(p.x + ((y - p.y) * (q.x - p.x)) / (q.y - p.y));
+      });
+    xs.sort((a, b) => a - b);
+    for (let k = 0; k + 1 < xs.length; k += 2) {
+      const i0 = Math.max(0, Math.ceil(xs[k]! * cols - 0.5));
+      const i1 = Math.min(cols - 1, Math.floor(xs[k + 1]! * cols - 0.5));
+      for (let i = i0; i <= i1; i++) m[j * cols + i] = 1;
+    }
+  }
+  return m;
+}
+
+let fieldIds = 0;
+const fields = new Map<string, BoneField>();
+/**
+ * Champ des os dans une silhouette (voir BoneField). `rings` : la silhouette au repos ; `rest` : les os au repos ;
+ * `ratio` : largeur / hauteur de la boîte ; `flesh` : chair de chaque os, déduite de la distance. Calculé une fois par silhouette et squelette.
+ */
+export function boneField(sig: string, rings: Array<Array<{ x: number; y: number }>>, rest: Bone[], ratio: number, flesh?: number[]): BoneField {
+  const key = `${sig}|${ratio.toFixed(4)}|${rest.map((b) => b.flat().map((v) => v.toFixed(4)).join(',')).join(';')}|${(flesh ?? []).map((v) => v.toFixed(4)).join(',')}`;
+  const hit = fields.get(key);
+  if (hit) return hit;
+  const r = ratio || 1;
+  const rows = 96;
+  const cols = Math.max(8, Math.min(192, Math.round(rows * r)));
+  const inside = maskOf(rings, cols, rows);
+  const [hx, hy] = [r / cols, 1 / rows];
+  const hd = Math.hypot(hx, hy);
+  // hors de la silhouette, le chemin coûte cher : il ne sert qu'à donner un os aux nœuds du maillage qui tombent dehors
+  const OUT = 6;
+  const N = cols * rows;
+  const steps: Array<[number, number, number]> = [[1, 0, hx], [-1, 0, hx], [0, 1, hy], [0, -1, hy], [1, 1, hd], [1, -1, hd], [-1, 1, hd], [-1, -1, hd]];
+  const d = rest.map((b, bi) => {
+    if (!b) return null;
+    // en double : arrondie à chaque pas, une distance égale paraîtrait plus courte et se reposerait sans fin
+    const D = new Float64Array(N).fill(Infinity);
+    // tas binaire des cases à visiter
+    const heap: number[] = [];
+    const prio: number[] = [];
+    const push = (c: number, v: number) => {
+      heap.push(c);
+      prio.push(v);
+      let i = heap.length - 1;
+      while (i > 0) {
+        const p = (i - 1) >> 1;
+        if (prio[p]! <= prio[i]!) break;
+        [heap[p], heap[i]] = [heap[i]!, heap[p]!];
+        [prio[p], prio[i]] = [prio[i]!, prio[p]!];
+        i = p;
+      }
+    };
+    const pop = (): [number, number] => {
+      const top: [number, number] = [heap[0]!, prio[0]!];
+      const lc = heap.pop()!;
+      const lp = prio.pop()!;
+      if (heap.length) {
+        heap[0] = lc;
+        prio[0] = lp;
+        let i = 0;
+        for (;;) {
+          const [a, c] = [2 * i + 1, 2 * i + 2];
+          let m = i;
+          if (a < heap.length && prio[a]! < prio[m]!) m = a;
+          if (c < heap.length && prio[c]! < prio[m]!) m = c;
+          if (m === i) break;
+          [heap[m], heap[i]] = [heap[i]!, heap[m]!];
+          [prio[m], prio[i]] = [prio[i]!, prio[m]!];
+          i = m;
+        }
+      }
+      return top;
+    };
+    // l'os lui-même : ses cases partent de zéro moins sa chair ; un os en bout de chaîne (avant-bras, tibia, tête)
+    // continue un peu au-delà de son articulation : la main, le pied dépassent du poignet, de la cheville
+    const [[ax, ay], [b0x, b0y]] = b;
+    const last = !rest.some((o, k) => k !== bi && o && Math.abs(o[0][0] - b0x) < 1e-6 && Math.abs(o[0][1] - b0y) < 1e-6);
+    const [bx, by] = last ? [b0x + (b0x - ax) * 0.25, b0y + (b0y - ay) * 0.25] : [b0x, b0y];
+    const len = Math.hypot((bx - ax) * r, by - ay);
+    const n = Math.max(2, Math.ceil(len / (0.5 * Math.min(hx, hy))));
+    const f0 = -(flesh?.[bi] ?? 0);
+    for (let k = 0; k <= n; k++) {
+      const [x, y] = [ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n];
+      const i = Math.max(0, Math.min(cols - 1, Math.floor(x * cols)));
+      const j = Math.max(0, Math.min(rows - 1, Math.floor(y * rows)));
+      const c = j * cols + i;
+      if (f0 < D[c]!) {
+        D[c] = f0;
+        push(c, f0);
+      }
+    }
+    while (heap.length) {
+      const [c, v] = pop();
+      if (v > D[c]!) continue;
+      const [i, j] = [c % cols, (c / cols) | 0];
+      for (const [di, dj, h] of steps) {
+        const [ni, nj] = [i + di, j + dj];
+        if (ni < 0 || nj < 0 || ni >= cols || nj >= rows) continue;
+        const nc = nj * cols + ni;
+        const w = v + h * (inside[nc] && inside[c] ? 1 : OUT);
+        if (w < D[nc]!) {
+          D[nc] = w;
+          push(nc, w);
+        }
+      }
+    }
+    return Float32Array.from(D);
+  });
+  const F: BoneField = { id: ++fieldIds, cols, rows, d, inside, rings: rings.map((ring) => ring.map((p) => ({ x: p.x, y: p.y }))) };
+  if (fields.size > 12) fields.clear();
+  fields.set(key, F);
+  return F;
+}
+
+/** Distance (champ des os) d'un point de la boîte (0..1) à l'os `i` : moyenne des quatre cases voisines. */
+function fieldAt(F: BoneField, i: number, u: number, v: number): number {
+  const D = F.d[i];
+  if (!D) return Infinity;
+  const fx = Math.max(0, Math.min(F.cols - 1, u * F.cols - 0.5));
+  const fy = Math.max(0, Math.min(F.rows - 1, v * F.rows - 0.5));
+  const [i0, j0] = [Math.floor(fx), Math.floor(fy)];
+  const [i1, j1] = [Math.min(F.cols - 1, i0 + 1), Math.min(F.rows - 1, j0 + 1)];
+  const [tx, ty] = [fx - i0, fy - j0];
+  const at = (a: number, b: number) => D[b * F.cols + a]!;
+  return (at(i0, j0) * (1 - tx) + at(i1, j0) * tx) * (1 - ty) + (at(i0, j1) * (1 - tx) + at(i1, j1) * tx) * ty;
+}
+
+/** Les deux os les plus proches d'un point en suivant la silhouette (champ des os) : comme nearestBones. */
+function fieldBones(F: BoneField, frames: Array<BoneFrame & { i: number }>, u: number, v: number, x: number, y: number) {
+  let [b1, b2] = [-1, -1];
+  let [d1, d2] = [Infinity, Infinity];
+  frames.forEach((Fr, n) => {
+    const d = fieldAt(F, Fr.i, u, v);
+    if (d < d1) [b2, d2, b1, d1] = [b1, d1, n, d];
+    else if (d < d2) [b2, d2] = [n, d];
+  });
+  if (b1 < 0) return nearestBones(frames, x, y);
+  return { b1, d1, k1: boneNear(frames[b1]!, x, y).k, b2, d2, k2: b2 >= 0 ? boneNear(frames[b2]!, x, y).k : 0 };
 }

@@ -39,4 +39,4 @@ export function newAnim(g: Generator, over: Partial<Anim> = {}): Anim {
 export function newRig(ratio: number): Anim {
   return { ...newAnim(rig, { acts: [] }), ratio: Math.round(ratio * 1e4) / 1e4, carved: 1 };
 }
-export { RIG_BONES, RIG_JOINTS, RIG_NAMES, TEMPLATE_WIDTH, defaultJoints, jointsText, rigJoints, templateJoints, templateOf, type RigJoint } from './rig';
+export { RIG_BONES, RIG_JOINTS, RIG_NAMES, TEMPLATE_WIDTH, defaultJoints, fitJoints, jointsText, rigJoints, templateJoints, templateOf, type RigJoint } from './rig';

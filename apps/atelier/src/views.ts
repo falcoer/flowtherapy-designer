@@ -204,14 +204,17 @@ function rigged(l: Layer, v: CharView): Partial<Layer> {
 }
 
 /** Le calque d'un personnage importé : la première vue est montrée, toutes ont un squelette posé sur leur gabarit. */
-export function characterOf(imgs: Array<{ view: string; src: string; ratio: number }>): Pick<Layer, 'src' | 'views' | 'view' | 'anim'> & { ratio: number } {
+export function characterOf(imgs: Array<{ view: string; src: string; ratio: number; cut?: string; j?: string }>): Pick<Layer, 'src' | 'views' | 'view' | 'anim' | 'cut'> & { ratio: number } {
   const first = imgs[0]!;
   return {
     src: first.src,
     ratio: first.ratio,
     view: first.view,
-    views: [...imgs].sort((a, b) => rank(a.view) - rank(b.view)).map((v) => ({ view: v.view, src: v.view === first.view ? '' : v.src, ratio: v.ratio })),
-    anim: { ...newRig(first.ratio), view: first.view },
+    // la silhouette de chaque vue (illustration détourée) : sa découpe, qui suit l'image quand le squelette bouge
+    cut: first.cut,
+    views: [...imgs].sort((a, b) => rank(a.view) - rank(b.view)).map((v) => ({ view: v.view, src: v.view === first.view ? '' : v.src, ratio: v.ratio, ...(v.cut ? { cut: v.cut } : {}), ...(v.j ? { j: v.j } : {}) })),
+    // le squelette calé sur la silhouette de la vue montrée
+    anim: { ...newRig(first.ratio), view: first.view, ...(first.j ? { j: first.j } : {}) },
   };
 }
 

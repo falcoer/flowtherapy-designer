@@ -1,5 +1,6 @@
 import { humanoid } from './humanoid';
-import { numOf, skinWarp, type Anim, type Bone, type Context, type Generator, type Gesture, type Progress } from './kit';
+import { pathToRings } from '../cut';
+import { boneField, maskOf, numOf, skinWarp, type Anim, type Bone, type Context, type Generator, type Gesture, type Progress } from './kit';
 import { TURN, TURN_PARAMS, turnOf } from './turn';
 
 /**
@@ -220,6 +221,96 @@ export function rigJoints(a: Anim): Pt[] {
     return Number.isFinite(x) && Number.isFinite(y) ? [x!, y!] : d;
   });
 }
+/**
+ * Articulations calées sur la silhouette d'une image détourée (anneaux en coordonnées 0..1 de sa boîte) : le gabarit de la vue,
+ * mis à la hauteur de la silhouette (du haut de la tête à la semelle) et centré sur elle ; puis chaque bras (de face, de dos,
+ * de trois-quarts) tourné vers le corps jusqu'à passer dans la silhouette : bras le long du corps ou écartés, l'os tombe dans la manche.
+ * Undefined si la silhouette est vide.
+ */
+export function fitJoints(rings: Array<Array<{ x: number; y: number }>>, ratio: number, view = 'face'): string | undefined {
+  const r = Math.max(0.05, ratio);
+  let [y0, y1] = [Infinity, -Infinity];
+  // centre : celui de l'aire de la silhouette
+  let [A, CX] = [0, 0];
+  for (const ring of rings)
+    ring.forEach((p, i) => {
+      const q = ring[(i + 1) % ring.length]!;
+      y0 = Math.min(y0, p.y);
+      y1 = Math.max(y1, p.y);
+      const c = p.x * q.y - q.x * p.y;
+      A += c;
+      CX += (p.x + q.x) * c;
+    });
+  if (!(y1 - y0 > 0.05) || Math.abs(A) < 1e-6) return undefined;
+  const cx = CX / (3 * A);
+  const s = y1 - y0;
+  const pose = POSES[view] ?? A_POSE;
+  const J: Pt[] = RIG_JOINTS.map((k) => [cx + (pose[k][0] * s) / r, y0 + pose[k][1] * s]);
+  const base = view.replace(/-gauche$/, '');
+  if (base !== 'profil') {
+    const rows = 96;
+    const cols = Math.max(8, Math.min(192, Math.round(rows * r)));
+    const M = maskOf(rings, cols, rows);
+    const inside = (x: number, y: number) => {
+      const [i, j] = [Math.floor(x * cols), Math.floor(y * rows)];
+      return i >= 0 && j >= 0 && i < cols && j < rows && M[j * cols + i] === 1;
+    };
+    for (const [sh, el, hand, side] of [['shL', 'elL', 'handL', -1], ['shR', 'elR', 'handR', 1]] as const) {
+      // l'épaule dans la silhouette : sous le haut de l'épaule (une grosse tête la fait tomber plus bas que le gabarit),
+      // et plus près du corps si sa colonne est vide
+      {
+        const P = J[IX[sh]]!;
+        const neck = J[IX.neck]!;
+        const drop = TEMPLATE_WIDTH[6]! * s;
+        for (let k = 0; k <= 10; k++) {
+          const x = P[0] + ((neck[0] - P[0]) * k) / 20;
+          let top = -1;
+          for (let j = Math.max(0, Math.floor(P[1] * rows)); j < Math.min(rows, Math.floor((P[1] + 0.25 * s) * rows)); j++)
+            if (inside(x, (j + 0.5) / rows)) {
+              top = (j + 0.5) / rows;
+              break;
+            }
+          if (top < 0) continue;
+          J[IX[sh]] = [x, Math.max(P[1], top + drop)];
+          break;
+        }
+      }
+      const [S, E, H] = [J[IX[sh]]!, J[IX[el]]!, J[IX[hand]]!] as const;
+      // en unités égales (x × r)
+      const len = (p: Pt, q: Pt) => Math.hypot((q[0] - p[0]) * r, q[1] - p[1]);
+      const L = len(S, E) + len(E, H);
+      const kEl = len(S, E) / L;
+      const half = TEMPLATE_WIDTH[7]! * s;
+      // part de l'axe du bras (au-delà de l'épaule) dans la silhouette, pour un angle depuis la verticale (vers l'extérieur)
+      const cover = (th: number, reach: number) => {
+        let n = 0;
+        for (let k = 0; k <= 12; k++) {
+          const t = 0.25 + (0.75 * k) / 12;
+          if (inside(S[0] + (side * Math.sin(th) * L * reach * t) / r, S[1] + Math.cos(th) * L * reach * t)) n++;
+        }
+        return n / 13;
+      };
+      let best = -1;
+      for (let d = 0; d <= 80; d += 2) if (cover((d * Math.PI) / 180, 1) >= 0.9) best = d;
+      if (best < 0) continue;
+      // l'axe le plus écarté longe le bord de la manche : on revient d'une demi-largeur vers le corps
+      const th = Math.max(0, (best * Math.PI) / 180 - Math.atan2(half, L));
+      // la main : au bout de ce qui reste dans la silhouette, sans aller au-delà d'une fois et demie le gabarit
+      let reach = 1;
+      for (let k = 0; k <= 30; k++) {
+        const t = 0.6 + k * 0.03;
+        if (inside(S[0] + (side * Math.sin(th) * L * t) / r, S[1] + Math.cos(th) * L * t)) reach = t;
+        else if (t > 1) break;
+      }
+      const end = Math.max(0.5 * L, reach * L - 0.5 * half);
+      const at = (u: number): Pt => [S[0] + (side * Math.sin(th) * end * u) / r, S[1] + Math.cos(th) * end * u];
+      J[IX[el]] = at(kEl);
+      J[IX[hand]] = at(1);
+    }
+  }
+  return jointsText(J);
+}
+
 /** Les articulations écrites dans l'animation (au dix-millième). */
 export const jointsText = (J: Pt[]) => J.map(([x, y]) => `${Math.round(x * 1e4) / 1e4},${Math.round(y * 1e4) / 1e4}`).join(';');
 
@@ -286,8 +377,31 @@ function flesh(a: Anim): number[] {
 function warp(a: Anim, phase: number, g: Progress, ctx: Context) {
   const rest = bonesOf(rigJoints(a));
   const cur = skeleton(a, phase, g, ctx);
-  return skinWarp(`rig|${viewOfAnim(a)}|${typeof a.j === 'string' ? a.j : ''}|${ratioOf(a)}|${numOf(a, 'fat', 2)}`, rest, cur, ratioOf(a), undefined, 0.035, flesh(a));
+  const fl = flesh(a);
+  // objet détouré (image au fond transparent, découpe en silhouette) : chaque os emmène la part de l'image qu'il rejoint par la silhouette
+  const cut = ctx.host?.cut;
+  // la chair n'y sert qu'à départager : à moitié, le tronc ne gagne pas les mains collées aux hanches
+  const field = cut && cut !== SQUARE_CUT ? () => boneField(cut, pathToRings(cut), rest, ratioOf(a), fl.map((x) => x * 0.5)) : undefined;
+  return skinWarp(`rig|${viewOfAnim(a)}|${typeof a.j === 'string' ? a.j : ''}|${ratioOf(a)}|${numOf(a, 'fat', 2)}`, rest, cur, ratioOf(a), undefined, 0.035, fl, field, pieceOrder(viewOfAnim(a)));
 }
+
+/**
+ * Ordre de pose des pièces (les premières dessous) : le tronc, puis les jambes et les bras par-dessus ;
+ * tourné de côté, les membres du fond passent sous le tronc (à droite de l'image tourné vers la droite, à gauche de dos trois-quarts).
+ */
+function pieceOrder(view: string): number[] {
+  const body = [1, 4, 5, 2, 3, 0];
+  const [legL, legR, armL, armR] = [[10, 11], [12, 13], [6, 7], [8, 9]];
+  const left = view.endsWith('-gauche');
+  const base = left ? view.slice(0, -'-gauche'.length) : view;
+  let far = base === 'dos-trois-quarts' ? 'L' : base === 'profil' || base === 'trois-quarts' ? 'R' : '';
+  // la vue de gauche est le miroir de celle de droite : le fond change de côté
+  if (far && left) far = far === 'L' ? 'R' : 'L';
+  if (far === 'R') return [...legR, ...armR, ...body, ...legL, ...armL];
+  if (far === 'L') return [...legL, ...armL, ...body, ...legR, ...armR];
+  return [...body, ...legL, ...legR, ...armL, ...armR];
+}
+const SQUARE_CUT = 'M0 0H1V1H0Z';
 
 export const rig: Generator = {
   kind: 'rig',

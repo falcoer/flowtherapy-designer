@@ -16,7 +16,7 @@ import { animRatio, animTime, forPart, generatorOf, withActs, GENERATORS, glyphC
 import { RigOverlay } from './rig-ui';
 import { ViewRing } from './views-ui';
 import { assignViews, characterOf, groupCharacters, KEYS, leftViews, loadImage, parseName, readZip, showView, viewOfName, viewsOf, VIEW_NAMES } from './views';
-import { clearBackground, kitZip, splitSheet } from './charkit';
+import { clearBackground, kitZip, silhouetteCut, silhouetteRig, splitSheet } from './charkit';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
 import { MatterRow } from './matter-palette';
@@ -4784,11 +4784,11 @@ export function App() {
     const at = client ? toPage(client.x, client.y) : undefined;
     if (it.views?.length) {
       // illustration orientée : toutes ses vues, montrée dans celle choisie sur l'anneau de la vignette
-      const { ratio, ...extra } = characterOf(it.views.map((v) => ({ view: v.view, src: v.src, ratio: v.w / v.h })));
+      const { ratio, ...extra } = characterOf(await Promise.all(it.views.map(async (v) => ({ view: v.view, src: v.src, ratio: v.w / v.h, ...(await silhouetteRig(v.src, v.view, v.w / v.h)) }))));
       extra.views = [...extra.views!, ...(await leftViews(viewsOf({ ...extra, w: ratio, h: 1 } as Layer)))].map((v) => (v.view === extra.view ? { ...v, src: '' } : v));
       const turn = it.view && it.view !== extra.view ? showView({ ...extra, w: ratio, h: 1 } as Layer, it.view) : {};
       const shown = { ...extra, ...turn } as typeof extra;
-      addLayer('photo', { src: shown.src, name: it.title, ratio: turn.w ?? ratio, size, at, extra: { views: shown.views, view: shown.view, anim: shown.anim }, ref: `image/${it.id}` });
+      addLayer('photo', { src: shown.src, name: it.title, ratio: turn.w ?? ratio, size, at, extra: { views: shown.views, view: shown.view, anim: shown.anim, cut: shown.cut }, ref: `image/${it.id}` });
       setToast(`« ${it.title} » posé${client ? '' : ' au centre'} : tourne-le avec l’anneau à ses pieds`);
       return;
     }
@@ -4845,10 +4845,14 @@ export function App() {
         // vues générées sur fond blanc : le fond s'efface (pour la page comme pour la bibliothèque), le cadrage reste
         for (const [k, f] of views) views.set(k, { ...f, blob: await clearBackground(f.blob) });
         // 1600 px par vue : plusieurs grandes images restent légères sur iPad
-        const imgs: Array<{ view: string; src: string; ratio: number }> = [];
+        const imgs: Array<{ view: string; src: string; ratio: number; cut?: string; j?: string }> = [];
         for (const k of KEYS) {
           const f = views.get(k);
-          if (f) imgs.push({ view: k, ...(await loadImage(f.blob, 1600)) });
+          if (f) {
+            const im = await loadImage(f.blob, 1600);
+            // silhouette et squelette calé dessus : le personnage bouge par pièces, ses bras suivent leurs os
+            imgs.push({ view: k, ...im, ...(await silhouetteRig(im.src, k, im.ratio)) });
+          }
         }
         const { ratio, ...extra } = characterOf(imgs);
         // vues tournées vers la gauche qui manquent : celles de droite en miroir
@@ -4857,16 +4861,19 @@ export function App() {
         const link = c.parts.size ? uid() : undefined;
         const more: Array<Partial<Layer>> = [];
         for (const [part, pv] of c.parts) {
-          const pimgs: Array<{ view: string; src: string; ratio: number }> = [];
+          const pimgs: Array<{ view: string; src: string; ratio: number; cut?: string }> = [];
           for (const k of KEYS) {
             const f = pv.get(k);
-            if (f) pimgs.push({ view: k, ...(await loadImage(await clearBackground(f.blob), 1600)) });
+            if (f) {
+              const im = await loadImage(await clearBackground(f.blob), 1600);
+              pimgs.push({ view: k, ...im, cut: await silhouetteCut(im.src) });
+            }
           }
           if (!pimgs.length) continue;
           const shown = pimgs.find((x) => x.view === extra.view) ?? pimgs[0]!;
-          let pviews = pimgs.map((x) => ({ view: x.view, src: x.view === shown.view ? '' : x.src, ratio: x.ratio }));
-          pviews = [...pviews, ...(await leftViews(viewsOf({ views: pviews, view: shown.view, src: shown.src, w: shown.ratio, h: 1 } as Layer)))];
-          more.push({ name: `${who || 'Personnage'} · ${part}`, src: shown.src, views: pviews, view: shown.view, anim: undefined, link });
+          let pviews = pimgs.map((x) => ({ view: x.view, src: x.view === shown.view ? '' : x.src, ratio: x.ratio, ...(x.cut ? { cut: x.cut } : {}) }));
+          pviews = [...pviews, ...(await leftViews(viewsOf({ views: pviews, view: shown.view, src: shown.src, cut: shown.cut, w: shown.ratio, h: 1 } as Layer)))];
+          more.push({ name: `${who || 'Personnage'} · ${part}`, src: shown.src, cut: shown.cut, views: pviews, view: shown.view, anim: undefined, link });
         }
         const name = who || (list.length === 1 ? list[0]!.name.replace(/\.[^.]+$/, '') : 'Personnage');
         // plusieurs personnages : côte à côte

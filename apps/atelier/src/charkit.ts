@@ -1,5 +1,7 @@
 import { RIG_BONES, RIG_JOINTS, TEMPLATE_WIDTH, templateJoints } from './anim';
+import { fitJoints } from './stickers';
 import { BASES, VIEWS, VIEW_NAMES, type ViewKind } from './views';
+import { contours, pathToRings, ringsToPath, type Ring } from './cut';
 
 /**
  * Le kit pour générer un personnage en plusieurs angles avec un générateur d'images (GPT…) : les gabarits de chaque vue,
@@ -469,4 +471,47 @@ export async function splitSheet(blob: Blob): Promise<Array<{ name: string; blob
     out.push({ name: `${VIEWS[i]}.png`, blob: piece });
   }
   return out;
+}
+
+/**
+ * La silhouette d'une illustration à fond transparent, en découpe (coordonnées 0..1) : l'objet se touche sur son dessin,
+ * et le squelette plie cette découpe avec l'image (les bras levés sortent de la boîte au lieu d'y être coupés).
+ * Une image sans transparence n'en a pas (undefined).
+ */
+/**
+ * Silhouette d'une vue détourée et squelette calé dessus (voir fitJoints) : de quoi faire bouger l'image par pièces,
+ * sans que le tronc emmène les bras. Rien pour une image sans transparence.
+ */
+export async function silhouetteRig(src: string, view: string, ratio: number): Promise<{ cut?: string; j?: string }> {
+  const cut = await silhouetteCut(src).catch(() => undefined);
+  if (!cut) return {};
+  const j = fitJoints(pathToRings(cut), ratio, view);
+  return j ? { cut, j } : { cut };
+}
+
+export async function silhouetteCut(src: string, max = 360): Promise<string | undefined> {
+  const im = new Image();
+  im.src = src;
+  await im.decode();
+  const k = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
+  const [W, H] = [Math.max(2, Math.round(im.naturalWidth * k)), Math.max(2, Math.round(im.naturalHeight * k))];
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const cx = c.getContext('2d', { willReadFrequently: true })!;
+  cx.drawImage(im, 0, 0, W, H);
+  const px = cx.getImageData(0, 0, W, H).data;
+  let clear = false;
+  for (let i = 3; i < px.length; i += 4)
+    if (px[i]! < 250) {
+      clear = true;
+      break;
+    }
+  if (!clear) return undefined;
+  const area = (r: Ring) => Math.abs(r.reduce((s, p, i) => s + p.x * r[(i + 1) % r.length]!.y - r[(i + 1) % r.length]!.x * p.y, 0)) / 2;
+  // les miettes (poussière détourée, reflets) sont écartées
+  const rings = contours(px, W, H, 60)
+    .map((r) => r.map((p) => ({ x: p.x / W, y: p.y / H })))
+    .filter((r) => r.length >= 6 && area(r) > 0.0015);
+  return rings.length ? ringsToPath(rings, 0.002) : undefined;
 }

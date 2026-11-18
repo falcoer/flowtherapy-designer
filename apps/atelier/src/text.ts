@@ -1,4 +1,5 @@
-import { ringsToPath, simplifyRing, type Ring } from './cut';
+import { contours, ringsToPath, simplifyRing, type Ring } from './cut';
+export { contours };
 import { loadIndex } from './library';
 import { fontAllowed, type FontUse, type FontUses } from '@ftd/core';
 
@@ -881,117 +882,6 @@ function drawSwash(ctx: CanvasRenderingContext2D, s: Swash, X0: number, Y0: numb
   }
 }
 
-/**
- * Contours de l'encre (marching squares avec interpolation) : anneaux fermés en pixels.
- * Les extérieurs et les trous (o, a, e…) sortent tous : la découpe est remplie en pair-impair.
- */
-export function contours(px: Uint8ClampedArray, W: number, H: number, th: number): Ring[] {
-  const a = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= H ? 0 : px[(y * W + x) * 4 + 3]!);
-  // arêtes : horizontales (x, y)→(x+1, y) id = 2*(y*(W+1)+x), verticales (x, y)→(x, y+1) id = 2*(...)+1
-  const hid = (x: number, y: number) => 2 * ((y + 1) * (W + 2) + (x + 1));
-  const vid = (x: number, y: number) => 2 * ((y + 1) * (W + 2) + (x + 1)) + 1;
-  const next = new Map<number, number>();
-  const pos = new Map<number, [number, number]>();
-  const point = (id: number, x0: number, y0: number, x1: number, y1: number) => {
-    if (!pos.has(id)) {
-      const [v0, v1] = [a(x0, y0), a(x1, y1)];
-      const t = v0 === v1 ? 0.5 : (th - v0) / (v1 - v0);
-      pos.set(id, [x0 + (x1 - x0) * t + 0.5, y0 + (y1 - y0) * t + 0.5]);
-    }
-    return id;
-  };
-  for (let y = -1; y < H; y++) {
-    for (let x = -1; x < W; x++) {
-      const tl = a(x, y) >= th ? 8 : 0;
-      const tr = a(x + 1, y) >= th ? 4 : 0;
-      const br = a(x + 1, y + 1) >= th ? 2 : 0;
-      const bl = a(x, y + 1) >= th ? 1 : 0;
-      const c = tl | tr | br | bl;
-      if (c === 0 || c === 15) continue;
-      const T = () => point(hid(x, y), x, y, x + 1, y);
-      const B = () => point(hid(x, y + 1), x, y + 1, x + 1, y + 1);
-      const L = () => point(vid(x, y), x, y, x, y + 1);
-      const R = () => point(vid(x + 1, y), x + 1, y, x + 1, y + 1);
-      // l'encre reste à droite du sens de parcours
-      const seg = (p: number, q: number) => next.set(p, q);
-      switch (c) {
-        case 1:
-          seg(L(), B());
-          break;
-        case 2:
-          seg(B(), R());
-          break;
-        case 3:
-          seg(L(), R());
-          break;
-        case 4:
-          seg(R(), T());
-          break;
-        case 5: {
-          const mid = (a(x, y) + a(x + 1, y) + a(x + 1, y + 1) + a(x, y + 1)) / 4 >= th;
-          if (mid) {
-            seg(L(), T());
-            seg(R(), B());
-          } else {
-            seg(L(), B());
-            seg(R(), T());
-          }
-          break;
-        }
-        case 6:
-          seg(B(), T());
-          break;
-        case 7:
-          seg(L(), T());
-          break;
-        case 8:
-          seg(T(), L());
-          break;
-        case 9:
-          seg(T(), B());
-          break;
-        case 10: {
-          const mid = (a(x, y) + a(x + 1, y) + a(x + 1, y + 1) + a(x, y + 1)) / 4 >= th;
-          if (mid) {
-            seg(T(), R());
-            seg(B(), L());
-          } else {
-            seg(T(), L());
-            seg(B(), R());
-          }
-          break;
-        }
-        case 11:
-          seg(T(), R());
-          break;
-        case 12:
-          seg(R(), L());
-          break;
-        case 13:
-          seg(R(), B());
-          break;
-        case 14:
-          seg(B(), L());
-          break;
-      }
-    }
-  }
-  const rings: Ring[] = [];
-  for (const start of next.keys()) {
-    if (!next.has(start)) continue;
-    const ring: Ring = [];
-    let id: number | undefined = start;
-    while (id !== undefined && next.has(id)) {
-      const p = pos.get(id)!;
-      ring.push({ x: p[0], y: p[1] });
-      const n: number = next.get(id)!;
-      next.delete(id);
-      id = n;
-    }
-    if (ring.length >= 4) rings.push(ring);
-  }
-  return rings;
-}
 
 /** Styles proposés au rayon Textes : de quoi démarrer une affiche d'un geste. */
 export interface TextPreset {
