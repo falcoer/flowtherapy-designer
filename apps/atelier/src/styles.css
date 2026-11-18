@@ -3435,3 +3435,24 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .anim-bar .anim-track { left: calc(var(--corner) + 8px); }
 @keyframes anim-out { from { clip-path: inset(0 calc(100% - var(--corner)) 0 0 round 20px); } to { clip-path: inset(0 0 0 0 round 20px); } }
 @keyframes anim-out-r { from { clip-path: inset(0 0 0 calc(100% - var(--corner)) round 20px); } to { clip-path: inset(0 0 0 0 round 20px); } }
+
+/* barre d'animation déroulée : de la hauteur du bouton de lecture, une seule marge partout (l'écart entre le disque
+   et le bord), le déroulé en haut et les réglages en bas centrés dans cette hauteur ; le bouton n'y garde que son disque */
+.atelier { --am: calc((var(--corner) - var(--corner-in)) / 2); --actl: 28px; --agap: 4px; }
+@media (max-width: 560px), (max-height: 520px) { .atelier { --actl: 26px; --agap: 2px; } }
+.atelier .anim-bar, .atelier .anim-bar.with-band, .atelier.hand-left .anim-bar, .atelier.hand-left .anim-bar.with-band {
+  box-sizing: border-box; height: var(--corner); min-height: 0; border-radius: calc(var(--corner) / 2);
+  padding: calc(var(--am) + var(--corner-in) - var(--actl)) calc(var(--am) + 6px) var(--am) var(--corner);
+  align-items: center; gap: 4px;
+}
+.atelier .anim-bar button, .atelier .anim-bar.with-band button { width: var(--actl); height: var(--actl); border-radius: 50%; }
+.atelier .anim-bar input { height: var(--actl); box-sizing: border-box; border-radius: calc(var(--actl) / 2); text-align: center; padding: 0 4px; }
+.atelier .anim-bar label { margin-left: 6px; }
+.atelier .anim-bar .anim-track { top: var(--am); height: calc(var(--corner-in) - var(--actl) - var(--agap)); left: calc(var(--corner) + 4px); right: calc(var(--am) + 10px); }
+.atelier .anim-bar .anim-track::before, .atelier .anim-bar .anim-fill, .atelier .anim-bar .anim-tick { top: 25%; height: 50%; border-radius: 0; }
+.atelier .anim-bar .anim-track::before { border-radius: 999px; }
+.atelier .anim-bar .anim-knob { top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; }
+/* déroulée : un seul disque pour la lecture, posé dans la barre (ni enveloppe, ni anneau) */
+.atelier .anim-corner.open::after { display: none; }
+.atelier .anim-corner.open::before { box-shadow: none; }
+.atelier .anim-corner.open.on::before { background: var(--accent); }
