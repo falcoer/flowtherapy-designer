@@ -148,7 +148,7 @@ function list(stops: string[], blend: Blend | undefined, n: number, mirror: bool
 
 /** Plus grand côté gardé pour une image de revêtement : assez pour la page, sans charger la mémoire de l'iPad. */
 const IMG_MAX = 1600;
-type Loaded = { c: HTMLCanvasElement | OffscreenCanvas | null; ar: number; failed?: boolean };
+type Loaded = { c: HTMLCanvasElement | OffscreenCanvas | null; ar: number; failed?: boolean; used: number };
 const imgs = new Map<string, Loaded>();
 const waiting = new Set<string>();
 const listeners = new Set<() => void>();
@@ -188,9 +188,7 @@ export function toneOf(src: CanvasImageSource): string {
 export function fillImage(src: string): Loaded | null {
   const hit = imgs.get(src);
   if (hit) {
-    // gardée parmi les plus récentes
-    imgs.delete(src);
-    imgs.set(src, hit);
+    hit.used = performance.now();
     return hit.failed ? null : hit;
   }
   if (waiting.has(src)) return null;
@@ -205,15 +203,17 @@ export function fillImage(src: string): Loaded | null {
     const c = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(W, H) : Object.assign(document.createElement('canvas'), { width: W, height: H });
     (c.getContext('2d') as CanvasRenderingContext2D).drawImage(im, 0, 0, W, H);
     if (!imageTones.has(src)) imageTones.set(src, toneOf(c as CanvasImageSource));
-    // au plus six images gardées en mémoire (10 Mo chacune au plus)
-    while (imgs.size >= 6) imgs.delete(imgs.keys().next().value!);
-    imgs.set(src, { c, ar: W / H });
+    // six images gardées en mémoire (10 Mo chacune au plus) ; une image peinte dans les dernières secondes
+    // reste, même au-delà : la page qui l'utilise la redemanderait aussitôt, sans fin
+    const now = performance.now();
+    for (const [k, v] of imgs) if (imgs.size >= 6 && now - v.used > 5000) imgs.delete(k);
+    imgs.set(src, { c, ar: W / H, used: now });
     epoch++;
     listeners.forEach((f) => f());
   };
   im.onerror = () => {
     waiting.delete(src);
-    imgs.set(src, { c: null, ar: 1, failed: true });
+    imgs.set(src, { c: null, ar: 1, failed: true, used: performance.now() });
     listeners.forEach((f) => f());
   };
   im.src = src;
