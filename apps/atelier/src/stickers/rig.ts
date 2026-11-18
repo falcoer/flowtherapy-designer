@@ -106,6 +106,12 @@ export const jointsText = (J: Pt[]) => J.map(([x, y]) => `${Math.round(x * 1e4) 
 
 const bonesOf = (J: Pt[]): Bone[] => RIG_BONES.map(([p, c]) => [J[IX[p]]!, J[IX[c]]!]);
 
+/** Angle ramené entre −π et π. */
+const wrap = (x: number) => Math.atan2(Math.sin(x), Math.cos(x));
+const smooth = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+/** Rotation (radians) à partir de laquelle un os suit la direction de l'humanoïde plutôt que sa rotation. */
+const BIG_TURN = 1.2;
+
 /**
  * Le squelette de l'objet à un instant : chaque os prend la rotation (et l'allongement) de l'os de l'humanoïde,
  * en partant du bout de son parent ; le bassin se déplace comme celui de l'humanoïde, à l'échelle de l'objet.
@@ -129,9 +135,14 @@ function skeleton(a: Anim, phase: number, g: Progress, ctx: Context): Bone[] {
     const [hr0, hr1, hc0, hc1] = [eq(hRest[IX[p]]!, HUM_RATIO), eq(hRest[IX[c]]!, HUM_RATIO), eq(hCur[IX[p]]!, HUM_RATIO), eq(hCur[IX[c]]!, HUM_RATIO)];
     const v0: Pt = [hr1[0] - hr0[0], hr1[1] - hr0[1]];
     const v1: Pt = [hc1[0] - hc0[0], hc1[1] - hc0[1]];
-    const rot = Math.atan2(v1[1], v1[0]) - Math.atan2(v0[1], v0[0]);
-    const k = Math.hypot(...v1) / Math.max(1e-9, Math.hypot(...v0));
     const [a0, a1] = [eq(rest[IX[p]]!, r), eq(rest[IX[c]]!, r)];
+    // petit mouvement : l'os tourne d'autant que celui de l'humanoïde (un bras plié reste plié) ;
+    // grand mouvement (lever le bras) : l'os prend la direction de celui de l'humanoïde, d'où qu'il parte
+    const turn = wrap(Math.atan2(v1[1], v1[0]) - Math.atan2(v0[1], v0[0]));
+    const toward = wrap(Math.atan2(v1[1], v1[0]) - Math.atan2(a1[1] - a0[1], a1[0] - a0[0]));
+    const t = smooth(Math.abs(turn) / BIG_TURN);
+    const rot = turn + (toward - turn) * t;
+    const k = Math.hypot(...v1) / Math.max(1e-9, Math.hypot(...v0));
     const [dx, dy] = [(a1[0] - a0[0]) * k, (a1[1] - a0[1]) * k];
     const [cs, sn] = [Math.cos(rot), Math.sin(rot)];
     const P = out[IX[p]]!;
@@ -148,14 +159,14 @@ function flesh(a: Anim): number[] {
   const r = ratioOf(a);
   const J = rigJoints(a);
   const s = Math.hypot((J[IX.neck]![0] - J[IX.pelvis]![0]) * r, J[IX.neck]![1] - J[IX.pelvis]![1]) / Math.max(1e-6, Math.hypot((REST_HUM[IX.neck]![0] - REST_HUM[IX.pelvis]![0]) * HUM_RATIO, REST_HUM[IX.neck]![1] - REST_HUM[IX.pelvis]![1]));
-  const fat = Math.max(0.1, numOf(a, 'fat', 1));
+  const fat = Math.max(0.1, numOf(a, 'fat', 2));
   return (humanoid.flesh?.(HUM_BASE) ?? []).map((x) => x * s * fat);
 }
 
 function warp(a: Anim, phase: number, g: Progress, ctx: Context) {
   const rest = bonesOf(rigJoints(a));
   const cur = skeleton(a, phase, g, ctx);
-  return skinWarp(`rig|${typeof a.j === 'string' ? a.j : ''}|${ratioOf(a)}|${numOf(a, 'fat', 1)}`, rest, cur, ratioOf(a), undefined, 0.035, flesh(a));
+  return skinWarp(`rig|${typeof a.j === 'string' ? a.j : ''}|${ratioOf(a)}|${numOf(a, 'fat', 2)}`, rest, cur, ratioOf(a), undefined, 0.035, flesh(a));
 }
 
 export const rig: Generator = {
@@ -165,7 +176,7 @@ export const rig: Generator = {
   cycleName: humanoid.cycleName,
   cycleWhat: humanoid.cycleWhat,
   params: [
-    { key: 'fat', name: 'Gras', title: 'Épaisseur de chair autour des os : plus il y en a, plus chaque os emmène une large part de l’image', type: 'range', min: 0.3, max: 3, def: 1 },
+    { key: 'fat', name: 'Gras', title: 'Épaisseur de chair autour des os : plus il y en a, plus chaque os emmène une large part de l’image', type: 'range', min: 0.3, max: 4, def: 2 },
     ...humanoid.params.filter((p) => GESTURE_KEYS.includes(p.key)),
   ],
   gestures: (a) => humanoid.gestures(humOf(a)),
