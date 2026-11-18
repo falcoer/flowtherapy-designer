@@ -4785,9 +4785,16 @@ export function App() {
       const c = document.createElement('canvas');
       c.width = Math.max(1, Math.round(bmp.width * k));
       c.height = Math.max(1, Math.round(bmp.height * k));
-      c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height);
+      const cx = c.getContext('2d')!;
+      cx.drawImage(bmp, 0, 0, c.width, c.height);
       bmp.close();
-      addLayer('photo', { src: c.toDataURL('image/jpeg', 0.9), name, ratio: c.width / c.height });
+      // une illustration détourée (PNG, WebP transparents) garde sa transparence ; une photo pleine passe en JPEG, plus léger
+      let clear = false;
+      if (!/jpe?g|heic|heif/i.test(file.type)) {
+        const px = cx.getImageData(0, 0, c.width, c.height).data;
+        for (let i = 3; i < px.length; i += 16) if (px[i]! < 250) { clear = true; break; }
+      }
+      addLayer('photo', { src: clear ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.9), name, ratio: c.width / c.height });
       setToast(`« ${name} » importée`);
     } catch {
       // format que le navigateur ne sait pas lire en image (HEIC sur ordinateur, par exemple)
@@ -6826,14 +6833,14 @@ export function App() {
                   </button>
                 ))}
               </div>
-              {shelf === 'photos' && (
+              {(shelf === 'photos' || shelf === 'illustrations') && (
                 <div className="add-grid lib-import">
                   <label className="file">
                     <Icon name="import" />
-                    Importer une photo
+                    {shelf === 'photos' ? 'Importer une photo' : 'Importer une illustration'}
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                      accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         e.target.value = '';
