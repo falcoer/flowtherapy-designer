@@ -1107,6 +1107,8 @@ export function App() {
   // glisser-déposer dans la liste des objets
   const listPress = useRef<{ id: string; y: number; moved: boolean; grip: boolean } | null>(null);
   const listTap = useRef<{ id: string; t: number } | null>(null);
+  /** Doigt gardé sur une ligne de la liste (réunir) ou sur l'en-tête d'un ensemble (dégrouper). */
+  const listHold = useRef<{ timer: number; fired: boolean } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [listDrag, setListDrag] = useState<{ id: string; over?: string; above?: boolean } | null>(null);
   /** Le menu principal entre par ce sur quoi on agit : Éléments garde le dernier de Peindre / Tampon. */
@@ -4178,13 +4180,17 @@ export function App() {
     }
     const eps = 0.6 / (scale * Math.max(b.w, b.h));
     const cuts = parts.map((x) => ringsToPath(x.rings, eps));
-    const extra: Layer[] = cuts.slice(1).map((c, i) => ({ ...structuredClone(sel), id: uid(), name: `${sel.name} · morceau ${i + 2}`, ...carve(sel, { cut: c }) }));
+    // scalpel : les morceaux restent un seul ensemble (solidaires), comme une incision ; ciseaux : ils se séparent
+    const link = blade === 'scalpel' ? (sel.link ?? uid()) : undefined;
+    const extra: Layer[] = cuts.slice(1).map((c, i) => ({ ...structuredClone(sel), id: uid(), name: `${sel.name} · morceau ${i + 2}`, ...carve(sel, { cut: c }), ...(link ? { link } : {}) }));
     update((d) => {
-      const layers = d.layers.map((x) => (x.id === sel.id ? { ...x, ...carve(sel, { cut: cuts[0] }) } : x));
+      const layers = d.layers.map((x) => (x.id === sel.id ? { ...x, ...carve(sel, { cut: cuts[0] }), ...(link ? { link } : {}) } : x));
       layers.splice(layers.findIndex((x) => x.id === sel.id) + 1, 0, ...extra);
       return { ...d, layers };
     });
-    setToast(`« ${sel.name} » séparée en ${parts.length} morceaux : glisse-les pour les placer`);
+    // l'ensemble entier reste choisi
+    setSelected(sel.id);
+    setToast(link ? `« ${sel.name} » incisée en ${parts.length} morceaux solidaires : un toucher les choisit tous, Maj un seul` : `« ${sel.name} » séparée en ${parts.length} morceaux : glisse-les pour les placer`);
   };
 
   /**
@@ -4908,6 +4914,54 @@ export function App() {
 
   // liste des objets, à gauche du panneau des attributs : l'objet choisi l'est aussi sur la page ;
   // deux touchers sur le nom le renomment (montrer/cacher, bibliothèque : menu de gauche ; dupliquer, corbeille : barre du haut)
+  const holdStart = (then: () => void) => {
+    holdStop();
+    const h = { timer: 0, fired: false };
+    h.timer = window.setTimeout(() => {
+      h.fired = true;
+      navigator.vibrate?.(12);
+      then();
+    }, 600);
+    listHold.current = h;
+  };
+  const holdStop = () => {
+    if (listHold.current) window.clearTimeout(listHold.current.timer);
+  };
+  /** Le doigt gardé a déjà agi : le lâcher ne fait rien d'autre. */
+  const holdFired = () => {
+    const f = !!listHold.current?.fired;
+    holdStop();
+    listHold.current = null;
+    return f;
+  };
+  /**
+   * Réunit les éléments choisis en un seul ensemble (pièces solidaires). Les pièces d'un ensemble qui ne sont pas
+   * choisies gardent leur ancien ensemble ; une pièce restée seule n'est plus liée.
+   */
+  const fusePicked = (on: Layer) => {
+    const ids = picked.filter((x) => x.kind !== 'surface').map((x) => x.id);
+    if (!ids.includes(on.id) || ids.length < 2) return setToast('Choisis d’abord avec Maj les éléments à réunir, puis garde le doigt sur l’un d’eux');
+    const link = on.link && doc.layers.filter((x) => x.link === on.link).every((x) => ids.includes(x.id)) ? on.link : uid();
+    update((d) => {
+      let layers = d.layers.map((x) => (ids.includes(x.id) ? { ...x, link } : x));
+      const left = new Map<string, number>();
+      for (const x of layers) if (x.link) left.set(x.link, (left.get(x.link) ?? 0) + 1);
+      layers = layers.map((x) => (x.link && left.get(x.link) === 1 ? { ...x, link: undefined } : x));
+      return { ...d, layers };
+    });
+    setSelected(on.id);
+    flashLink(ids);
+    setToast(`${ids.length} éléments réunis en un ensemble`);
+    setToastUndo(true);
+  };
+  /** Dégroupe un ensemble : ses pièces redeviennent des objets indépendants, qui restent à leur place. */
+  const ungroup = (link: string) => {
+    const n = doc.layers.filter((x) => x.link === link).length;
+    update((d) => ({ ...d, layers: d.layers.map((x) => (x.link === link ? { ...x, link: undefined } : x)) }));
+    setSelected(selected);
+    setToast(`Ensemble dégroupé : ${n} objets indépendants`);
+    setToastUndo(true);
+  };
   /**
    * Liste des objets, du plus haut au plus bas, fidèle à l'ordre de dessin. Les pièces d'un ensemble qui se
    * suivent sont regroupées sous un en-tête ; un objet glissé entre deux pièces coupe l'ensemble, et la suite
@@ -4945,7 +4999,20 @@ export function App() {
       <div
         key={`g-${g.key}`}
         className={`layer-group ${g.part ? 'cont ' : ''}${all ? 'on' : some ? 'part' : ''}`}
+        title="Toucher : choisir l'ensemble · Maj : l'ajouter au choix · doigt gardé : dégrouper"
+        onPointerDown={(e) => {
+          if ((e.target as HTMLElement).closest('.group-fold')) return;
+          const y = e.clientY;
+          holdStart(() => ungroup(g.group));
+          (e.currentTarget as HTMLElement).dataset.y = String(y);
+        }}
+        onPointerMove={(e) => {
+          if (Math.abs(e.clientY - Number((e.currentTarget as HTMLElement).dataset.y ?? e.clientY)) > 6) holdStop();
+        }}
+        onPointerLeave={holdStop}
+        onPointerCancel={holdStop}
         onClick={(e) => {
+          if (holdFired()) return;
           if ((e.target as HTMLElement).closest('.group-fold')) return;
           const ids = g.all.map((x) => x.id);
           // l'en-tête choisit l'ensemble entier ; avec Maj, il l'ajoute au choix ou l'en retire
@@ -4993,11 +5060,18 @@ export function App() {
               if ((e.target as HTMLElement).closest('button')) return;
               const grip = !!(e.target as HTMLElement).closest('.thumb') && l.kind !== 'surface';
               listPress.current = { id: l.id, y: e.clientY, moved: false, grip };
+              // doigt gardé (hors de la vignette, qui sert à glisser) : réunir les éléments choisis
+              if (!grip && l.kind !== 'surface')
+                holdStart(() => {
+                  listPress.current = null;
+                  fusePicked(l);
+                });
             }}
             onPointerMove={(e) => {
               const pr = listPress.current;
               if (!pr || pr.id !== l.id) return;
               if (!pr.moved && Math.abs(e.clientY - pr.y) < 6) return;
+              holdStop();
               if (!pr.grip) {
                 // défilement : ce n'est plus un toucher
                 listPress.current = null;
@@ -5016,6 +5090,7 @@ export function App() {
             onPointerUp={(e) => {
               const pr = listPress.current;
               listPress.current = null;
+              if (holdFired()) return;
               if (pr?.moved) {
                 if (listDrag?.over) dropLayer(l.id, listDrag.over, !!listDrag.above);
                 setListDrag(null);
@@ -5034,6 +5109,7 @@ export function App() {
             }}
             onPointerCancel={() => {
               listPress.current = null;
+              holdStop();
               setListDrag(null);
             }}
           >
