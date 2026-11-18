@@ -130,7 +130,7 @@ export function pathToRings(d: string, steps = 10): Ring[] {
   if (hit) return hit;
   const rings: Ring[] = [];
   let cur: Ring = [];
-  const tok = d.match(/[MLCZ]|-?\d*\.?\d+(?:e-?\d+)?/gi) ?? [];
+  const tok = d.match(/[MLHVCZ]|-?\d*\.?\d+(?:e-?\d+)?/gi) ?? [];
   let i = 0;
   const num = () => Number(tok[i++]);
   while (i < tok.length) {
@@ -139,6 +139,9 @@ export function pathToRings(d: string, steps = 10): Ring[] {
       if (cur.length) rings.push(cur);
       cur = [{ x: num(), y: num() }];
     } else if (c === 'L') cur.push({ x: num(), y: num() });
+    // lignes horizontales et verticales (découpes rectangulaires écrites à la main : « M0 0H1V1H0Z »)
+    else if (c === 'H') cur.push({ x: num(), y: cur[cur.length - 1]?.y ?? 0 });
+    else if (c === 'V') cur.push({ x: cur[cur.length - 1]?.x ?? 0, y: num() });
     else if (c === 'C') {
       const a = cur[cur.length - 1]!;
       const [x1, y1, x2, y2, x, y] = [num(), num(), num(), num(), num(), num()];

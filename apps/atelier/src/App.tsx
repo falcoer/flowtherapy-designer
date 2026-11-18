@@ -5518,7 +5518,6 @@ export function App() {
           return <RigOverlay anim={sel.anim!} map={map} frame={sel.molded?.frame} onChange={(a, commit) => patchLayer(sel.id, { anim: a }, commit)} />;
         })()}
       {!rendu &&
-        tool === 'move' &&
         sel &&
         !!sel.views?.length &&
         !(sel.anim?.kind === 'rig' && animated && animMode && bonesOn) &&
@@ -6993,7 +6992,7 @@ export function App() {
                           a.download = 'kit-personnage.zip';
                           a.click();
                           setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-                          setToast('Kit téléchargé : donne la planche et le prompt à GPT, puis importe le résultat ici');
+                          setToast('Kit téléchargé : commence par prompts/00-lisez-moi.txt, puis importe le résultat ici');
                         });
                       }}
                     >
