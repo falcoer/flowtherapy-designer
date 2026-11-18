@@ -6820,7 +6820,8 @@ export function App() {
           <p>Appui long sur l'image pour l'enregistrer · toucher pour fermer</p>
         </div>
       )}
-      {animated && !rendu && (
+      {/* l'onglet Animation des attributs a sa propre lecture : le bouton du coin s'efface */}
+      {animated && !rendu && !friseShown && (
         <button
           className={`corner-btn anim-corner ${animMode ? 'on' : ''} ${animMode && animBarOut && !friseShown ? 'open' : ''} ${tool === 'paint' || tool === 'stamp' || tool === 'mold' ? 'over-wheel' : ''}`}
           style={{ bottom: bandH + 14 }}
