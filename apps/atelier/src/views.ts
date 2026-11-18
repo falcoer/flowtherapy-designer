@@ -1,5 +1,5 @@
 import type { CharView, Layer } from './model';
-import { newRig, jointsText, rigJoints } from './anim';
+import { newRig, jointsText, rigJoints } from './stickers';
 
 /**
  * Personnage en plusieurs angles : la même illustration vue de face, de trois-quarts, de profil et de dos. Chaque vue
@@ -123,7 +123,8 @@ export function showView(l: Layer, view: string): Partial<Layer> {
   if (!to || view === l.view) return {};
   const anim = l.anim?.kind === 'rig' ? { ...l.anim, ratio: to.ratio, view, j: to.j ?? jointsText(rigJoints({ ...l.anim, ratio: to.ratio, view, j: undefined })) } : l.anim;
   return {
-    src: to.src,
+    // une forme n'a pas d'image : seul son contour change
+    src: to.src || undefined,
     view,
     views: all.map((v) => (v.view === view ? { ...v, src: '' } : v)),
     w: l.h * to.ratio,
@@ -133,21 +134,24 @@ export function showView(l: Layer, view: string): Partial<Layer> {
   };
 }
 
-/** Ajoute (ou remplace) l'image d'une vue ; la vue montrée est remplacée sur place. */
-export function setView(l: Layer, view: ViewKind, img: { src: string; ratio: number }): Partial<Layer> {
+/**
+ * Ajoute (ou remplace) une vue : l'image d'une illustration, ou le contour d'une forme (`cut`, avec `ownCut` le contour
+ * actuel de la forme, qu'elle garde pour sa propre vue). La vue montrée est remplacée sur place.
+ */
+export function setView(l: Layer, view: ViewKind, img: { src: string; ratio: number; cut?: string }, ownCut?: string): Partial<Layer> {
   const all = viewsOf(l);
-  const base: CharView = { view, src: img.src, ratio: img.ratio };
+  const base: CharView = { view, src: img.src, ratio: img.ratio, cut: img.cut };
+  const order = (a: CharView, b: CharView) => VIEWS.indexOf(a.view as ViewKind) - VIEWS.indexOf(b.view as ViewKind);
   if (!all.length) {
-    // une photo seule devient un personnage : sa propre image est la vue de face (ou celle qu'on n'ajoute pas)
-    const own: CharView = { view: view === 'face' ? 'trois-quarts' : 'face', src: l.src ?? '', ratio: l.w / l.h, cut: l.cut, molded: l.molded };
-    const views = [own, base].sort((a, b) => VIEWS.indexOf(a.view as ViewKind) - VIEWS.indexOf(b.view as ViewKind));
-    return { ...rigged(l, own), views: views.map((v) => (v.view === own.view ? { ...v, src: '' } : v)), view: own.view };
+    // un objet seul devient un objet à plusieurs vues : ce qu'il montre est la vue de face (ou celle qu'on n'ajoute pas)
+    const own: CharView = { view: view === 'face' ? 'trois-quarts' : 'face', src: l.src ?? '', ratio: l.w / l.h, cut: l.cut ?? ownCut, molded: l.molded };
+    const views = [own, base].sort(order).map((v) => (v.view === own.view ? { ...v, src: '' } : v));
+    return { ...(l.kind === 'photo' ? rigged(l, own) : {}), cut: own.cut, views, view: own.view };
   }
-  const views = [...all.filter((v) => v.view !== view), base].sort((a, b) => VIEWS.indexOf(a.view as ViewKind) - VIEWS.indexOf(b.view as ViewKind));
-  const next: Layer = { ...l, views: views.map((v) => (v.view === l.view ? { ...v, src: '' } : v)) };
-  if (view !== l.view) return { views: next.views };
-  // la vue montrée change d'image : on la montre telle qu'ajoutée (squelette de départ)
-  return { src: img.src, w: l.h * img.ratio, cut: undefined, molded: undefined, views: next.views, anim: l.anim?.kind === 'rig' ? { ...l.anim, ratio: img.ratio, j: undefined } : l.anim };
+  const views = [...all.filter((v) => v.view !== view), base].sort(order).map((v) => (v.view === l.view ? { ...v, src: '' } : v));
+  if (view !== l.view) return { views };
+  // la vue montrée change : on la montre telle qu'ajoutée (squelette de départ)
+  return { src: img.src || l.src, w: l.h * img.ratio, cut: img.cut, molded: undefined, views, anim: l.anim?.kind === 'rig' ? { ...l.anim, ratio: img.ratio, j: undefined } : l.anim };
 }
 
 /** Un personnage tout juste importé, ou une photo qui devient personnage, reçoit un squelette s'il n'a pas d'animation. */

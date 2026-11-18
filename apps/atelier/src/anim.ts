@@ -1,3 +1,4 @@
+import { showView, viewsOf } from './views';
 import type { Format } from '@ftd/core';
 import { layerBox, type Layer } from './model';
 import { animatorFor, boneCarry, boneFrames, generatorOf, nearestBones, newAnim, spanOf, type Act, type ActState, type Anim, type Bone, type Context, type Generator, type Gesture, type Progress, type Warp } from './stickers';
@@ -51,9 +52,15 @@ export const setAnimTiming = (t?: Partial<Timing>) => void (timing = timingOf(t)
  */
 const blanks = new Map<string, Anim>();
 export function animOf(l: Layer): Anim | undefined {
+  // un objet à plusieurs vues se retourne, découpé ou non
+  if (l.anim?.kind === 'views') return l.anim;
+  if (l.views?.length && !l.anim) return blankOf(animatorFor('views'));
   if (l.cut && !carved(l)) return undefined;
   if (l.anim) return l.anim;
-  const g = animatorFor(l.kind === 'shape' && l.shape ? `shape:${l.shape}` : l.kind);
+  return blankOf(animatorFor(l.kind === 'shape' && l.shape ? `shape:${l.shape}` : l.kind));
+}
+/** L'animation vide d'un animateur d'objets (aucun geste posé), la même à chaque appel. */
+function blankOf(g: Generator | undefined): Anim | undefined {
   if (!g) return undefined;
   let a = blanks.get(g.kind);
   if (!a) blanks.set(g.kind, (a = newAnim(g, { acts: [] })));
@@ -66,7 +73,7 @@ export function animOf(l: Layer): Anim | undefined {
  */
 export const carved = (l: Layer) => !!l.cut && !!l.anim && !l.text && !!l.anim.carved && !!generatorOf(l.anim)?.warp && !generatorOf(l.anim)?.on;
 /** L'objet bouge-t-il de lui-même (sticker, forme sculptée qui garde son animation) ? */
-const lives = (l: Layer) => !!l.anim && (!l.cut || carved(l));
+const lives = (l: Layer) => !!l.anim && (!l.cut || carved(l) || l.anim.kind === 'views');
 
 /** Le document a-t-il au moins une forme animée ? */
 export const hasAnim = (layers: Layer[]) => layers.some((l) => l.visible !== false && (lives(l) || !!l.motion?.length));
@@ -314,6 +321,9 @@ export interface Pose {
   /** Déplacement en parts de la boîte de l'objet. */
   bx?: number;
   by?: number;
+  /** Objet à plusieurs vues : demi-tour en cours, ou vue imposée (voir Order). */
+  turn?: number;
+  view?: string;
 }
 
 /** Consigne propre au sticker : le mouvement d'objet que son générateur ajoute au plan général. */
@@ -328,7 +338,7 @@ export function animOrder(a: Anim, t = now): Partial<Pose> | null {
 export function poseOf(l: Layer, t = now, tm = timing, skip?: Set<string>): Pose | null {
   const own = lives(l) ? animOrder(l.anim!, t) : null;
   if (!own && !l.motion?.some((m) => !skip?.has(m.id))) return null;
-  const p: Pose = { dx: own?.dx ?? 0, dy: own?.dy ?? 0, rot: own?.rot ?? 0, scale: own?.scale ?? 1, lift: own?.lift ?? 0, bx: own?.bx ?? 0, by: own?.by ?? 0 };
+  const p: Pose = { dx: own?.dx ?? 0, dy: own?.dy ?? 0, rot: own?.rot ?? 0, scale: own?.scale ?? 1, lift: own?.lift ?? 0, bx: own?.bx ?? 0, by: own?.by ?? 0, turn: own?.turn, view: own?.view };
   const at = t / tm.period;
   for (const m of l.motion ?? []) {
     if (skip?.has(m.id)) continue;
@@ -363,8 +373,11 @@ export function posed(layers: Layer[], f: Format, t = now): Layer[] {
     // l'animation est celle de l'ensemble : un mouvement que l'objet attaché partage avec le sticker ne compte qu'une fois
     const p = l.kind === 'surface' ? null : poseOf(l, t, timing, tow ? new Set(host!.motion?.map((m) => m.id)) : undefined);
     if (!p && !tow) return l;
+    // objet à plusieurs vues : la vue du moment (demi-tour, marche de côté), qui s'amincit au changement
+    const v = p && (p.turn !== undefined || p.view) && l.views?.length ? viewAt(l, p) : null;
+    if (v) l = { ...l, ...v.patch };
     const scale = (p?.scale ?? 1) * (tow?.scale ?? 1);
-    const [w, h] = [l.w * scale, l.h * scale];
+    const [w, h] = [l.w * scale * (v?.sx ?? 1), l.h * scale];
     return {
       ...l,
       // l'objet grandit depuis son centre, même accroché par un coin ; un déplacement en parts de boîte suit sa taille
@@ -376,6 +389,19 @@ export function posed(layers: Layer[], f: Format, t = now): Layer[] {
       height: Math.max(0, Math.min(1, l.height + (p?.lift ?? 0) + (tow?.lift ?? 0))),
     };
   });
+}
+
+/** La vue d'un objet à plusieurs vues pendant un demi-tour ou une vue imposée, et l'amincissement du changement. */
+function viewAt(l: Layer, p: Pose): { patch: Partial<Layer>; sx: number } | null {
+  const all = viewsOf(l).map((x) => x.view);
+  if (p.view) return all.includes(p.view) && p.view !== l.view ? { patch: showView(l, p.view), sx: 1 } : null;
+  const here = Math.max(0, all.indexOf(l.view ?? all[0]!));
+  // vers la vue la plus éloignée : le dos depuis la face, la face depuis le dos
+  const seq = here < all.length - 1 - here ? all.slice(here) : all.slice(0, here + 1).reverse();
+  if (seq.length < 2) return null;
+  const s = Math.max(0, Math.min(1, p.turn!)) * (seq.length - 1);
+  const to = seq[Math.round(s)]!;
+  return { patch: to === l.view ? {} : showView(l, to), sx: 1 - 0.55 * Math.abs(Math.sin(Math.PI * s)) };
 }
 
 /**

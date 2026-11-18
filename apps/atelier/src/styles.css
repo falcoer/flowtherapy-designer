@@ -3498,3 +3498,4 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .view-chip input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .view-thumb { display: grid; place-items: center; width: 52px; height: 64px; border-radius: 6px; background: #eee center / contain no-repeat; color: var(--accent); font-size: 20px; }
 .view-chip.add { color: var(--accent); border-style: dashed; }
+.view-open { align-self: flex-start; margin: 2px 0 8px; padding: 6px 12px; border-radius: 999px; border: 1px dashed var(--accent); background: transparent; color: var(--accent); font: 600 12px/1 system-ui, sans-serif; cursor: pointer; }

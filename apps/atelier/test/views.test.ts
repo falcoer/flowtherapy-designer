@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { zipStore } from '../src/charkit';
 import type { Layer } from '../src/model';
 import { assignViews, characterOf, readZip, setView, showView, viewOfName, viewsOf } from '../src/views';
-import { rigJoints, RIG_JOINTS, templateJoints } from '../src/anim';
+import { animOf, animSkeleton, posed, rigJoints, RIG_JOINTS, setAnimTiming, templateJoints } from '../src/anim';
 
 const L = (extra: Partial<Layer>): Layer => ({ id: 'p', name: 'p', kind: 'photo', anchor: { frame: 'repartition', point: 'h1/2 v1/2' }, dx: 0, dy: 0, w: 0.3, h: 0.6, guide: 0, height: 0, visible: true, strokes: [], ...extra }) as Layer;
 
@@ -68,5 +68,57 @@ describe('personnage en plusieurs angles', () => {
     const out = await readZip(z);
     expect(out.map((f) => f.name)).toEqual(['face.png']);
     expect(new Uint8Array(await out[0]!.blob.arrayBuffer())).toEqual(png);
+  });
+
+  const f = { width: 1000, height: 1000 } as Parameters<typeof posed>[1];
+  const tm = { period: 1, count: 4 };
+
+  it('se retourner passe par les vues, s’amincit au changement et revient', () => {
+    setAnimTiming(tm);
+    const c = characterOf([
+      { view: 'face', src: 'F', ratio: 0.5 },
+      { view: 'profil', src: 'P', ratio: 0.4 },
+      { view: 'dos', src: 'D', ratio: 0.5 },
+    ]);
+    const l = L({ src: c.src, views: c.views, view: c.view, anim: { ...c.anim, acts: [{ id: 't', g: 'turn', at: 0, len: 2 }] }, w: 0.3, h: 0.6 });
+    const at = (t: number) => posed([l], f, t)[0]!;
+    expect(at(0).src).toBe('F');
+    // au quart : la vue du milieu ; à mi-geste : le dos ; à la fin : la face
+    expect(at(0.5).src).toBe('P');
+    expect(at(1).src).toBe('D');
+    expect(at(2).src).toBe('F');
+    // au changement de vue, l'objet s'amincit
+    const mids = [0.2, 0.25, 0.3, 0.35].map((t) => at(t).w);
+    expect(Math.min(...mids)).toBeLessThan(0.3 * 0.75);
+  });
+
+  it('une forme à plusieurs vues se retourne aussi, chaque vue avec son contour', () => {
+    setAnimTiming(tm);
+    const shape = L({ kind: 'shape', cut: 'M0 0L1 0L1 1Z' } as Partial<Layer>);
+    const p = setView(shape, 'dos', { src: '', ratio: 0.5, cut: 'M0 0L1 1L0 1Z' }, shape.cut);
+    const l = { ...shape, ...p } as Layer;
+    expect(l.anim).toBeUndefined();
+    expect(animOf(l)?.kind).toBe('views');
+    const turning = { ...l, anim: { ...animOf(l)!, acts: [{ id: 't', g: 'turn', at: 0, len: 2 }] } };
+    const mid = posed([turning], f, 1)[0]!;
+    expect(mid.cut).toBe('M0 0L1 1L0 1Z');
+    expect(mid.src).toBeUndefined();
+  });
+
+  it('la marche de côté montre le profil et balance les jambes d’avant en arrière', () => {
+    setAnimTiming(tm);
+    const c = characterOf([
+      { view: 'face', src: 'F', ratio: 0.5 },
+      { view: 'profil', src: 'P', ratio: 0.4 },
+    ]);
+    const l = L({ src: c.src, views: c.views, view: c.view, anim: { ...c.anim, acts: [{ id: 'w', g: 'sidewalk', at: 0, len: 4, cycle: 1 }] }, w: 0.3, h: 0.6 });
+    const p = posed([l], f, 0.25)[0]!;
+    expect(p.src).toBe('P');
+    const a = p.anim!;
+    const sk = (t: number) => animSkeleton(a, t)!;
+    // os 11 : genou → pied gauche ; os 13 : genou → pied droit
+    const [l1, r1] = [sk(0.25)[11]![1][0], sk(0.25)[13]![1][0]];
+    const [l2, r2] = [sk(0.75)[11]![1][0], sk(0.75)[13]![1][0]];
+    expect(Math.sign(l1 - r1)).not.toBe(Math.sign(l2 - r2));
   });
 });

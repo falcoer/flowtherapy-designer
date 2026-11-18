@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import type { Layer } from './model';
+import { cutOf } from './scene';
 import { loadImage, setView, showView, viewsOf, VIEWS, VIEW_NAMES, type ViewKind } from './views';
 
 /**
@@ -7,6 +9,22 @@ import { loadImage, setView, showView, viewsOf, VIEWS, VIEW_NAMES, type ViewKind
  */
 export function ViewRow({ l, patch, onToast }: { l: Layer; patch: (p: Partial<Layer>, history?: boolean) => void; onToast?: (t: string) => void }) {
   const all = viewsOf(l);
+  // un objet sans vues : un seul bouton, la rangée s'ouvre à la demande
+  const [open, setOpen] = useState(false);
+  if (!all.length && !open)
+    return (
+      <button className="view-open" onClick={() => setOpen(true)} title="Donner à l’objet plusieurs angles de vue : face, trois-quarts, profil, dos">
+        ＋ Angles de vue
+      </button>
+    );
+  const shape = l.kind !== 'photo';
+  // une forme : la nouvelle vue part du contour actuel et se montre tout de suite, pour la redécouper ou la modeler
+  const addShape = (v: ViewKind) => {
+    const cut = l.cut ?? cutOf(l);
+    const next = { ...l, ...setView(l, v, { src: '', ratio: l.w / l.h, cut }, cut) } as Layer;
+    patch({ ...setView(l, v, { src: '', ratio: l.w / l.h, cut }, cut), ...showView(next, v) });
+    onToast?.(`Vue ${VIEW_NAMES[v].toLowerCase()} : elle part du contour actuel, redécoupe-la ou modèle-la`);
+  };
   const add = async (v: ViewKind, f: File) => {
     try {
       patch(setView(l, v, await loadImage(f, 1600)));
@@ -23,16 +41,23 @@ export function ViewRow({ l, patch, onToast }: { l: Layer; patch: (p: Partial<La
         if (has)
           return (
             <button key={v} className={`view-chip ${on ? 'on' : ''}`} onClick={() => patch(showView(l, v))} title={`Montrer la vue ${VIEW_NAMES[v].toLowerCase()}`}>
-              <span className="view-thumb" style={{ backgroundImage: `url("${has.src}")` }} />
+              {has.src ? <span className="view-thumb" style={{ backgroundImage: `url("${has.src}")` }} /> : <CutThumb d={has.cut ?? cutOf(l)} />}
               {VIEW_NAMES[v]}
             </button>
           );
         if (on)
           return (
             <span key={v} className="view-chip on">
-              <span className="view-thumb" style={{ backgroundImage: `url("${l.src}")` }} />
+              {l.src ? <span className="view-thumb" style={{ backgroundImage: `url("${l.src}")` }} /> : <CutThumb d={l.cut ?? cutOf(l)} />}
               {VIEW_NAMES[v]}
             </span>
+          );
+        if (shape)
+          return (
+            <button key={v} className="view-chip add" onClick={() => addShape(v)} title={`Ajouter la vue ${VIEW_NAMES[v].toLowerCase()}, à partir du contour actuel`}>
+              <span className="view-thumb">＋</span>
+              {VIEW_NAMES[v]}
+            </button>
           );
         return (
           <label key={v} className="view-chip add" title={`Ajouter l’image de la vue ${VIEW_NAMES[v].toLowerCase()}`}>
@@ -51,5 +76,16 @@ export function ViewRow({ l, patch, onToast }: { l: Layer; patch: (p: Partial<La
         );
       })}
     </div>
+  );
+}
+
+/** Vignette d'une vue de forme : son contour. */
+function CutThumb({ d }: { d: string }) {
+  return (
+    <span className="view-thumb">
+      <svg viewBox="-0.05 -0.05 1.1 1.1" width="44" height="54" preserveAspectRatio="xMidYMid meet" aria-hidden>
+        <path d={d} fill="currentColor" fillRule="evenodd" />
+      </svg>
+    </span>
   );
 }

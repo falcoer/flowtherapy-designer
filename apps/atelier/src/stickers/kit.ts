@@ -85,6 +85,13 @@ export interface Order {
   /** Déplacement compté en parts de la boîte de l'objet (largeur, hauteur) : il suit sa taille. */
   bx?: number;
   by?: number;
+  /**
+   * Objet à plusieurs vues (Layer.views) : avancée d'un demi-tour (0 : sa vue, 1 : la vue la plus éloignée), qui passe
+   * par les vues qu'il a, chacune à son tour, l'objet s'amincissant à chaque changement.
+   */
+  turn?: number;
+  /** Objet à plusieurs vues : la vue à montrer pendant le geste (« profil » pour la marche de côté). */
+  view?: string;
 }
 
 /**

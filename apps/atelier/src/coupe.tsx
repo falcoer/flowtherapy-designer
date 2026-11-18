@@ -737,6 +737,7 @@ export function CoupePanel({
           {card('image', 'Filtre')}
           {sidePlate}
         </div>
+        {(l.kind === 'photo' || (l.kind === 'shape' && !(l.anim && !['views', 'rig'].includes(l.anim.kind)))) && <ViewRow l={l} patch={patch} onToast={(t) => onToast(t, true)} />}
         {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}

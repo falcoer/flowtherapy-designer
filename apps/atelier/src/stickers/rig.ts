@@ -1,5 +1,6 @@
 import { humanoid } from './humanoid';
-import { numOf, skinWarp, type Anim, type Bone, type Context, type Generator, type Progress } from './kit';
+import { numOf, skinWarp, type Anim, type Bone, type Context, type Generator, type Gesture, type Progress } from './kit';
+import { TURN, TURN_PARAMS, turnOf } from './turn';
 
 /**
  * Squelette posé dans un objet existant (une photo détourée, une forme) : on l'habille. Les os de l'humanoïde sont calés
@@ -81,6 +82,38 @@ function humJoints(bones: Bone[]): Pt[] {
   return J;
 }
 const REST_HUM = humJoints(humanoid.skeleton!(HUM_BASE, 0, () => 0, { each: () => [] }));
+
+/**
+ * Marche de côté : de profil (la vue se montre d'elle-même si l'objet l'a), les jambes vont d'avant en arrière,
+ * le genou plie sur le pas qui passe, les bras balancent à l'opposé. Tourné vers la droite de l'image.
+ */
+const SIDE_WALK: Gesture = { id: 'sidewalk', name: 'Marche de côté', note: 'de profil, jambes et bras d’avant en arrière', loop: true, cycle: 1, params: ['stride'], start: false };
+
+/** Rotation ajoutée à chaque os (dans l'ordre de RIG_BONES) par la marche de côté en cours, et le rebond du bassin. */
+function sideWalk(ctx: Context): { rot: number[]; bob: number } | null {
+  const live = ctx.each('sidewalk').filter((s) => s.u > 0 && s.u < 1);
+  if (!live.length) return null;
+  const st = live[live.length - 1]!;
+  const amp = 0.3 + 0.7 * Math.max(0, Math.min(1, numOf(st.a, 'stride', 0.6)));
+  const s = 2 * Math.PI * st.turns;
+  const rot = RIG_BONES.map(() => 0);
+  // vers l'avant (la droite) : rotation négative dans le repère de l'image (y vers le bas)
+  const A = 0.42 * amp;
+  const leg = (thigh: number, shin: number, sg: number) => {
+    rot[thigh] = -A * Math.sin(s) * sg;
+    // le genou plie sur le pas qui revient vers l'avant
+    rot[shin] = rot[thigh]! + 0.8 * amp * Math.max(0, Math.cos(s) * sg);
+  };
+  leg(10, 11, 1);
+  leg(12, 13, -1);
+  const arm = (up: number, fore: number, sg: number) => {
+    rot[up] = 0.32 * amp * Math.sin(s) * sg;
+    rot[fore] = rot[up]! - 0.25 * amp;
+  };
+  arm(6, 7, 1);
+  arm(8, 9, -1);
+  return { rot, bob: -0.012 * amp * Math.abs(Math.cos(s)) };
+}
 
 /** Proportions de la boîte de l'objet (largeur / hauteur), gardées à la pose du squelette. */
 const ratioOf = (a: Anim) => Math.max(0.05, numOf(a, 'ratio', 1));
@@ -201,8 +234,9 @@ function skeleton(a: Anim, phase: number, g: Progress, ctx: Context): Bone[] {
   const len = (p: Pt, q: Pt, k: number) => Math.hypot((q[0] - p[0]) * k, q[1] - p[1]);
   const s = len(rest[IX.pelvis]!, rest[IX.neck]!, r) / Math.max(1e-6, len(hRest[IX.pelvis]!, hRest[IX.neck]!, HUM_RATIO));
   const out: Pt[] = rest.map((p) => eq(p, r));
+  const side = sideWalk(ctx);
   const [pr, pc] = [eq(hRest[IX.pelvis]!, HUM_RATIO), eq(hCur[IX.pelvis]!, HUM_RATIO)];
-  out[IX.pelvis] = [out[IX.pelvis]![0] + (pc[0] - pr[0]) * s, out[IX.pelvis]![1] + (pc[1] - pr[1]) * s];
+  out[IX.pelvis] = side ? [out[IX.pelvis]![0], out[IX.pelvis]![1] + side.bob] : [out[IX.pelvis]![0] + (pc[0] - pr[0]) * s, out[IX.pelvis]![1] + (pc[1] - pr[1]) * s];
   for (const i of CHAIN) {
     const [p, c] = RIG_BONES[i]!;
     const [hr0, hr1, hc0, hc1] = [eq(hRest[IX[p]]!, HUM_RATIO), eq(hRest[IX[c]]!, HUM_RATIO), eq(hCur[IX[p]]!, HUM_RATIO), eq(hCur[IX[c]]!, HUM_RATIO)];
@@ -214,7 +248,7 @@ function skeleton(a: Anim, phase: number, g: Progress, ctx: Context): Bone[] {
     const turn = wrap(Math.atan2(v1[1], v1[0]) - Math.atan2(v0[1], v0[0]));
     const toward = wrap(Math.atan2(v1[1], v1[0]) - Math.atan2(a1[1] - a0[1], a1[0] - a0[0]));
     const t = smooth(Math.abs(turn) / BIG_TURN);
-    const rot = turn + (toward - turn) * t;
+    const rot = (side ? 0 : turn + (toward - turn) * t) + (side?.rot[i] ?? 0);
     const k = Math.hypot(...v1) / Math.max(1e-9, Math.hypot(...v0));
     const [dx, dy] = [(a1[0] - a0[0]) * k, (a1[1] - a0[1]) * k];
     const [cs, sn] = [Math.cos(rot), Math.sin(rot)];
@@ -251,14 +285,16 @@ export const rig: Generator = {
   params: [
     { key: 'fat', name: 'Gras', title: 'Épaisseur de chair autour des os : plus il y en a, plus chaque os emmène une large part de l’image', type: 'range', min: 0.3, max: 4, def: 2 },
     ...humanoid.params.filter((p) => GESTURE_KEYS.includes(p.key)),
+    ...TURN_PARAMS,
   ],
-  gestures: (a) => humanoid.gestures(humOf(a)),
+  gestures: (a) => [...humanoid.gestures(humOf(a)), SIDE_WALK, TURN],
   // l'objet garde sa découpe (posée avec le squelette) : celle-ci ne sert qu'à une vignette
   cut: () => 'M0 0H1V1H0Z',
   skeleton,
   flesh,
   warp,
   ratio: ratioOf,
-  order: (a, phase, g, ctx) => humanoid.order!(humOf(a), phase, g, ctx),
+  // le saut de l'humanoïde, le demi-tour entre les vues, la vue de profil pendant la marche de côté
+  order: (a, phase, g, ctx) => ({ ...humanoid.order!(humOf(a), phase, g, ctx), turn: turnOf(ctx), view: ctx.each('sidewalk').some((s) => s.u > 0 && s.u < 1) ? 'profil' : undefined }),
   glyphText: 'Os',
 };
