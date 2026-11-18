@@ -3310,3 +3310,14 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 @media (max-width: 560px) {
   .hand-left .anim-bar, .hand-left .anim-bar.with-band { right: 8px; }
 }
+/* la lecture est le début de la barre : repliée, il ne reste qu'elle ; déployée, la barre se déroule à sa droite,
+   sur toute la largeur moins la roue de la brosse */
+.atelier { --anim-l: calc(max(12px, env(safe-area-inset-left, 0px)) + 188px); --anim-r: max(12px, env(safe-area-inset-right, 0px)); }
+.atelier.hand-left { --anim-l: max(12px, env(safe-area-inset-left, 0px)); --anim-r: calc(max(12px, env(safe-area-inset-right, 0px)) + 188px); }
+@media (max-width: 560px) { .atelier, .atelier.hand-left { --anim-l: 8px; --anim-r: 8px; } }
+.anim-corner, .hand-left .anim-corner { left: var(--anim-l); right: auto; }
+.anim-bar, .anim-bar.with-band, .hand-left .anim-bar, .hand-left .anim-bar.with-band { left: var(--anim-l); right: var(--anim-r); max-width: none; padding-left: 54px; padding-right: 10px; transform-origin: left center; justify-content: flex-start; }
+@keyframes anim-out { from { clip-path: inset(0 calc(100% - 48px) 0 0 round 20px); } to { clip-path: inset(0 0 0 0 round 20px); } }
+.anim-bar { animation: anim-out 0.28s cubic-bezier(0.3, 0.7, 0.2, 1); }
+@media (max-width: 560px) { .anim-corner.over-wheel { margin-bottom: 190px; } }
+.anim-bar .anim-track { left: 54px; }
