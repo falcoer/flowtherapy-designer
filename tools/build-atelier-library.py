@@ -8,6 +8,10 @@ apps/atelier/public/library/ (généré, non versionné) :
   - fonts/<id>-<n>.woff2 : polices réduites aux caractères latins (copie brute sans fontTools) ;
   - index.json : titres, étiquettes, rayon du tiroir et, pour les images à fond
     transparent, la découpe qui suit leur silhouette (coordonnées 0..1).
+
+Illustration orientée : `views:` dans element.yaml associe chaque vue (face, trois-quarts,
+profil, dos, trois-quarts-gauche, profil-gauche) à son fichier ; chaque vue a sa version web
+et sa vignette, et la mosaïque du tiroir montre l'anneau des vues sous la vignette.
 """
 import json
 import re
@@ -125,6 +129,29 @@ def fonts():
     return out
 
 
+def raster(src: Path, name: str) -> dict:
+    """Image en version web (1600 px au plus) et vignette ; silhouette si le fond est transparent."""
+    item = {}
+    im = Image.open(src)
+    im.load()
+    alpha = transparent(im.convert('RGBA') if im.mode == 'P' else im)
+    im = im.convert('RGBA' if alpha else 'RGB')
+    k = min(1, MAX / max(im.size))
+    big = im.resize((round(im.width * k), round(im.height * k)), Image.LANCZOS) if k < 1 else im
+    if alpha:
+        big.save(OUT / f'{name}.webp', 'WEBP', quality=86, method=5)
+        item['src'] = f'library/{name}.webp'
+        item['rings'] = silhouette(big)
+    else:
+        big.save(OUT / f'{name}.jpeg', 'JPEG', quality=84, optimize=True, progressive=True)
+        item['src'] = f'library/{name}.jpeg'
+    t = THUMB / max(im.size)
+    im.resize((max(1, round(im.width * t)), max(1, round(im.height * t))), Image.LANCZOS).save(OUT / f'{name}-thumb.webp', 'WEBP', quality=78)
+    item['thumb'] = f'library/{name}-thumb.webp'
+    item['w'], item['h'] = big.size
+    return item
+
+
 def main():
     if OUT.exists():
         shutil.rmtree(OUT)
@@ -149,23 +176,14 @@ def main():
             item['tint'] = 'masque' in tags
             item['vector'] = True
         else:
-            im = Image.open(src)
-            im.load()
-            alpha = transparent(im.convert('RGBA') if im.mode == 'P' else im)
-            im = im.convert('RGBA' if alpha else 'RGB')
-            k = min(1, MAX / max(im.size))
-            big = im.resize((round(im.width * k), round(im.height * k)), Image.LANCZOS) if k < 1 else im
-            if alpha:
-                big.save(OUT / f'{id_}.webp', 'WEBP', quality=86, method=5)
-                item['src'] = f'library/{id_}.webp'
-                item['rings'] = silhouette(big)
-            else:
-                big.save(OUT / f'{id_}.jpeg', 'JPEG', quality=84, optimize=True, progressive=True)
-                item['src'] = f'library/{id_}.jpeg'
-            t = THUMB / max(im.size)
-            im.resize((max(1, round(im.width * t)), max(1, round(im.height * t))), Image.LANCZOS).save(OUT / f'{id_}-thumb.webp', 'WEBP', quality=78)
-            item['thumb'] = f'library/{id_}-thumb.webp'
-            item['w'], item['h'] = big.size
+            item.update(raster(src, id_))
+        # illustration orientée : une image par vue (face, trois-quarts, profil, dos, et leurs versions gauche)
+        if el.get('views'):
+            item['views'] = []
+            for view, file in el['views'].items():
+                # une vue : son fichier, ou {file, width, height} (illustrations importées depuis l'atelier)
+                v = raster(f.parent / (file['file'] if isinstance(file, dict) else file), f'{id_}-{view}')
+                item['views'].append({'view': view, 'src': v['src'], 'thumb': v['thumb'], 'w': v['w'], 'h': v['h']})
         items.append(item)
     order = {'photos': 0, 'illustrations': 1, 'logos': 2}
     items.sort(key=lambda x: (order[x['shelf']], x.get('date', '') == '', x['title']))

@@ -1,3 +1,4 @@
+import { ViewRow } from './views-ui';
 import type { Format } from '@ftd/core';
 import { cloneElement, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -736,6 +737,7 @@ export function CoupePanel({
           {card('image', 'Filtre')}
           {sidePlate}
         </div>
+        {(l.kind === 'photo' || (l.kind === 'shape' && !(l.anim && !['views', 'rig'].includes(l.anim.kind)))) && <ViewRow l={l} patch={patch} onToast={(t) => onToast(t, true)} />}
         {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}
@@ -745,7 +747,17 @@ export function CoupePanel({
     const mine = animOf(l);
     // ici seulement les réglages du geste choisi : la forme se règle dans l'onglet Forme
     // un objet habillé d'un squelette n'a pas d'onglet Forme pour ses os : son gras se règle ici, sans geste choisi
-    body = cloneElement(anim, { settings: mine ? (act: Act | null) => (act || mine.kind === 'rig' ? <div className="cp-attrs">{<AnimRows l={l} doc={doc} anim={mine} act={act} live={liveAnim} patch={patch} />}</div> : null) : undefined });
+    body = cloneElement(anim, {
+      settings: mine
+        ? (act: Act | null) =>
+            act || mine.kind === 'rig' ? (
+              <div className="cp-attrs">
+                {mine.kind === 'rig' && !act && l.kind === 'photo' && <ViewRow l={l} patch={patch} onToast={(t) => onToast(t, true)} />}
+                <AnimRows l={l} doc={doc} anim={mine} act={act} live={liveAnim} patch={patch} />
+              </div>
+            ) : null
+        : undefined,
+    });
   } else if (tab === 'support') {
     const v = varnishOf(l);
     const vi = v ? (l.fx ?? []).indexOf(v) : -1;

@@ -208,6 +208,34 @@ export async function addToLibrary(png: Blob, title: string, tags: string[]): Pr
   await call<unknown>('/api/library/upload', { method: 'POST', body: fd });
 }
 
+/** Ajoute une illustration orientée (une image par vue) à la bibliothèque du groupe. */
+export async function addOrientedToLibrary(title: string, views: Array<{ view: string; blob: Blob; name: string }>, tags: string[] = []): Promise<void> {
+  const fd = new FormData();
+  fd.append('title', title);
+  fd.append('tags', tags.join(','));
+  for (const v of views) fd.append(v.view, v.blob, v.name);
+  await call<unknown>('/api/library/oriented', { method: 'POST', body: fd });
+}
+
+/**
+ * Illustrations orientées enregistrées sur le serveur depuis l'atelier, au format des éléments du tiroir.
+ * (La bibliothèque du tiroir est préparée au déploiement ; celles importées depuis restent servies telles quelles.)
+ */
+export async function fetchOrientedItems(): Promise<import('./library').LibItem[]> {
+  type El = { id: string; title?: string; tags: string[]; source: string; meta?: { width: number; height: number }; views?: Record<string, string | { file: string; width: number; height: number }> };
+  const els = await call<El[]>('/api/library?type=image&tags=oriente');
+  return els
+    .filter((e) => e.views && Object.keys(e.views).length)
+    .map((e) => {
+      const views = Object.entries(e.views!).map(([view, v]) => {
+        const x = typeof v === 'string' ? { file: v, width: e.meta?.width ?? 1, height: e.meta?.height ?? 1 } : v;
+        const src = `/files/${x.file}`;
+        return { view, src, thumb: src, w: x.width, h: x.height };
+      });
+      return { id: e.id, title: e.title ?? e.id, tags: e.tags, shelf: 'illustrations' as const, src: `/files/${e.source}`, thumb: `/files/${e.source}`, w: e.meta?.width ?? 1, h: e.meta?.height ?? 1, views };
+    });
+}
+
 /** Rôle dans une équipe : responsable (gère les membres), peut modifier, lecture seule. */
 export type Role = 'owner' | 'editor' | 'viewer';
 export const ROLE_LABELS: Record<Role, string> = { owner: 'Responsable', editor: 'Peut modifier', viewer: 'Lecture seule' };

@@ -1,8 +1,9 @@
+import { baseOf, keyFor, showView, viewsOf, VIEWS } from './views';
 import type { Format } from '@ftd/core';
 import { layerBox, type Layer } from './model';
 import { animatorFor, boneCarry, boneFrames, generatorOf, nearestBones, newAnim, spanOf, type Act, type ActState, type Anim, type Bone, type Context, type Generator, type Gesture, type Progress, type Warp } from './stickers';
 
-export { ANIMATORS, GENERATORS, animatorFor, generatorOf, newAnim, forPart, spanOf, valueOf, newRig, jointsText, rigJoints, RIG_BONES, RIG_JOINTS, RIG_NAMES, TEMPLATE_WIDTH, templateOf } from './stickers';
+export { ANIMATORS, GENERATORS, animatorFor, generatorOf, newAnim, forPart, spanOf, valueOf, newRig, jointsText, rigJoints, RIG_BONES, RIG_JOINTS, RIG_NAMES, TEMPLATE_WIDTH, templateOf, templateJoints } from './stickers';
 export type { Act, Anim, Generator, Gesture, Param, Warp } from './stickers';
 
 /**
@@ -51,9 +52,15 @@ export const setAnimTiming = (t?: Partial<Timing>) => void (timing = timingOf(t)
  */
 const blanks = new Map<string, Anim>();
 export function animOf(l: Layer): Anim | undefined {
+  // un objet à plusieurs vues se retourne, découpé ou non
+  if (l.anim?.kind === 'views') return l.anim;
+  if (l.views?.length && !l.anim) return blankOf(animatorFor('views'));
   if (l.cut && !carved(l)) return undefined;
   if (l.anim) return l.anim;
-  const g = animatorFor(l.kind === 'shape' && l.shape ? `shape:${l.shape}` : l.kind);
+  return blankOf(animatorFor(l.kind === 'shape' && l.shape ? `shape:${l.shape}` : l.kind));
+}
+/** L'animation vide d'un animateur d'objets (aucun geste posé), la même à chaque appel. */
+function blankOf(g: Generator | undefined): Anim | undefined {
   if (!g) return undefined;
   let a = blanks.get(g.kind);
   if (!a) blanks.set(g.kind, (a = newAnim(g, { acts: [] })));
@@ -66,7 +73,7 @@ export function animOf(l: Layer): Anim | undefined {
  */
 export const carved = (l: Layer) => !!l.cut && !!l.anim && !l.text && !!l.anim.carved && !!generatorOf(l.anim)?.warp && !generatorOf(l.anim)?.on;
 /** L'objet bouge-t-il de lui-même (sticker, forme sculptée qui garde son animation) ? */
-const lives = (l: Layer) => !!l.anim && (!l.cut || carved(l));
+const lives = (l: Layer) => !!l.anim && (!l.cut || carved(l) || l.anim.kind === 'views');
 
 /** Le document a-t-il au moins une forme animée ? */
 export const hasAnim = (layers: Layer[]) => layers.some((l) => l.visible !== false && (lives(l) || !!l.motion?.length));
@@ -314,6 +321,9 @@ export interface Pose {
   /** Déplacement en parts de la boîte de l'objet. */
   bx?: number;
   by?: number;
+  /** Objet à plusieurs vues : demi-tour en cours, ou vue imposée (voir Order). */
+  turn?: number;
+  view?: string;
 }
 
 /** Consigne propre au sticker : le mouvement d'objet que son générateur ajoute au plan général. */
@@ -328,7 +338,7 @@ export function animOrder(a: Anim, t = now): Partial<Pose> | null {
 export function poseOf(l: Layer, t = now, tm = timing, skip?: Set<string>): Pose | null {
   const own = lives(l) ? animOrder(l.anim!, t) : null;
   if (!own && !l.motion?.some((m) => !skip?.has(m.id))) return null;
-  const p: Pose = { dx: own?.dx ?? 0, dy: own?.dy ?? 0, rot: own?.rot ?? 0, scale: own?.scale ?? 1, lift: own?.lift ?? 0, bx: own?.bx ?? 0, by: own?.by ?? 0 };
+  const p: Pose = { dx: own?.dx ?? 0, dy: own?.dy ?? 0, rot: own?.rot ?? 0, scale: own?.scale ?? 1, lift: own?.lift ?? 0, bx: own?.bx ?? 0, by: own?.by ?? 0, turn: own?.turn, view: own?.view };
   const at = t / tm.period;
   for (const m of l.motion ?? []) {
     if (skip?.has(m.id)) continue;
@@ -348,7 +358,7 @@ export function poseOf(l: Layer, t = now, tm = timing, skip?: Set<string>): Pose
 
 /** Les couches dans leur pose à l'instant courant (le même tableau si rien ne bouge). */
 export function posed(layers: Layer[], f: Format, t = now): Layer[] {
-  if (!layers.some((l) => l.motion?.length || lives(l))) return layers;
+  if (!layers.some((l) => l.motion?.length || lives(l) || (l.link && l.views?.length))) return layers;
   const m = Math.min(f.width, f.height);
   // objets attachés à un sticker (même groupe solidaire) : ils suivent son animation, comme ses propres pièces
   const hosts = new Map<string, Layer>();
@@ -357,14 +367,27 @@ export function posed(layers: Layer[], f: Format, t = now): Layer[] {
     const g = generatorOf(l.anim!);
     if (g?.skeleton || g?.warp || g?.order || l.motion?.length) hosts.set(l.link, l);
   }
+  // le personnage de chaque groupe (l'objet à plusieurs vues qui a un squelette ou des gestes) et sa vue à cet instant
+  const leads = new Map<string, { id: string; key: string; sx: number }>();
+  for (const l of layers)
+    if (l.link && l.views?.length && l.anim && !leads.has(l.link)) {
+      const v = viewAt(l, lives(l) ? poseOf(l, t) : null);
+      leads.set(l.link, { id: l.id, key: v.key, sx: v.sx });
+    }
   return layers.map((l) => {
     const host = l.link ? hosts.get(l.link) : undefined;
     const tow = host && host !== l && l.kind !== 'surface' && !(host.anim!.set !== undefined && l.anim?.set === host.anim!.set) ? towed(l, host, f, t) : null;
     // l'animation est celle de l'ensemble : un mouvement que l'objet attaché partage avec le sticker ne compte qu'une fois
     const p = l.kind === 'surface' ? null : poseOf(l, t, timing, tow ? new Set(host!.motion?.map((m) => m.id)) : undefined);
-    if (!p && !tow) return l;
+    if (!p && !tow && !(l.link && leads.get(l.link)?.id !== l.id && l.views?.length && leads.has(l.link))) return l;
+    // objet à plusieurs vues : la vue du moment (demi-tour, marche de côté), qui s'amincit au changement ;
+    // un élément détaché (micro, chapeau) prend la vue de son personnage, et disparaît s'il ne l'a pas
+    const lead = l.link ? leads.get(l.link) : undefined;
+    const follow = lead && lead.id !== l.id && l.views?.length ? lead : null;
+    const v = follow ? sameView(l, follow) : p && (p.turn !== undefined || p.view) && l.views?.length ? viewAt(l, p) : null;
+    if (v) l = { ...l, ...v.patch };
     const scale = (p?.scale ?? 1) * (tow?.scale ?? 1);
-    const [w, h] = [l.w * scale, l.h * scale];
+    const [w, h] = [l.w * scale * (v?.sx ?? 1), l.h * scale];
     return {
       ...l,
       // l'objet grandit depuis son centre, même accroché par un coin ; un déplacement en parts de boîte suit sa taille
@@ -376,6 +399,31 @@ export function posed(layers: Layer[], f: Format, t = now): Layer[] {
       height: Math.max(0, Math.min(1, l.height + (p?.lift ?? 0) + (tow?.lift ?? 0))),
     };
   });
+}
+
+/**
+ * La vue d'un objet à plusieurs vues à cet instant : un demi-tour en cours, une vue imposée par un geste, sinon la sienne ;
+ * l'amincissement du changement de vue (sx). Les vues tournées suivent le sens où il regarde (Layer.facing).
+ */
+/** Un élément détaché montre la vue de son personnage ; sans elle, il se cache. */
+function sameView(l: Layer, lead: { key: string; sx: number }): { key: string; patch: Partial<Layer>; sx: number } {
+  const has = viewsOf(l).some((x) => x.view === lead.key);
+  return { key: lead.key, patch: has ? (lead.key === l.view ? {} : showView(l, lead.key)) : { opacity: 0 }, sx: lead.sx };
+}
+
+function viewAt(l: Layer, p: Pose | null): { key: string; patch: Partial<Layer>; sx: number } {
+  const all = viewsOf(l).map((x) => x.view);
+  const here = l.view ?? all[0]!;
+  const go = (k: string, sx = 1) => ({ key: k, patch: k === l.view || !all.includes(k) ? {} : showView(l, k), sx });
+  if (p?.view) return go(keyFor(p.view, l.facing));
+  if (p?.turn === undefined) return go(here);
+  const main = VIEWS.map((b) => keyFor(b, l.facing)).filter((k) => all.includes(k));
+  const at = Math.max(0, main.indexOf(keyFor(baseOf(here), l.facing)));
+  // vers la vue la plus éloignée : le dos depuis la face, la face depuis le dos
+  const seq = at < main.length - 1 - at ? main.slice(at) : main.slice(0, at + 1).reverse();
+  if (seq.length < 2) return go(here);
+  const s = Math.max(0, Math.min(1, p.turn)) * (seq.length - 1);
+  return go(seq[Math.round(s)]!, 1 - 0.55 * Math.abs(Math.sin(Math.PI * s)));
 }
 
 /**

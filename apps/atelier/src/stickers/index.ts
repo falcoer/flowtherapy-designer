@@ -7,13 +7,14 @@ import { letters } from './letters';
 import { propeller } from './propeller';
 import { puddle } from './puddle';
 import { rig } from './rig';
+import { views } from './turn';
 
 export * from './kit';
 
 /** Le catalogue des stickers, dans l'ordre du rayon « Animées ». */
 export const GENERATORS: Generator[] = [countdown, bird, propeller, eye, humanoid];
 /** Les générateurs qui animent un objet existant (Generator.on) : leurs gestes s'offrent sur la frise de cet objet. */
-export const ANIMATORS: Generator[] = [letters, puddle];
+export const ANIMATORS: Generator[] = [letters, puddle, views];
 
 /** Le squelette qu'on pose dans un objet existant (photo, forme) pour l'habiller : ni sticker du rayon, ni animateur d'une sorte d'objet. */
 export const RIG = rig;
@@ -38,4 +39,4 @@ export function newAnim(g: Generator, over: Partial<Anim> = {}): Anim {
 export function newRig(ratio: number): Anim {
   return { ...newAnim(rig, { acts: [] }), ratio: Math.round(ratio * 1e4) / 1e4, carved: 1 };
 }
-export { RIG_BONES, RIG_JOINTS, RIG_NAMES, TEMPLATE_WIDTH, defaultJoints, jointsText, rigJoints, templateOf, type RigJoint } from './rig';
+export { RIG_BONES, RIG_JOINTS, RIG_NAMES, TEMPLATE_WIDTH, defaultJoints, jointsText, rigJoints, templateJoints, templateOf, type RigJoint } from './rig';

@@ -171,6 +171,22 @@ export const LAYER_BLENDS: Array<[LayerBlend | undefined, string, string]> = [
   ['overlay', 'Incrustation', 'Renforce les contrastes de ce qui est dessous'],
 ];
 
+/** Une vue d'un personnage en plusieurs angles. */
+export interface CharView {
+  /** face, trois-quarts, profil ou dos. */
+  view: string;
+  /** Image de la vue (vide pour la vue montrée : elle est dans `src`). */
+  src: string;
+  /** Proportions de l'image (largeur / hauteur). */
+  ratio: number;
+  /** Articulations calées sur cette vue (voir anim.j). */
+  j?: string;
+  cut?: string;
+  molded?: Layer['molded'];
+  /** Vue tirée d'une autre en miroir (refaite si l'autre change). */
+  mirror?: number;
+}
+
 export interface Layer {
   id: string;
   name: string;
@@ -206,6 +222,15 @@ export interface Layer {
   grad?: GradPlace;
   /** Photo (URL ou data URI). */
   src?: string;
+  /**
+   * Personnage en plusieurs angles : une image par vue (face, trois-quarts, profil, dos), chacune avec ses proportions,
+   * son squelette calé (`j`) et sa découpe. La vue montrée est `view` : son image est `src`, sa place dans la liste reste vide.
+   */
+  views?: CharView[];
+  /** Vue montrée d'un personnage en plusieurs angles. */
+  view?: string;
+  /** Sens où regarde un objet à plusieurs vues : « gauche », sinon la droite de l'image. */
+  facing?: string;
   /** Élément de bibliothèque d'origine (« image/<id> ») : l'instance n'en garde que les écarts. */
   ref?: string;
   /** Hauteur au-dessus de la page (0..1) : l'ombre portée en découle. En dessous de 0, c'est `inner` (creux). */

@@ -639,6 +639,21 @@ export async function buildApp(opts: AppOptions) {
     return { created };
   });
 
+  /** Illustration orientée : champs title et tags, puis un fichier par vue (le nom du champ est la vue). */
+  app.post('/api/library/oriented', async (req, reply) => {
+    const fields: Record<string, string> = {};
+    const views: Array<{ view: string; data: Buffer; ext: string }> = [];
+    try {
+      for await (const part of req.parts()) {
+        if (part.type === 'field') fields[part.fieldname] = String(part.value);
+        else views.push({ view: part.fieldname, data: await part.toBuffer(), ext: path.extname(part.filename).toLowerCase() });
+      }
+      return { created: await lib.importOriented({ title: fields.title || 'Personnage', tags: fields.tags?.split(','), views }) };
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  });
+
   app.post<{ Body: { title?: string; colors?: Array<{ hex: string; name?: string; role?: string }>; tags?: string[] } }>('/api/library/palettes', async (req, reply) => {
     try {
       const { title, colors, tags } = req.body ?? {};

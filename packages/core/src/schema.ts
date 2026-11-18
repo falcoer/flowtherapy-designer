@@ -24,6 +24,8 @@ export const ImageElementSchema = z.object({
   focus: z.object({ x: z.number(), y: z.number() }).optional(),
   palette: z.string().optional(),
   cache: z.record(z.string(), z.string()).default({}),
+  /** Illustration orientée : une image par vue (face, trois-quarts, profil, dos, trois-quarts-gauche, profil-gauche). */
+  views: z.record(z.string(), z.union([z.string(), z.object({ file: z.string(), width: z.number(), height: z.number() })])).optional(),
 });
 
 export const SlotSchema = z.object({
