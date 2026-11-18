@@ -351,6 +351,27 @@ function framesOf(g: Progress, ctx?: Context): Frames {
   return { walk, walkOn, dance, danceOn, wave: once(g('wave'), WAVE_FRAMES), jump: once(g('jump'), JUMP_FRAMES) };
 }
 
+/** Les os à un instant (Generator.skeleton) : tête, torse, puis bras et jambes en deux os chacun. */
+function skeleton(a: Anim, _phase: number, g: Progress, ctx?: Context): Array<[[number, number], [number, number]]> {
+  const b = bodyOf(a);
+  const j = jointsOf(b, poseOf(a, framesOf(g, ctx)));
+  const at = (p: Pt): [number, number] => [(p.x + BOX_W / 2) / BOX_W, (p.y + TOP) / BOX_H];
+  const [sMid, hMid] = [lerp(j.shoulderL, j.shoulderR, 0.5), lerp(j.hipL, j.hipR, 0.5)];
+  const bones: Array<[Pt, Pt]> = [
+    [sMid, j.head],
+    [hMid, sMid],
+    [j.shoulderL, j.elbowL],
+    [j.elbowL, j.handL],
+    [j.shoulderR, j.elbowR],
+    [j.elbowR, j.handR],
+    [j.hipL, j.kneeL],
+    [j.kneeL, j.footL],
+    [j.hipR, j.kneeR],
+    [j.kneeR, j.footR],
+  ];
+  return bones.map(([p, q]) => [at(p), at(q)]);
+}
+
 const KEYS = ['sex', 'heads', 'build', 'shoulders', 'legs', 'arms', 'headT', 'torsoT', 'limbT', 'stride', 'swing', 'waves'];
 
 function cut(a: Anim, _phase: number, g: Progress, ctx?: Context): string {
@@ -464,9 +485,10 @@ export const humanoid: Generator = {
   ],
   parts: PARTS,
   cut,
+  skeleton,
   ratio: () => BOX_W / BOX_H,
   // le saut soulève l'objet entier : toutes les pièces montent ensemble
-  order: (a, _phase, g) => ({ dy: -0.22 * (0.3 + 0.7 * unit(a, 'leap', 0.5)) * jumpOf(Math.round(Math.max(0, Math.min(1, g('jump'))) * JUMP_FRAMES) / JUMP_FRAMES).air }),
+  order: (a, _phase, g) => ({ by: -0.22 * (0.3 + 0.7 * unit(a, 'leap', 0.5)) * jumpOf(Math.round(Math.max(0, Math.min(1, g('jump'))) * JUMP_FRAMES) / JUMP_FRAMES).air }),
   focus,
   size: 0.8,
 };

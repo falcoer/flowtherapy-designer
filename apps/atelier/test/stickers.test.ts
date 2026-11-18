@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { actsOf, forPart, newAct, spanOf, withActs } from '../src/anim';
-import { animCut, animOrder, animRatio, cycleOf, ease, GENERATORS, generatorOf, gesturesOf, newAnim, poseOf, setAnimTiming, valueOf } from '../src/anim';
+import { animCut, animFollow, animOrder, posed, animRatio, cycleOf, ease, GENERATORS, generatorOf, gesturesOf, newAnim, poseOf, setAnimTiming, valueOf } from '../src/anim';
 import type { Layer } from '../src/model';
 
 const layer = (p: Partial<Layer>): Layer => ({ id: 'a', name: 'a', kind: 'shape', anchor: { frame: 'page', point: 'c' } as Layer['anchor'], dx: 0, dy: 0, w: 0.5, h: 0.5, guide: 0, height: 0, visible: true, strokes: [], ...p }) as Layer;
@@ -277,10 +277,57 @@ describe('humanoïde', () => {
     setAnimTiming(tm);
     const base = empty({ part: 'legL' });
     const a = { ...base, acts: [{ ...newAct(base, ges('jump'), 1, tm), len: 1 }] };
-    expect(animOrder(a, 0.5)?.dy ?? 0).toBeCloseTo(0);
+    expect(animOrder(a, 0.5)?.by ?? 0).toBeCloseTo(0);
     expect(animCut(a, 1.15)).not.toBe(animCut(a, 0));
-    expect(animOrder(a, 1.55)!.dy!).toBeLessThan(-0.05);
-    expect(animOrder(a, 2.5)?.dy ?? 0).toBeCloseTo(0);
+    expect(animOrder(a, 1.55)!.by!).toBeLessThan(-0.05);
+    expect(animOrder(a, 2.5)?.by ?? 0).toBeCloseTo(0);
     expect(animCut(a, 2.5)).toBe(animCut(a, 0));
+  });
+});
+
+describe('objets attachés à un sticker', () => {
+  const tm = { period: 1, count: 8 };
+  const man = generatorOf('humanoid')!;
+  const f = { width: 1000, height: 1000 } as Parameters<typeof posed>[1];
+  const ges = (id: string) => man.gestures({ kind: 'humanoid' }).find((g) => g.id === id)!;
+  const base = { ...newAnim(man), acts: [] as ReturnType<typeof newAct>[], set: 's' };
+  const scene = (acts: ReturnType<typeof newAct>[]) => {
+    const anim = { ...base, acts };
+    const head = layer({ id: 'head', anim: { ...anim, part: 'head' }, link: 'g', w: 0.55, h: 0.61 });
+    const leg = layer({ id: 'leg', anim: { ...anim, part: 'legL' }, link: 'g', w: 0.55, h: 0.61 });
+    // un chapeau posé sur la tête, une montre au poignet droit, un objet libre hors du groupe
+    const hat = layer({ id: 'hat', link: 'g', w: 0.08, h: 0.04, dy: -0.2 });
+    const watch = layer({ id: 'watch', link: 'g', w: 0.02, h: 0.02, dx: 0.085, dy: -0.01 });
+    const free = layer({ id: 'free', w: 0.08, h: 0.04, dy: -0.2 });
+    return [head, leg, hat, watch, free];
+  };
+  const at = (ls: Layer[], t: number, id: string) => posed(ls, f, t).find((l) => l.id === id)!;
+  it('au repos, rien ne bouge', () => {
+    setAnimTiming(tm);
+    const ls = scene([]);
+    for (const id of ['hat', 'watch', 'free']) expect(at(ls, 1, id)).toMatchObject({ dx: ls.find((l) => l.id === id)!.dx, dy: ls.find((l) => l.id === id)!.dy });
+  });
+  it('le chapeau monte avec le saut, comme les pièces ; un objet hors du groupe reste', () => {
+    setAnimTiming(tm);
+    const ls = scene([{ ...newAct(base, ges('jump'), 1, tm), len: 1 }]);
+    const lift = at(ls, 1.55, 'head').dy - ls[0]!.dy;
+    expect(lift).toBeLessThan(-0.03);
+    expect(at(ls, 1.55, 'hat').dy - ls[2]!.dy).toBeCloseTo(lift, 2);
+    expect(at(ls, 1.55, 'free').dy).toBe(ls[4]!.dy);
+    // accroupi avant l'envol : la tête descend, le chapeau aussi
+    expect(at(ls, 1.15, 'hat').dy).toBeGreaterThan(ls[2]!.dy + 0.005);
+  });
+  it('la montre suit le bras qui salue et tourne avec lui, le chapeau reste sur la tête', () => {
+    setAnimTiming(tm);
+    const ls = scene([{ ...newAct(base, ges('wave'), 1, tm), len: 2 }]);
+    const w = at(ls, 2, 'watch');
+    expect(w.dy).toBeLessThan(ls[3]!.dy - 0.1);
+    expect(Math.abs(w.rot ?? 0)).toBeGreaterThan(1);
+    expect(Math.abs(at(ls, 2, 'hat').dy - ls[2]!.dy)).toBeLessThan(0.02);
+    expect(at(ls, 3.5, 'watch').dy).toBeCloseTo(ls[3]!.dy, 5);
+  });
+  it('sans squelette, le point reste en place', () => {
+    setAnimTiming(tm);
+    expect(animFollow({ ...newAnim(generatorOf('eye')!), acts: [] }, 0.5, 0.5, 1)).toBeNull();
   });
 });

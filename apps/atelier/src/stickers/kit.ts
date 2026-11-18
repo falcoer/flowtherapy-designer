@@ -82,6 +82,9 @@ export interface Order {
   rot?: number;
   scale?: number;
   lift?: number;
+  /** Déplacement compté en parts de la boîte de l'objet (largeur, hauteur) : il suit sa taille. */
+  bx?: number;
+  by?: number;
 }
 
 /**
@@ -191,6 +194,11 @@ export interface Generator {
    * pliés par la même déformation que la surface (warp), la chair cachée.
    */
   bones?: (a: Anim) => Array<Array<[number, number]>>;
+  /**
+   * Squelette à un instant : ses os, toujours dans le même ordre, chacun de son attache à son bout (coordonnées 0..1 de la boîte).
+   * Un objet attaché au sticker suit l'os dont il est le plus proche au repos (un chapeau suit la tête).
+   */
+  skeleton?: (a: Anim, phase: number, g: Progress, ctx: Context) => Array<[[number, number], [number, number]]>;
   /** Proportions de la boîte (largeur / hauteur). */
   ratio: (a: Anim) => number;
   /** Consigne de mouvement ajoutée au plan général, à une avancée du cycle. */

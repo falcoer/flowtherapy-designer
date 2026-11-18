@@ -1,5 +1,5 @@
 import type { Format } from '@ftd/core';
-import type { Layer } from './model';
+import { layerBox, type Layer } from './model';
 import { animatorFor, generatorOf, newAnim, spanOf, type Act, type ActState, type Anim, type Context, type Generator, type Gesture, type Progress, type Warp } from './stickers';
 
 export { ANIMATORS, GENERATORS, animatorFor, generatorOf, newAnim, forPart, spanOf, valueOf } from './stickers';
@@ -204,6 +204,42 @@ export function glyphCut(a: Anim): string {
   return g ? g.cut(a, g.glyphPhase ?? 0, () => g.glyphPhase ?? 0, { each: () => [] }) : SQUARE;
 }
 
+/**
+ * Ce que le sticker fait d'un point de sa boîte (0..1, pris au repos) à l'instant t : son déplacement, en parts de la boîte,
+ * et sa rotation. Le point suit l'os dont il est le plus proche au repos ; sans squelette, la déformation de la surface.
+ */
+export function animFollow(a: Anim, u: number, v: number, t = now): { dx: number; dy: number; rot: number } | null {
+  const g = generatorOf(a);
+  if (!g) return null;
+  const s = stateAt(g, a, t);
+  if (g.skeleton) {
+    const rest = g.skeleton(s.a, 0, () => 0, { each: () => [] });
+    const cur = g.skeleton(s.a, s.phase, s.progress, { each: s.each });
+    // distances mesurées dans un repère aux unités égales : la boîte n'est pas carrée
+    const r = g.ratio(s.a) || 1;
+    const [x, y] = [u * r, v];
+    let best = -1;
+    let dist = Infinity;
+    rest.forEach(([p, q], i) => {
+      const [px, py, qx, qy] = [p[0] * r, p[1], q[0] * r, q[1]];
+      const len2 = (qx - px) ** 2 + (qy - py) ** 2 || 1e-9;
+      const k = Math.max(0, Math.min(1, ((x - px) * (qx - px) + (y - py) * (qy - py)) / len2));
+      const d = Math.hypot(x - px - k * (qx - px), y - py - k * (qy - py));
+      if (d < dist) [dist, best] = [d, i];
+    });
+    const [from, to] = [rest[best], cur[best]];
+    if (!from || !to) return null;
+    const rot = Math.atan2(to[1][1] - to[0][1], (to[1][0] - to[0][0]) * r) - Math.atan2(from[1][1] - from[0][1], (from[1][0] - from[0][0]) * r);
+    const [ox, oy] = [x - from[0][0] * r, y - from[0][1]];
+    const [c, sn] = [Math.cos(rot), Math.sin(rot)];
+    return { dx: (to[0][0] * r + ox * c - oy * sn) / r - u, dy: to[0][1] + ox * sn + oy * c - v, rot };
+  }
+  const w = g.warp?.(s.a, s.phase, s.progress, { each: s.each });
+  if (!w) return null;
+  const [mx, my] = w.map(u, v);
+  return { dx: mx - u, dy: my - v, rot: 0 };
+}
+
 /** Proportions de la boîte (largeur / hauteur) qui conviennent à l'animation. */
 export function animRatio(a: Anim): number {
   return generatorOf(a)?.ratio(a) ?? 1;
@@ -275,6 +311,9 @@ export interface Pose {
   rot: number;
   scale: number;
   lift: number;
+  /** Déplacement en parts de la boîte de l'objet. */
+  bx?: number;
+  by?: number;
 }
 
 /** Consigne propre au sticker : le mouvement d'objet que son générateur ajoute au plan général. */
@@ -289,7 +328,7 @@ export function animOrder(a: Anim, t = now): Partial<Pose> | null {
 export function poseOf(l: Layer, t = now, tm = timing): Pose | null {
   const own = lives(l) ? animOrder(l.anim!, t) : null;
   if (!own && !l.motion?.length) return null;
-  const p: Pose = { dx: own?.dx ?? 0, dy: own?.dy ?? 0, rot: own?.rot ?? 0, scale: own?.scale ?? 1, lift: own?.lift ?? 0 };
+  const p: Pose = { dx: own?.dx ?? 0, dy: own?.dy ?? 0, rot: own?.rot ?? 0, scale: own?.scale ?? 1, lift: own?.lift ?? 0, bx: own?.bx ?? 0, by: own?.by ?? 0 };
   const at = t / tm.period;
   for (const m of l.motion ?? []) {
     let u = (at - m.at) / Math.max(0.001, m.len);
@@ -310,21 +349,54 @@ export function poseOf(l: Layer, t = now, tm = timing): Pose | null {
 export function posed(layers: Layer[], f: Format, t = now): Layer[] {
   if (!layers.some((l) => l.motion?.length || lives(l))) return layers;
   const m = Math.min(f.width, f.height);
+  // objets attachés à un sticker (même groupe solidaire) : ils suivent son animation, comme ses propres pièces
+  const hosts = new Map<string, Layer>();
+  for (const l of layers) {
+    if (!l.link || hosts.has(l.link) || l.kind === 'surface' || l.visible === false || !lives(l)) continue;
+    const g = generatorOf(l.anim!);
+    if (g?.skeleton || g?.warp || g?.order) hosts.set(l.link, l);
+  }
   return layers.map((l) => {
     const p = l.kind === 'surface' ? null : poseOf(l, t);
-    if (!p) return l;
-    const [w, h] = [l.w * p.scale, l.h * p.scale];
+    const host = l.link ? hosts.get(l.link) : undefined;
+    const tow = host && host !== l && l.kind !== 'surface' && !(host.anim!.set !== undefined && l.anim?.set === host.anim!.set) ? towed(l, host, f, t) : null;
+    if (!p && !tow) return l;
+    const scale = (p?.scale ?? 1) * (tow?.scale ?? 1);
+    const [w, h] = [l.w * scale, l.h * scale];
     return {
       ...l,
-      // l'objet grandit depuis son centre, même accroché par un coin
-      dx: l.dx + p.dx + ((l.grip?.x ?? 0) * (w - l.w) * m) / f.width,
-      dy: l.dy + p.dy + ((l.grip?.y ?? 0) * (h - l.h) * m) / f.height,
+      // l'objet grandit depuis son centre, même accroché par un coin ; un déplacement en parts de boîte suit sa taille
+      dx: l.dx + (p?.dx ?? 0) + ((p?.bx ?? 0) * l.w * m) / f.width + (tow?.dx ?? 0) + ((l.grip?.x ?? 0) * (w - l.w) * m) / f.width,
+      dy: l.dy + (p?.dy ?? 0) + ((p?.by ?? 0) * l.h * m) / f.height + (tow?.dy ?? 0) + ((l.grip?.y ?? 0) * (h - l.h) * m) / f.height,
       w,
       h,
-      rot: (l.rot ?? 0) + p.rot || undefined,
-      height: Math.max(0, Math.min(1, l.height + p.lift)),
+      rot: (l.rot ?? 0) + (p?.rot ?? 0) + (tow?.rot ?? 0) || undefined,
+      height: Math.max(0, Math.min(1, l.height + (p?.lift ?? 0) + (tow?.lift ?? 0))),
     };
   });
+}
+
+/**
+ * Ce qu'un objet attaché reçoit du sticker de son groupe à l'instant t : il suit l'os (ou la surface) sous son centre,
+ * puis le mouvement d'objet du sticker (son saut, sa rotation), autour du centre du sticker. dx, dy en parts de la page.
+ */
+function towed(l: Layer, host: Layer, f: Format, t: number): { dx: number; dy: number; rot: number; scale: number; lift: number } | null {
+  const [L, H] = [layerBox(l, f), layerBox(host, f)];
+  if (!H.w || !H.h) return null;
+  const turn = (x: number, y: number, a: number): [number, number] => [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a)];
+  const r0 = host.rot ?? 0;
+  // le centre de l'objet, dans la boîte du sticker au repos
+  let [x, y] = turn(L.cx - H.cx, L.cy - H.cy, -r0);
+  const fl = animFollow(host.anim!, x / H.w + 0.5, y / H.h + 0.5, t);
+  const o = animOrder(host.anim!, t);
+  if (!fl && !o) return null;
+  x += (fl?.dx ?? 0) * H.w;
+  y += (fl?.dy ?? 0) * H.h;
+  const k = o?.scale ?? 1;
+  [x, y] = turn(x * k, y * k, r0 + (o?.rot ?? 0));
+  x += (o?.dx ?? 0) * f.width + (o?.bx ?? 0) * H.w;
+  y += (o?.dy ?? 0) * f.height + (o?.by ?? 0) * H.h;
+  return { dx: (H.cx + x - L.cx) / f.width, dy: (H.cy + y - L.cy) / f.height, rot: (fl?.rot ?? 0) + (o?.rot ?? 0), scale: k, lift: o?.lift ?? 0 };
 }
 
 /** Une nouvelle consigne posée à l'instant courant : une période, sans effet tant qu'on ne la règle pas. */
