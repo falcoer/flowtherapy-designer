@@ -2693,7 +2693,8 @@ export function App() {
   const colorGroup = (l: Layer) => {
     if (shiftNow.current) return [];
     const ok = (x: Layer) => x.kind !== 'photo' && x.kind !== 'surface';
-    if (pickedIds.has(l.id) && picked.length > 1) return picked.filter(ok);
+    // choix bâti avec Maj (même une seule pièce) : seuls les éléments choisis
+    if (pickedIds.has(l.id) && (picks || picked.length > 1)) return picked.filter(ok);
     return l.link ? doc.layers.filter((x) => x.link === l.link && ok(x)) : [];
   };
   const dropGuide = (i: number, x: number, y: number) => {
@@ -4728,9 +4729,10 @@ export function App() {
       return { ...d, layers: d.layers.map((x) => (ids.has(x.id) ? { ...x, ...heightPatch(Math.round((levelOf(x) + dv) * 1000) / 1000) } : x)) };
     });
 
-  /** Hauteur de l'élément principal ; les autres éléments choisis (avec Maj) montent ou descendent d'autant. */
+  /** Hauteur de l'élément principal ; les autres éléments choisis (avec Maj) montent ou descendent d'autant, et eux seuls. */
   const setPickedLevel = (l: Layer, v: number) => {
-    if (!picks || picked.length < 2) return setLevel(l, v);
+    // l'ensemble choisi en entier : la pièce la plus basse porte les autres ; un choix bâti avec Maj ne bouge que lui-même
+    if (!picks) return setLevel(l, v);
     const dv = v - levelOf(l);
     const ids = new Set(picked.filter((x) => x.kind !== 'surface').map((x) => x.id));
     setDoc((d) => ({ ...d, layers: d.layers.map((x) => (ids.has(x.id) ? { ...x, ...heightPatch(x.id === l.id ? v : Math.round((levelOf(x) + dv) * 1000) / 1000) } : x)) }));
