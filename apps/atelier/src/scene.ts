@@ -1499,7 +1499,7 @@ let moldBuffer: HTMLCanvasElement | null = null;
 const MOLD_MAX = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0 ? 1024 : 1536;
 /**
  * Teinte (dégradé, image) d'une forme modelée : posée sur la boîte d'origine, emmenée par la grille du modelage (Layer.molded.mesh).
- * Dessous, la teinte posée sur la boîte actuelle couvre ce que la grille, plus grossière que le contour, laisserait à nu.
+ * Dessous, hors de la grille, la teinte posée sur la boîte actuelle couvre ce que la grille, plus grossière que le contour, laisserait à nu.
  */
 function drawMoldedFill(ctx: CanvasRenderingContext2D, l: Layer, g: Guide, mesh: Mesh, x0: number, y0: number, bw: number, bh: number) {
   const fr = l.molded!.frame;
@@ -1516,8 +1516,24 @@ function drawMoldedFill(ctx: CanvasRenderingContext2D, l: Layer, g: Guide, mesh:
       c.fillStyle = grad;
     } else c.fillStyle = guideColor(g);
   };
+  // dessous, seulement hors de la grille déformée : une image transparente ne montre pas sa copie non déformée
+  const n = mesh.us.length;
+  const ring: number[] = [];
+  const add = (i: number, j: number) => ring.push(px0 + mesh.P[(j * n + i) * 2]! * pw, py0 + mesh.P[(j * n + i) * 2 + 1]! * ph);
+  for (let i = 0; i < n; i++) add(i, 0);
+  for (let j = 1; j < mesh.vs.length; j++) add(n - 1, j);
+  for (let i = n - 2; i >= 0; i--) add(i, mesh.vs.length - 1);
+  for (let j = mesh.vs.length - 2; j > 0; j--) add(0, j);
+  const out = new Path2D();
+  out.rect(x0, y0, bw, bh);
+  out.moveTo(ring[0]!, ring[1]!);
+  for (let k = 2; k < ring.length; k += 2) out.lineTo(ring[k]!, ring[k + 1]!);
+  out.closePath();
+  ctx.save();
+  ctx.clip(out, 'evenodd');
   paint(ctx, x0, y0, bw, bh);
   ctx.fillRect(x0, y0, bw, bh);
+  ctx.restore();
   const T = ctx.getTransform();
   const px = Math.hypot(T.a, T.b);
   const k = Math.min(px, MOLD_MAX / Math.max(pw, ph));
