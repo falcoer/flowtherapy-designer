@@ -1,4 +1,4 @@
-import { FORMATS, formatOf, uniformMargins, type Doc, type Guide, type Margins, type Target } from './model';
+import { FORMATS, formatOf, guideColor, uniformMargins, type Doc, type Guide, type Margins, type Target } from './model';
 import { setFontUses } from './text';
 import { DEFAULT_CATALOG, type Catalog, type MediaType } from '@ftd/core';
 import { palettesOf, type ActivityProfile, type Channel, type ChannelPick, type Connection, type ColorRole, type Contact, type ContactKind, type Operation, type Palette, type PaletteColor } from './server';
@@ -236,7 +236,7 @@ export function colorGuide(c: PaletteColor, name?: string): Guide {
 export function guidePaletteColor(g: Guide, role?: ColorRole, name?: string): PaletteColor {
   const base = { ...(name ? { name } : {}), ...(role ? { role } : {}) };
   if (g.type === 'gradient') return { hex: g.stops[0] ?? '#888888', stops: [...g.stops], ...(g.blend ? { blend: g.blend } : {}), ...(g.shape ? { shape: g.shape } : {}), ...base };
-  return { hex: g.color, ...base };
+  return { hex: guideColor(g), ...base };
 }
 
 /** Guides d'une variante : le fond d'abord (la surface de fond prend le premier guide). */

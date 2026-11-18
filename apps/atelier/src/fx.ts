@@ -1679,7 +1679,7 @@ export const hasPixelFx = (fx: Fx[] | undefined) => !!fx?.some((x) => fxOf(x.id)
 
 /** Toutes les teintes de la palette : couleurs, et chaque arrêt des dégradés. */
 export function paletteRGB(guides: Guide[]): RGB[] {
-  return guides.flatMap((g) => (g.type === 'color' ? [hexRGB(g.color)] : g.stops.map(hexRGB)));
+  return guides.flatMap((g) => (g.type === 'gradient' ? g.stops.map(hexRGB) : [hexRGB(guideColor(g))]));
 }
 
 /** Applique les effets de matière, dans l'ordre, sur une image. */

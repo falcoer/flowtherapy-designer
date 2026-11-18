@@ -8,7 +8,7 @@ import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './loo
 import { animName, animOf, animRatio, CYCLES, cycleName, generatorOf, glyphCut, timingOf, valueOf, withActs, type Act, type Anim, type Param } from './anim';
 import { presetOf } from './stickers';
 import { ChoiceDial, ShapeFace } from './shape-dial';
-import { GEN_DEFAULTS, LAYER_BLENDS, SKINS, VOLUMES, bevelLift, bevelSoftName, bevelSoftOf, volumeName, type Doc, type Layer } from './model';
+import { GEN_DEFAULTS, LAYER_BLENDS, SKINS, VOLUMES, bevelLift, guideColor, bevelSoftName, bevelSoftOf, volumeName, type Doc, type Layer } from './model';
 import { ensureFont, lettersOf, fontFamily, fontsFor, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { lettersPicked } from './stickers/letters';
 import { AlignGlyph, TextContent, useLazyText, WarpGlyph, weightName } from './textbar';
@@ -147,7 +147,7 @@ export function itemsOf(l: Layer, doc: Doc): Item[] {
     // le volume : forme bombée, biseau, relief sculpté
     if ((l.extrude ?? 0) > 0.001) out.push({ sec: 'depth', key: 'extrude', name: 'Extrusion', bg: 'linear-gradient(160deg,#d8d3e4 0 45%,#6f6880 45%)', removable: true });
     if ((l.bevel ?? 0) > 0.001) out.push({ sec: 'depth', key: 'bevel', name: 'Biseau', bg: 'linear-gradient(135deg,#fff,#8a849a)', removable: true });
-    if (l.glow) out.push({ sec: 'edge', key: 'glow', name: GLOW_TYPES.find((x) => x[0] === l.glow!.style)![1], bg: `radial-gradient(circle, #fff 20%, ${swatch(doc.guides[l.glow.guide])} 60%)`, removable: true });
+    if (l.glow) out.push({ sec: 'edge', key: 'glow', name: GLOW_TYPES.find((x) => x[0] === l.glow!.style)![1], bg: `radial-gradient(circle, #fff 20%, ${guideColor(doc.guides[l.glow.guide], 0.5)} 60%)`, removable: true });
   }
   if (l.molded) out.push({ sec: 'image', key: 'molded', name: 'Modelé', bg: '', removable: false, glyph: 'molded' });
   if (l.volume) out.push({ sec: 'depth', key: 'volume', name: volumeName(l.volume), bg: 'radial-gradient(circle at 35% 30%,#fff,#b9b2c9 55%,#6f6880)', removable: true });
@@ -315,7 +315,13 @@ export function CoupePanel({
   patchOther,
   onDoc,
   anim,
+  onImageDrop,
+  onImageDrag,
 }: {
+  /** L'image d'une photo lâchée en (x, y) : rangée dans la palette, ou revêtement de la forme ou du réglage visé. */
+  onImageDrop?: (from: Layer, x: number, y: number) => void;
+  /** Le doigt pendant ce glisser (null à la fin), pour éclairer la cible. */
+  onImageDrag?: (x: number | null, y?: number) => void;
   /** Onglet Animation : la frise générale (animations propres des stickers, consignes de mouvement), reçoit les réglages du sticker choisi. */
   anim?: React.ReactElement<{ settings?: (act: Act | null) => React.ReactNode }>;
   /** Liste des objets de la page, à gauche du panneau. */
@@ -558,6 +564,8 @@ export function CoupePanel({
     return fx?.preset ?? (fx ? fxOf(fx.id)?.name : undefined) ?? '';
   };
   const slotDrop = (p: SlotPayload, x: number, y: number) => {
+    // l'image d'une photo : l'atelier la range dans la palette ou en revêt la forme visée
+    if (p.kind === 'image') return void onImageDrop?.(l, x, y);
     const zone = paletteAt(x, y);
     if (zone) {
       const name = slotName(p);
@@ -588,6 +596,7 @@ export function CoupePanel({
       if (!d.on && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) d.on = true;
       if (!d.on) return;
       setSlotGhost({ x: e.clientX, y: e.clientY, p });
+      if (p.kind === 'image') return onImageDrag?.(e.clientX, e.clientY);
       slotHeat(paletteAt(e.clientX, e.clientY) ?? rowAt(e.clientX, e.clientY));
     },
     onPointerUp: (e: React.PointerEvent) => {
@@ -595,6 +604,7 @@ export function CoupePanel({
       slotDrag.current = null;
       setSlotGhost(null);
       slotHeat(null);
+      if (d?.p.kind === 'image') onImageDrag?.(null);
       if (!d?.on) return;
       slotDragged.current = true;
       slotDrop(d.p, e.clientX, e.clientY);
@@ -621,6 +631,7 @@ export function CoupePanel({
         </span>
       );
     if (p.kind === 'tint') return <span className="drag-dot" style={{ ...at, background: swatch(doc.guides[l.guide]) }} />;
+    if (p.kind === 'image') return <span className="drag-dot" style={{ ...at, background: `url("${l.src}") center / cover no-repeat #888` }} />;
     const fx = p.kind === 'material' ? l.material : varnishOf(l);
     if (!fx) return null;
     return <span className={`drag-dot matter-dot ${p.kind === 'material' ? 'shape-matter' : 'shape-varnish'}`} style={{ ...at, background: p.kind === 'material' ? matterSwatch(fx) : varnishSwatch(fx), backgroundSize: 'cover' }} />;
@@ -740,6 +751,19 @@ export function CoupePanel({
     const g = doc.guides[l.guide];
     body = (
       <div className="ap-support">
+        {l.kind === 'photo' && l.src && (
+          <div className="ap-tint ap-coat-src">
+            <button
+              className="ap-slot"
+              style={{ background: `url("${l.src}") center / cover no-repeat #888` }}
+              {...slotBind({ kind: 'image' }, () => onToast('Glisse l’image sur la palette pour en faire un revêtement, ou sur une forme pour l’en revêtir'))}
+              title="Revêtement : glisse l’image sur la palette pour la garder, ou sur une forme (ou l’un de ses réglages) pour la revêtir"
+              aria-label="Revêtement tiré de l’image"
+            />
+            <span className="ap-slot-l">Revêtement</span>
+            <small>glisse-la sur une forme</small>
+          </div>
+        )}
         {l.kind !== 'photo' && (
           <div className="ap-tint" data-drop="tint">
             <button className="ap-slot" style={{ background: swatch(g) }} {...slotBind({ kind: 'tint' }, () => onPalette?.('color'))} title="Teinte : glisse ici une couleur de la palette (toucher ouvre la palette) ; glisse la pastille sur un autre objet pour la lui donner" aria-label="Teinte" />

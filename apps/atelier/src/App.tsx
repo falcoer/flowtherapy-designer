@@ -33,6 +33,7 @@ import { ensureFont, fontFamily, fontUses, loadFonts, onFontReady, swashPoint, s
 import { type SwashTool } from './textbar';
 import { ColorDialog, swatch } from './color-dialog';
 import { GradientOverlay } from './gradient-ui';
+import { fillImage, onImageFill } from './gradient';
 import { isClosed, recognize } from './shapes';
 import { blankDoc } from './blank';
 import { NewPublicationDialog } from './pub-new';
@@ -57,7 +58,7 @@ import { CampaignPage, CampaignPicker, CampaignsHome, StageButton, StageTrack, c
 import { campaignFields, draftFromOperation, fillFields, filledCaption, planCaption, planText } from './plan';
 import { MessagesDialog } from './messages-ui';
 import { FeedButton, FeedDialog, overdueOf, unreadCount } from './feed-ui';
-import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorFrames, setGuideFrame, hasZone, zoneOf, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget, type PaletteMatter, type PaletteEdge } from './model';
+import { anchorPointOf, anchorsOf, objectGrips, ungrip, compact, setAnchorExtras, cssGradient, DEFAULT_DENSITY, shapeOf, DEFAULT_SHAPE, type GradShape, imageTones, type ImageGuide, DENSITY_STEPS, edgeLines, genPath, marginOf, pinLine, setAnchorDensity, setAnchorFrames, setGuideFrame, hasZone, zoneOf, docMargins, hasMargins, type Pin, type AnchorExtras, type Target as PubTarget, type PaletteMatter, type PaletteEdge } from './model';
 import { isSilhouette, SHAPE_FAMILIES, silhouettePieces, silhouetteRatio, silhouetteRings } from './silhouettes';
 import { Icon } from './icons';
 import { BRUSH_TIPS, TIP_NAMES, isComposite, tipHoverSvg, type BrushTip } from './tips';
@@ -394,6 +395,16 @@ export function App() {
   const future = useRef<string[]>([]);
   const [, force] = useState(0);
   const redraw = useCallback(() => force((n) => n + 1), []);
+  // une image de revêtement prête : la page la montre à la place de sa teinte moyenne
+  useEffect(
+    () =>
+      onImageFill(() => {
+        redraw();
+        // la teinte moyenne d'un revêtement, connue une fois son image chargée, est gardée avec lui (hors historique)
+        setDoc((d) => (d.guides.some((g) => g.type === 'image' && !g.tone && imageTones.has(g.src)) ? { ...d, guides: d.guides.map((g) => (g.type === 'image' && !g.tone && imageTones.has(g.src) ? { ...g, tone: imageTones.get(g.src) } : g)) } : d));
+      }),
+    [redraw],
+  );
   // la peinture en cache des couches retirées est lâchée (mémoire des canevas, limitée sur iPad)
   const layerIds = doc.layers.map((l) => l.id).join(' ');
   useEffect(() => prunePaints(layerIds.split(' ')), [layerIds]);
@@ -2701,8 +2712,16 @@ export function App() {
     if (pickedIds.has(l.id) && (picks || picked.length > 1)) return picked.filter(ok);
     return l.link ? doc.layers.filter((x) => x.link === l.link && ok(x)) : [];
   };
-  const dropGuide = (i: number, x: number, y: number) => {
+  /**
+   * `fresh` : revêtement d'image tout juste ajouté à la palette (le document ne le montre pas encore).
+   * Une surface qui passe d'une couleur à une image, ou l'inverse, oublie son repère : l'image arrive droite, à l'échelle 1.
+   */
+  const dropGuide = (i: number, x: number, y: number, fresh?: Guide) => {
     setDragGuide(null);
+    const gi = fresh ?? doc.guides[i];
+    const nm = gi?.name;
+    const isImg = (k: number) => doc.guides[k]?.type === 'image';
+    const onto = (l: Layer): Partial<Layer> => ({ guide: i, ...(isImg(l.guide) !== (gi?.type === 'image') ? { grad: undefined } : {}) });
     // déposée sur la zone d'un réglage qui prend une teinte (plaque de bord, formulaire, boîte) : cette teinte-là ;
     // s'il y en a plusieurs, celle sous le doigt, sinon la première
     const under = document.elementFromPoint(x, y) as HTMLElement | null;
@@ -2712,7 +2731,7 @@ export function App() {
       tint.dispatchEvent(new CustomEvent('tint-drop', { detail: i }));
       tint.classList.add('dropped');
       setTimeout(() => tint.classList.remove('dropped'), 500);
-      return setToast(`${tint.querySelector('.cp-dial-l')?.textContent ?? 'Teinte'} : « ${doc.guides[i]?.name} »`);
+      return setToast(`${tint.querySelector('.cp-dial-l')?.textContent ?? 'Teinte'} : « ${nm} »`);
     }
     const l = layerAtScreen(x, y);
     if (!l) return;
@@ -2722,22 +2741,82 @@ export function App() {
       const k = slot === 'edge-border' ? 'border' : 'glow';
       if (!l[k]) return setToast(`Pose d’abord ${k === 'border' ? 'un bord' : 'une lueur'} : sa couleur se dépose ensuite ici`);
       patchLayer(l.id, { [k]: { ...l[k]!, guide: i } } as Partial<Layer>);
-      return setToast(`${k === 'border' ? 'Le bord' : 'La lueur'} de « ${l.name} » prend la couleur « ${doc.guides[i]?.name} »`);
+      return setToast(`${k === 'border' ? 'Le bord' : 'La lueur'} de « ${l.name} » ${gi?.type === 'image' ? 'prend le revêtement' : 'prend la couleur'} « ${nm} »`);
     }
     if (l.kind === 'photo') return setToast('Une photo n’a pas de couleur de fond : peins-la ou donne-lui un style');
     // un ensemble (pièces solidaires) se colore en entier ; avec Maj, seule la pièce sous le doigt
     const group = colorGroup(l);
     if (group.length > 1) {
       const ids = new Set(group.map((x) => x.id));
-      update((d) => ({ ...d, layers: d.layers.map((x) => (ids.has(x.id) ? { ...x, guide: i } : x)) }));
+      update((d) => ({ ...d, layers: d.layers.map((x) => (ids.has(x.id) ? { ...x, ...onto(x) } : x)) }));
       if (!pickedIds.has(l.id)) setSelected(l.id);
       flashLink([...ids]);
-      if (!l.link || group.some((x) => x.link !== l.link)) return setToast(`Les ${ids.size} éléments choisis prennent la couleur « ${doc.guides[i]?.name} »`);
-      return setToast(`L’ensemble (${ids.size} pièces) prend la couleur « ${doc.guides[i]?.name} » : avec Maj, seule la pièce visée`);
+      if (!l.link || group.some((x) => x.link !== l.link)) return setToast(`Les ${ids.size} éléments choisis ${gi?.type === 'image' ? 'prennent le revêtement' : 'prennent la couleur'} « ${nm} »`);
+      return setToast(`L’ensemble (${ids.size} pièces) ${gi?.type === 'image' ? 'prend le revêtement' : 'prend la couleur'} « ${nm} » : avec Maj, seule la pièce visée`);
     }
-    patchLayer(l.id, { guide: i });
+    patchLayer(l.id, onto(l));
     setSelected(l.id);
-    setToast(`« ${l.name} » prend la couleur « ${doc.guides[i]?.name} »`);
+    setToast(`« ${l.name} » ${gi?.type === 'image' ? 'prend le revêtement' : 'prend la couleur'} « ${nm} »`);
+  };
+  /**
+   * Une image lâchée en (x, y) devient-elle un revêtement ? Sur la palette (sa bulle, son bouton, la boîte d'une
+   * couleur) : elle y est rangée. Sur le volet des attributs, une plaque qui prend une teinte, ou une forme ou un
+   * texte de la page : elle les revêt. Ailleurs (le fond, une photo), elle se pose comme image : null.
+   * `fromPage` : l'image vient de la page (un objet déplacé) ; sur la page même, elle ne fait que se déplacer.
+   */
+  const imageAim = (x: number, y: number, fromPage = false): 'palette' | 'coat' | null => {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    if (!el) return null;
+    if (el.closest('.palette-bubble, .guide-btn') || (document.querySelector('.palette-bubble') && el.closest('.color-dialog'))) return 'palette';
+    if (el.closest('aside.coupe, [data-tint-zone], [data-tint]')) return 'coat';
+    if (fromPage || el.tagName !== 'CANVAS') return null;
+    const l = layerAtScreen(x, y);
+    return l && (l.kind === 'shape' || l.kind === 'text') ? 'coat' : null;
+  };
+  /** Le revêtement d'une image : celui que la palette a déjà pour cette image, ou un nouveau (à ranger). */
+  const imageGuide = (img: CoatSource): { i: number; g: ImageGuide; known: boolean } => {
+    const at = doc.guides.findIndex((g) => g.type === 'image' && g.src === img.src);
+    if (at >= 0) return { i: at, g: doc.guides[at] as ImageGuide, known: true };
+    fillImage(img.src);
+    const tone = imageTones.get(img.src);
+    const g: ImageGuide = { name: img.name, type: 'image', src: img.src, ...(img.thumb ? { thumb: img.thumb } : {}), ...(tone ? { tone } : {}), ...(img.ar ? { ar: img.ar } : {}) };
+    return { i: doc.guides.length, g, known: false };
+  };
+  /** Une image (bibliothèque ou page) lâchée en (x, y) : rangée dans la palette ou posée en revêtement ; false = rien de tel ici. */
+  const dropImage = (img: CoatSource, x: number, y: number, fromPage = false): boolean => {
+    const aim = imageAim(x, y, fromPage);
+    if (!aim) return false;
+    const { i, g, known } = imageGuide(img);
+    if (aim === 'palette') {
+      if (known) setToast(`« ${g.name} » est déjà dans la palette, parmi les revêtements`);
+      else {
+        update((d) => ({ ...d, guides: [...d.guides, g] }));
+        setToast(`« ${g.name} » rangé dans la palette : glisse-le sur une forme, il remplace sa couleur`);
+        setToastUndo(true);
+      }
+      setPalTabReq((r) => ({ t: 'color', n: (r?.n ?? 0) + 1 }));
+      setBubble('palette');
+      return true;
+    }
+    // le revêtement rejoint la palette sans pas d'historique à lui : annuler le dépôt le retire aussi
+    if (!known) setDoc((d) => ({ ...d, guides: [...d.guides, g] }));
+    dropGuide(i, x, y, g);
+    return true;
+  };
+  /** Pendant le glisser d'une image : la cible d'un dépôt en revêtement s'éclaire. */
+  const imageHot = useRef<HTMLElement | null>(null);
+  const heatImage = (x: number | null, y = 0, fromPage = false) => {
+    let el: HTMLElement | null = null;
+    if (x !== null) {
+      const aim = imageAim(x, y, fromPage);
+      const under = document.elementFromPoint(x, y) as HTMLElement | null;
+      if (aim === 'palette') el = under?.closest<HTMLElement>('.palette-bubble, .guide-btn, .color-dialog') ?? null;
+      else if (aim === 'coat') el = under?.closest<HTMLElement>('[data-tint], aside.coupe [data-drop], aside.coupe .ap-slot, aside.coupe [data-layer], [data-tint-zone]') ?? null;
+    }
+    if (imageHot.current === el) return;
+    imageHot.current?.classList.remove('img-hot');
+    el?.classList.add('img-hot');
+    imageHot.current = el;
   };
   // pendant le glisser d'une couleur : la surbrillance suit le doigt et Maj
   useEffect(() => {
@@ -3589,6 +3668,8 @@ export function App() {
       if (hot !== trashHot) setTrashHot(hot);
       const dhot = !hot && over(dupRef.current);
       if (dhot !== dupHot) setDupHot(dhot);
+      // une image de la page portée sur la palette ou sur le volet des attributs : elle y deviendra un revêtement
+      if (L.orig.kind === 'photo' && L.orig.src) heatImage(e.clientX, e.clientY, true);
       const o = L.orig;
       const b = layerBox(o, f);
       let cx = b.cx + p.x - L.start.x;
@@ -3877,6 +3958,18 @@ export function App() {
     }
     if (L.kind === 'move' && L.layer) {
       const l = doc.layers.find((x) => x.id === L.layer);
+      heatImage(null);
+      const o0 = L.orig;
+      if (l && o0?.kind === 'photo' && o0.src && !trashHot && !dupHot && e.type !== 'pointercancel' && imageAim(e.clientX, e.clientY, true)) {
+        // image de la page lâchée sur la palette ou les attributs : elle revient à sa place et devient un revêtement
+        const back = new Map<string, Layer>([[o0.id, o0], ...(L.mates ?? []).map((x) => [x.id, x] as [string, Layer])]);
+        setDoc((d) => ({ ...d, layers: d.layers.map((x) => back.get(x.id) ?? x) }));
+        live.current = { kind: null };
+        const [ex, ey] = [e.clientX, e.clientY];
+        void coatOfPhoto(o0).then((img) => dropImage(img, ex, ey, true));
+        redraw();
+        return;
+      }
       if (l && trashHot) {
         // glissé sur la corbeille : suppression (annulable)
         const o = L.orig!;
@@ -5311,8 +5404,9 @@ export function App() {
         (() => {
           // une surface en dégradé montre son repère : centre et axe à glisser, propres à l'objet
           const g = doc.guides[sel.guide];
-          if (g?.type !== 'gradient') return null;
-          const shape = shapeOf(g, sel.grad) ?? DEFAULT_SHAPE;
+          if (g?.type !== 'gradient' && g?.type !== 'image') return null;
+          // un revêtement tiré d'une image : le repère en règle le centre, l'orientation et l'échelle
+          const shape = g.type === 'image' ? { ...DEFAULT_SHAPE, ...(sel.grad ?? {}) } : (shapeOf(g, sel.grad) ?? DEFAULT_SHAPE);
           const b = layerBox(sel, f);
           const map = {
             ar: b.w / Math.max(1e-6, b.h),
@@ -5327,6 +5421,7 @@ export function App() {
             },
           };
           const set = (s: GradShape, commit: boolean) => patchLayer(sel.id, { grad: { cx: s.cx, cy: s.cy, angle: s.angle, spread: s.spread } }, commit);
+          if (g.type === 'image') return <GradientOverlay shape={shape} map={map} color={guideColor(g)} onChange={set} tile={fillImage(g.src)?.ar ?? g.ar ?? 1} />;
           return <GradientOverlay shape={shape} map={map} color={g.stops[g.stops.length - 1]!} onChange={set} />;
         })()}
       {!rendu && (
@@ -5844,6 +5939,11 @@ export function App() {
               onPalette={(t, open) => {
                 setPalTabReq((r) => ({ t, n: (r?.n ?? 0) + 1, open }));
                 setBubble('palette');
+              }}
+              onImageDrag={(x, y) => heatImage(x, y)}
+              onImageDrop={(from, x, y) => {
+                if (!imageAim(x, y)) return setToast('Glisse l’image sur la palette, ou sur une forme ou un texte de la page');
+                void coatOfPhoto(from).then((img) => dropImage(img, x, y));
               }}
               openOn={coupeOpen}
               onToast={(m, u) => {
@@ -6737,6 +6837,12 @@ export function App() {
                     setBubble(null);
                     void insertItem(it, at);
                   }}
+                  onDragAt={(x, y) => heatImage(x, y)}
+                  onDropAt={(it, x, y) => {
+                    const ok = dropImage({ src: it.src, thumb: it.thumb, name: it.title.replace(/^(Craie|Presse) : /, ''), ar: it.w / it.h }, x, y);
+                    if (ok && imageAim(x, y) !== 'palette') setBubble(null);
+                    return ok;
+                  }}
                 />
               )}
               {shelf === 'formes' && (
@@ -7484,10 +7590,36 @@ function railGradient(guides: Guide[]): string {
   const n = guides.length;
   if (!n) return 'transparent';
   const stops = guides.flatMap((x, i) => {
-    const cs = x.type === 'gradient' ? x.stops : [x.color];
+    const cs = x.type === 'gradient' ? x.stops : [guideColor(x)];
     return cs.map((c, k) => `${c} ${(((i + (cs.length === 1 ? 0.5 : 0.15 + (0.7 * k) / (cs.length - 1))) / n) * 100).toFixed(1)}%`);
   });
   return `linear-gradient(90deg, ${stops.join(', ')})`;
+}
+/** Une image qui peut devenir un revêtement : son adresse, sa vignette, son nom, ses proportions. */
+type CoatSource = { src: string; thumb?: string; name: string; ar?: number };
+/**
+ * Une image de la page en revêtement. Une photo importée (gardée dans le document) y est copiée réduite,
+ * 1600 px au plus : le document ne porte pas deux fois la grande image. Une image de la bibliothèque garde son adresse.
+ */
+async function coatOfPhoto(l: Layer): Promise<CoatSource> {
+  const src = l.src!;
+  const name = l.name;
+  const im = new Image();
+  im.src = src;
+  try {
+    await im.decode();
+  } catch {
+    return { src, name };
+  }
+  const ar = im.naturalWidth / Math.max(1, im.naturalHeight);
+  if (!src.startsWith('data:image/') || src.startsWith('data:image/svg') || src.length < 600_000) return { src, name, ar };
+  const k = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight));
+  const c = Object.assign(document.createElement('canvas'), { width: Math.max(1, Math.round(im.naturalWidth * k)), height: Math.max(1, Math.round(im.naturalHeight * k)) });
+  c.getContext('2d')!.drawImage(im, 0, 0, c.width, c.height);
+  const t = Object.assign(document.createElement('canvas'), { width: Math.max(1, Math.round(128 * Math.min(1, ar))), height: Math.max(1, Math.round(128 / Math.max(1, ar))) });
+  t.getContext('2d')!.drawImage(im, 0, 0, t.width, t.height);
+  const jpeg = src.startsWith('data:image/jpeg');
+  return { src: jpeg ? c.toDataURL('image/jpeg', 0.88) : c.toDataURL('image/png'), thumb: jpeg ? t.toDataURL('image/jpeg', 0.8) : t.toDataURL('image/png'), name, ar };
 }
 function PaletteBubble({
   doc,
@@ -7604,7 +7736,9 @@ function PaletteBubble({
   const fixed = (x: Guide) => !!x.role;
   const all = doc.guides.map((x, i) => ({ x, i }));
   const variantOnes = all.filter(({ x }) => fixed(x));
-  const mine = all.filter(({ x }) => !fixed(x) && !x.from);
+  const mine = all.filter(({ x }) => !fixed(x) && !x.from && x.type !== 'image');
+  // les revêtements tirés d'une image (bibliothèque ou page), à part
+  const coats = all.filter(({ x }) => !fixed(x) && !x.from && x.type === 'image');
   // les couleurs venues avec les imports (kits, objets de la bibliothèque) : toutes ensemble
   const imported = all.filter(({ x }) => !fixed(x) && x.from);
   const sources = [...new Set(imported.map(({ x }) => x.from!))];
@@ -7851,6 +7985,15 @@ function PaletteBubble({
           </div>
         </section>
       )}
+      {colors && (coats.length > 0 || edit) && (
+        <section className="pal-sec coats" title="Revêtements tirés d’une image : ils se posent comme une couleur ; le repère de l’objet en règle l’échelle et l’orientation">
+          <span className="pal-sec-label">Revêtements</span>
+          <div className="guides">
+            {coats.map(chip)}
+            {!coats.length && <span className="pal-empty">Glisse ici une image de la bibliothèque ou de la page</span>}
+          </div>
+        </section>
+      )}
       {colors && imported.length > 0 && (
         <section className="pal-sec imported" title={`Venues avec ${sources.map((x) => `« ${x} »`).join(', ')} : elles quittent la palette quand plus rien ne les utilise`}>
           <span className="pal-sec-label">
@@ -7859,7 +8002,7 @@ function PaletteBubble({
           <div className="guides">{imported.map(chip)}</div>
         </section>
       )}
-      {colors && !variantOnes.length && !variant && !mine.length && !imported.length && !edit && <p className="pal-hint">Aucune couleur : touche Modifier pour en ajouter.</p>}
+      {colors && !variantOnes.length && !variant && !mine.length && !coats.length && !imported.length && !edit && <p className="pal-hint">Aucune couleur : touche Modifier pour en ajouter.</p>}
       {!colors && matter?.(tab, edit)}
       {editing !== null &&
         doc.guides[editing] &&

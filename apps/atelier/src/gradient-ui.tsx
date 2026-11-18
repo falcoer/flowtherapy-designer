@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { tileHeight } from './gradient';
 import { DEFAULT_SHAPE, type GradMode, type GradShape, type GradStyle } from './model';
 
 /**
@@ -85,15 +86,19 @@ export function GradStyleRow({ style, onChange }: { style?: GradStyle; onChange:
   );
 }
 
-/** Le repère posé sur l'objet : axes du centre, axe ou anneaux du dégradé, répétitions, centre et poignée à glisser. */
-export function GradientOverlay({ shape, map, color, onChange }: { shape?: GradShape; map: BoxMap; color: string; onChange: (s: GradShape, commit: boolean) => void }) {
+/**
+ * Le repère posé sur l'objet : axes du centre, axe ou anneaux du dégradé, répétitions, centre et poignée à glisser.
+ * Pour un revêtement tiré d'une image (`tile` : ses proportions), le cadre de l'image : la poignée, au milieu de
+ * son bord bas, la tourne et l'agrandit ; au-delà du cadre, l'image se répète.
+ */
+export function GradientOverlay({ shape, map, color, onChange, tile }: { shape?: GradShape; map: BoxMap; color: string; onChange: (s: GradShape, commit: boolean) => void; tile?: number }) {
   const s = shape ?? DEFAULT_SHAPE;
   const drag = useRef<'center' | 'handle' | null>(null);
   const last = useRef(s);
   last.current = s;
   const { ar } = map;
   const a = (s.angle * Math.PI) / 180;
-  const d = reach(s, ar);
+  const d = tile ? (tileHeight(ar, tile) / 2) * s.spread : reach(s, ar);
   const ell = s.mode === 'radial' && s.ellipse;
   const uvAt = (X: number, Y: number) => (ell ? { x: s.cx + (X / d) * 0.5 * Math.SQRT2 * s.spread, y: s.cy + (Y / d) * 0.5 * Math.SQRT2 * s.spread } : uvOf(s, ar, X, Y));
   const scr = (X: number, Y: number) => {
@@ -102,7 +107,7 @@ export function GradientOverlay({ shape, map, color, onChange }: { shape?: GradS
   };
   const C = map.toScreen(s.cx, s.cy);
   const H = scr(Math.cos(a) * d, Math.sin(a) * d);
-  const A = s.mode === 'linear' ? scr(-Math.cos(a) * d, -Math.sin(a) * d) : C;
+  const A = s.mode === 'linear' && !tile ? scr(-Math.cos(a) * d, -Math.sin(a) * d) : C;
   const n = Math.max(1, Math.round(s.repeat));
   const ticks = Array.from({ length: n + 1 }, (_, k) => k / n);
   // axes du centre, le long des côtés de l'objet
@@ -128,8 +133,8 @@ export function GradientOverlay({ shape, map, color, onChange }: { shape?: GradS
     const Y = (p.y - cur.cy) * (ell ? 1 : hy);
     const angle = snapAngle(((Math.atan2(Y, X) * 180) / Math.PI + 360) % 360);
     const len = Math.hypot(X, Y);
-    const base = ell ? 0.5 * Math.SQRT2 : reach({ ...cur, angle, spread: 1 }, ar);
-    onChange(cur.mode === 'conic' ? { ...cur, angle } : { ...cur, angle, spread: Math.max(0.1, Math.min(3, len / base)) }, false);
+    const base = tile ? tileHeight(ar, tile) / 2 : ell ? 0.5 * Math.SQRT2 : reach({ ...cur, angle, spread: 1 }, ar);
+    onChange(cur.mode === 'conic' && !tile ? { ...cur, angle } : { ...cur, angle, spread: Math.max(tile ? 0.05 : 0.1, Math.min(tile ? 4 : 3, len / base)) }, false);
   };
   const grab = (k: 'center' | 'handle') => (e: React.PointerEvent) => {
     e.stopPropagation();
@@ -140,6 +145,38 @@ export function GradientOverlay({ shape, map, color, onChange }: { shape?: GradS
     if (drag.current) onChange(last.current, true);
     drag.current = null;
   };
+  if (tile) {
+    // le cadre de l'image : « bas » le long de l'angle, « droite » un quart de tour avant
+    const [dx, dy] = [Math.cos(a), Math.sin(a)];
+    const [rx, ry] = [Math.sin(a), -Math.cos(a)];
+    const hw = d * tile;
+    const frame = [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1],
+      [-1, -1],
+    ]
+      .map(([i, j]) => scr(rx * hw * i! + dx * d * j!, ry * hw * i! + dy * d * j!))
+      .map((p) => `${p.x},${p.y}`)
+      .join(' ');
+    const rot = (((Math.round(s.angle - 90) % 360) + 540) % 360) - 180;
+    return (
+      <div className="grad-overlay image-overlay">
+        <svg aria-hidden>
+          <line x1={ax1[0]!.x} y1={ax1[0]!.y} x2={ax1[1]!.x} y2={ax1[1]!.y} className="go-axis0" />
+          <line x1={ax2[0]!.x} y1={ax2[0]!.y} x2={ax2[1]!.x} y2={ax2[1]!.y} className="go-axis0" />
+          <polyline points={frame} className="go-frame" />
+          <line x1={C.x} y1={C.y} x2={H.x} y2={H.y} className="go-line" />
+        </svg>
+        <span className="go-pt center" style={{ left: C.x, top: C.y }} title="Centre de l’image : glisse-le" onPointerDown={grab('center')} onPointerMove={move} onPointerUp={drop} onPointerCancel={drop} />
+        <span className="go-angle" style={{ left: H.x + 18, top: H.y - 22 }}>
+          {rot}° · {Math.round(s.spread * 100)} %
+        </span>
+        <span className="go-pt handle" style={{ left: H.x, top: H.y, background: color }} title="Poignée : orientation et échelle de l’image" onPointerDown={grab('handle')} onPointerMove={move} onPointerUp={drop} onPointerCancel={drop} />
+      </div>
+    );
+  }
   return (
     <div className="grad-overlay">
       <svg aria-hidden>

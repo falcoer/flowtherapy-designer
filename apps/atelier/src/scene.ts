@@ -13,7 +13,7 @@ import { EDGE_ELEMENTS, edgeStroke } from './elements';
 import { bevelLift, bevelSoftOf, blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { keepLinks, type LinkShapes } from './links';
-import { shapedFill } from './gradient';
+import { fillEpoch, shapedFill } from './gradient';
 export { linkShapes } from './links';
 import { applyLook, lookGuides, lookOf } from './looks';
 import { applyPixelFx, fxOn, hasPixelFx, hexRGB, opacityOf, type Fx, type FxId } from './fx';
@@ -1565,6 +1565,8 @@ function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElem
     l.text,
     textEpoch(),
     l.guide,
+    l.grad,
+    fillEpoch(),
     l.src?.length,
     l.src?.slice(-40),
     l.look,

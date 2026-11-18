@@ -7,7 +7,8 @@ import { addEntry, bare, isVarnish, listOf, varnishOf } from './palettes';
  * ou l'un de ses bords. Lâché sur un autre objet, celui-ci en reçoit une copie ; lâché sur la palette,
  * le réglage y devient une entrée à soi (« Mes matières », « Mes vernis », « Mes bords »).
  */
-export type SlotPayload = { kind: 'tint' } | { kind: 'varnish' } | { kind: 'material' } | { kind: 'edge'; k: 'border' | 'glow' | 'trim' };
+export type SlotPayload = { kind: 'tint' } | { kind: 'varnish' } | { kind: 'material' } | { kind: 'edge'; k: 'border' | 'glow' | 'trim' } | { kind: 'image' };
+// `image` : l'image d'une photo, tirée pour devenir un revêtement (palette, forme, réglage) : l'atelier s'en charge.
 export type PaletteTab = 'color' | 'material' | 'varnish' | 'edge';
 
 const EDGE_WORD = { border: 'le bord', glow: 'la lueur', trim: 'le rognage' } as const;
@@ -21,6 +22,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 /** Y a-t-il quelque chose à tirer de cet emplacement ? */
 export function slotFilled(l: Layer, p: SlotPayload): boolean {
   if (p.kind === 'tint') return l.kind !== 'photo';
+  if (p.kind === 'image') return l.kind === 'photo' && !!l.src;
   if (p.kind === 'varnish') return !!varnishOf(l);
   if (p.kind === 'material') return !!l.material;
   return !!l[p.k];
@@ -28,7 +30,7 @@ export function slotFilled(l: Layer, p: SlotPayload): boolean {
 
 /** Ce que l'objet visé reçoit de l'objet d'origine, et la phrase qui le dit. Sans `patch`, rien ne change. */
 export function slotOnto(from: Layer, to: Layer, p: SlotPayload): { patch?: Partial<Layer>; msg: string } {
-  if (!slotFilled(from, p)) return { msg: '' };
+  if (!slotFilled(from, p) || p.kind === 'image') return { msg: '' };
   if (p.kind === 'tint') {
     if (to.kind === 'photo') return { msg: 'Une photo n’a pas de couleur de fond : peins-la ou donne-lui un style' };
     return { patch: { guide: from.guide }, msg: `« ${to.name} » prend la teinte de « ${from.name} »` };
@@ -58,6 +60,7 @@ export function slotOnto(from: Layer, to: Layer, p: SlotPayload): { patch?: Part
 export function slotToPalette(d: Doc, from: Layer, p: SlotPayload, name: string, id?: string): { doc?: Doc; msg: string; tab: PaletteTab; entry?: string } {
   const fresh = (prefix: string) => `${prefix}${id ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`}`;
   if (p.kind === 'tint') return { msg: `« ${d.guides[from.guide]?.name ?? 'Cette teinte'} » est déjà une couleur de la palette`, tab: 'color' };
+  if (p.kind === 'image') return { msg: '', tab: 'color' };
   if (p.kind === 'varnish' || p.kind === 'material') {
     const tab = p.kind;
     const book = p.kind === 'material' ? 'Mes matières' : 'Mes vernis';
