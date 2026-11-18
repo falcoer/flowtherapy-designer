@@ -14,6 +14,7 @@ import { Frise, scrub } from './frise';
 import { meshOf, unwarp } from './warp';
 import { animRatio, animTime, forPart, generatorOf, withActs, GENERATORS, glyphCut, hasAnim, newAnim, newRig, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
 import { RigOverlay } from './rig-ui';
+import { ViewRing } from './views-ui';
 import { assignViews, characterOf, groupCharacters, KEYS, leftViews, loadImage, readZip, viewOfName, viewsOf, VIEW_NAMES } from './views';
 import { kitZip, splitSheet } from './charkit';
 import { MaterialWizard, WandGlyph } from './material-wizard';
@@ -5480,6 +5481,27 @@ export function App() {
             },
           };
           return <RigOverlay anim={sel.anim!} map={map} frame={sel.molded?.frame} onChange={(a, commit) => patchLayer(sel.id, { anim: a }, commit)} />;
+        })()}
+      {!rendu &&
+        tool === 'move' &&
+        sel &&
+        !!sel.views?.length &&
+        !(sel.anim?.kind === 'rig' && animated && animMode && bonesOn) &&
+        (() => {
+          // illustration orientée : l'anneau en perspective à ses pieds, pour la tourner vers une autre vue
+          const map = {
+            ar: 1,
+            toScreen: (u: number, v: number) => {
+              const p = localToPage(sel, f, u, v);
+              const q = matrix.transformPoint(new DOMPoint(p.x, p.y));
+              return { x: q.x, y: q.y };
+            },
+            fromScreen: (x: number, y: number) => {
+              const p = toPage(x, y);
+              return pageToLocal(sel, f, p.x, p.y);
+            },
+          };
+          return <ViewRing l={sel} map={map} onChange={(p, commit) => patchLayer(sel.id, p, commit)} />;
         })()}
       {!rendu &&
         tool === 'move' &&

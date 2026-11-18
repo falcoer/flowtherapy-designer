@@ -310,3 +310,41 @@ export async function leftViews(all: CharView[]): Promise<CharView[]> {
   }
   return out;
 }
+
+/** Place de chaque vue sur l'anneau, en degrés : 0 devant (face), 90 tourné vers la droite, 180 dos, 270 vers la gauche. */
+export const RING: Record<string, number> = { face: 0, 'trois-quarts': 45, profil: 90, dos: 180, 'profil-gauche': 270, 'trois-quarts-gauche': 315 };
+
+/** Les vues qu'on peut montrer : celles qui existent, plus celles de gauche qu'un miroir peut tirer de celles de droite. */
+export function ringViews(l: Layer): string[] {
+  const has = new Set(viewsOf(l).map((v) => v.view));
+  return Object.keys(RING).filter((k) => has.has(k) || (k.endsWith('-gauche') && has.has(baseOf(k))));
+}
+
+/** La vue de l'anneau la plus proche d'un angle (degrés), parmi celles qu'on peut montrer. */
+export function nearestView(keys: string[], deg: number): string | null {
+  let best: string | null = null;
+  let gap = Infinity;
+  for (const k of keys) {
+    const d = Math.abs((((deg - RING[k]!) % 360) + 540) % 360 - 180);
+    if (d < gap) [best, gap] = [k, d];
+  }
+  return best;
+}
+
+/**
+ * Tourne l'objet vers une vue de l'anneau : une vue de gauche qui manque est tirée en miroir de celle de droite,
+ * et le sens où il regarde suit (gauche, droite ; face et dos le gardent).
+ */
+export async function turnTo(l: Layer, key: string): Promise<Partial<Layer>> {
+  if (key === l.view) return {};
+  let all = viewsOf(l);
+  if (!all.some((v) => v.view === key)) {
+    const right = all.find((v) => v.view === baseOf(key));
+    if (!key.endsWith('-gauche') || !right) return {};
+    all = [...all, await mirrorView(right, key)];
+  }
+  const facing = turned(key) ? (key.endsWith('-gauche') ? 'gauche' : undefined) : l.facing;
+  const views = all.map((x) => (x.view === l.view ? { ...x, src: '' } : x));
+  const next = { ...l, views, facing } as Layer;
+  return { views, facing, ...showView(next, key) };
+}

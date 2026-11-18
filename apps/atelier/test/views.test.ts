@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { zipStore } from '../src/charkit';
 import type { Layer } from '../src/model';
-import { assignViews, characterOf, groupCharacters, mirrorJoints, mirrorPath, parseName, readZip, setView, showView, viewOfName, viewsOf } from '../src/views';
+import { assignViews, characterOf, groupCharacters, mirrorJoints, mirrorPath, nearestView, parseName, readZip, ringViews, setView, showView, turnTo, viewOfName, viewsOf } from '../src/views';
 import { animOf, animSkeleton, posed, rigJoints, RIG_JOINTS, setAnimTiming, templateJoints } from '../src/anim';
 
 const L = (extra: Partial<Layer>): Layer => ({ id: 'p', name: 'p', kind: 'photo', anchor: { frame: 'repartition', point: 'h1/2 v1/2' }, dx: 0, dy: 0, w: 0.3, h: 0.6, guide: 0, height: 0, visible: true, strokes: [], ...extra }) as Layer;
@@ -179,5 +179,26 @@ describe('personnage en plusieurs angles', () => {
     // au quart de pas, le pied gauche de l'image (os 11) part vers l'avant : à droite pour l'un, à gauche pour l'autre
     const dx = (l: Layer) => animSkeleton(l.anim!, 0.25)![11]![1][0] - animSkeleton(l.anim!, 0)![11]![1][0];
     expect(Math.sign(dx(pr))).not.toBe(Math.sign(dx(pl)));
+  });
+
+  it('l’anneau tourne l’objet vers la vue la plus proche, et tire la gauche en miroir', async () => {
+    // une forme en trois vues : face, profil, dos (pas d'image, seulement des contours)
+    const l = L({ kind: 'shape', cut: 'M0 0H0.4V1H0Z', view: 'face', views: [{ view: 'face', src: '', ratio: 0.5 }, { view: 'profil', src: '', ratio: 0.4, cut: 'M0 0H0.2V1H0Z' }, { view: 'dos', src: '', ratio: 0.5 }] });
+    const keys = ringViews(l);
+    expect(keys).toEqual(['face', 'profil', 'dos', 'profil-gauche']);
+    expect(nearestView(keys, 30)).toBe('face');
+    expect(nearestView(keys, 60)).toBe('profil');
+    expect(nearestView(keys, 200)).toBe('dos');
+    expect(nearestView(keys, 300)).toBe('profil-gauche');
+    const p = await turnTo(l, 'profil-gauche');
+    expect(p.view).toBe('profil-gauche');
+    expect(p.facing).toBe('gauche');
+    expect(p.cut).toBe('M 1 0 H 0.8 V 1 H 1 Z');
+    // retour vers le profil de droite : il regarde de nouveau à droite, la vue miroir reste rangée
+    const q = await turnTo({ ...l, ...p } as Layer, 'profil');
+    expect(q.facing).toBeUndefined();
+    expect(q.views?.map((v) => v.view)).toEqual(['face', 'profil', 'dos', 'profil-gauche']);
+    // le dos garde le sens
+    expect((await turnTo({ ...l, ...p } as Layer, 'dos')).facing).toBe('gauche');
   });
 });

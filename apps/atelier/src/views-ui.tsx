@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import type { BoxMap } from './gradient-ui';
 import type { Layer } from './model';
 import { cutOf } from './scene';
-import { baseOf, keyFor, leftViews, loadImage, setView, showView, turned, viewsOf, VIEWS, VIEW_NAMES, type ViewKind } from './views';
+import { baseOf, keyFor, leftViews, loadImage, nearestView, RING, ringViews, setView, showView, turnTo, turned, viewsOf, VIEWS, VIEW_NAMES, type ViewKind } from './views';
 
 /**
  * Les vues d'un personnage en plusieurs angles, en rangée : toucher une vue la montre, ＋ ajoute l'image d'une vue
@@ -106,5 +107,108 @@ function CutThumb({ d }: { d: string }) {
         <path d={d} fill="currentColor" fillRule="evenodd" />
       </svg>
     </span>
+  );
+}
+
+type P = { x: number; y: number };
+
+/**
+ * L'anneau en perspective posé sous une illustration orientée : un cercle au sol vu de biais, avec une marque par vue
+ * (face devant, profils sur les côtés, dos au fond). On glisse la poignée autour, ou on touche une marque : l'objet
+ * se tourne vers la vue la plus proche. Les vues de gauche qui manquent se tirent en miroir de celles de droite.
+ */
+export function ViewRing({ l, map, onChange }: { l: Layer; map: BoxMap; onChange: (p: Partial<Layer>, history: boolean) => void }) {
+  const [drag, setDrag] = useState<number | null>(null);
+  const busy = useRef(false);
+  const step = useRef(0);
+  const keys = ringViews(l);
+  if (keys.length < 2) return null;
+  // le sol : centre au pied de l'objet, grand axe sur sa largeur, petit axe vers l'avant (le bas de l'objet), aplati
+  const c = map.toScreen(0.5, 1);
+  const r = map.toScreen(1.05, 1);
+  const a = { x: r.x - c.x, y: r.y - c.y };
+  const len = Math.max(24, Math.hypot(a.x, a.y));
+  const ax = { x: (a.x / Math.max(1e-6, Math.hypot(a.x, a.y))) * len, y: (a.y / Math.max(1e-6, Math.hypot(a.x, a.y))) * len };
+  const down = map.toScreen(0.5, 1.2);
+  // l'avant est du côté du bas de l'objet, même tourné ou retourné
+  let n = { x: -ax.y, y: ax.x };
+  if (n.x * (down.x - c.x) + n.y * (down.y - c.y) < 0) n = { x: -n.x, y: -n.y };
+  const b = { x: n.x * 0.3, y: n.y * 0.3 };
+  const at = (deg: number): P => {
+    const t = (deg * Math.PI) / 180;
+    return { x: c.x + ax.x * Math.sin(t) + b.x * Math.cos(t), y: c.y + ax.y * Math.sin(t) + b.y * Math.cos(t) };
+  };
+  // angle d'un point de l'écran : on résout p − c = ax·sin + b·cos
+  const angleOf = (x: number, y: number) => {
+    const dx = x - c.x;
+    const dy = y - c.y;
+    const det = ax.x * b.y - ax.y * b.x || 1e-6;
+    const s = (dx * b.y - dy * b.x) / det;
+    const co = (ax.x * dy - ax.y * dx) / det;
+    return ((Math.atan2(s, co) * 180) / Math.PI + 360) % 360;
+  };
+  const cur = l.view && RING[l.view] !== undefined ? l.view : 'face';
+  const go = async (k: string | null) => {
+    if (!k || k === l.view || busy.current) return;
+    busy.current = true;
+    try {
+      const p = await turnTo(l, k);
+      // un seul pas d'annulation pour tout un tour de poignée
+      if (Object.keys(p).length) onChange(p, step.current++ === 0);
+    } finally {
+      busy.current = false;
+    }
+  };
+  const ring = Array.from({ length: 49 }, (_, i) => at(i * 7.5));
+  const back = ring.filter((_, i) => i * 7.5 >= 90 && i * 7.5 <= 270);
+  const front = [...ring.filter((_, i) => i * 7.5 >= 270), ...ring.filter((_, i) => i * 7.5 <= 90)];
+  const line = (pts: P[]) => pts.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join('');
+  const h = at(drag ?? RING[cur]!);
+  const tip = { x: h.x + (h.x - c.x) * 0.35, y: h.y + (h.y - c.y) * 0.35 };
+  return (
+    <div className="grad-overlay view-ring">
+      <svg>
+        <path className="vr-back" d={line(back)} />
+        <path className="vr-front" d={line(front)} />
+        <line className="vr-dir" x1={c.x} y1={c.y} x2={tip.x} y2={tip.y} />
+      </svg>
+      {Object.keys(RING).map((k) => {
+        const p = at(RING[k]!);
+        const ok = keys.includes(k);
+        return (
+          <button
+            key={k}
+            className={`vr-mark ${k === cur ? 'on' : ''} ${ok ? '' : 'off'} ${RING[k]! > 90 && RING[k]! < 270 ? 'far' : ''}`}
+            style={{ left: p.x, top: p.y }}
+            disabled={!ok}
+            title={ok ? `Montrer la vue ${VIEW_NAMES[k]!.toLowerCase()}` : `Pas de vue ${VIEW_NAMES[k]!.toLowerCase()}`}
+            aria-label={VIEW_NAMES[k]}
+            onClick={() => {
+              step.current = 0;
+              void go(k);
+            }}
+          />
+        );
+      })}
+      <div
+        className="vr-handle"
+        style={{ left: h.x, top: h.y }}
+        title="Glisser autour de l’anneau pour tourner l’objet"
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+          step.current = 0;
+          setDrag(RING[cur]!);
+        }}
+        onPointerMove={(e) => {
+          if (drag === null) return;
+          const d = angleOf(e.clientX, e.clientY);
+          setDrag(d);
+          void go(nearestView(keys, d));
+        }}
+        onPointerUp={() => setDrag(null)}
+        onPointerCancel={() => setDrag(null)}
+      />
+    </div>
   );
 }
