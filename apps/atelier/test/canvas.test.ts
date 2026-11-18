@@ -258,4 +258,86 @@ describe('dans le navigateur', () => {
       expect(r.opaque).toBe(1);
     });
   });
+  describe('surface déformée gardée et posée en WebGL', () => {
+    // un oiseau qui bat des ailes, peint d'un dégradé et d'un trait : sa surface se plie avec lui
+    const setup = `
+      const anim = await import('/src/anim.ts');
+      const wgl = await import('/src/warp-gl.ts');
+      anim.setAnimTiming({ period: 1, count: 4 });
+      doc.guides.push({ name: 'g', type: 'gradient', stops: ['#ff0044', '#2244ff', '#ffee00'] });
+      const G = doc.guides.length - 1;
+      const bird = anim.GENERATORS.find((g) => g.kind === 'bird');
+      const S = [{ brush: 'acrylic', guide: 2, size: 0.04, opacity: 1, seed: 1, pts: line(0.5, 0.05, 0.95) }];
+      const L = { ...shape(S, { anim: anim.newAnim(bird, {}), w: 0.6, h: 0.4 }), shape: undefined, guide: G };
+      const c = document.createElement('canvas');
+      c.width = 600;
+      c.height = Math.round((600 * f.height) / f.width);
+      const k = 600 / f.width;
+      const draw = (d, t) => {
+        anim.setAnimTime(t);
+        const ctx = c.getContext('2d');
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, c.width, c.height);
+        ctx.setTransform(k, 0, 0, k, 0, 0);
+        scene.drawLayers(ctx, d, f, { scale: k, onImage: () => {} });
+        return ctx.getImageData(0, 0, c.width, c.height).data;
+      };
+      const diff = (A, B) => {
+        let sum = 0, big = 0;
+        for (let i = 0; i < A.length; i++) {
+          const d = Math.abs(A[i] - B[i]);
+          sum += d;
+          if (d > 64) big++;
+        }
+        return { mean: sum / A.length, big };
+      };
+    `;
+    t('la surface gardée donne la même image que la surface refaite à chaque image', async () => {
+      const r = await run<{ mean: number; big: number; kept: number }>(`${setup}
+        const d = { ...doc, layers: [L] };
+        wgl.warpGLTest({ gl: false, cache: false });
+        const A = draw(d, 0.3);
+        wgl.warpGLTest({ gl: false, cache: true });
+        draw(d, 0.1);
+        const B = draw(d, 0.3);
+        const kept = wgl.warpGLState().kept;
+        wgl.warpGLTest({ gl: true, cache: true, force: false });
+        return { ...diff(A, B), kept };
+      `);
+      expect(r.kept).toBe(1);
+      expect(r.mean).toBe(0);
+    });
+    t('une couleur changée dans la palette se voit tout de suite sur la surface gardée', async () => {
+      const r = await run<{ before: number[]; after: number[] }>(`${setup}
+        wgl.warpGLTest({ gl: false, cache: true });
+        const d = { ...doc, layers: [{ ...L, strokes: [] }] };
+        const at = (P) => { const x = 300, y = Math.round(c.height / 2); const i = (y * c.width + x) * 4; return [P[i], P[i + 1], P[i + 2], P[i + 3]]; };
+        const before = at(draw(d, 0.3));
+        const guides = doc.guides.slice();
+        guides[G] = { name: 'g', type: 'color', color: '#00ff00' };
+        const after = at(draw({ ...d, guides }, 0.3));
+        wgl.warpGLTest({ gl: true, cache: true, force: false });
+        return { before, after };
+      `);
+      expect(r.after[1]).toBeGreaterThan(200);
+      expect(r.after[0]).toBeLessThan(40);
+      expect(r.before).not.toEqual(r.after);
+    });
+    t('posée en WebGL, la surface pliée est celle du dessin par morceaux', async () => {
+      const r = await run<{ mean: number; big: number; gl: boolean }>(`${setup}
+        const d = { ...doc, layers: [L] };
+        wgl.warpGLTest({ gl: false, cache: true });
+        const A = draw(d, 0.3);
+        wgl.warpGLTest({ gl: true, cache: true, force: true });
+        const gl = wgl.warpGLState().gl;
+        const B = draw(d, 0.3);
+        wgl.warpGLTest({ gl: true, cache: true, force: false });
+        return { ...diff(A, B), gl };
+      `);
+      // sans WebGL du tout (navigateur de test sans carte graphique ni rendu logiciel), rien à comparer
+      if (!r.gl) return;
+      expect(r.mean).toBeLessThan(0.05);
+      expect(r.big).toBeLessThan(200);
+    });
+  });
 });

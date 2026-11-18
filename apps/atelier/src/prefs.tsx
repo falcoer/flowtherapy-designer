@@ -5,6 +5,7 @@ import { MarkLegend } from './marks-ui';
 import { PointGrids } from './anchor-ui';
 import { FRAME_TITLES, ANCHOR_FRAMES, type AnchorFrame } from '@ftd/core';
 import { DENSITY_STEPS, type AnchorExtras } from './model';
+import { setWarpMode, warpGPU, warpMode, type WarpMode } from './warp-gl';
 
 const MARK_GROUPS: Array<[MarkGroup, string]> = [
   ['page', 'Page'],
@@ -39,6 +40,47 @@ function Toggle({ label, hint, on, set }: { label: string; hint: string; on: boo
       </span>
       <input type="checkbox" className="pf-switch" checked={on} onChange={(e) => set(e.target.checked)} />
     </label>
+  );
+}
+
+/** Formes animées : la surface qui se plie (couleur, dégradé, image, peinture) posée par la carte graphique, ou par morceaux. */
+function WarpPref() {
+  const [m, setM] = useState<WarpMode>(warpMode);
+  const gpu = warpGPU();
+  const state = gpu === 'hard' ? 'Carte graphique trouvée sur cet appareil.' : gpu === 'soft' ? 'Pas de vraie carte graphique sur cet appareil : le dessin par morceaux y est plus rapide.' : 'Cet appareil n’offre pas la carte graphique au navigateur.';
+  const what = m === 'auto' ? 'La carte graphique quand l’appareil en a une, sinon le dessin par morceaux.' : m === 'gl' ? 'Toujours la carte graphique, même simulée (plus lent sans vraie carte).' : 'Toujours le dessin par morceaux, sans la carte graphique.';
+  return (
+    <>
+      <div className="pf-group">Formes animées</div>
+      <div className="pf-row pf-col">
+        <span className="pf-txt">
+          <b>Surface qui suit la forme</b>
+          <small>
+            {what} {state}
+          </small>
+        </span>
+        <div className="seg pf-theme">
+          {(
+            [
+              ['auto', 'Auto'],
+              ['gl', 'Carte graphique'],
+              ['2d', 'Par morceaux'],
+            ] as const
+          ).map(([k, n]) => (
+            <button
+              key={k}
+              className={m === k ? 'on' : ''}
+              onClick={() => {
+                setWarpMode(k);
+                setM(k);
+              }}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -271,6 +313,7 @@ export function PrefsPanel(p: {
               ))}
             </div>
           </div>
+          <WarpPref />
           <div className="pf-group">Stylet</div>
           <Toggle label="Rotation du stylet" hint="Tourner le crayon sur lui-même tourne les tampons" on={p.penRoll} set={p.setPenRoll} />
           <Toggle label="Inclinaison du stylet" hint="Pencher le crayon met les tampons en perspective" on={p.penTilt} set={p.setPenTilt} />

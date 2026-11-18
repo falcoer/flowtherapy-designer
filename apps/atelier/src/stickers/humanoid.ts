@@ -379,12 +379,23 @@ function skeleton(a: Anim, _phase: number, g: Progress, ctx?: Context): Array<[[
 /** Les os qui portent chaque pièce (dans l'ordre du squelette) : un bras se plie au coude, le torse suit colonne, clavicules et bassin. */
 const PART_BONES: Record<string, number[]> = { head: [0], torso: [1, 2, 3, 4, 5], armL: [6, 7], armR: [8, 9], legL: [10, 11], legR: [12, 13] };
 
-/** Déformation de la surface (Generator.warp) : la teinte, le dégradé, l'image et la peinture d'une pièce suivent ses os. */
+/**
+ * Chair de chaque os (Generator.flesh), dans l'ordre du squelette, en parts de la hauteur de la boîte : la tête, le tronc autour de la colonne,
+ * les épaules et le bassin, puis bras et jambes plus fins vers le bout.
+ */
+function flesh(a: Anim): number[] {
+  const b = bodyOf(a);
+  const trunk = (b.sw + b.hw) / 2;
+  const r = [b.rH * 0.85, trunk * 0.8, b.ra, b.ra, b.rl, b.rl, b.ra, b.ra * 0.8, b.ra, b.ra * 0.8, b.rl, b.rl * 0.75, b.rl, b.rl * 0.75];
+  return r.map((x) => x / BOX_H);
+}
+
+/** Déformation de la surface (Generator.warp) : la teinte, le dégradé, l'image et la peinture d'une pièce suivent ses os, chair comptée. */
 function warp(a: Anim, phase: number, g: Progress, ctx?: Context) {
   const part = typeof a.part === 'string' ? a.part : '';
   const rest = skeleton(a, 0, () => 0, { each: () => [] });
   const cur = skeleton(a, phase, g, ctx);
-  return skinWarp(`hw|${part}|${KEYS.map((k) => a[k] ?? '').join('|')}`, rest, cur, BOX_W / BOX_H, PART_BONES[part]);
+  return skinWarp(`hw|${part}|${KEYS.map((k) => a[k] ?? '').join('|')}`, rest, cur, BOX_W / BOX_H, PART_BONES[part], undefined, flesh(a));
 }
 
 const KEYS = ['sex', 'heads', 'build', 'shoulders', 'legs', 'arms', 'headT', 'torsoT', 'limbT', 'stride', 'swing', 'waves'];
@@ -501,6 +512,7 @@ export const humanoid: Generator = {
   parts: PARTS,
   cut,
   skeleton,
+  flesh,
   warp,
   ratio: () => BOX_W / BOX_H,
   // le saut soulève l'objet entier : toutes les pièces montent ensemble

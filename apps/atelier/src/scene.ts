@@ -7,7 +7,8 @@ import { pathToRings, ringsToPath, simplifyRing, type Ring, insideRings } from '
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
 import { animCut, carved, generatorOf, posed } from './anim';
-import { bentCut, bonesOf, drawWarped, meshOf, moldMesh, surfaceWarp, type Mesh } from './warp';
+import { bentCut, bonesOf, meshOf, moldMesh, surfaceWarp, type Mesh } from './warp';
+import { drawFlatOnMesh, pruneWarpSurfaces } from './warp-gl';
 export { restCut, surfaceWarp, warpFor } from './warp';
 import { EDGE_ELEMENTS, edgeStroke } from './elements';
 import { bevelLift, bevelSoftOf, blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
@@ -534,6 +535,7 @@ export function forgetPaint(id?: string) {
 export function prunePaints(ids: Iterable<string>) {
   const keep = new Set(ids);
   for (const k of [...paints.keys()]) if (!keep.has(k)) forgetPaint(k);
+  pruneWarpSurfaces(keep);
 }
 
 /** La lampe du document ; les anciens documents n'ont qu'une direction : lampe posée dans cette direction. */
@@ -1055,7 +1057,8 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
 }
 
 /** Vue « os seuls » : le contour en pointillé, les os en traits pleins, une pastille à chaque articulation. */
-function drawBones(ctx: CanvasRenderingContext2D, l: Layer, f: Format, path: Path2D, bones: Array<Array<[number, number]>>) {
+function drawBones(ctx: CanvasRenderingContext2D, l: Layer, f: Format, path: Path2D, sk: { lines: Array<Array<[number, number]>>; flesh?: number[] }) {
+  const bones = sk.lines;
   const b = layerBox(l, f);
   const m = Math.min(f.width, f.height);
   const ink = '#7a5cff';
@@ -1074,6 +1077,18 @@ function drawBones(ctx: CanvasRenderingContext2D, l: Layer, f: Format, path: Pat
   }
   const X = (u: number) => b.cx - b.w / 2 + u * b.w;
   const Y = (v: number) => b.cy - b.h / 2 + v * b.h;
+  // la chair de chaque os (le gras), en transparence : la peau et les objets attachés choisissent leur os d'après elle
+  if (sk.flesh) {
+    ctx.strokeStyle = 'rgba(122,92,255,0.16)';
+    bones.forEach((line, i) => {
+      const r = sk.flesh![i] ?? 0;
+      if (r <= 0) return;
+      ctx.lineWidth = 2 * r * b.h;
+      ctx.beginPath();
+      line.forEach(([u, v], k) => (k ? ctx.lineTo(X(u), Y(v)) : ctx.moveTo(X(u), Y(v))));
+      ctx.stroke();
+    });
+  }
   for (const [w, c] of [
     [m * 0.011, 'rgba(255,255,255,0.9)'],
     [m * 0.006, ink],
@@ -1495,7 +1510,6 @@ function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
 }
 
 // la teinte d'une forme modelée, rendue à plat sur sa boîte d'origine avant d'être posée sur sa grille
-let moldBuffer: HTMLCanvasElement | null = null;
 const MOLD_MAX = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0 ? 1024 : 1536;
 /**
  * Teinte (dégradé, image) d'une forme modelée : posée sur la boîte d'origine, emmenée par la grille du modelage (Layer.molded.mesh).
@@ -1536,24 +1550,23 @@ function drawMoldedFill(ctx: CanvasRenderingContext2D, l: Layer, g: Guide, mesh:
   ctx.restore();
   const T = ctx.getTransform();
   const px = Math.hypot(T.a, T.b);
-  const k = Math.min(px, MOLD_MAX / Math.max(pw, ph));
+  const k = Math.min(quarterOctave(px), MOLD_MAX / Math.max(pw, ph));
   const iw = Math.max(1, Math.ceil(pw * k));
   const ih = Math.max(1, Math.ceil(ph * k));
-  const c = (moldBuffer ??= document.createElement('canvas'));
-  if (c.width < iw || c.height < ih || c.width * c.height > 4 * iw * ih) {
-    c.width = iw;
-    c.height = ih;
-  }
-  const bx = c.getContext('2d')!;
-  bx.setTransform(1, 0, 0, 1, 0, 0);
-  bx.clearRect(0, 0, c.width, c.height);
-  paint(bx, 0, 0, iw, ih);
-  bx.fillRect(0, 0, iw, ih);
-  drawWarped(ctx, c, iw, ih, mesh, px0, py0, pw, ph, px);
+  // la teinte à plat ne dépend que de la couleur, de sa place et de la taille : gardée d'une image à l'autre
+  const key = JSON.stringify([iw, ih, refOf(g), refOf(l.grad), fillEpoch()]);
+  drawFlatOnMesh(ctx, `${l.id}|mold`, key, iw, ih, (bx) => {
+    paint(bx, 0, 0, iw, ih);
+    bx.fillRect(0, 0, iw, ih);
+    return true;
+  }, mesh, px0, py0, pw, ph);
 }
 
-/** Matière et peinture de la couche (effets de matière compris), son encre fraîche et son relief, dans sa boîte. */
-function drawSurface(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions) {
+/**
+ * Matière et peinture de la couche (effets de matière compris), son encre fraîche et son relief, dans sa boîte.
+ * Rend `false` quand la surface n'est pas encore entière (image en route, peinture faite par morceaux, encre fraîche) : elle ne se garde pas.
+ */
+function drawSurface(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions): boolean {
   const b = layerBox(l, f);
   const x0 = b.cx - b.w / 2;
   const y0 = b.cy - b.h / 2;
@@ -1562,40 +1575,90 @@ function drawSurface(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Forma
   if (buf instanceof HTMLCanvasElement) ctx.drawImage(buf, x0, y0, b.w, b.h);
   // effets pas encore prêts : la peinture se montre à mesure, sans eux
   else drawMaterial(ctx, l, doc, f, typeof buf === 'number' ? { ...o, paintAt: buf } : o);
-  if (o.wet?.id === l.id && !o.wet.win) ctx.drawImage(o.wet.canvas, x0, y0, b.w, b.h);
+  const wet = o.wet?.id === l.id && !o.wet.win;
+  if (wet) ctx.drawImage(o.wet!.canvas, x0, y0, b.w, b.h);
   if (l.bump) drawBump(ctx, l, doc, f, b, x0, y0);
+  return (
+    typeof buf !== 'number' &&
+    // couleur de la palette réglée en direct : peinture et effets montrés tels qu'avant, à refaire au lâcher
+    !held &&
+    !wet &&
+    o.burning?.id !== l.id &&
+    !(l.kind === 'photo' && l.src && !imageFor(l.src, o.onImage)) &&
+    (!o.progressive || paintReady(l, doc, f, o.paintAt ?? o.scale))
+  );
 }
 
+// identité des réglages d'une couche (objets remplacés à chaque changement) : la clé d'une surface gardée
+const refIds = new WeakMap<object, number>();
+let refNext = 0;
+const refOf = (x: unknown) => {
+  if (x === null || typeof x !== 'object') return x ?? null;
+  let n = refIds.get(x);
+  if (n === undefined) refIds.set(x, (n = ++refNext));
+  return `#${n}`;
+};
+/**
+ * Ce dont dépend la surface au repos d'une couche, rendue à plat sur iw × ih pixels : tant que cette clé ne change pas,
+ * la surface gardée (warp-gl.ts) sert telle quelle d'une image à l'autre. La lumière compte par paliers (8°), comme les effets de matière.
+ */
+function flatKey(l: Layer, doc: Doc, f: Format, iw: number, ih: number): string {
+  const b = layerBox(l, f);
+  const li = lightAt(doc, f, b.cx, b.cy);
+  return JSON.stringify([
+    iw,
+    ih,
+    b.w,
+    b.h,
+    l.kind,
+    l.guide,
+    refOf(doc.guides),
+    refOf(l.grad),
+    l.src?.length ?? 0,
+    l.src?.slice(-40) ?? '',
+    refOf(l.look),
+    refOf(l.material),
+    refOf(l.fx),
+    refOf(l.strokes),
+    l.strokes.length,
+    refOf(l.bump),
+    refOf(l.text),
+    refOf(l.molded),
+    l.anim && (l.text || generatorOf(l.anim)?.on || generatorOf(l.anim)?.spill?.(l.anim)) ? 1 : 0,
+    textEpoch(),
+    fillEpoch(),
+    l.rot ?? 0,
+    Math.round(li.deg / 8),
+    l.bump ? Math.round(li.k * 20) : 0,
+    // le relief prend la teinte de la lampe
+    l.bump ? lampOf(doc).color : '',
+  ]);
+}
 
-// la surface au repos, rendue à part avant d'être posée sur le maillage (un seul tampon, réutilisé d'une couche à l'autre)
-let warpBuffer: HTMLCanvasElement | null = null;
+// à la résolution de l'écran, sans dépasser le budget d'une tablette
 const WARP_MAX = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0 ? 1536 : 2304;
+/**
+ * Surface d'une forme qui se plie : rendue à plat sur la forme au repos, gardée tant qu'elle ne change pas,
+ * puis posée sur le maillage (par la carte graphique quand elle est là, voir warp-gl.ts).
+ */
 function drawWarpedSurface(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format, o: DrawOptions, mesh: Mesh) {
   const b = layerBox(l, f);
   const x0 = b.cx - b.w / 2;
   const y0 = b.cy - b.h / 2;
   const T = ctx.getTransform();
   const px = Math.hypot(T.a, T.b);
-  // à la résolution de l'écran, sans dépasser le budget d'une tablette
-  const k = Math.min(px, WARP_MAX / Math.max(b.w, b.h));
+  // au quart d'octave au-dessus : un zoom ne refait la surface qu'en passant un palier
+  const k = Math.min(quarterOctave(px), WARP_MAX / Math.max(b.w, b.h));
   const iw = Math.max(1, Math.ceil(b.w * k));
   const ih = Math.max(1, Math.ceil(b.h * k));
-  const c = (warpBuffer ??= document.createElement('canvas'));
-  if (c.width < iw || c.height < ih || c.width * c.height > 4 * iw * ih) {
-    c.width = iw;
-    c.height = ih;
-  }
-  const bx = c.getContext('2d')!;
-  bx.setTransform(1, 0, 0, 1, 0, 0);
-  bx.clearRect(0, 0, iw + 2, ih + 2);
-  bx.save();
-  bx.beginPath();
-  bx.rect(0, 0, iw, ih);
-  bx.clip();
-  bx.setTransform(iw / b.w, 0, 0, ih / b.h, (-x0 * iw) / b.w, (-y0 * ih) / b.h);
-  drawSurface(bx, l, doc, f, o);
-  bx.restore();
-  drawWarped(ctx, c, iw, ih, mesh, x0, y0, b.w, b.h, px);
+  const key = o.wet?.id === l.id || o.burning?.id === l.id ? null : flatKey(l, doc, f, iw, ih);
+  drawFlatOnMesh(ctx, l.id, key, iw, ih, (bx) => {
+    bx.beginPath();
+    bx.rect(0, 0, iw, ih);
+    bx.clip();
+    bx.setTransform(iw / b.w, 0, 0, ih / b.h, (-x0 * iw) / b.w, (-y0 * ih) / b.h);
+    return drawSurface(bx, l, doc, f, o);
+  }, mesh, x0, y0, b.w, b.h);
 }
 
 /** Traitements de la couche : filtre dessin de la photo, puis la matière, puis les effets. */
