@@ -122,10 +122,54 @@ Same character as in the attached sheet, only the [front / three-quarter / side 
 in exactly the pose of the attached template, plain pure white background, no shadow, no text.
 ---
 
-4. Dans l'atelier : ＋ › Illustrations › « Importer un personnage (plusieurs vues) ».
-   - la planche entière (les 4 vues sont découpées et détourées toutes seules), ou
-   - les images une à une, ou un .zip, nommées face.png, trois-quarts.png, profil.png, dos.png.
+4. Dans l'atelier : ＋ › Illustrations › « Importer un personnage (plusieurs vues) » :
+   la planche entière (découpée et détourée toute seule), les images une à une, ou un .zip nommé selon conventions.txt.
    Chaque vue reçoit son squelette posé sur son gabarit ; « Caler sur le gabarit » le remet en place, les articulations se glissent au doigt.
+`;
+
+/** La convention de nommage des fichiers d'un personnage (lue par parseName dans views.ts). */
+export const KIT_NAMING = `NOMMER LES ILLUSTRATIONS ORIENTÉES D'UN .ZIP — Flow Therapy Designer
+=====================================================================
+
+Un fichier = un élément vu sous un angle :
+
+    <personnage>__<vue>[-<sens>][__<élément>].png
+
+- Les parties sont séparées par deux tirets bas « __ ».
+- Minuscules, sans accents ni espaces ; les mots d'une même partie se séparent par un tiret.
+- PNG transparent de préférence (JPEG et WebP sont acceptés).
+
+1. PERSONNAGE : lama-betty, lama-jenni… Plusieurs personnages par .zip : chacun devient un objet.
+   Un dossier peut remplacer le préfixe : lama-betty/face.png = lama-betty__face.png
+
+2. VUE
+   face          (aussi : front, avant, devant)
+   trois-quarts  (aussi : 3-4, 34, three-quarter)
+   profil        (aussi : side, profile, cote)
+   dos           (aussi : back, arriere)
+
+3. SENS (trois-quarts et profil seulement) : -droite ou -gauche, le côté de l'image vers lequel il regarde.
+   Sans sens : la droite. profil-gauche et trois-quarts-gauche sont facultatifs : sans eux, l'atelier retourne
+   la vue de droite en miroir. Dessine-les quand le personnage n'est pas symétrique (guitare, mèche, texte).
+
+4. ÉLÉMENT DÉTACHÉ (facultatif) : __micro, __guitare, __chapeau… dessiné dans la même vue, au même cadrage
+   (même taille d'image, à sa place sur le personnage). Il devient un objet attaché au personnage : il suit ses
+   gestes et change de vue avec lui ; sans fichier pour une vue, il se cache dans cette vue.
+
+EXEMPLE
+    lama-betty__face.png
+    lama-betty__trois-quarts.png
+    lama-betty__profil.png
+    lama-betty__profil-gauche.png        (facultatif)
+    lama-betty__dos.png
+    lama-betty__face__micro.png
+    lama-betty__profil__micro.png
+    lama-jenni__face.png
+    lama-jenni__profil.png
+
+AUSSI ACCEPTÉ
+- La planche de rotation entière : lama-betty__planche.png (découpée en face, trois-quarts, profil, dos, de gauche à droite).
+- Des noms libres (image1.png…) : rangés dans l'ordre face, trois-quarts, profil, dos.
 `;
 
 /** L'archive du kit : gabarits des 4 vues, planche de rotation, prompt. */
@@ -140,6 +184,7 @@ export async function kitZip(): Promise<Blob> {
     files.push({ name: `gabarit-${v}.png`, data: await png(c) });
   }
   files.push({ name: 'prompt.txt', data: new TextEncoder().encode(KIT_PROMPT) });
+  files.push({ name: 'conventions.txt', data: new TextEncoder().encode(KIT_NAMING) });
   return zipStore(files);
 }
 

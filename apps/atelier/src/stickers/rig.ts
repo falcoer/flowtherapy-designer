@@ -90,7 +90,7 @@ const REST_HUM = humJoints(humanoid.skeleton!(HUM_BASE, 0, () => 0, { each: () =
 const SIDE_WALK: Gesture = { id: 'sidewalk', name: 'Marche de côté', note: 'de profil, jambes et bras d’avant en arrière', loop: true, cycle: 1, params: ['stride'], start: false };
 
 /** Rotation ajoutée à chaque os (dans l'ordre de RIG_BONES) par la marche de côté en cours, et le rebond du bassin. */
-function sideWalk(ctx: Context): { rot: number[]; bob: number } | null {
+function sideWalk(ctx: Context, left = false): { rot: number[]; bob: number } | null {
   const live = ctx.each('sidewalk').filter((s) => s.u > 0 && s.u < 1);
   if (!live.length) return null;
   const st = live[live.length - 1]!;
@@ -112,7 +112,8 @@ function sideWalk(ctx: Context): { rot: number[]; bob: number } | null {
   };
   arm(6, 7, 1);
   arm(8, 9, -1);
-  return { rot, bob: -0.012 * amp * Math.abs(Math.cos(s)) };
+  // tourné vers la gauche (vue « -gauche ») : l'avant est à gauche, tout tourne dans l'autre sens
+  return { rot: left ? rot.map((x) => -x) : rot, bob: -0.012 * amp * Math.abs(Math.cos(s)) };
 }
 
 /** Proportions de la boîte de l'objet (largeur / hauteur), gardées à la pose du squelette. */
@@ -187,6 +188,15 @@ const POSES: Record<string, Record<RigJoint, Pt>> = {
 export const TEMPLATE_WIDTH = [0.065, 0.085, 0.04, 0.04, 0.06, 0.06, 0.034, 0.028, 0.034, 0.028, 0.052, 0.038, 0.052, 0.038];
 
 /** Les articulations du gabarit dans une boîte de proportions `ratio` (largeur / hauteur) : à pleine hauteur, centrées. */
+/** Une pose tournée vers la gauche : celle de droite en miroir, la gauche de l'image (L) échangée avec la droite (R). */
+const leftOf = (pose: Record<RigJoint, Pt>): Record<RigJoint, Pt> =>
+  Object.fromEntries(RIG_JOINTS.map((k) => {
+    const o = (k.endsWith('L') ? `${k.slice(0, -1)}R` : k.endsWith('R') ? `${k.slice(0, -1)}L` : k) as RigJoint;
+    return [k, [-pose[o][0], pose[o][1]]];
+  })) as Record<RigJoint, Pt>;
+POSES['trois-quarts-gauche'] = leftOf(POSES['trois-quarts']!);
+POSES['profil-gauche'] = leftOf(POSES.profil!);
+
 export function templateJoints(ratio: number, view = 'face'): Pt[] {
   const r = Math.max(0.05, ratio);
   const pose = POSES[view] ?? A_POSE;
@@ -234,7 +244,7 @@ function skeleton(a: Anim, phase: number, g: Progress, ctx: Context): Bone[] {
   const len = (p: Pt, q: Pt, k: number) => Math.hypot((q[0] - p[0]) * k, q[1] - p[1]);
   const s = len(rest[IX.pelvis]!, rest[IX.neck]!, r) / Math.max(1e-6, len(hRest[IX.pelvis]!, hRest[IX.neck]!, HUM_RATIO));
   const out: Pt[] = rest.map((p) => eq(p, r));
-  const side = sideWalk(ctx);
+  const side = sideWalk(ctx, viewOfAnim(a).endsWith('-gauche'));
   const [pr, pc] = [eq(hRest[IX.pelvis]!, HUM_RATIO), eq(hCur[IX.pelvis]!, HUM_RATIO)];
   out[IX.pelvis] = side ? [out[IX.pelvis]![0], out[IX.pelvis]![1] + side.bob] : [out[IX.pelvis]![0] + (pc[0] - pr[0]) * s, out[IX.pelvis]![1] + (pc[1] - pr[1]) * s];
   for (const i of CHAIN) {

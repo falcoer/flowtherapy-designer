@@ -14,7 +14,7 @@ import { Frise, scrub } from './frise';
 import { meshOf, unwarp } from './warp';
 import { animRatio, animTime, forPart, generatorOf, withActs, GENERATORS, glyphCut, hasAnim, newAnim, newRig, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
 import { RigOverlay } from './rig-ui';
-import { assignViews, characterOf, loadImage, readZip, VIEW_NAMES } from './views';
+import { assignViews, characterOf, groupCharacters, KEYS, leftViews, loadImage, readZip, viewOfName, viewsOf, VIEW_NAMES } from './views';
 import { kitZip, splitSheet } from './charkit';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
@@ -4440,7 +4440,7 @@ export function App() {
     }
   };
 
-  const addLayer = (kind: 'shape' | 'photo', opts: { shape?: ShapeKind; src?: string; name: string; ratio?: number; size?: number; at?: Pt; cut?: string; ref?: string; extra?: Partial<Layer> }) => {
+  const addLayer = (kind: 'shape' | 'photo', opts: { shape?: ShapeKind; src?: string; name: string; ratio?: number; size?: number; at?: Pt; cut?: string; ref?: string; extra?: Partial<Layer>; with?: Array<Partial<Layer>> }) => {
     const a = anchorFor(reperes.frame, f, opts.at?.x ?? f.width / 2, opts.at?.y ?? f.height / 2);
     let w = 0.4;
     let h = 0.4;
@@ -4487,7 +4487,12 @@ export function App() {
       setToastUndo(false);
       return;
     }
-    update((d) => ({ ...d, layers: [...d.layers, layer] }));
+    // objets posés avec lui (éléments détachés d'un personnage) : même place, même hauteur, leur propre largeur
+    const more = (opts.with ?? []).map((x): Layer => {
+      const r = x.views?.find((v) => v.view === x.view)?.ratio;
+      return { ...layer, ...x, id: uid(), w: r ? layer.h * r : layer.w };
+    });
+    update((d) => ({ ...d, layers: [...d.layers, layer, ...more] }));
     setSelected(layer.id);
     setBubble(null);
     if (kind === 'shape') {
@@ -4794,26 +4799,58 @@ export function App() {
   const importCharacter = async (list: File[]) => {
     setToast('Import du personnage…');
     try {
-      const files: Array<{ name: string; blob: Blob }> = [];
+      const files: Array<{ name: string; path?: string; blob: Blob }> = [];
       for (const f of list) {
         if (/\.zip$/i.test(f.name) || f.type.includes('zip')) files.push(...(await readZip(f)));
-        else if (list.length === 1) {
-          // une seule image large : une planche de rotation, découpée en ses vues
-          const bmp = await createImageBitmap(f);
-          const wide = bmp.width > bmp.height * 1.3;
-          bmp.close();
-          files.push(...((wide && (await splitSheet(f))) || [{ name: f.name, blob: f }]));
-        } else files.push({ name: f.name, blob: f });
+        else files.push({ name: f.name, blob: f });
       }
-      const placed = assignViews(files);
-      if (!placed.length) return void setToast('Aucune image trouvée : glisse des PNG nommés face, trois-quarts, profil, dos');
-      const imgs = [];
-      // 1600 px par vue : quatre grandes images restent légères sur iPad
-      for (const p of placed) imgs.push({ view: p.view, ...(await loadImage(p.file.blob, 1600)) });
-      const { ratio, ...extra } = characterOf(imgs);
-      const base = list.length === 1 ? list[0]!.name.replace(/\.[^.]+$/, '') : 'Personnage';
-      addLayer('photo', { src: extra.src, name: base, ratio, extra });
-      setToast(`« ${base} » : ${imgs.map((v) => VIEW_NAMES[v.view]).join(', ')}. Change de vue dans l’onglet Animation`);
+      // la convention de nommage (personnage__vue[-sens][__élément]) range les fichiers par personnage
+      const groups = [...groupCharacters(files)];
+      const names: string[] = [];
+      for (const [gi, [who, c]] of groups.entries()) {
+        const views = new Map(c.views);
+        // une planche de rotation (nommée, ou une seule image large) : découpée en face, trois-quarts, profil, dos
+        const sheets = [...c.sheets];
+        if (!views.size && !sheets.length && c.loose.length === 1) {
+          const bmp = await createImageBitmap(c.loose[0]!.blob);
+          if (bmp.width > bmp.height * 1.3) sheets.push(c.loose.pop()!);
+          bmp.close();
+        }
+        for (const sh of sheets) for (const p of (await splitSheet(sh.blob)) ?? []) if (!views.has(viewOfName(p.name)!)) views.set(viewOfName(p.name)!, { name: p.name, blob: p.blob });
+        for (const p of assignViews(c.loose.filter((x) => ![...views.values()].includes(x)))) if (!views.has(p.view)) views.set(p.view, p.file);
+        if (!views.size) continue;
+        // 1600 px par vue : plusieurs grandes images restent légères sur iPad
+        const imgs: Array<{ view: string; src: string; ratio: number }> = [];
+        for (const k of KEYS) {
+          const f = views.get(k);
+          if (f) imgs.push({ view: k, ...(await loadImage(f.blob, 1600)) });
+        }
+        const { ratio, ...extra } = characterOf(imgs);
+        // vues tournées vers la gauche qui manquent : celles de droite en miroir
+        extra.views = [...extra.views!, ...(await leftViews(viewsOf({ ...extra, w: ratio, h: 1 } as Layer)))].map((v) => (v.view === extra.view ? { ...v, src: '' } : v));
+        // éléments détachés (micro, chapeau) : un objet par élément, attaché au personnage, avec ses propres vues
+        const link = c.parts.size ? uid() : undefined;
+        const more: Array<Partial<Layer>> = [];
+        for (const [part, pv] of c.parts) {
+          const pimgs: Array<{ view: string; src: string; ratio: number }> = [];
+          for (const k of KEYS) {
+            const f = pv.get(k);
+            if (f) pimgs.push({ view: k, ...(await loadImage(f.blob, 1600)) });
+          }
+          if (!pimgs.length) continue;
+          const shown = pimgs.find((x) => x.view === extra.view) ?? pimgs[0]!;
+          let pviews = pimgs.map((x) => ({ view: x.view, src: x.view === shown.view ? '' : x.src, ratio: x.ratio }));
+          pviews = [...pviews, ...(await leftViews(viewsOf({ views: pviews, view: shown.view, src: shown.src, w: shown.ratio, h: 1 } as Layer)))];
+          more.push({ name: `${who || 'Personnage'} · ${part}`, src: shown.src, views: pviews, view: shown.view, anim: undefined, link });
+        }
+        const name = who || (list.length === 1 ? list[0]!.name.replace(/\.[^.]+$/, '') : 'Personnage');
+        // plusieurs personnages : côte à côte
+        const at = groups.length > 1 ? { x: (f.width * (gi + 1)) / (groups.length + 1), y: f.height / 2 } : undefined;
+        addLayer('photo', { src: extra.src, name, ratio, at, extra: { ...extra, link }, with: more });
+        names.push(`« ${name} » (${imgs.map((v) => VIEW_NAMES[v.view]).join(', ')}${more.length ? ` + ${more.length} élément${more.length > 1 ? 's' : ''}` : ''})`);
+      }
+      if (!names.length) return void setToast('Aucune image trouvée : des PNG nommés personnage__face, personnage__profil… (voir le kit)');
+      setToast(`${names.join(', ')}. Change de vue dans l’onglet Forme ou Animation`);
     } catch {
       setToast('Ce personnage ne peut pas être lu ici : un .zip d’images PNG ou JPEG, ou les images une à une');
     }

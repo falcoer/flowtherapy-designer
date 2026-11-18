@@ -183,6 +183,8 @@ export interface CharView {
   j?: string;
   cut?: string;
   molded?: Layer['molded'];
+  /** Vue tirée d'une autre en miroir (refaite si l'autre change). */
+  mirror?: number;
 }
 
 export interface Layer {
@@ -227,6 +229,8 @@ export interface Layer {
   views?: CharView[];
   /** Vue montrée d'un personnage en plusieurs angles. */
   view?: string;
+  /** Sens où regarde un objet à plusieurs vues : « gauche », sinon la droite de l'image. */
+  facing?: string;
   /** Élément de bibliothèque d'origine (« image/<id> ») : l'instance n'en garde que les écarts. */
   ref?: string;
   /** Hauteur au-dessus de la page (0..1) : l'ombre portée en découle. En dessous de 0, c'est `inner` (creux). */

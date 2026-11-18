@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Layer } from './model';
 import { cutOf } from './scene';
-import { loadImage, setView, showView, viewsOf, VIEWS, VIEW_NAMES, type ViewKind } from './views';
+import { baseOf, keyFor, leftViews, loadImage, setView, showView, turned, viewsOf, VIEWS, VIEW_NAMES, type ViewKind } from './views';
 
 /**
  * Les vues d'un personnage en plusieurs angles, en rangée : toucher une vue la montre, ＋ ajoute l'image d'une vue
@@ -33,14 +33,33 @@ export function ViewRow({ l, patch, onToast }: { l: Layer; patch: (p: Partial<La
       onToast?.('Cette image ne peut pas être lue ici : essaie en PNG ou JPEG');
     }
   };
+  // le sens où regarde l'objet : les vues tournées vers la gauche manquantes se tirent en miroir de celles de droite
+  const left = l.facing === 'gauche';
+  const face = async () => {
+    const to = left ? undefined : 'gauche';
+    const extra = to ? await leftViews(all) : [];
+    const views = [...all, ...extra].map((x) => (x.view === l.view ? { ...x, src: '' } : x));
+    const next = { ...l, views, facing: to } as Layer;
+    const want = keyFor(baseOf(l.view ?? 'face'), to);
+    patch({ views, facing: to, ...(views.some((x) => x.view === want) ? showView(next, want) : {}) });
+    onToast?.(to ? 'Il regarde vers la gauche : profil et trois-quarts en miroir, s’ils n’ont pas leur propre vue' : 'Il regarde vers la droite');
+  };
+  const canTurn = all.some((x) => turned(x.view));
   return (
     <div className="view-row" role="group" aria-label="Vues du personnage">
+      {canTurn && (
+        <button className="view-chip" onClick={() => void face()} title="Sens où il regarde, de profil et de trois-quarts : la marche de côté va de ce côté">
+          <span className="view-thumb">{left ? '←' : '→'}</span>
+          {left ? 'À gauche' : 'À droite'}
+        </button>
+      )}
       {VIEWS.map((v) => {
-        const has = all.find((x) => x.view === v);
-        const on = (l.view ?? (all.length ? undefined : 'face')) === v || (!all.length && v === 'face');
+        // une vue tournée se montre dans le sens où regarde l'objet (celle de gauche si elle existe)
+        const has = all.find((x) => x.view === keyFor(v, l.facing)) ?? all.find((x) => x.view === v);
+        const on = all.length ? baseOf(l.view ?? 'face') === v : v === 'face';
         if (has)
           return (
-            <button key={v} className={`view-chip ${on ? 'on' : ''}`} onClick={() => patch(showView(l, v))} title={`Montrer la vue ${VIEW_NAMES[v].toLowerCase()}`}>
+            <button key={v} className={`view-chip ${on ? 'on' : ''}`} onClick={() => patch(showView(l, has.view))} title={`Montrer la vue ${VIEW_NAMES[v].toLowerCase()}`}>
               {has.src ? <span className="view-thumb" style={{ backgroundImage: `url("${has.src}")` }} /> : <CutThumb d={has.cut ?? cutOf(l)} />}
               {VIEW_NAMES[v]}
             </button>
