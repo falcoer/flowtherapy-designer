@@ -313,6 +313,8 @@ function shapesOf(b: Body, j: Joints): Record<string, Pt[][]> {
   const torso = [
     capsule([{ x: j.head.x, y: j.head.y + b.rH * 0.6 }, neckR], neckBase),
     ...(tubes ? [] : [hull([...round(neckBase), ...round(chest(j.shoulderL)), ...round(chest(j.shoulderR))])]),
+    // la ligne d'épaules va jusqu'aux articulations : les bras restent attachés même sur un torse étroit
+    capsule([j.shoulderL, b.ra * 0.8], [j.shoulderR, b.ra * 0.8]),
     hull([...round(chest(j.shoulderL)), ...round(chest(j.shoulderR)), ...round(waist(-1)), ...round(waist(1))]),
     hull([...round(waist(-1)), ...round(waist(1)), ...round(hip(j.hipL)), ...round(hip(j.hipR))]),
     ...(b.torsoT === 'round' ? [circle({ x: wMid.x, y: wMid.y - 0.01 }, (b.sw + b.hw) / 2 + b.rl * 0.75, 28)] : []),
@@ -354,7 +356,7 @@ const KEYS = ['sex', 'heads', 'build', 'shoulders', 'legs', 'arms', 'headT', 'to
 function cut(a: Anim, _phase: number, g: Progress, ctx?: Context): string {
   const f = framesOf(g, ctx);
   const part = typeof a.part === 'string' ? a.part : '';
-  return cached(`h4|${part}|${KEYS.map((k) => a[k] ?? '').join('|')}|${f.walk}|${f.walkOn}|${f.dance}|${f.danceOn}|${f.wave}|${f.jump}`, () => {
+  return cached(`h5|${part}|${KEYS.map((k) => a[k] ?? '').join('|')}|${f.walk}|${f.walkOn}|${f.dance}|${f.danceOn}|${f.wave}|${f.jump}`, () => {
     const b = bodyOf(a);
     const shapes = shapesOf(b, jointsOf(b, poseOf(a, f)));
     // une pièce : sa surface ; sans pièce (vignette, aperçus des réglages), la silhouette entière réunie
