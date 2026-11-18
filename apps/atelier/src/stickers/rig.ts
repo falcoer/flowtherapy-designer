@@ -107,21 +107,67 @@ const A_POSE: Record<RigJoint, Pt> = {
   kneeR: [0.075, 0.73],
   footR: [0.09, 0.95],
 };
+/**
+ * Les autres vues du gabarit, tournées vers la droite de l'image : trois-quarts (le corps pivoté d'environ 45°,
+ * le côté droit de l'image est celui du fond, plus court) et profil (épaules et hanches l'une devant l'autre ; le bras du fond part en arrière, l'autre
+ * en avant, les jambes en petit pas : les quatre membres restent visibles). Le dos est la face.
+ */
+const POSES: Record<string, Record<RigJoint, Pt>> = {
+  face: A_POSE,
+  dos: A_POSE,
+  'trois-quarts': {
+    head: [0.02, 0.07],
+    neck: [0.005, 0.15],
+    pelvis: [0, 0.5],
+    shL: [-0.09, 0.195],
+    elL: [-0.17, 0.34],
+    handL: [-0.24, 0.48],
+    shR: [0.075, 0.19],
+    elR: [0.14, 0.34],
+    handR: [0.19, 0.48],
+    hipL: [-0.055, 0.52],
+    kneeL: [-0.07, 0.73],
+    footL: [-0.085, 0.95],
+    hipR: [0.045, 0.52],
+    kneeR: [0.06, 0.73],
+    footR: [0.07, 0.95],
+  },
+  profil: {
+    head: [0.025, 0.07],
+    neck: [0, 0.15],
+    pelvis: [0, 0.5],
+    shL: [-0.015, 0.19],
+    elL: [-0.07, 0.33],
+    handL: [-0.125, 0.46],
+    shR: [0.015, 0.19],
+    elR: [0.065, 0.33],
+    handR: [0.135, 0.45],
+    hipL: [-0.012, 0.52],
+    kneeL: [-0.055, 0.73],
+    footL: [-0.125, 0.95],
+    hipR: [0.012, 0.52],
+    kneeR: [0.06, 0.73],
+    footR: [0.115, 0.95],
+  },
+};
 /** Demi-largeur de chaque os de la silhouette du gabarit (dans l'ordre de RIG_BONES), en parts de la hauteur ; la tête est un disque. */
 export const TEMPLATE_WIDTH = [0.065, 0.085, 0.04, 0.04, 0.06, 0.06, 0.034, 0.028, 0.034, 0.028, 0.052, 0.038, 0.052, 0.038];
 
 /** Les articulations du gabarit dans une boîte de proportions `ratio` (largeur / hauteur) : à pleine hauteur, centrées. */
-export function templateJoints(ratio: number): Pt[] {
+export function templateJoints(ratio: number, view = 'face'): Pt[] {
   const r = Math.max(0.05, ratio);
-  return RIG_JOINTS.map((k) => [0.5 + A_POSE[k][0] / r, A_POSE[k][1]]);
+  const pose = POSES[view] ?? A_POSE;
+  return RIG_JOINTS.map((k) => [0.5 + pose[k][0] / r, pose[k][1]]);
 }
+/** La vue d'un objet habillé (face, trois-quarts, profil, dos). */
+export const viewOfAnim = (a: Anim) => (typeof a.view === 'string' ? a.view : 'face');
 /** Articulations de départ : celles du gabarit. Un personnage cadré comme le gabarit n'a plus rien à caler. */
 export const defaultJoints = templateJoints;
 /** Le gabarit dans la boîte d'un objet habillé. */
-export const templateOf = (a: Anim): Pt[] => templateJoints(ratioOf(a));
+export const templateOf = (a: Anim): Pt[] => templateJoints(ratioOf(a), viewOfAnim(a));
 /** Articulations au repos d'un objet habillé (celles calées à la main, sinon celles de départ). */
 export function rigJoints(a: Anim): Pt[] {
-  const def = defaultJoints(ratioOf(a));
+  const def = templateOf(a);
   const s = typeof a.j === 'string' ? a.j.split(';') : [];
   return def.map((d, i) => {
     const [x, y] = (s[i] ?? '').split(',').map(Number);
@@ -193,7 +239,7 @@ function flesh(a: Anim): number[] {
 function warp(a: Anim, phase: number, g: Progress, ctx: Context) {
   const rest = bonesOf(rigJoints(a));
   const cur = skeleton(a, phase, g, ctx);
-  return skinWarp(`rig|${typeof a.j === 'string' ? a.j : ''}|${ratioOf(a)}|${numOf(a, 'fat', 2)}`, rest, cur, ratioOf(a), undefined, 0.035, flesh(a));
+  return skinWarp(`rig|${viewOfAnim(a)}|${typeof a.j === 'string' ? a.j : ''}|${ratioOf(a)}|${numOf(a, 'fat', 2)}`, rest, cur, ratioOf(a), undefined, 0.035, flesh(a));
 }
 
 export const rig: Generator = {

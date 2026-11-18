@@ -14,6 +14,8 @@ import { Frise, scrub } from './frise';
 import { meshOf, unwarp } from './warp';
 import { animRatio, animTime, forPart, generatorOf, withActs, GENERATORS, glyphCut, hasAnim, newAnim, newRig, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
 import { RigOverlay } from './rig-ui';
+import { assignViews, characterOf, loadImage, readZip, VIEW_NAMES } from './views';
+import { kitZip, splitSheet } from './charkit';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
 import { MatterRow } from './matter-palette';
@@ -4438,7 +4440,7 @@ export function App() {
     }
   };
 
-  const addLayer = (kind: 'shape' | 'photo', opts: { shape?: ShapeKind; src?: string; name: string; ratio?: number; size?: number; at?: Pt; cut?: string; ref?: string }) => {
+  const addLayer = (kind: 'shape' | 'photo', opts: { shape?: ShapeKind; src?: string; name: string; ratio?: number; size?: number; at?: Pt; cut?: string; ref?: string; extra?: Partial<Layer> }) => {
     const a = anchorFor(reperes.frame, f, opts.at?.x ?? f.width / 2, opts.at?.y ?? f.height / 2);
     let w = 0.4;
     let h = 0.4;
@@ -4469,6 +4471,7 @@ export function App() {
       ...(kind === 'shape' && opts.shape ? defaultBevel(opts.shape) : {}),
       visible: true,
       strokes: [],
+      ...opts.extra,
     };
     // forme en plusieurs morceaux : une couche par pièce, dans la même boîte, solidaires (chacune sa teinte, son bord)
     const pieces = kind === 'shape' && opts.shape && isSilhouette(opts.shape) && !opts.cut ? silhouettePieces(opts.shape) : [];
@@ -4780,25 +4783,39 @@ export function App() {
     const name = file.name.replace(/\.[^.]+$/, '') || 'Photo';
     setToast(`Import de « ${name} »…`);
     try {
-      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
-      const k = Math.min(1, 2400 / Math.max(bmp.width, bmp.height));
-      const c = document.createElement('canvas');
-      c.width = Math.max(1, Math.round(bmp.width * k));
-      c.height = Math.max(1, Math.round(bmp.height * k));
-      const cx = c.getContext('2d')!;
-      cx.drawImage(bmp, 0, 0, c.width, c.height);
-      bmp.close();
-      // une illustration détourée (PNG, WebP transparents) garde sa transparence ; une photo pleine passe en JPEG, plus léger
-      let clear = false;
-      if (!/jpe?g|heic|heif/i.test(file.type)) {
-        const px = cx.getImageData(0, 0, c.width, c.height).data;
-        for (let i = 3; i < px.length; i += 4) if (px[i]! < 255) { clear = true; break; }
-      }
-      addLayer('photo', { src: clear ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.9), name, ratio: c.width / c.height });
+      addLayer('photo', { ...(await loadImage(file)), name });
       setToast(`« ${name} » importée`);
     } catch {
       // format que le navigateur ne sait pas lire en image (HEIC sur ordinateur, par exemple)
       setToast('Cette photo ne peut pas être lue ici : essaie en JPEG ou PNG');
+    }
+  };
+  /** Personnage en plusieurs angles : une archive .zip ou plusieurs images, une par vue (face, trois-quarts, profil, dos). */
+  const importCharacter = async (list: File[]) => {
+    setToast('Import du personnage…');
+    try {
+      const files: Array<{ name: string; blob: Blob }> = [];
+      for (const f of list) {
+        if (/\.zip$/i.test(f.name) || f.type.includes('zip')) files.push(...(await readZip(f)));
+        else if (list.length === 1) {
+          // une seule image large : une planche de rotation, découpée en ses vues
+          const bmp = await createImageBitmap(f);
+          const wide = bmp.width > bmp.height * 1.3;
+          bmp.close();
+          files.push(...((wide && (await splitSheet(f))) || [{ name: f.name, blob: f }]));
+        } else files.push({ name: f.name, blob: f });
+      }
+      const placed = assignViews(files);
+      if (!placed.length) return void setToast('Aucune image trouvée : glisse des PNG nommés face, trois-quarts, profil, dos');
+      const imgs = [];
+      // 1600 px par vue : quatre grandes images restent légères sur iPad
+      for (const p of placed) imgs.push({ view: p.view, ...(await loadImage(p.file.blob, 1600)) });
+      const { ratio, ...extra } = characterOf(imgs);
+      const base = list.length === 1 ? list[0]!.name.replace(/\.[^.]+$/, '') : 'Personnage';
+      addLayer('photo', { src: extra.src, name: base, ratio, extra });
+      setToast(`« ${base} » : ${imgs.map((v) => VIEW_NAMES[v.view]).join(', ')}. Change de vue dans l’onglet Animation`);
+    } catch {
+      setToast('Ce personnage ne peut pas être lu ici : un .zip d’images PNG ou JPEG, ou les images une à une');
     }
   };
 
@@ -6851,6 +6868,44 @@ export function App() {
                       }}
                     />
                   </label>
+                  {shelf === 'illustrations' && (
+                    <button
+                      className="file"
+                      title="Gabarits des 4 vues, planche de rotation et prompt, pour générer un personnage avec GPT"
+                      onClick={() => {
+                        void kitZip().then((b) => {
+                          const a = document.createElement('a');
+                          a.href = URL.createObjectURL(b);
+                          a.download = 'kit-personnage.zip';
+                          a.click();
+                          setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+                          setToast('Kit téléchargé : donne la planche et le prompt à GPT, puis importe le résultat ici');
+                        });
+                      }}
+                    >
+                      <Icon name="import" />
+                      Kit pour générer un personnage
+                    </button>
+                  )}
+                  {shelf === 'illustrations' && (
+                    <label className="file" title="La planche de rotation, une archive .zip ou plusieurs images : face, trois-quarts, profil, dos (d’après leur nom, sinon dans cet ordre)">
+                      <Icon name="import" />
+                      Importer un personnage (plusieurs vues)
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/jpeg,image/png,image/webp,image/gif,.zip,application/zip"
+                        onChange={(e) => {
+                          const list = [...(e.target.files ?? [])];
+                          e.target.value = '';
+                          if (list.length) {
+                            setBubble(null);
+                            void importCharacter(list);
+                          }
+                        }}
+                      />
+                    </label>
+                  )}
                 </div>
               )}
               {shelf === 'textes' && (
