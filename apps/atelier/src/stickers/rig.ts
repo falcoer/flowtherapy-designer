@@ -86,12 +86,39 @@ const REST_HUM = humJoints(humanoid.skeleton!(HUM_BASE, 0, () => 0, { each: () =
 const ratioOf = (a: Anim) => Math.max(0.05, numOf(a, 'ratio', 1));
 
 /**
- * Articulations de départ, pour une boîte de proportions `ratio` : celles de l'humanoïde au repos, à la même échelle
- * de hauteur, centrées. Sur une photo de personnage, il reste à les caler à la main.
+ * Le gabarit : un personnage de face en « pose A » (bras écartés d'une trentaine de degrés, jambes un peu ouvertes),
+ * huit têtes de haut, des cheveux du sommet du crâne (0) à la semelle (1). x depuis l'axe du corps, en parts de la hauteur.
+ * C'est la pose à demander à un générateur d'images : chaque membre se détache du corps, le squelette s'y cale de lui-même.
  */
-export function defaultJoints(ratio: number): Pt[] {
-  return REST_HUM.map(([u, v]) => [0.5 + ((u - 0.5) * HUM_RATIO) / ratio, v]);
+const A_POSE: Record<RigJoint, Pt> = {
+  head: [0, 0.07],
+  neck: [0, 0.15],
+  pelvis: [0, 0.5],
+  shL: [-0.11, 0.19],
+  elL: [-0.2, 0.34],
+  handL: [-0.28, 0.48],
+  shR: [0.11, 0.19],
+  elR: [0.2, 0.34],
+  handR: [0.28, 0.48],
+  hipL: [-0.06, 0.52],
+  kneeL: [-0.075, 0.73],
+  footL: [-0.09, 0.95],
+  hipR: [0.06, 0.52],
+  kneeR: [0.075, 0.73],
+  footR: [0.09, 0.95],
+};
+/** Demi-largeur de chaque os de la silhouette du gabarit (dans l'ordre de RIG_BONES), en parts de la hauteur ; la tête est un disque. */
+export const TEMPLATE_WIDTH = [0.065, 0.085, 0.04, 0.04, 0.06, 0.06, 0.034, 0.028, 0.034, 0.028, 0.052, 0.038, 0.052, 0.038];
+
+/** Les articulations du gabarit dans une boîte de proportions `ratio` (largeur / hauteur) : à pleine hauteur, centrées. */
+export function templateJoints(ratio: number): Pt[] {
+  const r = Math.max(0.05, ratio);
+  return RIG_JOINTS.map((k) => [0.5 + A_POSE[k][0] / r, A_POSE[k][1]]);
 }
+/** Articulations de départ : celles du gabarit. Un personnage cadré comme le gabarit n'a plus rien à caler. */
+export const defaultJoints = templateJoints;
+/** Le gabarit dans la boîte d'un objet habillé. */
+export const templateOf = (a: Anim): Pt[] => templateJoints(ratioOf(a));
 /** Articulations au repos d'un objet habillé (celles calées à la main, sinon celles de départ). */
 export function rigJoints(a: Anim): Pt[] {
   const def = defaultJoints(ratioOf(a));

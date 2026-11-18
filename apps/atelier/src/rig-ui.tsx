@@ -1,5 +1,5 @@
-import { useRef } from 'react';
-import { jointsText, RIG_BONES, RIG_JOINTS, RIG_NAMES, rigJoints, type Anim } from './anim';
+import { useRef, useState } from 'react';
+import { jointsText, RIG_BONES, RIG_JOINTS, RIG_NAMES, rigJoints, TEMPLATE_WIDTH, templateOf, type Anim } from './anim';
 import type { BoxMap } from './gradient-ui';
 
 type Pt = [number, number];
@@ -19,6 +19,12 @@ export function RigOverlay({ anim, map, frame, onChange }: { anim: Anim; map: Bo
   const moved = useRef(false);
   const scr = ([u, v]: Pt) => map.toScreen((u - fa) / W, (v - fb) / H);
   const P = J.map(scr);
+  // le gabarit (silhouette en pose A) à la hauteur de la boîte : on cadre la photo dessus, puis on y cale les articulations
+  const [guide, setGuide] = useState(true);
+  const T = templateOf(anim).map(scr);
+  const [top, bottom] = [scr([fa + W / 2, fb]), scr([fa + W / 2, fb + H])];
+  const tall = Math.hypot(bottom.x - top.x, bottom.y - top.y);
+  const fit = () => onChange({ ...anim, j: jointsText(templateOf(anim)) }, true);
   const grab = (i: number) => (e: React.PointerEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -43,6 +49,14 @@ export function RigOverlay({ anim, map, frame, onChange }: { anim: Anim; map: Bo
   return (
     <div className="grad-overlay rig-overlay">
       <svg aria-hidden>
+        {guide && (
+          <g className="rig-guide">
+            {RIG_BONES.map(([p, c], i) => {
+              const [A, B] = [T[RIG_JOINTS.indexOf(p)]!, T[RIG_JOINTS.indexOf(c)]!];
+              return i === 0 ? <circle key={i} cx={B.x} cy={B.y} r={TEMPLATE_WIDTH[0]! * tall} /> : <line key={i} x1={A.x} y1={A.y} x2={B.x} y2={B.y} strokeWidth={2 * TEMPLATE_WIDTH[i]! * tall} />;
+            })}
+          </g>
+        )}
         {RIG_BONES.map(([p, c], i) => {
           const [A, B] = [P[RIG_JOINTS.indexOf(p)]!, P[RIG_JOINTS.indexOf(c)]!];
           return <line key={i} x1={A.x} y1={A.y} x2={B.x} y2={B.y} className={`rig-bone ${side(c)}`} />;
@@ -62,6 +76,14 @@ export function RigOverlay({ anim, map, frame, onChange }: { anim: Anim; map: Bo
           <em>{RIG_NAMES[k]}</em>
         </span>
       ))}
+      <div className="rig-bar" style={{ left: top.x, top: top.y }}>
+        <button className={guide ? 'on' : ''} onClick={() => setGuide(!guide)} title="Silhouette en pose A : cadre la photo dessus">
+          Gabarit
+        </button>
+        <button onClick={fit} title="Pose les articulations sur le gabarit">
+          Caler sur le gabarit
+        </button>
+      </div>
     </div>
   );
 }

@@ -499,6 +499,16 @@ describe('squelette commun', () => {
 });
 
 describe('squelette posé dans un objet (habiller)', () => {
+  it('sans calage, les articulations sont celles du gabarit en pose A : bras écartés, pieds en bas', () => {
+    const J = rigJoints(newRig(0.64));
+    const at = (k: string) => J[RIG_JOINTS.indexOf(k as never)]!;
+    expect(at('handL')[0]).toBeLessThan(at('elL')[0]);
+    expect(at('elL')[0]).toBeLessThan(at('shL')[0]);
+    expect(at('handR')[0]).toBeGreaterThan(at('elR')[0]);
+    expect(at('footL')[1]).toBeGreaterThan(0.9);
+    expect(at('head')[1]).toBeLessThan(0.1);
+    for (const [x] of J) expect(x).toBeGreaterThanOrEqual(0), expect(x).toBeLessThanOrEqual(1);
+  });
   const tm = { period: 1, count: 4 };
   const rigged = (acts: Array<{ g: string; at: number; len: number; cycle?: number }>, over: Record<string, number | string> = {}) => ({ ...newRig(0.6), acts: acts.map((x, i) => ({ id: `a${i}`, ...x })), ...over });
   it('au repos, les os sont posés sur les articulations calées', () => {
@@ -530,7 +540,9 @@ describe('squelette posé dans un objet (habiller)', () => {
     const J = rigJoints(rigged([]));
     J[RIG_JOINTS.indexOf('handL')] = [0.1, 0.9];
     const a = rigged([{ g: 'walk', at: 0, len: 4, cycle: 1 }], { j: jointsText(J) });
-    expect(animSkeleton(a, 0)![7]![1]).toEqual([0.1, 0.9]);
+    const hand = animSkeleton(a, 0)![7]![1];
+    expect(hand[0]).toBeCloseTo(0.1, 9);
+    expect(hand[1]).toBeCloseTo(0.9, 9);
     const w = animWarp(a, 0.3);
     expect(w).not.toBeNull();
     // un point du pied bouge, un point de la tête presque pas
