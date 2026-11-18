@@ -3255,3 +3255,32 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .shape-strip .sd-it.on { color: var(--ink); }
 .shape-strip .tint-lens.sd-lens { display: grid; place-items: center; background: var(--chrome-solid); color: var(--ink); }
 .shape-strip .sd-lens .sd-face { width: 76%; height: 76%; }
+/* menu de côté des onglets Forme, Texte et Image : toujours là ; sur tablette, rangé à droite */
+.ap-side .ap-unmold { justify-self: stretch; height: 32px; margin-top: 2px; background: var(--accent); color: #fff; }
+@media (min-width: 541px) {
+  .ap-shape-row > .ap-side { margin-left: auto; }
+  .ap-pane > .ap-side { align-self: flex-end; }
+}
+/* mode animation : un bouton dans le coin libre (en face de la roue de la brosse) ; la barre se déploie depuis lui */
+.anim-corner { position: absolute; z-index: 9; right: max(12px, env(safe-area-inset-right, 0px)); bottom: 14px; width: 44px; height: 44px; border-radius: 22px; border: 0; display: grid; place-items: center; cursor: pointer; background: var(--chrome-solid); color: var(--ink); box-shadow: 0 2px 10px rgba(0,0,0,0.18); }
+.anim-corner.on { background: var(--accent); color: #fff; }
+.hand-left .anim-corner { right: auto; left: max(12px, env(safe-area-inset-left, 0px)); }
+.anim-bar { left: auto; right: calc(max(12px, env(safe-area-inset-right, 0px)) + 52px); transform: none; max-width: calc(100vw - 64px - 210px); animation: anim-out 0.16s ease-out; transform-origin: right center; }
+.hand-left .anim-bar { right: auto; left: calc(max(12px, env(safe-area-inset-left, 0px)) + 52px); transform-origin: left center; }
+@keyframes anim-out { from { opacity: 0; transform: scaleX(0.3); } to { opacity: 1; transform: none; } }
+.anim-bar .anim-bones { margin-left: 6px; }
+.anim-bar .anim-bones.on { background: var(--accent); color: #fff; }
+@media (max-width: 560px) {
+  .anim-bar, .anim-bar.with-band { left: 8px; right: calc(max(12px, env(safe-area-inset-right, 0px)) + 52px); max-width: none; justify-content: space-between; }
+  .hand-left .anim-bar, .hand-left .anim-bar.with-band { left: calc(max(12px, env(safe-area-inset-left, 0px)) + 52px); right: 8px; }
+  /* la roue de la brosse occupe le bas : la barre passe au-dessus */
+  .anim-bar.over-wheel { margin-bottom: 190px; }
+}
+/* déroulé sur le dessus de la barre, deux fois plus haut : en bas de l'écran de l'iPad, le système prend les gestes du bord */
+.anim-bar { padding-bottom: 4px; padding-top: 32px; }
+.anim-track { top: 0; bottom: auto; height: 28px; }
+.anim-track::before { top: 6px; bottom: auto; height: 16px; }
+.anim-fill, .anim-tick { top: 6px; bottom: auto; height: 16px; }
+.anim-track { left: 12px; right: 12px; }
+.anim-knob { top: 3px; bottom: auto; width: 22px; height: 22px; margin-left: -11px; }
+@media (max-width: 560px) { .anim-bar output { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; } .anim-bar label, .anim-bar button { flex: none; } }

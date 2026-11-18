@@ -1063,7 +1063,14 @@ export function App() {
   const lastEdit = useRef<EditTool>('transform');
   // horloge des formes animées : tourne tant qu'une forme animée est sur la page et que la lecture n'est pas en pause
   const [animT, setAnimT] = useState(0);
-  const [animPlay, setAnimPlay] = useState(true);
+  // le mode animation s'ouvre par le bouton du coin : à l'ouverture, rien ne tourne ni ne se déroule
+  const [animMode, setAnimMode] = useState(false);
+  const [animPlay, setAnimPlay] = useState(false);
+  /** Vue « os seuls » : les formes qui ont des os ne montrent que leur squelette, la chair cachée. */
+  const [bonesOn, setBonesOn] = useState(false);
+  /** Barre d'animation déployée depuis le bouton du coin (elle se replie en pause, après le délai de la brosse). */
+  const [animBarOut, setAnimBarOut] = useState(false);
+  const [animPoke, setAnimPoke] = useState(0);
   const totalRef = useRef(4);
   const timing = timingOf(doc.timing);
   const total = totalOf(timing);
@@ -1073,7 +1080,7 @@ export function App() {
   const animated = hasAnim(doc.layers);
   totalRef.current = total;
   useEffect(() => {
-    if (!animated || !animPlay) return;
+    if (!animated || !animMode || !animPlay) return;
     let raf = 0;
     let last = performance.now();
     let acc = 0;
@@ -1090,7 +1097,7 @@ export function App() {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [animated, animPlay]);
+  }, [animated, animMode, animPlay]);
   const [coupeOpen, setCoupeOpen] = useState<{ key: string; n: number; sec?: 'edge' | 'coat' | 'image' | 'transform' | 'support' } | undefined>();
   /** Hauteur du bandeau des attributs, quand il est ouvert : la roue du pinceau se pose au-dessus. */
   const [bandH, setBandH] = useState(0);
@@ -1099,12 +1106,10 @@ export function App() {
   const listTap = useRef<{ id: string; t: number } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [listDrag, setListDrag] = useState<{ id: string; over?: string; above?: boolean } | null>(null);
-  /** Le menu principal entre par ce sur quoi on agit : Forme garde le dernier de Découper / Modeler, Éléments le dernier de Peindre / Tampon. */
-  const lastShape = useRef<'cut' | 'mold'>('cut');
+  /** Le menu principal entre par ce sur quoi on agit : Éléments garde le dernier de Peindre / Tampon. */
   const lastDeposit = useRef<'paint' | 'stamp'>('paint');
   const setTool = (t: Tool) => {
     if (isEdit(t)) lastEdit.current = t;
-    if (t === 'cut' || t === 'mold') lastShape.current = t;
     if (t === 'paint' || t === 'stamp') lastDeposit.current = t;
     setToolState(t);
   };
@@ -1260,6 +1265,12 @@ export function App() {
       /* stockage indisponible */
     }
   };
+  // en pause, la barre d'animation se replie dans son bouton après le même délai que la roue de la brosse
+  useEffect(() => {
+    if (!animMode || animPlay || !animBarOut || wheelHide === null) return;
+    const t = window.setTimeout(() => setAnimBarOut(false), wheelHide);
+    return () => window.clearTimeout(t);
+  }, [animMode, animPlay, animBarOut, wheelHide, animPoke]);
   const [lefty, setLeftyState] = useState(() => {
     try {
       return localStorage.getItem('ftd-atelier-hand') === 'left';
@@ -2048,7 +2059,8 @@ export function App() {
     const wet = L.kind === 'paint' && L.wet && L.layer ? { id: L.layer, canvas: L.wet, win: L.win } : undefined;
     const burning = L.kind === 'paint' && L.stroke?.brush === 'burn' && L.layer ? { id: L.layer, stroke: L.stroke } : undefined;
     // pendant la lecture d'une animation, la page se redessine à chaque image, sans l'aperçu de la scène
-    const look = sceneShown && sceneOn(doc) && !(animated && animPlay);
+    const bonesView = animated && animMode && bonesOn;
+    const look = sceneShown && sceneOn(doc) && !(animated && animMode && animPlay) && !bonesView;
     const busy = !!L.kind && L.kind !== 'view';
     const hit = lookCache.current;
     const lookS = Math.min(scale * dpr, 2400 / Math.max(f.width, f.height));
@@ -2062,7 +2074,7 @@ export function App() {
     } else {
       // édition : la page nette, sans objectif, transformation ni flou de mise au point ;
       // l'aperçu (s'il est allumé) se calcule une fois le geste fini
-      drawLayers(ctx, sceneless(doc), f, { scale: scale * dpr, rot: view.rot, onImage: redraw, progressive: true, wet, burning, posed: true });
+      drawLayers(ctx, sceneless(doc), f, { scale: scale * dpr, rot: view.rot, onImage: redraw, progressive: true, wet, burning, posed: true, bones: bonesView });
       drawLampTint(ctx, doc, f);
       if (look && !busy) scheduleLook(doc, f, lookS);
       else if (!look) {
@@ -4340,7 +4352,7 @@ export function App() {
   const patchText = (l: Layer, next: Partial<TextStyle>, history: boolean) => {
     if (!l.text) return;
     // texte modelé : c'est une forme, ses lettres reviennent seulement avec « Revenir au texte »
-    if (l.molded) return setToast('Ce texte est modelé : « Revenir au texte » pour le modifier');
+    if (l.molded) return setToast('Ce texte est modelé : « Annuler le modelage » pour le modifier');
     const t = { ...l.text, ...next };
     // enveloppe et prolongements : les lettres restent où elles sont, la boîte s'adapte autour
     if ('warp' in next || 'swashes' in next || 'molds' in next) return patchLayer(l.id, placeText(l, t), history);
@@ -4443,7 +4455,7 @@ export function App() {
   };
   const toggleSpill = () => {
     setSpill(!spill);
-    setToast(spill ? 'L’encre reste dans la forme' : 'Déborder : l’encre sort de la forme et repousse son contour (« Revenir à la forme » pour l’annuler)');
+    setToast(spill ? 'L’encre reste dans la forme' : 'Déborder : l’encre sort de la forme et repousse son contour (« Annuler le modelage » dans l’onglet Forme pour l’annuler)');
     setToastUndo(false);
   };
   const unmold = (l: Layer) => {
@@ -5276,8 +5288,12 @@ export function App() {
               <Icon name="plus" />
             </button>
             <span className="side-sep" />
-            <button className={`btn small ${tool === 'cut' || tool === 'mold' ? 'on' : ''}`} onClick={() => (tool === 'cut' || tool === 'mold' ? leaveTool() : setTool(lastShape.current))} title="Forme (C, G) : ciseaux, scalpel ou modelage du contour de l'objet">
-              <Icon name={tool === 'mold' || (tool !== 'cut' && lastShape.current === 'mold') ? 'mold' : blade} />
+            {/* découper et modeler : deux gestes différents, deux entrées */}
+            <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => (tool === 'cut' ? leaveTool() : setTool('cut'))} title="Découper (C) : ciseaux ou scalpel">
+              <Icon name={blade} />
+            </button>
+            <button className={`btn small ${tool === 'mold' ? 'on' : ''}`} onClick={() => (tool === 'mold' ? leaveTool() : setTool('mold'))} title="Modeler (G) : tirer ou repousser le contour de l'objet">
+              <Icon name="mold" />
             </button>
             <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => pickTool(lastEdit.current)} title="Matériau (T) : le support de l'objet, ses bords, son vernis, son volume">
               <Icon name="matter" />
@@ -5413,21 +5429,16 @@ export function App() {
             className={`side ${tool === 'edge' && sel && sel.kind !== 'surface' ? ['', '', '', 'dense', 'denser', 'densest'][1 + (sel.border ? 1 : 0) + (sel.glow ? 2 : 0)] : tool === 'filter' && sel ? ['', '', 'dense', 'denser'][(sel.look?.style ? 1 : 0) + (sel.look?.draw ? 1 : 0)] : ''}`}
           >
             <div ref={paramsRef} className={`side-params ${sideTwo ? 'two' : ''} ${sideOdd ? 'odd' : ''}`}>
-              {(tool === 'cut' || tool === 'mold') && (
+              {tool === 'cut' && (
                 <FanButton
                   dir={lefty ? 'left' : 'right'}
-                  face={<Icon name={tool === 'cut' ? blade : 'mold'} />}
-                  title={`Outil de forme : ${tool === 'mold' ? 'Modeler' : blade === 'scalpel' ? 'Scalpel' : 'Ciseaux'}`}
+                  face={<Icon name={blade} />}
+                  title={`Découper : ${blade === 'scalpel' ? 'Scalpel' : 'Ciseaux'}`}
                   items={[
-                    { key: 'scissors', icon: <Icon name="scissors" />, label: 'Ciseaux', hint: 'Trace un contour : le morceau se détache', on: tool === 'cut' && blade === 'scissors' },
-                    { key: 'scalpel', icon: <Icon name="scalpel" />, label: 'Scalpel', hint: 'Trace un contour : le morceau reste en place, lié à son objet', on: tool === 'cut' && blade === 'scalpel' },
-                    { key: 'mold', icon: <Icon name="mold" />, label: 'Modeler', hint: 'Tirer ou repousser le contour, à la plume ou au doigt de glaise', on: tool === 'mold' },
+                    { key: 'scissors', icon: <Icon name="scissors" />, label: 'Ciseaux', hint: 'Trace un contour : le morceau se détache', on: blade === 'scissors' },
+                    { key: 'scalpel', icon: <Icon name="scalpel" />, label: 'Scalpel', hint: 'Trace un contour : le morceau reste en place, lié à son objet', on: blade === 'scalpel' },
                   ]}
-                  onPick={(k) => {
-                    if (k === 'mold') return setTool('mold');
-                    setBlade(k as 'scissors' | 'scalpel');
-                    setTool('cut');
-                  }}
+                  onPick={(k) => setBlade(k as 'scissors' | 'scalpel')}
                 />
               )}
               {(tool === 'paint' || tool === 'stamp') && (
@@ -5522,7 +5533,7 @@ export function App() {
                     <Icon name="paint-reset" />
                   </button>
                   {elDef.spill !== false && (brushKind === 'hair' || brushKind === 'branch' || brushKind === 'glitter') && (
-                    <button className={`btn small ${spill ? 'on' : ''}`} onClick={toggleSpill} title={spill ? 'Déborder : l’encre sort de la forme et repousse son contour, comme le modelage (« Revenir à la forme » le rend). Toucher pour rester dans la forme' : 'Dans la forme : l’encre reste dans la découpe. Toucher pour la laisser déborder et repousser le contour'}>
+                    <button className={`btn small ${spill ? 'on' : ''}`} onClick={toggleSpill} title={spill ? 'Déborder : l’encre sort de la forme et repousse son contour, comme le modelage (« Annuler le modelage » le rend). Toucher pour rester dans la forme' : 'Dans la forme : l’encre reste dans la découpe. Toucher pour la laisser déborder et repousser le contour'}>
                       <Icon name="spill" />
                     </button>
                   )}
@@ -5598,7 +5609,7 @@ export function App() {
                         className="btn small"
                         disabled={!sel?.molded}
                         onClick={() => sel && unmold(sel)}
-                        title={sel?.kind === 'text' ? 'Revenir au texte : retire le modelage, rend les lettres et tous leurs attributs' : 'Revenir à l’origine : retire tout le modelage'}
+                        title={sel?.kind === 'text' ? 'Annuler le modelage : rend les lettres et tous leurs attributs' : 'Annuler le modelage : la forme retrouve son dessin d’origine'}
                       >
                         <Icon name="paint-reset" />
                       </button>
@@ -5627,7 +5638,7 @@ export function App() {
                   <button className={`btn small ${stampFilled ? 'on' : ''}`} onClick={() => setStampFilled(!stampFilled)} title="Motif rempli : ses formes prennent le dégradé du guide">
                     <Icon name="stamp-fill" />
                   </button>
-                  <button className={`btn small ${spill ? 'on' : ''}`} onClick={toggleSpill} title={spill ? 'Déborder : l’encre sort de la forme et repousse son contour, comme le modelage (« Revenir à la forme » le rend). Toucher pour rester dans la forme' : 'Dans la forme : l’encre reste dans la découpe. Toucher pour la laisser déborder et repousser le contour'}>
+                  <button className={`btn small ${spill ? 'on' : ''}`} onClick={toggleSpill} title={spill ? 'Déborder : l’encre sort de la forme et repousse son contour, comme le modelage (« Annuler le modelage » le rend). Toucher pour rester dans la forme' : 'Dans la forme : l’encre reste dans la découpe. Toucher pour la laisser déborder et repousser le contour'}>
                       <Icon name="spill" />
                     </button>
                   {stampSow && (
@@ -6488,7 +6499,39 @@ export function App() {
         </div>
       )}
       {animated && !rendu && (
-        <div className={`anim-bar ${bandH ? 'with-band' : ''}`} style={{ bottom: bandH + 14 }}>
+        <button
+          className={`anim-corner ${animMode ? 'on' : ''}`}
+          style={{ bottom: bandH + 14 }}
+          onClick={() => {
+            if (!animMode) {
+              setAnimMode(true);
+              setAnimBarOut(true);
+            } else if (!animBarOut) setAnimBarOut(true);
+            else {
+              // sortir du mode : la lecture s'arrête, la chair revient
+              setAnimMode(false);
+              setAnimPlay(false);
+              setBonesOn(false);
+              setAnimBarOut(false);
+            }
+          }}
+          title={!animMode ? 'Mode animation : déployer la barre de lecture' : !animBarOut ? 'Déployer la barre d’animation' : 'Quitter le mode animation (la lecture s’arrête)'}
+          aria-label="Mode animation"
+          aria-pressed={animMode}
+        >
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+            <rect x="3" y="5" width="18" height="14" rx="2.5" />
+            <path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4" />
+            <path d="M10.5 9.6l3.6 2.4-3.6 2.4z" fill="currentColor" stroke="none" />
+          </svg>
+        </button>
+      )}
+      {animated && !rendu && animMode && animBarOut && (
+        <div
+          className={`anim-bar ${bandH ? 'with-band' : ''} ${tool === 'paint' || tool === 'stamp' || tool === 'mold' ? 'over-wheel' : ''}`}
+          style={{ bottom: bandH + 14 }}
+          onPointerDown={() => setAnimPoke((n) => n + 1)}
+        >
           <button onClick={() => setAnimPlay((p) => !p)} title={animPlay ? 'Mettre les animations en pause' : 'Lire les animations'} aria-label={animPlay ? 'Pause' : 'Lecture'}>
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
               <path d={animPlay ? 'M7 5h3.5v14H7zM13.5 5H17v14h-3.5z' : 'M8 5l11 7-11 7z'} fill="currentColor" />
@@ -6539,6 +6582,18 @@ export function App() {
             />
             s
           </label>
+          {/* au bout de la barre : les os seuls, la chair cachée le temps de régler le mouvement */}
+          <button
+            className={`anim-bones ${bonesOn ? 'on' : ''}`}
+            onClick={() => setBonesOn((b) => !b)}
+            title={bonesOn ? 'Remettre la chair autour des os' : 'Os seuls : cacher la chair le temps de voir le squelette bouger'}
+            aria-label="Os seuls"
+            aria-pressed={bonesOn}
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8.2 6.4a2.2 2.2 0 1 0-3 1.8 2.2 2.2 0 1 0 1.8 3l6.8 6.8a2.2 2.2 0 1 0 3 1.8 2.2 2.2 0 1 0-1.8-3L8.2 9.6" />
+            </svg>
+          </button>
           {/* le déroulé : la position dans la vidéo, un repère au début de chaque période ; toucher pour s'y placer */}
           <div
             className="anim-track"

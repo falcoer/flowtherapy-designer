@@ -7,7 +7,7 @@ import { pathToRings, ringsToPath, simplifyRing, type Ring, insideRings } from '
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
 import { animCut, carved, generatorOf, posed } from './anim';
-import { bentCut, drawWarped, meshOf, surfaceWarp, type Mesh } from './warp';
+import { bentCut, bonesOf, drawWarped, meshOf, surfaceWarp, type Mesh } from './warp';
 export { restCut, surfaceWarp, warpFor } from './warp';
 import { EDGE_ELEMENTS, edgeStroke } from './elements';
 import { bevelSoftOf, blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
@@ -617,6 +617,8 @@ export interface DrawOptions {
   wet?: { id: string; canvas: HTMLCanvasElement; win?: [number, number, number, number] };
   /** Brûlure en cours sur une couche : prise en compte avant d'être enregistrée. */
   burning?: { id: string; stroke: Stroke };
+  /** Vue « os seuls » (mode animation) : une forme qui a des os ne montre que son contour et ses os, la chair cachée. */
+  bones?: boolean;
 }
 
 const layerBuffers: HTMLCanvasElement[] = [];
@@ -881,7 +883,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     // les couches plus basses les recouvrent là où elles sont
     if (!pageShadows && l.kind !== 'surface') {
       pageShadows = true;
-      for (const x of order) if (x.kind !== 'surface' && shadowLevel(x) > 0.001 && opacityOf(x) >= 1) castShadow(ctx, x, doc, f, o, maskPath2D(x, f), shadowLevel(x));
+      for (const x of order) if (x.kind !== 'surface' && shadowLevel(x) > 0.001 && opacityOf(x) >= 1 && !(o.bones && bonesOf(x))) castShadow(ctx, x, doc, f, o, maskPath2D(x, f), shadowLevel(x));
     }
     // couche translucide ou brûlée : rendue à part, puis posée d'un bloc (son ombre ne transparaît pas)
     const burnt = !flattening.has(l.id) && l.kind !== 'surface' ? ((burnGuides = doc.guides), burnFor(l, f, o)) : null;
@@ -969,6 +971,12 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     const b = layerBox(l, f);
     const x0 = b.cx - b.w / 2;
     const y0 = b.cy - b.h / 2;
+    const bones = o.bones ? bonesOf(l) : null;
+    if (bones) {
+      drawBones(ctx, l, f, path, bones);
+      ctx.restore();
+      continue;
+    }
 
     // ombre sur les couches plus basses : seulement la différence de hauteur,
     // et seulement sur la partie visible de chacune (les couches posées après la cachent)
@@ -1043,6 +1051,51 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     drawGlow(ctx, l, doc, f, o, false);
     ctx.restore();
   }
+  ctx.restore();
+}
+
+/** Vue « os seuls » : le contour en pointillé, les os en traits pleins, une pastille à chaque articulation. */
+function drawBones(ctx: CanvasRenderingContext2D, l: Layer, f: Format, path: Path2D, bones: Array<Array<[number, number]>>) {
+  const b = layerBox(l, f);
+  const m = Math.min(f.width, f.height);
+  const ink = '#7a5cff';
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.setLineDash([m * 0.008, m * 0.006]);
+  ctx.lineWidth = m * 0.0025;
+  ctx.strokeStyle = 'rgba(122,92,255,0.55)';
+  ctx.stroke(path);
+  ctx.setLineDash([]);
+  if (l.rot) {
+    ctx.translate(b.cx, b.cy);
+    ctx.rotate(l.rot);
+    ctx.translate(-b.cx, -b.cy);
+  }
+  const X = (u: number) => b.cx - b.w / 2 + u * b.w;
+  const Y = (v: number) => b.cy - b.h / 2 + v * b.h;
+  for (const [w, c] of [
+    [m * 0.011, 'rgba(255,255,255,0.9)'],
+    [m * 0.006, ink],
+  ] as const) {
+    ctx.lineWidth = w;
+    ctx.strokeStyle = c;
+    for (const line of bones) {
+      ctx.beginPath();
+      line.forEach(([u, v], i) => (i ? ctx.lineTo(X(u), Y(v)) : ctx.moveTo(X(u), Y(v))));
+      ctx.stroke();
+    }
+  }
+  for (const line of bones)
+    for (const [u, v] of line) {
+      ctx.beginPath();
+      ctx.arc(X(u), Y(v), m * 0.009, 0, 2 * Math.PI);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+      ctx.lineWidth = m * 0.004;
+      ctx.strokeStyle = ink;
+      ctx.stroke();
+    }
   ctx.restore();
 }
 
