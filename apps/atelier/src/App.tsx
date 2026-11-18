@@ -2753,10 +2753,30 @@ export function App() {
    * Sans Maj : l'élément avec tout son ensemble (pièces solidaires). Avec Maj : la pièce seule, puis chaque
    * toucher ajoute un élément au choix ou l'en retire.
    */
+  /** Avec Maj, un glisser n'emporte les autres éléments que dans un choix de plusieurs éléments bâti avec Maj. */
+  const shiftCarries = (id: string) => !!picks && picked.length > 1 && pickedIds.has(id);
   const pickOnPress = (l: Layer, withShift: boolean, e: { pointerId: number; clientX: number; clientY: number }): Layer[] => {
     const current = pickedOf(doc).map((x) => x.id);
     const step = pickStep({ main: selected, picks }, current, l.id, withShift);
     pressTap.current = null;
+    // Maj hors d'un choix de plusieurs éléments : un glisser garde le geste d'avant (la pièce part seule,
+    // sans aimant, le choix ne change pas) ; seul un simple toucher change le choix
+    if (withShift && !shiftCarries(l.id)) {
+      const end = step.tap ?? step.now;
+      pressTap.current = {
+        id: e.pointerId,
+        x: e.clientX,
+        y: e.clientY,
+        t: performance.now(),
+        then: () => {
+          if (end.picks) choose(end.picks, end.main);
+          else setSelected(end.main);
+          if (step.say === 'many') setToast(`${end.picks!.length} éléments choisis : les réglages s’appliquent à chacun`);
+          if (step.say === 'piece') setToast(`Maj : seule la pièce « ${l.name} » est choisie`);
+        },
+      };
+      return [l];
+    }
     if (step.now.picks) choose(step.now.picks, step.now.main);
     else setSelected(step.now.main);
     const tap = step.tap;
@@ -3092,13 +3112,13 @@ export function App() {
         }
         if (near(h.rot)) {
           update((d) => d);
-          live.current = { kind: 'rotate', layer: sel.id, start: p, orig: structuredClone(sel), mates: structuredClone(pickedOf(doc).slice(1)) };
+          live.current = { kind: 'rotate', layer: sel.id, start: p, orig: structuredClone(sel), mates: shiftHeld(shiftLatch, shiftKey, e.shiftKey) && !shiftCarries(sel.id) ? [] : structuredClone(pickedOf(doc).slice(1)) };
           return;
         }
         for (const c of h.corners)
           if (near(c.q)) {
             update((d) => d);
-            live.current = { kind: 'resize', layer: sel.id, start: p, orig: structuredClone(sel), opp: c.opp, centered: centeredOnAnchor(sel), mates: structuredClone(pickedOf(doc).slice(1)) };
+            live.current = { kind: 'resize', layer: sel.id, start: p, orig: structuredClone(sel), opp: c.opp, centered: centeredOnAnchor(sel), mates: shiftHeld(shiftLatch, shiftKey, e.shiftKey) && !shiftCarries(sel.id) ? [] : structuredClone(pickedOf(doc).slice(1)) };
             return;
           }
       }
