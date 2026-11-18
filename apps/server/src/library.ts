@@ -19,7 +19,7 @@ import { SearchIndex } from './search-index.js';
  * l'index SQLite et le cache de rendus se reconstruisent depuis eux.
  */
 /** Vues d'une illustration orientée. */
-export const ORIENTED_VIEWS = ['face', 'trois-quarts', 'profil', 'dos', 'trois-quarts-gauche', 'profil-gauche'];
+export const ORIENTED_VIEWS = ['face', 'trois-quarts', 'profil', 'dos-trois-quarts', 'dos', 'trois-quarts-gauche', 'profil-gauche', 'dos-trois-quarts-gauche'];
 
 export class Library {
   readonly index: SearchIndex;

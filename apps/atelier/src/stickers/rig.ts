@@ -194,6 +194,9 @@ const leftOf = (pose: Record<RigJoint, Pt>): Record<RigJoint, Pt> =>
     const o = (k.endsWith('L') ? `${k.slice(0, -1)}R` : k.endsWith('R') ? `${k.slice(0, -1)}L` : k) as RigJoint;
     return [k, [-pose[o][0], pose[o][1]]];
   })) as Record<RigJoint, Pt>;
+// trois-quarts dos : de dos et de biais, la même silhouette que le trois-quarts (les membres du fond sont ceux de gauche)
+POSES['dos-trois-quarts'] = POSES['trois-quarts']!;
+POSES['dos-trois-quarts-gauche'] = leftOf(POSES['trois-quarts']!);
 POSES['trois-quarts-gauche'] = leftOf(POSES['trois-quarts']!);
 POSES['profil-gauche'] = leftOf(POSES.profil!);
 

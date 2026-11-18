@@ -201,4 +201,19 @@ describe('personnage en plusieurs angles', () => {
     // le dos garde le sens
     expect((await turnTo({ ...l, ...p } as Layer, 'dos')).facing).toBe('gauche');
   });
+
+  it('le trois-quarts dos complète l’anneau, à droite et à gauche', async () => {
+    expect(parseName('lama__dos-trois-quarts.png').view).toBe('dos-trois-quarts');
+    expect(parseName('lama__trois-quarts-dos-gauche.png').view).toBe('dos-trois-quarts-gauche');
+    expect(viewOfName('Lama back 3-4.png')).toBe('dos-trois-quarts');
+    expect(viewOfName('Lama 3-4.png')).toBe('trois-quarts');
+    const l = L({ kind: 'shape', cut: 'M0 0H0.4V1H0Z', view: 'face', views: [{ view: 'face', src: '', ratio: 0.5 }, { view: 'dos-trois-quarts', src: '', ratio: 0.45, cut: 'M0 0H0.3V1H0Z' }, { view: 'dos', src: '', ratio: 0.5 }] });
+    const keys = ringViews(l);
+    expect(keys).toEqual(['face', 'dos-trois-quarts', 'dos', 'dos-trois-quarts-gauche']);
+    expect(nearestView(keys, 140)).toBe('dos-trois-quarts');
+    expect(nearestView(keys, 230)).toBe('dos-trois-quarts-gauche');
+    const p = await turnTo(l, 'dos-trois-quarts-gauche');
+    expect(p.facing).toBe('gauche');
+    expect(p.view).toBe('dos-trois-quarts-gauche');
+  });
 });

@@ -1,5 +1,5 @@
 import { RIG_BONES, RIG_JOINTS, TEMPLATE_WIDTH, templateJoints } from './anim';
-import { VIEWS, VIEW_NAMES, type ViewKind } from './views';
+import { BASES, VIEWS, VIEW_NAMES, type ViewKind } from './views';
 
 /**
  * Le kit pour générer un personnage en plusieurs angles avec un générateur d'images (GPT…) : les gabarits de chaque vue,
@@ -17,9 +17,11 @@ function drawTemplate(cx: CanvasRenderingContext2D, view: ViewKind, x: number, y
   cx.save();
   cx.lineCap = 'round';
   cx.fillStyle = cx.strokeStyle = '#c8c8ce';
-  // de profil et de trois-quarts (tourné vers la droite), les membres du fond (côté droit de l'image) sont plus sombres et passent derrière
+  // de profil et de trois-quarts (tourné vers la droite), les membres du fond (côté droit de l'image) sont plus sombres et passent
+  // derrière ; de trois-quarts dos, le personnage tourne le dos : ceux du fond sont à gauche de l'image
   const turned = view === 'profil' || view === 'trois-quarts';
-  const far = (k: string) => turned && k.endsWith('R') && k !== 'shR' && k !== 'hipR';
+  const side = view === 'dos-trois-quarts' ? 'L' : turned ? 'R' : '';
+  const far = (k: string) => !!side && k.endsWith(side) && k !== `sh${side}` && k !== `hip${side}`;
   const order = RIG_BONES.map((b, i) => [b, i] as const).sort(([b1], [b2]) => Number(far(b2[1])) - Number(far(b1[1])));
   order.forEach(([[p, c], i]) => {
     const [A, B] = [at(p), at(c)];
@@ -104,13 +106,18 @@ Plain flat pure white background, no shadow, no text, no frame, no extra objects
 /** Côtés visibles : en vue tournée, les membres du fond (plus sombres sur le gabarit) restent visibles. */
 const TURNED = `Both arms and both legs stay clearly visible: the far arm swings slightly back, the near arm slightly forward, the legs in a small stride (the darker limbs of the template are the far ones).`;
 
+/** De trois-quarts dos, le personnage tourne le dos : les membres du fond sont à gauche de l'image (plus sombres sur le gabarit). */
+const BACK_TURNED = `Both arms and both legs stay clearly visible: the far arm and leg (the darker limbs of the template, on the left of the image) slightly behind the body, the near ones in front, the legs in a small stride.`;
+
 const VIEW_PROMPTS: Record<string, [string, string, string]> = {
   face: ['gabarit-face.png', 'front view, facing the viewer', ''],
   'trois-quarts': ['gabarit-trois-quarts.png', 'three-quarter view, body turned 45 degrees toward the right side of the image', TURNED],
   profil: ['gabarit-profil.png', 'side profile view, facing the right side of the image', TURNED],
+  'dos-trois-quarts': ['gabarit-dos-trois-quarts.png', 'back three-quarter view: seen from behind and slightly from the side, the character turned away from the viewer toward the back-right, the back of the head and the back visible, the face hidden', BACK_TURNED],
   dos: ['gabarit-dos.png', 'back view, seen from behind', ''],
   'trois-quarts-gauche': ['gabarit-trois-quarts.png (retourné en miroir)', 'three-quarter view, body turned 45 degrees toward the LEFT side of the image (mirror of the template)', TURNED],
   'profil-gauche': ['gabarit-profil.png (retourné en miroir)', 'side profile view, facing the LEFT side of the image (mirror of the template)', TURNED],
+  'dos-trois-quarts-gauche': ['gabarit-dos-trois-quarts.png (retourné en miroir)', 'back three-quarter view, seen from behind and slightly from the side, the character turned away toward the back-LEFT (mirror of the template), the face hidden', BACK_TURNED],
 };
 
 const viewPrompt = (key: string) => {
@@ -138,6 +145,7 @@ Les prompts sont en anglais : GPT suit mieux les consignes de dessin en anglais.
 01  La planche de rotation : les 4 vues d'un coup (le plus rapide).
 02  Un personnage à partir d'une photo ou d'un dessin existant.
 10–15  Une vue à la fois, quand la planche n'est pas fidèle (ou pour les vues tournées vers la gauche).
+16–17  Le trois-quarts dos (de dos, de biais), à droite puis à gauche : il complète le tour entre le profil et le dos.
 20  Un élément détaché (micro, guitare, chapeau, lunettes), vue par vue, au même cadrage que le personnage.
 30  Corriger une vue : couleurs, proportions, membres cachés, objets dans les mains.
 31  Fond transparent : refaire une vue sur fond transparent.
@@ -183,6 +191,8 @@ ${RULES}
   ['prompts/13-vue-dos.txt', viewPrompt('dos')],
   ['prompts/14-vue-trois-quarts-gauche.txt', viewPrompt('trois-quarts-gauche')],
   ['prompts/15-vue-profil-gauche.txt', viewPrompt('profil-gauche')],
+  ['prompts/16-vue-trois-quarts-dos.txt', viewPrompt('dos-trois-quarts')],
+  ['prompts/17-vue-trois-quarts-dos-gauche.txt', viewPrompt('dos-trois-quarts-gauche')],
   [
     'prompts/20-element-detache.txt',
     `ÉLÉMENT DÉTACHÉ (micro, guitare, chapeau, lunettes…) — à joindre : la vue du personnage (par ex. lama-betty__face.png)
@@ -241,10 +251,11 @@ Un fichier = un élément vu sous un angle :
    face          (aussi : front, avant, devant)
    trois-quarts  (aussi : 3-4, 34, three-quarter)
    profil        (aussi : side, profile, cote)
+   dos-trois-quarts  (aussi : trois-quarts-dos, dos-3-4, back-three-quarter) : de dos, de biais
    dos           (aussi : back, arriere)
 
-3. SENS (trois-quarts et profil seulement) : -droite ou -gauche, le côté de l'image vers lequel il regarde.
-   Sans sens : la droite. profil-gauche et trois-quarts-gauche sont facultatifs : sans eux, l'atelier retourne
+3. SENS (trois-quarts, profil et dos-trois-quarts) : -droite ou -gauche, le côté de l'image vers lequel il regarde.
+   Sans sens : la droite. Les vues -gauche sont facultatives : sans elles, l'atelier retourne
    la vue de droite en miroir. Dessine-les quand le personnage n'est pas symétrique (guitare, mèche, texte).
 
 4. ÉLÉMENT DÉTACHÉ (facultatif) : __micro, __guitare, __chapeau… dessiné dans la même vue, au même cadrage
@@ -256,6 +267,7 @@ EXEMPLE
     lama-betty__trois-quarts.png
     lama-betty__profil.png
     lama-betty__profil-gauche.png        (facultatif)
+    lama-betty__dos-trois-quarts.png
     lama-betty__dos.png
     lama-betty__face__micro.png
     lama-betty__profil__micro.png
@@ -273,7 +285,7 @@ export async function kitZip(): Promise<Blob> {
   const [sheet, sx] = canvas(3200, 1200);
   VIEWS.forEach((v, i) => drawTemplate(sx, v, i * 800, 0, 800, 1200));
   files.push({ name: 'planche-rotation.png', data: await png(sheet) });
-  for (const v of VIEWS) {
+  for (const v of BASES) {
     const [c, cx] = canvas(1024, 1536);
     drawTemplate(cx, v, 0, 0, 1024, 1536, false);
     files.push({ name: `gabarit-${v}.png`, data: await png(c) });

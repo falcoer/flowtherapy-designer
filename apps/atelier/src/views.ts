@@ -7,15 +7,29 @@ import { newRig, jointsText, rigJoints } from './stickers';
  * (place, taille, gestes, réglages).
  */
 export const VIEWS = ['face', 'trois-quarts', 'profil', 'dos'] as const;
-export type ViewKind = (typeof VIEWS)[number];
+/**
+ * Les vues de base, dans l'ordre d'un demi-tour : les quatre de la planche de rotation, plus le trois-quarts dos
+ * (tourné vers le fond, de biais) entre le profil et le dos.
+ */
+export const BASES = ['face', 'trois-quarts', 'profil', 'dos-trois-quarts', 'dos'] as const;
+export type ViewKind = (typeof BASES)[number];
 /**
  * Toutes les vues qu'un objet peut garder : les quatre, plus le trois-quarts et le profil tournés vers la gauche
  * (dessinés, ou la vue de droite en miroir). Sans sens, une vue tournée regarde vers la droite de l'image.
  */
-export const KEYS = ['face', 'trois-quarts', 'profil', 'dos', 'trois-quarts-gauche', 'profil-gauche'] as const;
-export const VIEW_NAMES: Record<string, string> = { face: 'Face', 'trois-quarts': 'Trois-quarts', profil: 'Profil', dos: 'Dos', 'trois-quarts-gauche': 'Trois-quarts (gauche)', 'profil-gauche': 'Profil (gauche)' };
+export const KEYS = ['face', 'trois-quarts', 'profil', 'dos-trois-quarts', 'dos', 'trois-quarts-gauche', 'profil-gauche', 'dos-trois-quarts-gauche'] as const;
+export const VIEW_NAMES: Record<string, string> = {
+  face: 'Face',
+  'trois-quarts': 'Trois-quarts',
+  profil: 'Profil',
+  'dos-trois-quarts': 'Trois-quarts dos',
+  dos: 'Dos',
+  'trois-quarts-gauche': 'Trois-quarts (gauche)',
+  'profil-gauche': 'Profil (gauche)',
+  'dos-trois-quarts-gauche': 'Trois-quarts dos (gauche)',
+};
 /** Vue tournée (elle a un sens) ? */
-export const turned = (v: string) => v.startsWith('profil') || v.startsWith('trois-quarts');
+export const turned = (v: string) => v.startsWith('profil') || v.startsWith('trois-quarts') || v.startsWith('dos-trois-quarts');
 /** La vue de base d'une vue (sans son sens). */
 export const baseOf = (v: string) => v.replace(/-gauche$/, '');
 /** La vue à montrer pour une vue de base et un sens. */
@@ -32,7 +46,8 @@ export function viewOfName(name: string): ViewKind | null {
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .replace(/\.[a-z0-9]+$/, '');
-  if (/(trois|three|3[-_ ]?4|quart)/.test(n)) return 'trois-quarts';
+  const back = /(dos|back|arriere|rear)/.test(n);
+  if (/(trois|three|3[-_ ]?4|quart)/.test(n)) return back ? 'dos-trois-quarts' : 'trois-quarts';
   if (/(profil|profile|side|cote)/.test(n)) return 'profil';
   if (/(dos|back|arriere|rear)/.test(n)) return 'dos';
   if (/(face|front|avant|devant)/.test(n)) return 'face';
@@ -44,6 +59,7 @@ const TOKENS: Record<string, ViewKind> = {
   'trois-quarts': 'trois-quarts', 'trois-quart': 'trois-quarts', '3-4': 'trois-quarts', '34': 'trois-quarts', '3q': 'trois-quarts', 'three-quarter': 'trois-quarts', 'three-quarters': 'trois-quarts', quart: 'trois-quarts',
   profil: 'profil', profile: 'profil', side: 'profil', cote: 'profil',
   dos: 'dos', back: 'dos', arriere: 'dos', rear: 'dos',
+  'dos-trois-quarts': 'dos-trois-quarts', 'trois-quarts-dos': 'dos-trois-quarts', 'dos-3-4': 'dos-trois-quarts', '3-4-dos': 'dos-trois-quarts', 'dos-34': 'dos-trois-quarts', 'back-three-quarter': 'dos-trois-quarts', 'back-three-quarters': 'dos-trois-quarts', 'three-quarter-back': 'dos-trois-quarts', 'back-3-4': 'dos-trois-quarts', 'back-34': 'dos-trois-quarts',
 };
 /** La vue d'un mot de la convention (« profil », « profil-gauche », « side-left »…), sans deviner : null sinon. */
 export function viewOfToken(tok: string): ViewKind | null {
@@ -65,7 +81,7 @@ export function assignViews<T extends { name: string }>(files: T[]): Array<{ vie
     if (!v) break;
     out.push({ view: v, file: f });
   }
-  return out.sort((a, b) => VIEWS.indexOf(a.view) - VIEWS.indexOf(b.view));
+  return out.sort((a, b) => BASES.indexOf(a.view) - BASES.indexOf(b.view));
 }
 
 const IMG = /\.(png|jpe?g|webp|gif)$/i;
@@ -303,7 +319,7 @@ export async function mirrorView(v: CharView, key: string): Promise<CharView> {
 /** Les vues tournées vers la gauche qui manquent, tirées de celles de droite en miroir. */
 export async function leftViews(all: CharView[]): Promise<CharView[]> {
   const out: CharView[] = [];
-  for (const base of ['trois-quarts', 'profil']) {
+  for (const base of ['trois-quarts', 'profil', 'dos-trois-quarts']) {
     const left = `${base}-gauche`;
     const right = all.find((v) => v.view === base);
     if (right && !all.some((v) => v.view === left)) out.push(await mirrorView(right, left));
@@ -312,7 +328,7 @@ export async function leftViews(all: CharView[]): Promise<CharView[]> {
 }
 
 /** Place de chaque vue sur l'anneau, en degrés : 0 devant (face), 90 tourné vers la droite, 180 dos, 270 vers la gauche. */
-export const RING: Record<string, number> = { face: 0, 'trois-quarts': 45, profil: 90, dos: 180, 'profil-gauche': 270, 'trois-quarts-gauche': 315 };
+export const RING: Record<string, number> = { face: 0, 'trois-quarts': 45, profil: 90, 'dos-trois-quarts': 135, dos: 180, 'dos-trois-quarts-gauche': 225, 'profil-gauche': 270, 'trois-quarts-gauche': 315 };
 
 /** Les vues qu'on peut montrer : celles qui existent, plus celles de gauche qu'un miroir peut tirer de celles de droite. */
 export function ringViews(l: Layer): string[] {
