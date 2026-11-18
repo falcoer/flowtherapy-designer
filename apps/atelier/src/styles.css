@@ -3321,3 +3321,11 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .anim-bar { animation: anim-out 0.28s cubic-bezier(0.3, 0.7, 0.2, 1); }
 @media (max-width: 560px) { .anim-corner.over-wheel { margin-bottom: 190px; } }
 .anim-bar .anim-track { left: 54px; }
+/* replié, la lecture attend dans le coin libre (à droite, à gauche pour un gaucher) ; au toucher, la barre se déroule
+   sur le bas de l'écran depuis ce coin et emmène le bouton à son début, contre la roue de la brosse */
+.anim-corner, .hand-left .anim-corner { right: auto; left: calc(100% - var(--anim-r) - 48px); transition: left 0.28s cubic-bezier(0.3, 0.7, 0.2, 1); }
+.hand-left .anim-corner { left: var(--anim-l); }
+.anim-corner.open, .hand-left .anim-corner.open { left: var(--anim-l); }
+@keyframes anim-out-r { from { clip-path: inset(0 0 0 calc(100% - 48px) round 20px); } to { clip-path: inset(0 0 0 0 round 20px); } }
+.anim-bar { animation: anim-out-r 0.28s cubic-bezier(0.3, 0.7, 0.2, 1); }
+.hand-left .anim-bar { animation: anim-out 0.28s cubic-bezier(0.3, 0.7, 0.2, 1); }
