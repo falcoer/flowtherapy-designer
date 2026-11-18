@@ -4178,13 +4178,17 @@ export function App() {
     }
     const eps = 0.6 / (scale * Math.max(b.w, b.h));
     const cuts = parts.map((x) => ringsToPath(x.rings, eps));
-    const extra: Layer[] = cuts.slice(1).map((c, i) => ({ ...structuredClone(sel), id: uid(), name: `${sel.name} · morceau ${i + 2}`, ...carve(sel, { cut: c }) }));
+    // scalpel : les morceaux restent un seul ensemble (solidaires), comme une incision ; ciseaux : ils se séparent
+    const link = blade === 'scalpel' ? (sel.link ?? uid()) : undefined;
+    const extra: Layer[] = cuts.slice(1).map((c, i) => ({ ...structuredClone(sel), id: uid(), name: `${sel.name} · morceau ${i + 2}`, ...carve(sel, { cut: c }), ...(link ? { link } : {}) }));
     update((d) => {
-      const layers = d.layers.map((x) => (x.id === sel.id ? { ...x, ...carve(sel, { cut: cuts[0] }) } : x));
+      const layers = d.layers.map((x) => (x.id === sel.id ? { ...x, ...carve(sel, { cut: cuts[0] }), ...(link ? { link } : {}) } : x));
       layers.splice(layers.findIndex((x) => x.id === sel.id) + 1, 0, ...extra);
       return { ...d, layers };
     });
-    setToast(`« ${sel.name} » séparée en ${parts.length} morceaux : glisse-les pour les placer`);
+    // l'ensemble entier reste choisi
+    setSelected(sel.id);
+    setToast(link ? `« ${sel.name} » incisée en ${parts.length} morceaux solidaires : un toucher les choisit tous, Maj un seul` : `« ${sel.name} » séparée en ${parts.length} morceaux : glisse-les pour les placer`);
   };
 
   /**
