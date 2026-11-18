@@ -1269,10 +1269,15 @@ export function App() {
   };
   // en pause, la barre d'animation se replie dans son bouton après le même délai que la roue de la brosse
   useEffect(() => {
-    if (!animMode || animPlay || !animBarOut || wheelHide === null) return;
-    const t = window.setTimeout(() => setAnimBarOut(false), wheelHide);
+    if (!animMode || animPlay || !animBarOut || friseShown || wheelHide === null) return;
+    // arrêtée un moment, la barre se replie dans le bouton de lecture : le mode animation se referme (os compris)
+    const t = window.setTimeout(() => {
+      setAnimBarOut(false);
+      setAnimMode(false);
+      setBonesOn(false);
+    }, wheelHide);
     return () => window.clearTimeout(t);
-  }, [animMode, animPlay, animBarOut, wheelHide, animPoke]);
+  }, [animMode, animPlay, animBarOut, friseShown, wheelHide, animPoke]);
   const [lefty, setLeftyState] = useState(() => {
     try {
       return localStorage.getItem('ftd-atelier-hand') === 'left';
@@ -4899,9 +4904,9 @@ export function App() {
   };
 
   /** Commandes de lecture : dans la barre d'animation, ou en tête du panneau Animation (la barre s'efface alors). */
-  const animTransport = (
-    <>
-          <button onClick={() => {
+  /** Lecture / pause : dans le bouton du coin (qui dépasse toujours de la barre) et en tête du panneau Animation. */
+  const animPlayBtn = (
+      <button onClick={() => {
         setAnimMode(true);
         setAnimPlay((p) => !p);
       }} title={animPlay ? 'Mettre les animations en pause' : 'Lire les animations'} aria-label={animPlay ? 'Pause' : 'Lecture'}>
@@ -4909,6 +4914,9 @@ export function App() {
           <path d={animPlay ? 'M7 5h3.5v14H7zM13.5 5H17v14h-3.5z' : 'M8 5l11 7-11 7z'} fill="currentColor" />
         </svg>
       </button>
+  );
+  const animTransport = (
+    <>
       <button
         onClick={() => {
           // l'aperçu de la scène gardé en pause montre l'image d'avant : il est refait au nouvel instant
@@ -5472,7 +5480,12 @@ export function App() {
                     setAnimT(t);
                   }}
                   onSelect={setSelected}
-                  head={<div className="anim-head">{animTransport}</div>}
+                  head={
+                    <div className="anim-head">
+                      {animPlayBtn}
+                      {animTransport}
+                    </div>
+                  }
                   onShown={setFriseShown}
                   onMotion={(id, motion, h) => {
                     lookCache.current = null;
@@ -6580,26 +6593,19 @@ export function App() {
           className={`anim-corner ${animMode ? 'on' : ''}`}
           style={{ bottom: bandH + 14 }}
           onClick={() => {
-            if (!animMode) {
+            // replié : la lecture démarre et la barre se déploie ; déployé : lecture / pause
+            if (!animMode || !animBarOut) {
               setAnimMode(true);
               setAnimBarOut(true);
-            } else if (!animBarOut) setAnimBarOut(true);
-            else {
-              // sortir du mode : la lecture s'arrête, la chair revient
-              setAnimMode(false);
-              setAnimPlay(false);
-              setBonesOn(false);
-              setAnimBarOut(false);
-            }
+              setAnimPlay(true);
+            } else setAnimPlay((p) => !p);
+            setAnimPoke((n) => n + 1);
           }}
-          title={!animMode ? 'Mode animation : déployer la barre de lecture' : !animBarOut ? 'Déployer la barre d’animation' : 'Quitter le mode animation (la lecture s’arrête)'}
-          aria-label="Mode animation"
-          aria-pressed={animMode}
+          title={animPlay && animMode ? 'Mettre les animations en pause' : 'Lire les animations'}
+          aria-label={animPlay && animMode ? 'Pause' : 'Lecture'}
         >
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
-            <rect x="3" y="5" width="18" height="14" rx="2.5" />
-            <path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4" />
-            <path d="M10.5 9.6l3.6 2.4-3.6 2.4z" fill="currentColor" stroke="none" />
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <path d={animPlay && animMode ? 'M7 5h3.5v14H7zM13.5 5H17v14h-3.5z' : 'M8 5l11 7-11 7z'} fill="currentColor" />
           </svg>
         </button>
       )}

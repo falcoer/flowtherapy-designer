@@ -3300,3 +3300,13 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
   .anim-bar .anim-bones { margin-left: auto; }
 }
 .fr-head > .anim-head { flex: 1 1 auto; }
+/* replié : seul le bouton de lecture ; déployé, la barre part de lui et il dépasse de son bout */
+.anim-corner { z-index: 10; width: 48px; height: 48px; border-radius: 24px; }
+.anim-bar, .anim-bar.with-band { right: calc(max(12px, env(safe-area-inset-right, 0px)) + 24px); padding-right: 34px; }
+.hand-left .anim-bar, .hand-left .anim-bar.with-band { left: calc(max(12px, env(safe-area-inset-left, 0px)) + 24px); padding-right: 10px; padding-left: 34px; }
+@media (min-width: 561px) {
+  .hand-left .anim-bar, .hand-left .anim-bar.with-band { right: calc(max(12px, env(safe-area-inset-right, 0px)) + 176px + 12px); }
+}
+@media (max-width: 560px) {
+  .hand-left .anim-bar, .hand-left .anim-bar.with-band { right: 8px; }
+}
