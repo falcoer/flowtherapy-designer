@@ -5,7 +5,7 @@ import { drawWarped, type Mesh } from './warp';
  * peinture, relief) est rendue une fois à plat, puis gardée tant que rien ne la change : sur la carte graphique (une
  * texture par couche) quand WebGL est là, sinon dans un canevas. À chaque image, le maillage la pose d'un seul dessin
  * (des triangles texturés) au lieu de centaines de morceaux découpés un à un par le canevas 2D.
- * Sans WebGL, ou pour un rendu trop grand, on retombe sur le dessin par morceaux (drawWarped).
+ * Sans WebGL, ou pour un rendu trop grand, on retombe sur le dessin par morceaux (drawWarped). Le choix se règle dans les Préférences (setWarpMode).
  */
 
 const TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
@@ -29,14 +29,52 @@ interface GL {
   big: boolean;
 }
 let gl: GL | null | false = null;
-/** Choix forcé par l'adresse (?warp=gl ou ?warp=2d), pour comparer sur l'appareil. */
-function forced(): string {
+/**
+ * Pose des surfaces déformées, au choix dans les Préférences : automatique (la carte graphique quand elle en est une vraie),
+ * toujours la carte graphique (WebGL même logiciel), ou jamais (dessin par morceaux). Gardé sur l'appareil.
+ */
+export type WarpMode = 'auto' | 'gl' | '2d';
+const MODE_KEY = 'ftd-atelier-warp';
+let mode: WarpMode = (() => {
   try {
-    return new URLSearchParams(location.search).get('warp') ?? '';
+    const v = localStorage.getItem(MODE_KEY);
+    return v === 'gl' || v === '2d' ? v : 'auto';
   } catch {
-    return '';
+    return 'auto';
   }
+})();
+const forced = () => mode;
+export const warpMode = () => mode;
+export function setWarpMode(m: WarpMode) {
+  mode = m;
+  try {
+    localStorage.setItem(MODE_KEY, m);
+  } catch {
+    /* stockage indisponible */
+  }
+  // la carte graphique se redemande au prochain dessin ; les surfaces gardées repartent de zéro
+  if (!gl) gl = null;
+  for (const id of [...surfaces.keys()]) drop(id);
 }
+/** Ce que l'appareil offre : WebGL matériel, logiciel (sans carte graphique), ou rien. */
+let probed: 'hard' | 'soft' | 'none' | null = null;
+export function warpGPU(): 'hard' | 'soft' | 'none' {
+  if (probed) return probed;
+  probed = 'none';
+  try {
+    const g = document.createElement('canvas').getContext('webgl');
+    if (g) {
+      const info = g.getExtension('WEBGL_debug_renderer_info');
+      const r = info ? String(g.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
+      probed = SOFT.test(r) ? 'soft' : 'hard';
+      g.getExtension('WEBGL_lose_context')?.loseContext();
+    }
+  } catch {
+    /* pas de WebGL */
+  }
+  return probed;
+}
+const SOFT = /swiftshader|llvmpipe|softpipe|software|basic render/i;
 
 const VERT = `attribute vec2 pos; attribute vec2 uv; varying vec2 v;
 void main() { v = uv; gl_Position = vec4(pos, 0.0, 1.0); }`;
@@ -56,7 +94,7 @@ function setup(): GL | null {
     // WebGL sans carte graphique (rendu logiciel, Chrome sans accélération) : plus lent que le dessin par morceaux, on n'en veut pas
     const info = g.getExtension('WEBGL_debug_renderer_info');
     const renderer = info ? String(g.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
-    if (forced() !== 'gl' && !testing.force && /swiftshader|llvmpipe|softpipe|software|basic render/i.test(renderer)) return null;
+    if (forced() !== 'gl' && !testing.force && SOFT.test(renderer)) return null;
     const sh = (type: number, src: string) => {
       const x = g.createShader(type)!;
       g.shaderSource(x, src);
