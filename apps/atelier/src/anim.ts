@@ -325,12 +325,13 @@ export function animOrder(a: Anim, t = now): Partial<Pose> | null {
 }
 
 /** Pose d'un objet à l'instant t : la consigne de son sticker, plus toutes ses consignes de la frise. */
-export function poseOf(l: Layer, t = now, tm = timing): Pose | null {
+export function poseOf(l: Layer, t = now, tm = timing, skip?: Set<string>): Pose | null {
   const own = lives(l) ? animOrder(l.anim!, t) : null;
-  if (!own && !l.motion?.length) return null;
+  if (!own && !l.motion?.some((m) => !skip?.has(m.id))) return null;
   const p: Pose = { dx: own?.dx ?? 0, dy: own?.dy ?? 0, rot: own?.rot ?? 0, scale: own?.scale ?? 1, lift: own?.lift ?? 0, bx: own?.bx ?? 0, by: own?.by ?? 0 };
   const at = t / tm.period;
   for (const m of l.motion ?? []) {
+    if (skip?.has(m.id)) continue;
     let u = (at - m.at) / Math.max(0.001, m.len);
     if (u <= 0) continue;
     u = Math.min(1, u);
@@ -354,12 +355,13 @@ export function posed(layers: Layer[], f: Format, t = now): Layer[] {
   for (const l of layers) {
     if (!l.link || hosts.has(l.link) || l.kind === 'surface' || l.visible === false || !lives(l)) continue;
     const g = generatorOf(l.anim!);
-    if (g?.skeleton || g?.warp || g?.order) hosts.set(l.link, l);
+    if (g?.skeleton || g?.warp || g?.order || l.motion?.length) hosts.set(l.link, l);
   }
   return layers.map((l) => {
-    const p = l.kind === 'surface' ? null : poseOf(l, t);
     const host = l.link ? hosts.get(l.link) : undefined;
     const tow = host && host !== l && l.kind !== 'surface' && !(host.anim!.set !== undefined && l.anim?.set === host.anim!.set) ? towed(l, host, f, t) : null;
+    // l'animation est celle de l'ensemble : un mouvement que l'objet attaché partage avec le sticker ne compte qu'une fois
+    const p = l.kind === 'surface' ? null : poseOf(l, t, timing, tow ? new Set(host!.motion?.map((m) => m.id)) : undefined);
     if (!p && !tow) return l;
     const scale = (p?.scale ?? 1) * (tow?.scale ?? 1);
     const [w, h] = [l.w * scale, l.h * scale];
@@ -378,7 +380,7 @@ export function posed(layers: Layer[], f: Format, t = now): Layer[] {
 
 /**
  * Ce qu'un objet attaché reçoit du sticker de son groupe à l'instant t : il suit l'os (ou la surface) sous son centre,
- * puis le mouvement d'objet du sticker (son saut, sa rotation), autour du centre du sticker. dx, dy en parts de la page.
+ * puis les mouvements du sticker (son saut, sa rotation, ceux posés sur la frise), autour du centre du sticker. dx, dy en parts de la page.
  */
 function towed(l: Layer, host: Layer, f: Format, t: number): { dx: number; dy: number; rot: number; scale: number; lift: number } | null {
   const [L, H] = [layerBox(l, f), layerBox(host, f)];
@@ -388,7 +390,7 @@ function towed(l: Layer, host: Layer, f: Format, t: number): { dx: number; dy: n
   // le centre de l'objet, dans la boîte du sticker au repos
   let [x, y] = turn(L.cx - H.cx, L.cy - H.cy, -r0);
   const fl = animFollow(host.anim!, x / H.w + 0.5, y / H.h + 0.5, t);
-  const o = animOrder(host.anim!, t);
+  const o = poseOf(host, t);
   if (!fl && !o) return null;
   x += (fl?.dx ?? 0) * H.w;
   y += (fl?.dy ?? 0) * H.h;

@@ -326,6 +326,17 @@ describe('objets attachés à un sticker', () => {
     expect(Math.abs(at(ls, 2, 'hat').dy - ls[2]!.dy)).toBeLessThan(0.02);
     expect(at(ls, 3.5, 'watch').dy).toBeCloseTo(ls[3]!.dy, 5);
   });
+  it('un mouvement posé sur l’ensemble emmène l’objet attaché, une seule fois s’il le porte aussi', () => {
+    setAnimTiming(tm);
+    const move = { id: 'm1', at: 0, len: 1, dx: 0.2, accel: 'linear', brake: 'sharp' } as NonNullable<Layer['motion']>[number];
+    const ls = scene([]).map((l) => (l.anim ? { ...l, motion: [move] } : l));
+    const shift = at(ls, 1, 'head').dx - ls[0]!.dx;
+    expect(shift).toBeGreaterThan(0.1);
+    expect(at(ls, 1, 'hat').dx - ls[2]!.dx).toBeCloseTo(shift, 5);
+    expect(at(ls, 1, 'free').dx).toBe(ls[4]!.dx);
+    const both = ls.map((l) => (l.id === 'hat' ? { ...l, motion: [move] } : l));
+    expect(at(both, 1, 'hat').dx - ls[2]!.dx).toBeCloseTo(shift, 5);
+  });
   it('sans squelette, le point reste en place', () => {
     setAnimTiming(tm);
     expect(animFollow({ ...newAnim(generatorOf('eye')!), acts: [] }, 0.5, 0.5, 1)).toBeNull();
