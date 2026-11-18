@@ -8,7 +8,7 @@ import { lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './loo
 import { animName, animOf, animRatio, CYCLES, cycleName, generatorOf, glyphCut, timingOf, valueOf, withActs, type Act, type Anim, type Param } from './anim';
 import { presetOf } from './stickers';
 import { ChoiceDial, ShapeFace } from './shape-dial';
-import { GEN_DEFAULTS, LAYER_BLENDS, SKINS, VOLUMES, bevelSoftName, bevelSoftOf, volumeName, type Doc, type Layer } from './model';
+import { GEN_DEFAULTS, LAYER_BLENDS, SKINS, VOLUMES, bevelLift, bevelSoftName, bevelSoftOf, volumeName, type Doc, type Layer } from './model';
 import { ensureFont, lettersOf, fontFamily, fontsFor, fontOf, leanOf, loadFonts, WARPS, withLean, type TextStyle, type WarpKind } from './text';
 import { lettersPicked } from './stickers/letters';
 import { AlignGlyph, TextContent, useLazyText, WarpGlyph, weightName } from './textbar';
@@ -188,7 +188,7 @@ export function removal(l: Layer, key: string): Partial<Layer> {
   // sans surface, l'objet ne tient que par son bord ou sa lueur : retirer le dernier rend la surface
   if (lastTrace(l, key)) return { [key]: undefined, hollow: undefined };
   if (key === 'border') return { border: undefined };
-  if (key === 'bevel') return { bevel: 0, bevelProfile: undefined, bevelSoft: undefined, bevelAxis: undefined, bevelBorder: undefined };
+  if (key === 'bevel') return { bevel: 0, bevelProfile: undefined, bevelSoft: undefined, bevelAxis: undefined, bevelHeight: undefined, bevelBorder: undefined };
   if (key === 'extrude') return { extrude: undefined };
   if (key === 'trim') return { trim: undefined };
   if (key === 'volume') return { volume: undefined };
@@ -1726,6 +1726,13 @@ export function Attrs({
           value={l.bevel ?? 0}
           display={(l.bevel ?? 0) >= 0.995 ? 'tout' : undefined}
           onChange={(v) => live({ bevel: v < 0.01 ? 0 : Math.round(v * 100) / 100 })}
+        />
+        <Range
+          label="Hauteur"
+          min={-1}
+          value={l.bevelHeight ?? 0}
+          display={Math.abs(l.bevelHeight ?? 0) < 0.005 ? 'normale' : `×${bevelLift(l).toFixed(1).replace('.', ',')}`}
+          onChange={(v) => live({ bevelHeight: Math.abs(v) < 0.02 ? undefined : Math.round(v * 100) / 100 })}
         />
         <Range label="Douceur" value={bevelSoftOf(l)} display={bevelSoftName(bevelSoftOf(l))} onChange={(v) => live({ bevelSoft: Math.round(v * 100) / 100, bevelProfile: undefined })} />
         <label className="cp-row">

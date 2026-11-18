@@ -10,7 +10,7 @@ import { animCut, carved, generatorOf, posed } from './anim';
 import { bentCut, bonesOf, drawWarped, meshOf, surfaceWarp, type Mesh } from './warp';
 export { restCut, surfaceWarp, warpFor } from './warp';
 import { EDGE_ELEMENTS, edgeStroke } from './elements';
-import { bevelSoftOf, blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
+import { bevelLift, bevelSoftOf, blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { keepLinks, type LinkShapes } from './links';
 import { shapedFill } from './gradient';
@@ -2255,7 +2255,8 @@ function bevelFor(l: Layer, doc: Doc, f: Format, path: Path2D, b: { cx: number; 
   const L: BumpLight = { lx: li.lx * Math.cos(r) - li.ly * Math.sin(r), ly: li.lx * Math.sin(r) + li.ly * Math.cos(r), ...surfaceLight(l, doc, li.k) };
   const soft = bevelSoftOf(l);
   const axis = l.bevelAxis;
-  const key = JSON.stringify([cutId(l), b.w, b.h, l.rot ?? 0, l.trim, out, l.border?.style, width.toFixed(4), toCenter.toFixed(3), soft, axis, l.volume, gw, gh, lightKey(L)]);
+  const lift = bevelLift(l);
+  const key = JSON.stringify([cutId(l), b.w, b.h, l.rot ?? 0, l.trim, out, l.border?.style, width.toFixed(4), toCenter.toFixed(3), soft, axis, lift, l.volume, gw, gh, lightKey(L)]);
   let hit = bevelCache.get(l.id);
   if (hit?.key !== key) {
     const m = document.createElement('canvas');
@@ -2298,6 +2299,8 @@ function bevelFor(l: Layer, doc: Doc, f: Format, path: Path2D, b: { cx: number; 
         const B = blurField(Hf, gw, gh, axis ? 5 : 2.5);
         for (let n = 0; n < Hf.length; n++) Hf[n] = mask[n]! < 0.5 ? 0 : Hf[n]! + (Math.min(B[n]!, Hf[n]! + 2) - Hf[n]!) * toCenter;
       }
+      // hauteur du biseau : la pente monte plus ou moins haut sur la même largeur
+      if (lift !== 1) for (let n = 0; n < Hf.length; n++) Hf[n] = Hf[n]! * lift;
     } else Hf = new Float32Array(gw * gh);
     let Hk: Float32Array | null = null;
     if (volumeOn(l.volume)) {

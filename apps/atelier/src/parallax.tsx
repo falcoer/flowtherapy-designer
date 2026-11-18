@@ -12,7 +12,7 @@ import type { Doc, Layer } from './model';
 import { hexRGB, opacityOf } from './fx';
 import { drawLampTint, drawLayers, drawRelief, lampOf, levelOf, renderOrder, shadowVector } from './scene';
 import { Gl3d, hasWebGL2, type GlView } from './gl3d';
-import { layerBox, volumeOn } from './model';
+import { bevelLift, layerBox, volumeOn } from './model';
 
 interface Plate {
   /** Image de la couche, recadrée sur ce qu'elle couvre. */
@@ -165,7 +165,7 @@ function buildShadows(doc: Doc, f: Format, r: number, plates: Plate[]): ShadowPi
 const SLICES = 10;
 /** Épaisseur d'un objet découpé (en hauteur de page) : un carton, plus son volume et son biseau. */
 function thicknessOf(l: Layer): number {
-  return 0.035 + (l.volume ? (l.volume.kind === 'flat' ? 0 : l.volume.amount) * 0.07 + (l.volume.skin?.depth ?? 0) * 0.02 : 0) + (l.bevel ?? 0) * 0.025 + (l.extrude ?? 0) * EXTRUDE;
+  return 0.035 + (l.volume ? (l.volume.kind === 'flat' ? 0 : l.volume.amount) * 0.07 + (l.volume.skin?.depth ?? 0) * 0.02 : 0) + (l.bevel ?? 0) * 0.025 * bevelLift(l) + (l.extrude ?? 0) * EXTRUDE;
 }
 /** Extrusion à 1, en hauteur de page : le dessus monte d'autant, la tranche descend jusqu'à la feuille. */
 const EXTRUDE = 0.5;

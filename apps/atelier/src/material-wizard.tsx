@@ -84,7 +84,7 @@ export function MaterialWizard({
   // vignettes : une par tâche, après une pause dans les réglages (un potard qu'on tourne ne les relance pas à chaque pas)
   const thumbs = useRef(new Map<string, string>());
   const [, tick] = useState(0);
-  const sig = JSON.stringify([tab, type, l.material, l.fx, l.volume, l.border, l.glow, l.trim, l.bevel, l.extrude, l.guide, l.w, l.h, hollow]);
+  const sig = JSON.stringify([tab, type, l.material, l.fx, l.volume, l.border, l.glow, l.trim, l.bevel, l.bevelHeight, l.extrude, l.guide, l.w, l.h, hollow]);
   const lastSig = useRef(sig);
   if (lastSig.current !== sig) {
     lastSig.current = sig;
