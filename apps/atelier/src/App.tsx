@@ -4792,7 +4792,7 @@ export function App() {
       let clear = false;
       if (!/jpe?g|heic|heif/i.test(file.type)) {
         const px = cx.getImageData(0, 0, c.width, c.height).data;
-        for (let i = 3; i < px.length; i += 16) if (px[i]! < 250) { clear = true; break; }
+        for (let i = 3; i < px.length; i += 4) if (px[i]! < 255) { clear = true; break; }
       }
       addLayer('photo', { src: clear ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.9), name, ratio: c.width / c.height });
       setToast(`« ${name} » importée`);
