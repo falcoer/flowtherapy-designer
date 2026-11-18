@@ -293,6 +293,16 @@ function bones(a: Anim): Array<Array<[number, number]>> {
   const wing = (sx: number) => [at(sx * D.x0, bone(0)), at(sx * (D.x0 + re), bone(re / D.Lw)), at(sx * (D.x0 + 0.92 * D.Lw), bone(0.92))];
   return [[at(0, D.yh), at(0, -D.bodyLen / 2), at(0, yt), at(0, yt + 0.8 * (yEnd - yt))], wing(1), wing(-1)];
 }
+/** Os de l'oiseau à un instant (Generator.skeleton), pour la vue des os : ceux du repos, pliés par le battement comme la surface. Un objet attaché suit la surface (warp), pas ces os. */
+function skeleton(a: Anim, phase: number, g: Progress): Array<[[number, number], [number, number]]> {
+  const w = warp(a, phase, g);
+  const out: Array<[[number, number], [number, number]]> = [];
+  for (const line of bones(a)) {
+    const pts = line.map(([u, v]): [number, number] => (w ? w.map(u, v) : [u, v]));
+    for (let i = 1; i < pts.length; i++) out.push([pts[i - 1]!, pts[i]!]);
+  }
+  return out;
+}
 /** Lignes du maillage : dans la boîte, triées, sans doublons trop proches. */
 function lines(xs: number[]): number[] {
   const out = [0];
@@ -468,6 +478,7 @@ export const bird: Generator = {
   cut,
   warp,
   bones,
+  skeleton,
   focus,
   ratio: (a) => {
     const f = frameOf(morphOf(a));
