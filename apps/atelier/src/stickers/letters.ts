@@ -384,10 +384,14 @@ function warp(_a: Anim, _phase: number, _g: unknown, ctx: Context): Warp | null 
   });
   const moves = P.map((p, i) => {
     if (!moved(p)) return null;
-    const press = p.press ? pressAt(st.B[i]!, p.press, i) : null;
+    const b = st.B[i]!;
+    const press = p.press ? pressAt(b, p.press, i) : null;
+    // gonflée, la lettre s'épaissit aussi (son contour part le long de sa normale) : sa surface grandit d'autant, jusqu'au bord de la boîte compris
+    const d = p.press > 0 ? p.press * 0.04 * em : 0;
+    const [cx, cy, kx, ky] = [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 1 + d / Math.max(1e-3, (b.x1 - b.x0) / 2), 1 + d / Math.max(1e-3, (b.y1 - b.y0) / 2)];
     const turn = p.rot || p.dx || p.dy ? turnAt(p) : null;
     return (x: number, y: number): [number, number] => {
-      let pt: [number, number] = [x, y];
+      let pt: [number, number] = d ? [cx + (x - cx) * kx, cy + (y - cy) * ky] : [x, y];
       if (press) pt = press(pt[0], pt[1]);
       if (turn) pt = turn(pt[0], pt[1]);
       return pt;
