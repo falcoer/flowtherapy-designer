@@ -377,14 +377,17 @@ function clearEdges(px: Uint8ClampedArray, W: number, H: number) {
  * Une vue ou un élément détaché sur fond uni (blanc, le plus souvent) : le fond s'efface depuis les bords, l'image garde
  * sa taille (le cadrage, commun à toutes les vues, ne bouge pas). Une image qui a déjà de la transparence reste telle quelle.
  */
-export async function clearBackground(blob: Blob): Promise<Blob> {
+export async function clearBackground(blob: Blob, max = 2400): Promise<Blob> {
   const bmp = await createImageBitmap(blob);
-  const [W, H] = [bmp.width, bmp.height];
+  // une très grande image (au-delà de la surface de canevas permise sur iPad) est d'abord réduite, proportions gardées :
+  // l'import la ramène ensuite à 1600 px de toute façon
+  const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const [W, H] = [Math.max(1, Math.round(bmp.width * k)), Math.max(1, Math.round(bmp.height * k))];
   const c = document.createElement('canvas');
   c.width = W;
   c.height = H;
   const cx = c.getContext('2d', { willReadFrequently: true })!;
-  cx.drawImage(bmp, 0, 0);
+  cx.drawImage(bmp, 0, 0, W, H);
   bmp.close();
   const img = cx.getImageData(0, 0, W, H);
   for (let i = 3; i < img.data.length; i += 4) if (img.data[i]! < 250) return blob;
