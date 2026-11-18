@@ -4300,6 +4300,9 @@ export function App() {
     setSelected(layer.id);
     setBubble(null);
     setAnimPlay(true);
+    // ajouter une forme animée ouvre le mode animation (à l'ouverture d'une composition, il reste fermé)
+    setAnimMode(true);
+    setAnimBarOut(true);
     setTool(lastEdit.current);
     setCoupeOpen((o) => ({ key: 'shape', n: (o?.n ?? 0) + 1 }));
     setToast(`« ${gen.name} » s'anime : ses gestes et ses mouvements se posent dans l'onglet Animation ; teinte, bord et lueur s'appliquent comme sur une forme`);
