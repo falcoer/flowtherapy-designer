@@ -1,4 +1,4 @@
-import { animWarp, carved } from './anim';
+import { animWarp, carved, generatorOf } from './anim';
 import { pathToRings, ringsToPath, simplifyRing, type Ring } from './cut';
 import type { Layer } from './model';
 import type { Warp } from './stickers';
@@ -256,6 +256,25 @@ export function warpFor(l: Layer, t?: number): Warp | null {
       return [(x - a) / W, (y - b) / H];
     },
   };
+}
+
+/**
+ * Os d'une forme animée à l'instant courant (vue « os seuls »), en coordonnées 0..1 de sa boîte : ceux que son générateur
+ * pose au repos, pliés par la même déformation que sa surface. Null pour une forme sans os.
+ */
+export function bonesOf(l: Layer): Array<Array<[number, number]>> | null {
+  if (!l.anim || l.text || (l.cut && !carved(l))) return null;
+  const g = generatorOf(l.anim);
+  if (!g?.bones) return null;
+  const [a, b, c, d] = l.molded?.frame ?? [0, 0, 1, 1];
+  const [W, H] = [c - a || 1, d - b || 1];
+  const w = warpFor(l);
+  return g.bones(l.anim).map((line) =>
+    line.map(([u, v]): [number, number] => {
+      const [x, y] = [(u - a) / W, (v - b) / H];
+      return w ? w.map(x, y) : [x, y];
+    }),
+  );
 }
 
 /** Contours redécoupés finement (pas de 0,01 de la boîte) : un bord droit au repos se plie avec la forme. */

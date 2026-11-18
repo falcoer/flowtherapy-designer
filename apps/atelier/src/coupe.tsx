@@ -528,11 +528,6 @@ export function CoupePanel({
           <Icon name="mold" /> Modeler encore
         </button>
       )}
-      {unmold && (
-        <button className="chip primary" onClick={unmold}>
-          {l.kind === 'text' ? 'Revenir au texte' : l.kind === 'photo' ? 'Revenir au cadre' : 'Revenir à la forme'}
-        </button>
-      )}
     </div>
   );
 
@@ -644,21 +639,30 @@ export function CoupePanel({
     patch({ hollow: true, ...(edged ? {} : { border: { style: 'round' as const, ...borderDefaults('round', undefined, doc.guides), guide: l.guide, width: 0.012 } }) });
     onToast(edged ? 'Sans surface : seul le bord se dessine' : 'Sans surface : un bord fin a été ajouté, à régler dans l’onglet Bord', true);
   };
-  const hollowPlate = (l.kind === 'shape' || l.kind === 'text') && (
-    <div className="ap-shape ap-hollow-opt ap-generic">
+  /**
+   * Menu de côté des onglets Forme, Texte et Image, toujours là (à droite sur tablette) : proportions libres,
+   * sans surface, et l'annulation du modelage quand l'objet a été modelé.
+   */
+  const sidePlate = l.kind !== 'surface' && (
+    <div className="ap-shape ap-hollow-opt ap-generic ap-side">
       <div className="cp-attrs ap-attrs">
-        {l.kind === 'shape' && (
-          <label className="cp-row" title="Proportions libres : la boîte s’étire sans garder le rapport largeur / hauteur de la forme.">
-            <span>Proportions libres</span>
-            <input type="checkbox" checked={!!l.free} onChange={(e) => patch({ free: e.target.checked || undefined })} />
-            <output>{l.free ? 'oui' : 'non'}</output>
+        <label className="cp-row" title="Proportions libres : la boîte s’étire sans garder le rapport largeur / hauteur.">
+          <span>Proportions libres</span>
+          <input type="checkbox" checked={!!l.free} onChange={(e) => patch({ free: e.target.checked || undefined })} />
+          <output>{l.free ? 'oui' : 'non'}</output>
+        </label>
+        {(l.kind === 'shape' || l.kind === 'text') && (
+          <label className="cp-row" title="Sans surface : l’objet ne garde que son bord et sa lueur, le long de sa découpe. Sa teinte, son vernis, sa matière et son volume sont gardés de côté.">
+            <span>Sans surface</span>
+            <input type="checkbox" checked={hollow} onChange={(e) => setHollow(e.target.checked)} />
+            <output>{hollow ? 'oui' : 'non'}</output>
           </label>
         )}
-        <label className="cp-row" title="Sans surface : l’objet ne garde que son bord et sa lueur, le long de sa découpe. Sa teinte, son vernis, sa matière et son volume sont gardés de côté.">
-          <span>Sans surface</span>
-          <input type="checkbox" checked={hollow} onChange={(e) => setHollow(e.target.checked)} />
-          <output>{hollow ? 'oui' : 'non'}</output>
-        </label>
+        {l.molded && unmold && (
+          <button className="chip primary ap-unmold" onClick={unmold} title={l.kind === 'text' ? 'Le texte retrouve ses lettres' : l.kind === 'photo' ? 'La photo retrouve son cadre' : 'La forme retrouve son dessin d’origine'}>
+            Annuler le modelage
+          </button>
+        )}
       </div>
     </div>
   );
@@ -694,7 +698,7 @@ export function CoupePanel({
     body = (
       <>
         <TextTab key={l.id} text={l.text} locked={!!l.molded} onChange={patchText} typeNow={typeNow === l.id} onTyped={() => setTypeNow(null)} />
-        {hollowPlate}
+        {sidePlate}
         {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}
@@ -707,7 +711,7 @@ export function CoupePanel({
         <div className="ap-shape-row">
           {it && genOf(l) && <div className={`ap-shape ${l.molded ? 'ap-locked' : ''}`}>{<Attrs bare layer={l} doc={doc} item={{ ...it, locked: false }} patch={patch} />}</div>}
           {animForm}
-          {hollowPlate}
+          {sidePlate}
         </div>
         {fxCard}
         {focused && attrsOf(focused)}
@@ -717,7 +721,10 @@ export function CoupePanel({
   } else if (tab === 'main') {
     body = (
       <>
-        {card('image', 'Filtre')}
+        <div className="ap-shape-row">
+          {card('image', 'Filtre')}
+          {sidePlate}
+        </div>
         {fxCard}
         {focused && attrsOf(focused)}
         {moldBar}
@@ -1833,7 +1840,7 @@ export function Attrs({
       </>
     );
   } else if (item.key === 'molded' || item.locked) {
-    const back = l.kind === 'text' ? 'Revenir au texte' : l.kind === 'photo' ? 'Revenir au cadre' : 'Revenir à la forme';
+    const back = 'Annuler le modelage';
     body = (
       <div className="cp-molded">
         <p>

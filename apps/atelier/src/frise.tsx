@@ -1,4 +1,4 @@
-import { Fragment, useState, type PointerEvent as RPointerEvent } from 'react';
+import { Fragment, useEffect, useState, type PointerEvent as RPointerEvent } from 'react';
 import { ACCELS, actsOf, animOf, BRAKES, gesturesOf, moveName, newAct, newMove, withActs, type Accel, type Act, type Anim, type Brake, type Gesture, type Move, type Timing } from './anim';
 import type { Layer } from './model';
 
@@ -43,6 +43,8 @@ export function Frise({
   onMotion,
   onAnim,
   settings,
+  head,
+  onShown,
 }: {
   layers: Layer[];
   selected: string | null;
@@ -57,7 +59,16 @@ export function Frise({
   onAnim: (id: string, anim: Anim, history: boolean) => void;
   /** Réglages du sticker : ceux du geste posé choisi, ou sans geste ceux de sa forme. */
   settings?: (act: Act | null) => React.ReactNode;
+  /** Commandes de lecture (celles de la barre d'animation), en tête du panneau, fixes au défilement. */
+  head?: React.ReactNode;
+  /** Le panneau s'affiche ou disparaît : la barre flottante s'efface tant qu'il est là. */
+  onShown?: (on: boolean) => void;
 }) {
+  useEffect(() => {
+    onShown?.(true);
+    return () => onShown?.(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [pick, setPick] = useState<{ layer: string; kind: 'move' | 'act'; id: string } | null>(null);
   const [menu, setMenu] = useState(false);
   const me = layers.find((l) => l.id === selected && l.kind !== 'surface');
@@ -240,6 +251,9 @@ export function Frise({
   return (
     <div className="frise">
       <div className="fr-rows">
+        {/* en tête, fixes quand on fait défiler les lignes : la lecture, les réglages de la vidéo et la règle */}
+        <div className="fr-sticky">
+        {head && <div className="fr-head">{head}</div>}
         <div className="fr-row fr-ruler">
           <span className="fr-name fr-adder">
             <button className="fr-add" onClick={() => setMenu((m) => !m)} aria-expanded={menu} title="Ajouter une animation à l'instant affiché : un mouvement de l'objet, ou un de ses gestes propres (sticker, texte)">
@@ -284,6 +298,7 @@ export function Frise({
             ))}
             {now}
           </div>
+        </div>
         </div>
         <div className="fr-obj on">
           {/* une ligne par animation posée : chaque mouvement, puis chaque geste du sticker, avec ses réglages dessous */}

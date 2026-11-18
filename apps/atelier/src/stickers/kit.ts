@@ -180,6 +180,11 @@ export interface Generator {
    * Absent, ou nul à cet instant : la surface reste fixe dans la boîte et la découpe bouge dessus.
    */
   warp?: (a: Anim, phase: number, g: Progress, ctx: Context) => Warp | null;
+  /**
+   * Os de la forme au repos (lignes brisées, coordonnées 0..1 de la boîte d'origine) : la vue « os seuls » les montre
+   * pliés par la même déformation que la surface (warp), la chair cachée.
+   */
+  bones?: (a: Anim) => Array<Array<[number, number]>>;
   /** Proportions de la boîte (largeur / hauteur). */
   ratio: (a: Anim) => number;
   /** Consigne de mouvement ajoutée au plan général, à une avancée du cycle. */

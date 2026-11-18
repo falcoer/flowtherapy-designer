@@ -94,7 +94,8 @@ const WING_SHAPES: Record<Wing, { taper: number; pts: W[] }> = {
 };
 
 /** Demi-silhouette droite, de l'avant (sur l'axe) à l'arrière (sur l'axe), à plat. */
-function half(m: Morph): P[] {
+/** Mesures de l'oiseau à plat : corps, épaule, aile (envergure, largeur, bord d'attaque). */
+function dims(m: Morph) {
   const bodyLen = 0.3;
   const bw = 0.03 + 0.045 * m.body;
   const x0 = bw * 0.9;
@@ -107,13 +108,17 @@ function half(m: Morph): P[] {
     const bump = s < 0.45 ? Math.sin((Math.PI / 2) * (s / 0.45)) : 1 - ((s - 0.45) / 0.55) * 0.6;
     return yr - 0.03 * bump + sweepK * Lw * Math.pow(Math.max(0, s), 1.5);
   };
+  const hr = 0.03 + 0.05 * m.head;
+  const yh = -bodyLen / 2 - hr * 0.55;
+  return { bodyLen, bw, x0, Lw, c0, yr, le, hr, yh };
+}
+function half(m: Morph): P[] {
+  const { bodyLen, bw, x0, Lw, c0, le, hr, yh } = dims(m);
   const out: P[] = [];
   const tag = (from: number, p: Part) => {
     for (let i = from; i < out.length; i++) out[i]!.p = p;
   };
   // tête et bec
-  const hr = 0.03 + 0.05 * m.head;
-  const yh = -bodyLen / 2 - hr * 0.55;
   if (m.beak === 'short') out.push({ x: 0, y: yh - hr - 0.03, t: 0.8 }, { x: hr * 0.35, y: yh - hr * 0.92, t: 0.2 });
   else if (m.beak === 'hook') out.push({ x: 0, y: yh - hr - 0.055, t: 1 }, { x: hr * 0.22, y: yh - hr - 0.012, t: 0.6 }, { x: hr * 0.55, y: yh - hr * 0.82, t: 0.2 });
   else if (m.beak === 'long') out.push({ x: 0, y: yh - hr - 0.15, t: 1 }, { x: hr * 0.2, y: yh - hr * 0.95, t: 0.5 });
@@ -267,6 +272,27 @@ function warp(a: Anim, _phase: number, g: Progress): Warp | null {
   return { key: `b|${keyOf(m)}|${amp}|${k}`, us, vs, map };
 }
 const even = (n: number) => Array.from({ length: n + 1 }, (_, i) => i / n);
+
+/**
+ * Os de l'oiseau au repos (Generator.bones) : la colonne de la tête au bout de la queue, et pour chaque aile
+ * l'épaule, le coude (là où le battement plie) et le bout, un peu en arrière du bord d'attaque.
+ */
+function bones(a: Anim): Array<Array<[number, number]>> {
+  const m = morphOf(a);
+  const D = dims(m);
+  const R = half(m);
+  const W = WING_SHAPES[m.wing];
+  const fr = frameOf(m);
+  const ct = flapOf(m, 0, 0).ct;
+  const re = 0.45 * D.Lw;
+  const tails = R.filter((p) => p.p === 'tail');
+  const yt = tails[0]!.y;
+  const yEnd = Math.max(...tails.map((p) => p.y));
+  const at = (x: number, y: number): [number, number] => [(x - fr.x0) / fr.w, (y * ct - fr.y0) / fr.h];
+  const bone = (s: number) => D.le(s) + 0.3 * D.c0 * (1 - W.taper * Math.min(1, s));
+  const wing = (sx: number) => [at(sx * D.x0, bone(0)), at(sx * (D.x0 + re), bone(re / D.Lw)), at(sx * (D.x0 + 0.92 * D.Lw), bone(0.92))];
+  return [[at(0, D.yh), at(0, -D.bodyLen / 2), at(0, yt), at(0, yt + 0.8 * (yEnd - yt))], wing(1), wing(-1)];
+}
 /** Lignes du maillage : dans la boîte, triées, sans doublons trop proches. */
 function lines(xs: number[]): number[] {
   const out = [0];
@@ -441,6 +467,7 @@ export const bird: Generator = {
   gestures: () => [{ id: 'flap', name: 'Battement d’ailes', note: 'bat des ailes', loop: true, params: ['amp'] }],
   cut,
   warp,
+  bones,
   focus,
   ratio: (a) => {
     const f = frameOf(morphOf(a));

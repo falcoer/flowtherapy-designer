@@ -3255,3 +3255,69 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .shape-strip .sd-it.on { color: var(--ink); }
 .shape-strip .tint-lens.sd-lens { display: grid; place-items: center; background: var(--chrome-solid); color: var(--ink); }
 .shape-strip .sd-lens .sd-face { width: 76%; height: 76%; }
+/* menu de côté des onglets Forme, Texte et Image : toujours là ; sur tablette, rangé à droite */
+.ap-side .ap-unmold { justify-self: stretch; height: 32px; margin-top: 2px; background: var(--accent); color: #fff; }
+@media (min-width: 541px) {
+  .ap-shape-row > .ap-side { margin-left: auto; }
+  .ap-pane > .ap-side { align-self: flex-end; }
+}
+/* mode animation : un bouton dans le coin libre (en face de la roue de la brosse) ; la barre se déploie depuis lui */
+.anim-corner { position: absolute; z-index: 9; right: max(12px, env(safe-area-inset-right, 0px)); bottom: 14px; width: 44px; height: 44px; border-radius: 22px; border: 0; display: grid; place-items: center; cursor: pointer; background: var(--chrome-solid); color: var(--ink); box-shadow: 0 2px 10px rgba(0,0,0,0.18); }
+.anim-corner.on { background: var(--accent); color: #fff; }
+.hand-left .anim-corner { right: auto; left: max(12px, env(safe-area-inset-left, 0px)); }
+.anim-bar { left: auto; right: calc(max(12px, env(safe-area-inset-right, 0px)) + 52px); transform: none; max-width: calc(100vw - 64px - 210px); animation: anim-out 0.16s ease-out; transform-origin: right center; }
+.hand-left .anim-bar { right: auto; left: calc(max(12px, env(safe-area-inset-left, 0px)) + 52px); transform-origin: left center; }
+@keyframes anim-out { from { opacity: 0; transform: scaleX(0.3); } to { opacity: 1; transform: none; } }
+.anim-bar .anim-bones { margin-left: 6px; }
+.anim-bar .anim-bones.on { background: var(--accent); color: #fff; }
+@media (max-width: 560px) {
+  .anim-bar, .anim-bar.with-band { left: 8px; right: calc(max(12px, env(safe-area-inset-right, 0px)) + 52px); max-width: none; justify-content: space-between; }
+  .hand-left .anim-bar, .hand-left .anim-bar.with-band { left: calc(max(12px, env(safe-area-inset-left, 0px)) + 52px); right: 8px; }
+  /* la roue de la brosse occupe le bas : la barre passe au-dessus */
+  .anim-bar.over-wheel { margin-bottom: 190px; }
+}
+/* déroulé sur le dessus de la barre, deux fois plus haut : en bas de l'écran de l'iPad, le système prend les gestes du bord */
+.anim-bar { padding-bottom: 4px; padding-top: 32px; }
+.anim-track { top: 0; bottom: auto; height: 28px; }
+.anim-track::before { top: 6px; bottom: auto; height: 16px; }
+.anim-fill, .anim-tick { top: 6px; bottom: auto; height: 16px; }
+.anim-track { left: 12px; right: 12px; }
+.anim-knob { top: 3px; bottom: auto; width: 22px; height: 22px; margin-left: -11px; }
+@media (max-width: 560px) { .anim-bar output { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; } .anim-bar label, .anim-bar button { flex: none; } }
+/* panneau Animation : la lecture et les réglages de la vidéo en tête, avec la règle, fixes au défilement des lignes */
+.fr-sticky { position: sticky; top: -8px; z-index: 3; background: var(--chrome-solid); padding-top: 2px; box-shadow: 0 1px 0 var(--line); }
+.anim-head { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding-bottom: 4px; font-size: 12px; }
+.anim-head button { width: 32px; height: 32px; border-radius: 16px; border: 0; display: grid; place-items: center; cursor: pointer; background: var(--accent-soft); color: var(--accent); }
+.anim-head button.on { background: var(--accent); color: #fff; }
+.anim-head output { min-width: 96px; font-variant-numeric: tabular-nums; opacity: 0.75; }
+.anim-head label { display: flex; align-items: center; gap: 4px; margin-left: 6px; }
+.anim-head input { width: 46px; padding: 2px 4px; border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; background: transparent; color: inherit; font: inherit; font-variant-numeric: tabular-nums; }
+.anim-head .anim-bones { margin-left: auto; }
+/* barre d'animation autonome : toute la largeur de l'écran moins la roue de la brosse (et le bouton du coin) */
+@media (min-width: 561px) {
+  .anim-bar, .anim-bar.with-band { left: calc(max(12px, env(safe-area-inset-left, 0px)) + 176px + 12px); right: calc(max(12px, env(safe-area-inset-right, 0px)) + 52px); max-width: none; justify-content: flex-start; }
+  .hand-left .anim-bar, .hand-left .anim-bar.with-band { left: calc(max(12px, env(safe-area-inset-left, 0px)) + 52px); right: calc(max(12px, env(safe-area-inset-right, 0px)) + 176px + 12px); }
+  .anim-bar .anim-bones { margin-left: auto; }
+}
+.fr-head > .anim-head { flex: 1 1 auto; }
+/* replié : seul le bouton de lecture ; déployé, la barre part de lui et il dépasse de son bout */
+.anim-corner { z-index: 10; width: 48px; height: 48px; border-radius: 24px; }
+.anim-bar, .anim-bar.with-band { right: calc(max(12px, env(safe-area-inset-right, 0px)) + 24px); padding-right: 34px; }
+.hand-left .anim-bar, .hand-left .anim-bar.with-band { left: calc(max(12px, env(safe-area-inset-left, 0px)) + 24px); padding-right: 10px; padding-left: 34px; }
+@media (min-width: 561px) {
+  .hand-left .anim-bar, .hand-left .anim-bar.with-band { right: calc(max(12px, env(safe-area-inset-right, 0px)) + 176px + 12px); }
+}
+@media (max-width: 560px) {
+  .hand-left .anim-bar, .hand-left .anim-bar.with-band { right: 8px; }
+}
+/* la lecture est le début de la barre : repliée, il ne reste qu'elle ; déployée, la barre se déroule à sa droite,
+   sur toute la largeur moins la roue de la brosse */
+.atelier { --anim-l: calc(max(12px, env(safe-area-inset-left, 0px)) + 188px); --anim-r: max(12px, env(safe-area-inset-right, 0px)); }
+.atelier.hand-left { --anim-l: max(12px, env(safe-area-inset-left, 0px)); --anim-r: calc(max(12px, env(safe-area-inset-right, 0px)) + 188px); }
+@media (max-width: 560px) { .atelier, .atelier.hand-left { --anim-l: 8px; --anim-r: 8px; } }
+.anim-corner, .hand-left .anim-corner { left: var(--anim-l); right: auto; }
+.anim-bar, .anim-bar.with-band, .hand-left .anim-bar, .hand-left .anim-bar.with-band { left: var(--anim-l); right: var(--anim-r); max-width: none; padding-left: 54px; padding-right: 10px; transform-origin: left center; justify-content: flex-start; }
+@keyframes anim-out { from { clip-path: inset(0 calc(100% - 48px) 0 0 round 20px); } to { clip-path: inset(0 0 0 0 round 20px); } }
+.anim-bar { animation: anim-out 0.28s cubic-bezier(0.3, 0.7, 0.2, 1); }
+@media (max-width: 560px) { .anim-corner.over-wheel { margin-bottom: 190px; } }
+.anim-bar .anim-track { left: 54px; }
