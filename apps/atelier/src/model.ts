@@ -219,6 +219,8 @@ export interface Layer {
   /** Orientation du biseau : 'vertical' = arêtes verticales (pentes à gauche et à droite, comme une colonne),
    *  'horizontal' = pentes en haut et en bas ; absent = tout autour. */
   bevelAxis?: 'vertical' | 'horizontal';
+  /** Hauteur du biseau (-1..1, absent = 0) : à 0 la pente monte d'autant qu'elle est large ; à 1 quatre fois plus haut, à -1 quatre fois plus bas. */
+  bevelHeight?: number;
   /** Le biseau commence au bord ajouté (et non à la découpe). */
   bevelBorder?: boolean;
   /** Rotation autour du centre de la boîte, en radians. */
@@ -747,4 +749,6 @@ export function exportSize(f: Format, width?: number): { w: number; h: number } 
 /** Douceur du biseau, avec l'ancien profil pour les compositions d'avant. */
 export const bevelSoftOf = (l: { bevelSoft?: number; bevelProfile?: 'round' | 'chamfer' }) => l.bevelSoft ?? (l.bevelProfile === 'chamfer' ? 0 : 0.5);
 /** Nom du profil du biseau : « Chanfrein », « Arrondi », « Très doux ». */
+/** Multiplicateur de la hauteur du biseau (0,25 à 4, 1 par défaut). */
+export const bevelLift = (l: { bevelHeight?: number }) => Math.pow(4, Math.max(-1, Math.min(1, l.bevelHeight ?? 0)));
 export const bevelSoftName = (s: number) => (s < 0.2 ? 'Chanfrein' : s < 0.75 ? 'Arrondi' : 'Très doux');
