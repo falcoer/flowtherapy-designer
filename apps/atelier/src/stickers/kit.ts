@@ -198,6 +198,8 @@ export interface Generator {
    * Squelette à un instant : ses os, toujours dans le même ordre, chacun de son attache à son bout (coordonnées 0..1 de la boîte).
    * Un objet attaché au sticker suit l'os dont il est le plus proche au repos (un chapeau suit la tête).
    */
+  /** La découpe sort de la boîte de l'objet (cils d'un œil) : la teinte la suit hors de la boîte. Matière, peinture et relief restent dans la boîte. */
+  spill?: (a: Anim) => boolean;
   skeleton?: (a: Anim, phase: number, g: Progress, ctx: Context) => Array<[[number, number], [number, number]]>;
   /** Proportions de la boîte (largeur / hauteur). */
   ratio: (a: Anim) => number;

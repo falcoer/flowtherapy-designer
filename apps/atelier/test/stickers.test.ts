@@ -138,7 +138,7 @@ describe('œil en pièces', () => {
   };
   it('chaque pièce a sa surface, différente des autres', () => {
     const cuts = eye.parts!.map((p) => at({ part: p.id }));
-    expect(new Set(cuts).size).toBe(3);
+    expect(new Set(cuts).size).toBe(5);
     for (const c of cuts) expect(c).not.toContain('NaN');
   });
   it('la forme se règle : ronde, bridée, en miroir', () => {
@@ -152,6 +152,29 @@ describe('œil en pièces', () => {
   it('les réglages passent aux autres pièces, la pièce reste', () => {
     const next = forPart({ kind: 'eye', part: 'white', round: 0.5, 'blink.at': 0.2 }, { kind: 'eye', part: 'iris' });
     expect(next).toEqual({ kind: 'eye', part: 'iris', round: 0.5, 'blink.at': 0.2 });
+  });
+  it('la paupière du haut s’étire quand l’œil se ferme, son pli ne bouge pas', () => {
+    // ordonnées de la découpe au milieu de l'œil : le pli en haut, le bord de la paupière en bas
+    const mid = (d: string) => {
+      const n = (d.match(/-?\d+(\.\d+)?/g) ?? []).map(Number);
+      return n.filter((x, i) => i % 2 === 1 && Math.abs(n[i - 1]! - 0.5) < 0.05);
+    };
+    // le clignement est posé à 0,75 sur 0,1 : son milieu ferme l'œil
+    const [open, shut] = [mid(at({ part: 'lid' }, 0.02)), mid(at({ part: 'lid' }, 0.8))];
+    expect(Math.min(...shut)).toBeCloseTo(Math.min(...open), 3);
+    expect(Math.max(...shut)).toBeGreaterThan(Math.max(...open) + 0.3);
+  });
+  it('les cils se règlent : densité, largeur, longueur', () => {
+    const base = at({ part: 'lashes' });
+    const all = [at({ part: 'lashes', lashes: 0 }), at({ part: 'lashes', lashes: 20 }), at({ part: 'lashes', lashW: 1 }), at({ part: 'lashes', lashL: 1 })];
+    expect(new Set([base, ...all]).size).toBe(5);
+    for (const c of all) expect(c).not.toContain('NaN');
+    // ils sortent de la boîte, par le haut : la teinte doit les suivre
+    expect(at({ part: 'lashes', lashL: 1 })).toMatch(/-\d/);
+    expect(eye.spill?.(newAnim(eye, { part: 'lashes' }))).toBe(true);
+    expect(eye.spill?.(newAnim(eye, { part: 'white' }))).toBe(false);
+    // les réglages des cils ne touchent pas les autres pièces
+    expect(at({ part: 'white', lashL: 1 })).toBe(at({ part: 'white' }));
   });
   it('un œil d’avant, sans pièce, garde sa découpe entière', () => {
     expect(at({})).not.toBe(at({ part: 'white' }));

@@ -1479,7 +1479,7 @@ function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
     } else ctx.fillStyle = guideColor(g);
     // lettres animées (chute, décrochage), forme animée sur place (goutte en flaque) : elles sortent de la boîte, la teinte les suit partout où la page les montre
     // (un carré autour de l'objet qui couvre toute la page, même tourné ; la découpe limite le remplissage)
-    if (l.anim && (l.text || generatorOf(l.anim)?.on)) {
+    if (l.anim && (l.text || generatorOf(l.anim)?.on || generatorOf(l.anim)?.spill?.(l.anim))) {
       const R = 2 * (f.width + f.height + b.w + b.h);
       ctx.fillRect(b.cx - R, b.cy - R, 2 * R, 2 * R);
     }
