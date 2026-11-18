@@ -44,7 +44,7 @@ import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
 import { CatalogPanel } from './catalog-ui';
-import { createTeam, switchTeam, fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, retitleAtelier, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, postizSync, type PlanItem, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
+import { createTeam, switchTeam, fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, retitleAtelier, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, deleteCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, postizSync, type PlanItem, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
 import { channelsOf, motionOf, setCatalog, contactsOf, CONTACT_KINDS, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
 import { Knob } from './knob';
 import { FocusRing } from './focus-ring';
@@ -5616,6 +5616,37 @@ export function App() {
                         (x) => setCampaigns((l) => l.map((y) => (y.id === x.id ? x : y))),
                         (e: Error) => setToast(`Impossible : ${e.message}`),
                       ))
+                  }
+                  onDeleteCampaign={
+                    online && me?.team?.role === 'owner'
+                      ? () => {
+                          if (!followed) return;
+                          const id = followed.id;
+                          void deleteCampaign(id).then(
+                            (detached) => {
+                              const gone = new Set(detached);
+                              setCampaigns((l) => l.filter((y) => y.id !== id));
+                              setProjects((l) => l.map((x) => (gone.has(x.id) || x.campaign === id ? (({ campaign: _c, ...r }) => r)(x) : x)));
+                              // la composition ouverte quitte aussi la campagne, sinon le prochain enregistrement l'y remettrait
+                              setDoc((d) => (d.campaign === id ? (({ campaign: _c, ...r }) => r)(d) : d));
+                              // de même dans l'historique : annuler ne doit pas la ramener dans la campagne
+                              const strip = (x: string) => {
+                                if (!x.includes(id)) return x;
+                                const o = JSON.parse(x) as { campaign?: string };
+                                if (o.campaign !== id) return x;
+                                delete o.campaign;
+                                return JSON.stringify(o, compact);
+                              };
+                              past.current = past.current.map(strip);
+                              future.current = future.current.map(strip);
+                              setCampaign('');
+                              setSpace('campaigns');
+                              setToast(`Campagne « ${followed.name} » supprimée${detached.length ? ` : ${detached.length} composition${detached.length > 1 ? 's passent' : ' passe'} hors campagne` : ''}`);
+                            },
+                            (e: Error) => setToast(`Suppression impossible : ${e.message}`),
+                          );
+                        }
+                      : undefined
                   }
                   onNew={() => setNewDialog(true)}
                   onOpen={(m, t) => void openComposition(m, t)}

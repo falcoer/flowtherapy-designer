@@ -163,6 +163,22 @@ export class Ateliers {
     return meta;
   }
 
+  /** Une campagne supprimée : ses compositions passent hors campagne (document et fiche), rien d'autre ne change. */
+  async detach(campaign: string): Promise<string[]> {
+    const out: string[] = [];
+    for (const m of await this.list()) {
+      if (m.campaign !== campaign) continue;
+      const full = await this.read(m.id);
+      const { campaign: _c, ...meta } = full;
+      const { campaign: _d, ...doc } = (full.doc ?? {}) as { campaign?: string };
+      const target = this.file(m.id, 'json');
+      await writeFile(target + '.tmp', JSON.stringify({ ...meta, doc }));
+      await rename(target + '.tmp', target);
+      out.push(m.id);
+    }
+    return out;
+  }
+
   async remove(id: string) {
     await rm(this.file(id, 'json'), { force: true });
     await rm(this.file(id, 'png'), { force: true });

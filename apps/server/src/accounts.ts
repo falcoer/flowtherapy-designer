@@ -791,6 +791,14 @@ export class Accounts {
     return this.campaign(team, id)!;
   }
 
+  /** Supprime une campagne ; refusé tant qu'une de ses publications est programmée chez Postiz. */
+  deleteCampaign(team: string, id: string) {
+    const cur = this.campaign(team, id);
+    if (!cur) throw new Error('Campagne introuvable');
+    if ((cur.plan ?? []).some((it) => it.postiz?.state === 'queue')) throw new Error('Une publication de cette campagne est programmée : annule d’abord sa programmation');
+    this.db.prepare('DELETE FROM campaigns WHERE team = ? AND id = ?').run(team, id);
+  }
+
   updateCampaign(team: string, id: string, input: CampaignInput & { closed?: boolean }): Campaign {
     const cur = this.campaign(team, id);
     if (!cur) throw new Error('Campagne introuvable');

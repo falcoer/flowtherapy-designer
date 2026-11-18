@@ -779,6 +779,20 @@ export async function buildApp(opts: AppOptions) {
       return reply.code(/programmée/.test(msg) ? 409 : 404).send({ error: msg });
     }
   });
+  // supprimer une campagne (responsables) : ses compositions passent hors campagne
+  app.delete<{ Params: { id: string } }>('/api/campaigns/:id', { preHandler: needs('owner') }, async (req, reply) => {
+    const team = req.team!.id;
+    // une programmation en cours chez Postiz se suivrait sur une campagne disparue
+    if ([...publishing].some((l) => l.startsWith(`${team}/${req.params.id}/`))) return reply.code(409).send({ error: 'Une publication de cette campagne est en cours de programmation : réessaie dans un instant' });
+    try {
+      accounts.deleteCampaign(team, req.params.id);
+    } catch (err) {
+      const msg = (err as Error).message;
+      return reply.code(/programmée/.test(msg) ? 409 : 404).send({ error: msg });
+    }
+    const detached = await storesOf(team).ateliers.detach(req.params.id);
+    return { ok: true, detached };
+  });
   // renommer une composition depuis la campagne, sans la rouvrir
   app.patch<{ Params: { id: string }; Body: { title?: string } }>('/api/ateliers/:id', { preHandler: needs('editor') }, async (req, reply) => {
     const title = req.body?.title?.trim();
