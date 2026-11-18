@@ -4909,39 +4909,45 @@ export function App() {
   // liste des objets, à gauche du panneau des attributs : l'objet choisi l'est aussi sur la page ;
   // deux touchers sur le nom le renomment (montrer/cacher, bibliothèque : menu de gauche ; dupliquer, corbeille : barre du haut)
   /**
-   * Liste des objets, du plus haut au plus bas. Les pièces d'un ensemble sont regroupées sous un en-tête,
-   * à la place de la plus haute d'entre elles, même si d'autres objets s'intercalent entre elles en hauteur.
+   * Liste des objets, du plus haut au plus bas, fidèle à l'ordre de dessin. Les pièces d'un ensemble qui se
+   * suivent sont regroupées sous un en-tête ; un objet glissé entre deux pièces coupe l'ensemble, et la suite
+   * de l'ensemble reprend sous un en-tête « suite ».
    */
   const listRows = (() => {
     const ord = [...renderOrder(doc.layers)].reverse();
-    const out: Array<{ group: string; pieces: Layer[] } | Layer> = [];
-    const seen = new Set<string>();
+    const size = new Map<string, number>();
+    for (const l of ord) if (l.link) size.set(l.link, (size.get(l.link) ?? 0) + 1);
+    const out: Array<{ group: string; key: string; pieces: Layer[]; all: Layer[]; part: number } | Layer> = [];
+    const parts = new Map<string, number>();
     for (const l of ord) {
-      if (!l.link) {
+      if (!l.link || (size.get(l.link) ?? 0) < 2) {
         out.push(l);
         continue;
       }
-      if (seen.has(l.link)) continue;
-      const pieces = ord.filter((x) => x.link === l.link);
-      seen.add(l.link);
-      if (pieces.length < 2) out.push(l);
-      else out.push({ group: l.link, pieces });
+      const last = out[out.length - 1];
+      if (last && 'group' in last && last.group === l.link) {
+        last.pieces.push(l);
+        continue;
+      }
+      const part = parts.get(l.link) ?? 0;
+      parts.set(l.link, part + 1);
+      out.push({ group: l.link, key: `${l.link}-${part}`, pieces: [l], all: ord.filter((x) => x.link === l.link), part });
     }
     return out;
   })();
-  const groupHead = (g: { group: string; pieces: Layer[] }) => {
-    const all = g.pieces.every((x) => pickedIds.has(x.id));
-    const some = g.pieces.some((x) => pickedIds.has(x.id));
-    const folded = foldedGroups.has(g.group);
+  const groupHead = (g: { group: string; key: string; pieces: Layer[]; all: Layer[]; part: number }) => {
+    const all = g.all.every((x) => pickedIds.has(x.id));
+    const some = g.all.some((x) => pickedIds.has(x.id));
+    const folded = foldedGroups.has(g.key);
     // la pièce la plus basse porte l'ensemble : elle lui donne son nom
-    const base = g.pieces[g.pieces.length - 1]!;
+    const base = g.all[g.all.length - 1]!;
     return (
       <div
-        key={`g-${g.group}`}
-        className={`layer-group ${all ? 'on' : some ? 'part' : ''}`}
+        key={`g-${g.key}`}
+        className={`layer-group ${g.part ? 'cont ' : ''}${all ? 'on' : some ? 'part' : ''}`}
         onClick={(e) => {
           if ((e.target as HTMLElement).closest('.group-fold')) return;
-          const ids = g.pieces.map((x) => x.id);
+          const ids = g.all.map((x) => x.id);
           // l'en-tête choisit l'ensemble entier ; avec Maj, il l'ajoute au choix ou l'en retire
           if (shiftHeld(shiftLatch, shiftKey, e.shiftKey)) {
             const now = picked.map((x) => x.id);
@@ -4959,8 +4965,8 @@ export function App() {
           onClick={() =>
             setFoldedGroups((s) => {
               const n = new Set(s);
-              if (n.has(g.group)) n.delete(g.group);
-              else n.add(g.group);
+              if (n.has(g.key)) n.delete(g.key);
+              else n.add(g.key);
               return n;
             })
           }
@@ -4972,7 +4978,7 @@ export function App() {
         </span>
         <span className="group-main">
           <span className="group-name">{base.name}</span>
-          <small>Ensemble · {g.pieces.length} pièces</small>
+          <small>{g.part ? `Suite · ${g.pieces.length}/${g.all.length} pièces` : g.pieces.length < g.all.length ? `Ensemble · ${g.pieces.length}/${g.all.length} · suite ↓` : `Ensemble · ${g.all.length} pièces`}</small>
         </span>
       </div>
     );
@@ -5071,9 +5077,9 @@ export function App() {
       <div className="layer-list">
         {listRows.map((r) =>
           'group' in r ? (
-            <div key={`gr-${r.group}`} className="layer-set">
+            <div key={`gr-${r.key}`} className="layer-set">
               {groupHead(r)}
-              {!foldedGroups.has(r.group) && r.pieces.map((x) => layerRow(x, true))}
+              {!foldedGroups.has(r.key) && r.pieces.map((x) => layerRow(x, true))}
             </div>
           ) : (
             layerRow(r)
