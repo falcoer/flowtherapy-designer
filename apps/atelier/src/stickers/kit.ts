@@ -50,6 +50,8 @@ export interface Param {
   type: 'int' | 'range' | 'steps' | 'check' | 'font' | 'letters' | 'choice';
   min?: number;
   max?: number;
+  /** Potard à crans : l'écart entre deux crans (1 sans précision). */
+  step?: number;
   def: number | string;
   /** Choix : les types proposés, dans l'ordre de la bande. */
   options?: { id: string; name: string }[];

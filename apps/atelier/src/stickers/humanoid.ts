@@ -25,7 +25,7 @@ const PARTS = [
   { id: 'head', name: 'Tête', tint: 1 },
 ];
 
-const DEF = { head: 0.45, build: 0.4, shoulders: 0.5, legs: 0.5, arms: 0.5, headT: 'round', torsoT: 'trapeze', limbT: 'taper' } as const;
+const DEF = { heads: 7.5, build: 0.4, shoulders: 0.5, legs: 0.5, arms: 0.5, sex: 'm', headT: 'round', torsoT: 'trapeze', limbT: 'taper' } as const;
 const unit = (a: Anim, key: string, def: number) => Math.max(0, Math.min(1, numOf(a, key, def)));
 const pick = <T extends string>(a: Anim, key: string, def: T, all: readonly T[]): T => (all.includes(a[key] as T) ? (a[key] as T) : def);
 const rad = (deg: number) => (deg * Math.PI) / 180;
@@ -136,6 +136,10 @@ interface Body {
   torsoT: 'trapeze' | 'straight' | 'round';
   limbT: 'taper' | 'straight' | 'bulk';
   build: number;
+  /** Morphologie féminine : épaules plus étroites, taille haute et marquée, bassin plus large, membres plus fins. */
+  fem: boolean;
+  /** Corps trapu des petits canons (0 chez l'adulte, 1 pour un personnage de BD). */
+  chunk: number;
   /** Demi-largeurs des épaules et du bassin, hauteur des épaules, longueur des jambes et des bras. */
   sw: number;
   hw: number;
@@ -148,21 +152,32 @@ interface Body {
 }
 function bodyOf(a: Anim): Body {
   const build = unit(a, 'build', DEF.build);
-  const rH = 0.075 * (0.7 + 0.7 * unit(a, 'head', DEF.head));
-  const sY = 2 * rH + 0.03;
+  const fem = pick(a, 'sex', DEF.sex, ['m', 'f'] as const) === 'f';
+  // canon : la hauteur du corps comptée en têtes (7,5 pour le gabarit commun, 8 idéal, 9 héroïque, 5 enfant, 3,5 BD)
+  const n = Math.max(3, Math.min(9, numOf(a, 'heads', DEF.heads)));
+  const rH = 0.5 / n;
+  const sY = 2 * rH + 0.034 * Math.max(0, Math.min(1, (n - 2) / 5.5));
+  // les jambes prennent la moitié de la hauteur chez l'adulte, bien moins quand la tête est grosse
+  const canon = n < 5 ? 0.33 + ((n - 3.5) * 0.07) / 1.5 : n < 7.5 ? 0.4 + ((n - 5) * 0.07) / 2.5 : 0.47 + ((n - 7.5) * 0.03) / 1.5;
+  const leg = Math.min((1 - sY) * 0.68, canon + 0.14 * (unit(a, 'legs', DEF.legs) - 0.5) + (fem ? 0.012 : 0));
+  // petit canon : corps plus trapu (membres épais, mains et pieds plus gros, épaules moins larges)
+  const chunk = Math.max(0, Math.min(1, (7.5 - n) / 4));
   return {
+    fem,
+    chunk,
     rH,
     headT: pick(a, 'headT', DEF.headT, ['round', 'oval', 'square'] as const),
     torsoT: pick(a, 'torsoT', DEF.torsoT, ['trapeze', 'straight', 'round'] as const),
     limbT: pick(a, 'limbT', DEF.limbT, ['taper', 'straight', 'bulk'] as const),
     build,
-    sw: 0.1 + 0.08 * unit(a, 'shoulders', DEF.shoulders),
-    hw: 0.06 + 0.035 * build,
+    sw: ((0.095 + 0.055 * unit(a, 'shoulders', DEF.shoulders)) * (1 - 0.2 * chunk) + 0.01 * Math.max(0, n - 8)) * (fem ? 0.84 : 1),
+    hw: (0.038 + 0.03 * build) * (fem ? 1.22 : 1),
     sY,
-    leg: (1 - sY) * (0.48 + 0.16 * unit(a, 'legs', DEF.legs)),
-    arm: 0.3 + 0.14 * unit(a, 'arms', DEF.arms),
-    ra: 0.026 + 0.03 * build,
-    rl: 0.028 + 0.036 * build,
+    leg,
+    // au repos, le poignet arrive à hauteur de l'entrejambe
+    arm: ((0.97 - leg - sY) * 0.95 + 0.015) * (1 - 0.2 * chunk) + 0.12 * (unit(a, 'arms', DEF.arms) - 0.5),
+    ra: (0.019 + 0.018 * build) * (fem ? 0.84 : 1) * (1 + 0.3 * chunk),
+    rl: (0.03 + 0.03 * build) * (1 + 0.25 * chunk),
   };
 }
 
@@ -192,8 +207,8 @@ function jointsOf(b: Body, p: Pose): Joints {
   };
   // le corps repose sur la jambe la plus longue à cet instant : c'est elle qui fixe la hauteur du bassin
   const reach = (l: Limb) => (b.leg / 2) * (l.upK * Math.cos(rad(l.up)) + l.lowK * Math.cos(rad(l.low)));
-  const hipY = 1 - b.rl * 0.6 - Math.max(reach(p.legL), reach(p.legR));
-  const drop = hipY - (1 - b.rl * 0.6 - b.leg * 0.5 * (Math.cos(rad(3)) + Math.cos(rad(1))));
+  const hipY = 1 - b.rl * 0.62 - Math.max(reach(p.legL), reach(p.legR));
+  const drop = hipY - (1 - b.rl * 0.62 - b.leg * 0.5 * (Math.cos(rad(3)) + Math.cos(rad(1))));
   const hipL = { x: p.sway - b.hw, y: hipY };
   const hipR = { x: p.sway + b.hw, y: hipY };
   const top = p.sway * 0.5 + p.lean;
@@ -250,39 +265,62 @@ function headShape(b: Body, c: Pt): Pt[] {
       // carré aux coins arrondis (superellipse)
       const k = Math.pow(Math.abs(cx) ** 4 + Math.abs(sy) ** 4, -1 / 4);
       out.push({ x: c.x + b.rH * 0.95 * k * cx, y: c.y + b.rH * k * sy });
-    } else out.push({ x: c.x + b.rH * (b.headT === 'oval' ? 0.78 : 1) * cx, y: c.y + b.rH * sy });
+    } else out.push({ x: c.x + b.rH * (b.headT === 'oval' ? 0.74 : 0.9) * cx, y: c.y + b.rH * sy });
   }
   return out;
 }
-/** Rayons d'un membre à l'attache, à l'articulation et au bout, selon le type de membres. */
-function radii(b: Body, r: number): [number, number, number] {
-  if (b.limbT === 'straight') return [r, r, r];
-  if (b.limbT === 'bulk') return [r * 1.15, r * 1.3, r * 0.95];
-  return [r, r * 0.85, r * 0.62];
+const lerp = (p: Pt, q: Pt, t: number): Pt => ({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
+/** Un tube de chair passant par une suite de disques. */
+const tube = (discs: Disc[]): Pt[][] => discs.slice(1).map((d, i) => capsule(discs[i]!, d));
+/** Galbe d'un membre, en parts du rayon : attache, milieu du haut, articulation, renflement du bas, bout (poignet ou cheville). */
+function galbe(b: Body, leg: boolean): [number, number, number, number, number] {
+  if (b.limbT === 'straight') return [0.82, 0.82, 0.82, 0.82, 0.82];
+  if (b.limbT === 'bulk') return leg ? [1.15, 1.12, 0.7, 0.92, 0.46] : [1.3, 1.28, 0.8, 1.02, 0.58];
+  return leg ? [1, 0.9, 0.6, 0.72, 0.4] : [1.05, 0.95, 0.7, 0.8, 0.5];
 }
 
 function shapesOf(b: Body, j: Joints): Record<string, Pt[][]> {
-  const [a0, a1, a2] = radii(b, b.ra);
-  const [l0, l1, l2] = radii(b, b.rl);
-  const arm = (s: Pt, e: Pt, h: Pt) => unite([capsule([s, a0], [e, a1]), capsule([e, a1], [h, a2]), circle(h, a2 * 1.5)]);
-  // le pied part de la cheville vers l'extérieur, posé au sol
-  const leg = (h: Pt, k: Pt, f: Pt, side: number) => unite([capsule([h, l0], [k, l1]), capsule([k, l1], [f, l2]), capsule([f, l2 * 0.95], [{ x: f.x + side * (0.03 + l2), y: f.y + l2 * 0.2 }, l2 * 0.75])]);
-  const mid = { x: (j.shoulderL.x + j.shoulderR.x + j.hipL.x + j.hipR.x) / 4, y: (j.shoulderL.y + j.hipL.y) / 2 };
-  const chest = b.torsoT === 'straight' ? 0.55 : b.torsoT === 'round' ? 0.8 : 1;
-  const sx = (p: Pt, k: number) => ({ x: mid.x + (p.x - mid.x) * k, y: p.y });
+  const tubes = b.limbT === 'straight';
+  // bras : deltoïde, biceps, coude, avant-bras, poignet, puis la main dans le prolongement de l'avant-bras
+  const arm = (s: Pt, e: Pt, w: Pt) => {
+    const g = galbe(b, false);
+    const len = Math.hypot(w.x - e.x, w.y - e.y) || 1;
+    const along = (d: number): Pt => ({ x: w.x + ((w.x - e.x) / len) * d, y: w.y + ((w.y - e.y) / len) * d });
+    const hand = tubes ? [circle(along(b.ra * 0.5), b.ra * 1.15)] : [capsule([along(b.ra * 0.4), b.ra * 0.78], [along(0.034 * (1 + 0.4 * b.chunk) + b.ra * 0.35), b.ra * 0.6])];
+    return unite([...tube([[s, b.ra * g[0]], [lerp(s, e, 0.45), b.ra * g[1]], [e, b.ra * g[2]], [lerp(e, w, 0.28), b.ra * g[3]], [w, b.ra * g[4]]]), ...hand]);
+  };
+  // jambe : cuisse, genou, mollet, cheville, puis le pied posé au sol, tourné vers l'extérieur
+  const leg = (h: Pt, k: Pt, f: Pt, side: number) => {
+    const g = galbe(b, true);
+    const sole = f.y + b.rl * 0.3;
+    const foot = capsule([{ x: f.x, y: sole }, b.rl * (tubes ? 0.5 : 0.36)], [{ x: f.x + side * (0.03 * (1 + 0.4 * b.chunk) + b.rl * 0.35), y: sole + b.rl * 0.04 }, b.rl * (tubes ? 0.46 : 0.3)]);
+    return unite([...tube([[h, b.rl * g[0]], [lerp(h, k, 0.5), b.rl * g[1]], [k, b.rl * g[2]], [lerp(k, f, 0.3), b.rl * g[3]], [f, b.rl * g[4]]]), foot]);
+  };
+  // torse : épaules tombantes depuis le cou, cage thoracique qui se resserre à la taille, bassin
+  const sMid = lerp(j.shoulderL, j.shoulderR, 0.5);
+  const hMid = lerp(j.hipL, j.hipR, 0.5);
+  const cr = b.ra * 0.9 + (b.fem ? 0.014 : 0.012);
+  const chestK = b.torsoT === 'straight' ? 0.72 : b.torsoT === 'round' ? 0.78 : 0.86;
+  const chest = (p: Pt): Disc => [{ x: sMid.x + (p.x - sMid.x) * chestK, y: p.y + cr - b.ra * 0.9 }, cr];
+  const wMid = lerp(sMid, hMid, b.fem ? 0.5 : 0.62);
+  const ww = b.torsoT === 'trapeze' ? b.hw * (b.fem ? 0.52 : 0.9) + 0.012 * b.build : b.hw + b.rl * 0.5;
+  const wr = 0.024 + 0.012 * b.build;
+  const waist = (side: number): Disc => [{ x: wMid.x + side * ww, y: wMid.y }, wr];
+  const hip = (p: Pt): Disc => [p, b.rl * (tubes ? 0.95 : b.fem ? 1.12 : 1.02)];
+  const round = (d: Disc) => circle(d[0], d[1]);
+  const neckR = b.rH * 0.4;
+  const neckBase: Disc = [{ x: sMid.x, y: sMid.y - b.ra * 0.6 }, neckR * 1.15];
   const torso = [
-    ...circle(sx(j.shoulderL, chest), a0),
-    ...circle(sx(j.shoulderR, chest), a0),
-    ...circle(sx(j.hipL, b.torsoT === 'straight' ? 1.25 : 1), l0),
-    ...circle(sx(j.hipR, b.torsoT === 'straight' ? 1.25 : 1), l0),
-    ...(b.torsoT === 'round' ? circle({ x: mid.x, y: mid.y + 0.02 }, (b.sw + b.hw) / 2 + l0 + 0.02, 28) : []),
+    capsule([{ x: j.head.x, y: j.head.y + b.rH * 0.6 }, neckR], neckBase),
+    ...(tubes ? [] : [hull([...round(neckBase), ...round(chest(j.shoulderL)), ...round(chest(j.shoulderR))])]),
+    hull([...round(chest(j.shoulderL)), ...round(chest(j.shoulderR)), ...round(waist(-1)), ...round(waist(1))]),
+    hull([...round(waist(-1)), ...round(waist(1)), ...round(hip(j.hipL)), ...round(hip(j.hipR))]),
+    ...(b.torsoT === 'round' ? [circle({ x: wMid.x, y: wMid.y - 0.01 }, (b.sw + b.hw) / 2 + b.rl * 0.75, 28)] : []),
   ];
-  // un cou court relie la tête au torse
-  const neck = capsule([{ x: j.head.x, y: j.head.y + b.rH * 0.7 }, b.rH * 0.38], [{ x: (j.shoulderL.x + j.shoulderR.x) / 2, y: j.shoulderL.y }, b.rH * 0.42]);
   return {
     legL: leg(j.hipL, j.kneeL, j.footL, -1),
     legR: leg(j.hipR, j.kneeR, j.footR, 1),
-    torso: unite([hull(torso), neck]),
+    torso: unite(torso),
     armL: arm(j.shoulderL, j.elbowL, j.handL),
     armR: arm(j.shoulderR, j.elbowR, j.handR),
     head: [headShape(b, j.head)],
@@ -311,12 +349,12 @@ function framesOf(g: Progress, ctx?: Context): Frames {
   return { walk, walkOn, dance, danceOn, wave: once(g('wave'), WAVE_FRAMES), jump: once(g('jump'), JUMP_FRAMES) };
 }
 
-const KEYS = ['head', 'build', 'shoulders', 'legs', 'arms', 'headT', 'torsoT', 'limbT', 'stride', 'swing', 'waves'];
+const KEYS = ['sex', 'heads', 'build', 'shoulders', 'legs', 'arms', 'headT', 'torsoT', 'limbT', 'stride', 'swing', 'waves'];
 
 function cut(a: Anim, _phase: number, g: Progress, ctx?: Context): string {
   const f = framesOf(g, ctx);
   const part = typeof a.part === 'string' ? a.part : '';
-  return cached(`h1|${part}|${KEYS.map((k) => a[k] ?? '').join('|')}|${f.walk}|${f.walkOn}|${f.dance}|${f.danceOn}|${f.wave}|${f.jump}`, () => {
+  return cached(`h4|${part}|${KEYS.map((k) => a[k] ?? '').join('|')}|${f.walk}|${f.walkOn}|${f.dance}|${f.danceOn}|${f.wave}|${f.jump}`, () => {
     const b = bodyOf(a);
     const shapes = shapesOf(b, jointsOf(b, poseOf(a, f)));
     // une pièce : sa surface ; sans pièce (vignette, aperçus des réglages), la silhouette entière réunie
@@ -331,13 +369,17 @@ function cut(a: Anim, _phase: number, g: Progress, ctx?: Context): string {
 
 const shape = (key: string, name: string, title: string, def: number): Param => ({ key, name, title, type: 'range', min: 0, max: 1, def });
 
+// les gabarits : canons classiques du dessin, puis quelques carrures ; la morphologie (masculine, féminine) se choisit à part
+const BASE = { heads: 7.5, build: 0.4, shoulders: 0.5, legs: 0.5, arms: 0.5, headT: 'round', torsoT: 'trapeze', limbT: 'taper' };
 const PRESETS: Preset[] = [
-  { id: 'adult', name: 'Adulte', set: { ...DEF } },
-  { id: 'child', name: 'Enfant', set: { head: 0.9, build: 0.5, shoulders: 0.25, legs: 0.15, arms: 0.3, headT: 'round', torsoT: 'trapeze', limbT: 'taper' } },
-  { id: 'athlete', name: 'Athlète', set: { head: 0.35, build: 0.7, shoulders: 1, legs: 0.6, arms: 0.6, headT: 'oval', torsoT: 'trapeze', limbT: 'bulk' } },
-  { id: 'slim', name: 'Élancé', set: { head: 0.3, build: 0.08, shoulders: 0.3, legs: 1, arms: 0.75, headT: 'oval', torsoT: 'straight', limbT: 'taper' } },
-  { id: 'round', name: 'Rond', set: { head: 0.6, build: 1, shoulders: 0.45, legs: 0.2, arms: 0.35, headT: 'round', torsoT: 'round', limbT: 'taper' } },
-  { id: 'robot', name: 'Robot', set: { head: 0.55, build: 0.6, shoulders: 0.8, legs: 0.45, arms: 0.5, headT: 'square', torsoT: 'straight', limbT: 'straight' } },
+  { id: 'common', name: 'Commun', set: { ...BASE } },
+  { id: 'ideal', name: 'Idéal', set: { ...BASE, heads: 8, build: 0.35, shoulders: 0.6, headT: 'oval' } },
+  { id: 'heroic', name: 'Héroïque', set: { ...BASE, heads: 9, build: 0.5, shoulders: 0.9, headT: 'oval' } },
+  { id: 'child', name: 'Enfant', set: { ...BASE, heads: 5, shoulders: 0.3 } },
+  { id: 'comic', name: 'BD', set: { ...BASE, heads: 3.5, build: 0.5, shoulders: 0.3 } },
+  { id: 'athlete', name: 'Athlète', set: { ...BASE, heads: 8, build: 0.7, shoulders: 1, headT: 'oval', limbT: 'bulk' } },
+  { id: 'round', name: 'Rond', set: { ...BASE, heads: 7, build: 1, torsoT: 'round' } },
+  { id: 'robot', name: 'Robot', set: { ...BASE, heads: 6, build: 0.6, shoulders: 0.8, headT: 'square', torsoT: 'straight', limbT: 'straight' } },
 ];
 
 /** Partie de la silhouette qu'un réglage change, pour que ses bulles zooment dessus. */
@@ -355,9 +397,19 @@ export const humanoid: Generator = {
   cycle: 4,
   cycleName: 'Pas',
   cycleWhat: 'Deux pas (ou une mesure de danse)',
-  presetName: 'Modèle',
+  presetName: 'Gabarit',
   presets: PRESETS,
   params: [
+    {
+      key: 'sex',
+      name: 'Morphologie',
+      type: 'choice',
+      def: DEF.sex,
+      options: [
+        { id: 'm', name: 'Masculine' },
+        { id: 'f', name: 'Féminine' },
+      ],
+    },
     {
       key: 'headT',
       name: 'Tête',
@@ -391,7 +443,7 @@ export const humanoid: Generator = {
         { id: 'bulk', name: 'Massifs' },
       ],
     },
-    shape('head', 'Tête', 'Taille de la tête', DEF.head),
+    { key: 'heads', name: 'Têtes', title: 'Canon : hauteur du corps en nombre de têtes (7,5 commun, 8 idéal, 9 héroïque, 5 enfant, 3,5 BD)', type: 'steps', min: 3, max: 9, step: 0.5, def: DEF.heads },
     shape('build', 'Corpulence', 'Épaisseur du corps et des membres', DEF.build),
     shape('shoulders', 'Carrure', 'Largeur des épaules', DEF.shoulders),
     shape('legs', 'Jambes', 'Longueur des jambes par rapport au buste', DEF.legs),

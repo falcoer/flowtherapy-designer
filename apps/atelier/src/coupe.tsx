@@ -1252,7 +1252,7 @@ function AnimRows({ l, doc, anim: base, act, live, patch }: { l: Layer; doc: Doc
           />
         </label>
       );
-    if (p.type === 'steps') return <Range key={p.key} label={p.name} display={`${v}`} value={(Number(v) - min) / (max - min)} onChange={(x) => put(min + Math.round(x * (max - min)))} />;
+    if (p.type === 'steps') return <Range key={p.key} label={p.name} display={`${v}`.replace('.', ',')} value={(Number(v) - min) / (max - min)} onChange={(x) => put(min + Math.round((x * (max - min)) / (p.step ?? 1)) * (p.step ?? 1))} />;
     if (p.type === 'range') return <Range key={p.key} label={p.name} value={(Number(v) - min) / (max - min)} onChange={(x) => put(Math.round((min + x * (max - min)) * 100) / 100)} />;
     if (p.type === 'check')
       return (

@@ -232,6 +232,22 @@ describe('humanoïde', () => {
       expect(new Set(cuts).size).toBe(p.options!.length);
     }
   });
+  it('la morphologie masculine ou féminine change le torse et les membres, pas la tête', () => {
+    setAnimTiming(tm);
+    for (const part of ['torso', 'armL', 'legL']) expect(animCut(empty({ part, sex: 'f' }), 0)).not.toBe(animCut(empty({ part }), 0));
+    expect(animCut(empty({ part: 'head', sex: 'f' }), 0)).toBe(animCut(empty({ part: 'head' }), 0));
+    // la morphologie reste quand on change de gabarit
+    for (const p of man.presets!) expect('sex' in p.set).toBe(false);
+  });
+  it('le canon se compte en têtes : la tête occupe 1/n de la hauteur', () => {
+    setAnimTiming(tm);
+    const headH = (n: number) => {
+      const ys = [...animCut(empty({ part: 'head', heads: n }), 0).matchAll(/-?\d*\.?\d+/g)].map(Number).filter((_, i) => i % 2 === 1);
+      return (Math.max(...ys) - Math.min(...ys)) * 1.22;
+    };
+    for (const n of [3.5, 5, 7.5, 9]) expect(headH(n)).toBeCloseTo(1 / n, 2);
+    expect(man.presets!.slice(0, 5).map((p) => p.set.heads)).toEqual([7.5, 8, 9, 5, 3.5]);
+  });
   it('au départ il salue seulement ; marche, saut et danse se posent à la demande', () => {
     setAnimTiming(tm);
     expect(new Set(actsOf(newAnim(man), tm).map((x) => x.g))).toEqual(new Set(['wave']));
