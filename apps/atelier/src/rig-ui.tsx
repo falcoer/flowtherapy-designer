@@ -6,7 +6,7 @@ type Pt = [number, number];
 
 /**
  * Poignées du squelette posé dans un objet (vue des os) : chaque articulation se glisse sur l'image, au repos.
- * Les os se redessinent pendant le glissé ; le lâcher fait un pas d'annulation. `frame` : la boîte actuelle dans
+ * Les os se redessinent pendant le glissé ; tout le glissé fait un seul pas d'annulation. `frame` : la boîte actuelle dans
  * le repère d'origine (objet modelé), où les articulations se gardent.
  */
 export function RigOverlay({ anim, map, frame, onChange }: { anim: Anim; map: BoxMap; frame?: [number, number, number, number]; onChange: (a: Anim, commit: boolean) => void }) {
@@ -16,6 +16,7 @@ export function RigOverlay({ anim, map, frame, onChange }: { anim: Anim; map: Bo
   const last = useRef(J);
   last.current = J;
   const drag = useRef<number | null>(null);
+  const moved = useRef(false);
   const scr = ([u, v]: Pt) => map.toScreen((u - fa) / W, (v - fb) / H);
   const P = J.map(scr);
   const grab = (i: number) => (e: React.PointerEvent) => {
@@ -29,11 +30,13 @@ export function RigOverlay({ anim, map, frame, onChange }: { anim: Anim; map: Bo
     if (i === null) return;
     const q = map.fromScreen(e.clientX, e.clientY);
     const next = last.current.map((p, k): Pt => (k === i ? [fa + q.x * W, fb + q.y * H] : p));
-    onChange({ ...anim, j: jointsText(next) }, false);
+    // le premier pas du glissé garde la pose d'avant pour l'annulation ; les suivants passent sans historique
+    onChange({ ...anim, j: jointsText(next) }, !moved.current);
+    moved.current = true;
   };
   const drop = () => {
-    if (drag.current !== null) onChange({ ...anim, j: jointsText(last.current) }, true);
     drag.current = null;
+    moved.current = false;
   };
   // côté gauche et droit de l'image : deux teintes, pour ne pas confondre les bras quand ils se croisent
   const side = (k: string) => (k.endsWith('L') ? 'l' : k.endsWith('R') ? 'r' : 'c');

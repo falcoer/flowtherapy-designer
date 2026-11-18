@@ -885,7 +885,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     // les couches plus basses les recouvrent là où elles sont
     if (!pageShadows && l.kind !== 'surface') {
       pageShadows = true;
-      for (const x of order) if (x.kind !== 'surface' && shadowLevel(x) > 0.001 && opacityOf(x) >= 1 && !(o.bones && bonesOf(x))) castShadow(ctx, x, doc, f, o, maskPath2D(x, f), shadowLevel(x));
+      for (const x of order) if (x.kind !== 'surface' && shadowLevel(x) > 0.001 && opacityOf(x) >= 1 && !(o.bones && bonesOf(x) && x.anim?.kind !== 'rig')) castShadow(ctx, x, doc, f, o, maskPath2D(x, f), shadowLevel(x));
     }
     // couche translucide ou brûlée : rendue à part, puis posée d'un bloc (son ombre ne transparaît pas)
     const burnt = !flattening.has(l.id) && l.kind !== 'surface' ? ((burnGuides = doc.guides), burnFor(l, f, o)) : null;
@@ -974,7 +974,9 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     const x0 = b.cx - b.w / 2;
     const y0 = b.cy - b.h / 2;
     const bones = o.bones ? bonesOf(l) : null;
-    if (bones) {
+    // un squelette posé dans une photo : l'image reste visible sous ses os, pour caler les articulations dessus
+    const overImage = !!bones && l.anim?.kind === 'rig';
+    if (bones && !overImage) {
       drawBones(ctx, l, f, path, bones);
       ctx.restore();
       continue;
@@ -1015,6 +1017,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     if (hollow) {
       // ni teinte, ni matière, ni peinture, ni volume : il reste le chemin du bord et la lueur
       drawGlow(ctx, l, doc, f, o, false);
+      if (overImage) drawBones(ctx, l, f, path, bones!);
       ctx.restore();
       continue;
     }
@@ -1051,6 +1054,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     // volume et biseau : un relief tiré du contour (ou du bord ajouté), éclairé comme le relief sculpté
     if (((l.bevel ?? 0) > 0.001 || volumeOn(l.volume)) && l.kind !== 'surface') drawBevel(ctx, l, doc, f, path, b);
     drawGlow(ctx, l, doc, f, o, false);
+    if (overImage) drawBones(ctx, l, f, path, bones!);
     ctx.restore();
   }
   ctx.restore();
