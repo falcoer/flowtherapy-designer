@@ -124,6 +124,8 @@ export interface PlanItem extends Target {
 export type CampaignInput = Partial<Pick<Campaign, 'name' | 'operation' | 'date' | 'place' | 'time' | 'kind' | 'contact' | 'note' | 'caption' | 'hashtags' | 'link' | 'texts' | 'templates' | 'plan'>> & { closed?: boolean };
 export const listCampaigns = () => call<Campaign[]>('/api/campaigns');
 export const createCampaign = (c: CampaignInput) => call<{ campaign: Campaign }>('/api/campaigns', json('POST', c)).then((r) => r.campaign);
+/** Supprime une campagne (responsables) ; renvoie les compositions passées hors campagne. */
+export const deleteCampaign = (id: string) => call<{ ok: boolean; detached: string[] }>(`/api/campaigns/${id}`, { method: 'DELETE' }).then((r) => r.detached);
 export const updateCampaign = (id: string, c: CampaignInput) => call<{ campaign: Campaign }>(`/api/campaigns/${id}`, json('PATCH', c)).then((r) => r.campaign);
 export const retitleAtelier = (id: string, title: string) => call<{ meta: AtelierMeta }>(`/api/ateliers/${id}`, json('PATCH', { title })).then((r) => r.meta);
 export const copyAtelier = (id: string, to: string, title: string, campaign?: string) =>

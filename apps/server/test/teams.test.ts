@@ -417,6 +417,27 @@ describe('équipes', () => {
     expect(((await max.get('/api/ateliers')).json() as Array<{ id: string; votes: string[] }>).find((m) => m.id === 'affiche-jenni')?.votes).toEqual([]);
   });
 
+  it('supprimer une campagne : réservé aux responsables, ses compositions passent hors campagne', async () => {
+    const { login, as } = await setup();
+    const lauris = as((await login('lauris@example.org'))!);
+    await lauris.send('POST', '/api/teams/flowtherapy/members', { email: 'jenni@example.org', role: 'editor' });
+    const jenni = as((await login('jenni@example.org'))!);
+    await jenni.send('POST', '/api/campaigns', { name: 'Toi mon frère' });
+    await jenni.send('POST', '/api/campaigns', { name: 'Autre' });
+    await jenni.send('PUT', '/api/ateliers/banniere', { title: 'Bannière', doc: { ...doc, campaign: 'toi-mon-frere' } });
+    await jenni.send('PUT', '/api/ateliers/affiche', { title: 'Affiche', doc: { ...doc, campaign: 'autre' } });
+
+    expect((await jenni.send('DELETE', '/api/campaigns/toi-mon-frere')).statusCode).toBe(403);
+    const r = await lauris.send('DELETE', '/api/campaigns/toi-mon-frere');
+    expect(r.json()).toEqual({ ok: true, detached: ['banniere'] });
+    expect(((await lauris.get('/api/campaigns')).json() as Array<{ id: string }>).map((c) => c.id)).toEqual(['autre']);
+    const list = (await lauris.get('/api/ateliers')).json() as Array<{ id: string; campaign?: string }>;
+    expect(list.find((m) => m.id === 'banniere')?.campaign).toBeUndefined();
+    expect(list.find((m) => m.id === 'affiche')?.campaign).toBe('autre');
+    expect(((await lauris.get('/api/ateliers/banniere')).json() as { doc: { campaign?: string } }).doc.campaign).toBeUndefined();
+    expect((await lauris.send('DELETE', '/api/campaigns/toi-mon-frere')).statusCode).toBe(404);
+  });
+
   it('les messages d’une composition : tout membre écrit, met des smileys, retire le sien', async () => {
     const { login, as } = await setup();
     const lauris = as((await login('lauris@example.org'))!);

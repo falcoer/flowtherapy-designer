@@ -244,6 +244,8 @@ export function CampaignPage(p: {
   onPlan: (plan: PlanItem[], texts?: CampaignText[]) => void;
   publishing?: PlanPublishing;
   onClose: (closed: boolean) => void;
+  /** Supprimer la campagne (responsables) : ses compositions passent hors campagne. */
+  onDeleteCampaign?: () => void;
   onNew: () => void;
   onOpen: (m: AtelierMeta, target?: number) => void;
   onVote: (m: AtelierMeta) => void;
@@ -507,16 +509,45 @@ export function CampaignPage(p: {
                   <Icon name="more" />
                 </button>
                 {headMenu && (
-                  <span className="sp-menu right" role="menu">
-                    <button
-                      role="menuitem"
-                      onClick={() => {
-                        setHeadMenu(false);
-                        p.onClose(!c.closed);
-                      }}
-                    >
-                      {c.closed ? 'Rouvrir la campagne' : 'Clore la campagne'}
-                    </button>
+                  <span className="sp-menu right" role="menu" onClick={(e) => e.stopPropagation()}>
+                    {confirm === `campaign:${c.id}` ? (
+                      <>
+                        <span className="sp-menu-q">
+                          Supprimer la campagne « {c.name} » ? {mine.length ? `Ses ${mine.length > 1 ? `${mine.length} compositions passent` : 'composition passe'} hors campagne.` : 'Elle n’a aucune composition.'}
+                        </span>
+                        <button
+                          className="danger"
+                          role="menuitem"
+                          onClick={() => {
+                            setHeadMenu(false);
+                            setConfirm(null);
+                            p.onDeleteCampaign?.();
+                          }}
+                        >
+                          <Icon name="trash" /> Supprimer
+                        </button>
+                        <button role="menuitem" onClick={() => setConfirm(null)}>
+                          Annuler
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          role="menuitem"
+                          onClick={() => {
+                            setHeadMenu(false);
+                            p.onClose(!c.closed);
+                          }}
+                        >
+                          {c.closed ? 'Rouvrir la campagne' : 'Clore la campagne'}
+                        </button>
+                        {p.onDeleteCampaign && (
+                          <button className="danger" role="menuitem" onClick={() => setConfirm(`campaign:${c.id}`)}>
+                            <Icon name="trash" /> Supprimer la campagne…
+                          </button>
+                        )}
+                      </>
+                    )}
                   </span>
                 )}
               </span>
