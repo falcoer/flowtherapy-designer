@@ -395,6 +395,27 @@ describe('os des stickers existants', () => {
     expect(Math.abs(animFollow(a, 0.5, 0.95, 0.5)!.dx)).toBeLessThan(0.01);
     expect(animSkeleton(a, 0.5)).toHaveLength(3);
   });
+  it('œil : un objet posé sur la paupière du haut descend avec elle au clignement', () => {
+    setAnimTiming(tm);
+    const eye = generatorOf('eye')!;
+    const base = { ...newAnim(eye), acts: [] };
+    const blink = eye.gestures(base).find((g) => g.id === 'blink')!;
+    const a = { ...base, acts: [{ ...newAct(base, blink, 0, tm), len: 1 }] };
+    expect(animFollow(a, 0.5, 0.14, 0)!.dy).toBeCloseTo(0);
+    // œil fermé : le bord de la paupière est descendu, l'objet avec lui ; sous la paupière du bas, presque rien
+    expect(animFollow(a, 0.5, 0.14, 0.5)!.dy).toBeGreaterThan(0.25);
+    expect(Math.abs(animFollow(a, 0.5, 0.14, 0.5)!.dx)).toBeLessThan(1e-6);
+  });
+  it('oiseau : un objet attaché suit la surface prise à plat, comme avant ses os', () => {
+    setAnimTiming(tm);
+    const bird = generatorOf('bird')!;
+    const a = newAnim(bird);
+    const w = bird.warp!(a, 0, () => 0, { each: () => [] })!;
+    const [mx, my] = w.map(0.95, 0.4);
+    const f = animFollow(a, 0.95, 0.4, 0)!;
+    expect(f.dx).toBeCloseTo(mx - 0.95, 6);
+    expect(f.dy).toBeCloseTo(my - 0.4, 6);
+  });
   it('oiseau : les os se plient avec le battement et emmènent un objet posé au bout de l’aile', () => {
     setAnimTiming(tm);
     const a = newAnim(generatorOf('bird')!);
