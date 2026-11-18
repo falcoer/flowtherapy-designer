@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { RingIcon } from './ring-icon';
 
 /** Élément de la bibliothèque du groupe, tel que l'index de l'atelier le décrit. */
 export interface LibItem {
@@ -18,6 +19,10 @@ export interface LibItem {
   /** Traits noirs à recolorer avec la couleur choisie (décors à la craie). */
   tint?: boolean;
   vector?: boolean;
+  /** Illustration orientée : une image par vue (face, trois-quarts, profil, dos, et leurs versions gauche). */
+  views?: Array<{ view: string; src: string; thumb: string; w: number; h: number }>;
+  /** La vue choisie sur l'anneau de la vignette, montrée à la pose. */
+  view?: string;
 }
 export type Shelf = 'photos' | 'illustrations' | 'logos';
 
@@ -91,6 +96,19 @@ export function LibraryShelf({
   const [items, setItems] = useState<LibItem[] | null>(null);
   const [tag, setTag] = useState<string | null>(null);
   const [ghost, setGhost] = useState<{ item: LibItem; x: number; y: number } | null>(null);
+  // vue choisie sur l'anneau de chaque illustration orientée
+  const [turned, setTurned] = useState<Record<string, string>>({});
+  const pick = (it: LibItem): LibItem => {
+    const want = turned[it.id];
+    // une vue de gauche sans image à elle : celle de droite, retournée (en miroir à la pose)
+    const v = it.views?.find((x) => x.view === want) ?? it.views?.find((x) => want && x.view === want.replace(/-gauche$/, ''));
+    return v ? { ...it, view: want, thumb: v.thumb } : it;
+  };
+  const mirrored = (it: LibItem) => !!turned[it.id]?.endsWith('-gauche') && !it.views?.some((x) => x.view === turned[it.id]);
+  const ringOf = (it: LibItem) => {
+    const has = new Set(it.views!.map((v) => v.view));
+    return [...has, ...['trois-quarts', 'profil'].filter((b) => has.has(b)).map((b) => `${b}-gauche`)];
+  };
   const press = useRef<{ item: LibItem; x: number; y: number; drag: boolean } | null>(null);
   useEffect(() => {
     void loadLibrary().then(setItems);
@@ -120,7 +138,7 @@ export function LibraryShelf({
             title={[it.title, it.description, it.credit && `Photo : ${it.credit}`].filter(Boolean).join('\n')}
             onPointerDown={(e) => {
               (e.currentTarget as Element).setPointerCapture(e.pointerId);
-              press.current = { item: it, x: e.clientX, y: e.clientY, drag: false };
+              press.current = { item: pick(it), x: e.clientX, y: e.clientY, drag: false };
             }}
             onPointerMove={(e) => {
               const p = press.current;
@@ -153,8 +171,9 @@ export function LibraryShelf({
               onDragAt?.(null);
             }}
           >
-            <span className="lib-thumb">
-              <img src={it.thumb} alt="" draggable={false} loading="lazy" />
+            <span className={`lib-thumb ${it.views?.length ? 'oriented' : ''}`}>
+              <img src={pick(it).thumb} alt="" draggable={false} loading="lazy" className={mirrored(it) ? 'mirror' : ''} />
+              {!!it.views?.length && <RingIcon views={ringOf(it)} on={turned[it.id] ?? it.views[0]!.view} onPick={(v) => setTurned((t) => ({ ...t, [it.id]: v }))} />}
             </span>
             <span className="lib-name">{it.title.replace(/^(Craie|Presse) : /, '')}</span>
           </button>

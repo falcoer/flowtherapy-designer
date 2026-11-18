@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type { BoxMap } from './gradient-ui';
+import { RingBand, ringMid, RING_BOX } from './ring-icon';
 import type { Layer } from './model';
 import { cutOf } from './scene';
 import { baseOf, keyFor, leftViews, loadImage, nearestView, RING, ringViews, setView, showView, turnTo, turned, viewsOf, VIEWS, VIEW_NAMES, type ViewKind } from './views';
@@ -159,21 +160,26 @@ export function ViewRing({ l, map, onChange }: { l: Layer; map: BoxMap; onChange
       busy.current = false;
     }
   };
-  const ring = Array.from({ length: 49 }, (_, i) => at(i * 7.5));
-  const back = ring.filter((_, i) => i * 7.5 >= 90 && i * 7.5 <= 270);
-  const front = [...ring.filter((_, i) => i * 7.5 >= 270), ...ring.filter((_, i) => i * 7.5 <= 90)];
-  const line = (pts: P[]) => pts.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join('');
-  const h = at(drag ?? RING[cur]!);
-  const tip = { x: h.x + (h.x - c.x) * 0.35, y: h.y + (h.y - c.y) * 0.35 };
+  // l'anneau-icône (repère 100 × 30) posé sur l'ellipse du sol : x → grand axe, y → petit axe
+  const sx = { x: ax.x / RING_BOX.rx, y: ax.y / RING_BOX.rx };
+  const sy = { x: b.x / RING_BOX.ry, y: b.y / RING_BOX.ry };
+  const m = `matrix(${sx.x} ${sx.y} ${sy.x} ${sy.y} ${c.x - sx.x * RING_BOX.cx - sy.x * RING_BOX.cy} ${c.y - sx.y * RING_BOX.cx - sy.y * RING_BOX.cy})`;
+  // une marque au milieu de la bande de l'icône
+  const mark = (deg: number) => {
+    const q = ringMid(deg);
+    return { x: c.x + sx.x * (q.x - RING_BOX.cx) + sy.x * (q.y - RING_BOX.cy), y: c.y + sx.y * (q.x - RING_BOX.cx) + sy.y * (q.y - RING_BOX.cy) };
+  };
+  const h = mark(drag ?? RING[cur]!);
   return (
     <div className="grad-overlay view-ring">
       <svg>
-        <path className="vr-back" d={line(back)} />
-        <path className="vr-front" d={line(front)} />
-        <line className="vr-dir" x1={c.x} y1={c.y} x2={tip.x} y2={tip.y} />
+        <g transform={m}>
+          <RingBand half="back" />
+          <RingBand half="front" />
+        </g>
       </svg>
       {Object.keys(RING).map((k) => {
-        const p = at(RING[k]!);
+        const p = mark(RING[k]!);
         const ok = keys.includes(k);
         return (
           <button
@@ -190,7 +196,7 @@ export function ViewRing({ l, map, onChange }: { l: Layer; map: BoxMap; onChange
           />
         );
       })}
-      <div
+            <div
         className="vr-handle"
         style={{ left: h.x, top: h.y }}
         title="Glisser autour de l’anneau pour tourner l’objet"
@@ -208,7 +214,9 @@ export function ViewRing({ l, map, onChange }: { l: Layer; map: BoxMap; onChange
         }}
         onPointerUp={() => setDrag(null)}
         onPointerCancel={() => setDrag(null)}
-      />
+      >
+        <span style={{ transform: `rotate(${Math.atan2(h.y - c.y, h.x - c.x)}rad)` }} />
+      </div>
     </div>
   );
 }

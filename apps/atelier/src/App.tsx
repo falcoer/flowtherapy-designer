@@ -15,7 +15,7 @@ import { meshOf, unwarp } from './warp';
 import { animRatio, animTime, forPart, generatorOf, withActs, GENERATORS, glyphCut, hasAnim, newAnim, newRig, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
 import { RigOverlay } from './rig-ui';
 import { ViewRing } from './views-ui';
-import { assignViews, characterOf, groupCharacters, KEYS, leftViews, loadImage, readZip, viewOfName, viewsOf, VIEW_NAMES } from './views';
+import { assignViews, characterOf, groupCharacters, KEYS, leftViews, loadImage, readZip, showView, viewOfName, viewsOf, VIEW_NAMES } from './views';
 import { kitZip, splitSheet } from './charkit';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
@@ -4781,7 +4781,18 @@ export function App() {
           0.003,
         )
       : undefined;
-    addLayer('photo', { src, name: it.title, ratio: it.w / it.h, size, at: client ? toPage(client.x, client.y) : undefined, cut, ref: `image/${it.id}` });
+    const at = client ? toPage(client.x, client.y) : undefined;
+    if (it.views?.length) {
+      // illustration orientée : toutes ses vues, montrée dans celle choisie sur l'anneau de la vignette
+      const { ratio, ...extra } = characterOf(it.views.map((v) => ({ view: v.view, src: v.src, ratio: v.w / v.h })));
+      extra.views = [...extra.views!, ...(await leftViews(viewsOf({ ...extra, w: ratio, h: 1 } as Layer)))].map((v) => (v.view === extra.view ? { ...v, src: '' } : v));
+      const turn = it.view && it.view !== extra.view ? showView({ ...extra, w: ratio, h: 1 } as Layer, it.view) : {};
+      const shown = { ...extra, ...turn } as typeof extra;
+      addLayer('photo', { src: shown.src, name: it.title, ratio: turn.w ?? ratio, size, at, extra: { views: shown.views, view: shown.view, anim: shown.anim }, ref: `image/${it.id}` });
+      setToast(`« ${it.title} » posé${client ? '' : ' au centre'} : tourne-le avec l’anneau à ses pieds`);
+      return;
+    }
+    addLayer('photo', { src, name: it.title, ratio: it.w / it.h, size, at, cut, ref: `image/${it.id}` });
     setToast(`« ${it.title} » posé${client ? '' : ' au centre'}`);
   };
   // photo importée : remise droite (orientation de l'appareil), réduite à 2400 px, cadre au format de la photo
