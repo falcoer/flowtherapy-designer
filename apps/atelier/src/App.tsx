@@ -15,14 +15,14 @@ import { meshOf, unwarp } from './warp';
 import { animRatio, animTime, forPart, generatorOf, withActs, GENERATORS, glyphCut, hasAnim, newAnim, newRig, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
 import { RigOverlay } from './rig-ui';
 import { ViewRing } from './views-ui';
-import { assignViews, characterOf, groupCharacters, KEYS, leftViews, loadImage, readZip, showView, viewOfName, viewsOf, VIEW_NAMES } from './views';
+import { assignViews, characterOf, groupCharacters, KEYS, leftViews, loadImage, parseName, readZip, showView, viewOfName, viewsOf, VIEW_NAMES } from './views';
 import { kitZip, splitSheet } from './charkit';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
 import { MatterRow } from './matter-palette';
 import { pruneImported } from './guides-prune';
 import { syncRefs } from './palettes';
-import { LibraryShelf, RailScroll, SHELVES, type DrawerShelf, type LibItem } from './library';
+import { LibraryShelf, RailScroll, refreshAdded, SHELVES, type DrawerShelf, type LibItem } from './library';
 import { PrefsPanel, type FingerMode, type Theme } from './prefs';
 import { PointGrids } from './anchor-ui';
 import { BrushWheel } from './wheel';
@@ -49,7 +49,7 @@ import { ObjetsShelf } from './objets-shelf';
 import { objetLayers, packObjet, readObjet, saveObjet, unpackObjet, type ObjetEntry } from './objets';
 import { ActivityMark, ActivityMenu, UserButton, UserMenu } from './activity';
 import { CatalogPanel } from './catalog-ui';
-import { createTeam, switchTeam, fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, retitleAtelier, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, deleteCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, postizSync, type PlanItem, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
+import { createTeam, switchTeam, fetchActivity, fetchCatalog, fetchElements, fetchMyPresets, saveMyPresets, type ActivityEvent, copyAtelier, createCampaign, retitleAtelier, fetchMe, fetchProfile, listAteliers, listCampaigns, palettesOf, updateCampaign, deleteCampaign, voteAtelier, type Campaign, type CampaignInput, type Operation, newAtelierId, proposeAtelier, readAtelier, removeAtelier, reviewAtelier, saveAtelier, serverOnline, addOrientedToLibrary, postizSync, type PlanItem, thumbUrl, type ActivityProfile, type AtelierMeta, type Me, type Palette } from './server';
 import { channelsOf, motionOf, setCatalog, contactsOf, CONTACT_KINDS, docForTarget, operationsOf, paletteFor, paletteGuides, recolor, borderDefaults, roleIndex, ROLE_SHORT, defaultLabel, targetKey, targetLabel } from './targets';
 import { Knob } from './knob';
 import { FocusRing } from './focus-ring';
@@ -4807,6 +4807,16 @@ export function App() {
       setToast('Cette photo ne peut pas être lue ici : essaie en JPEG ou PNG');
     }
   };
+  /**
+   * Bouton « Importer une illustration » : une image seule se pose telle quelle ; un .zip, plusieurs images, une planche
+   * ou un nom qui suit la convention (personnage__vue) donnent une illustration orientée.
+   */
+  const importIllustrations = (list: File[]) => {
+    const one = list.length === 1 ? list[0]! : null;
+    const p = one && parseName(one.name);
+    if (one && !/\.zip$/i.test(one.name) && !one.type.includes('zip') && p && !p.sheet && !(p.view && p.who)) return void importPhoto(one);
+    void importCharacter(list);
+  };
   /** Personnage en plusieurs angles : une archive .zip ou plusieurs images, une par vue (face, trois-quarts, profil, dos). */
   const importCharacter = async (list: File[]) => {
     setToast('Import du personnage…');
@@ -4819,6 +4829,7 @@ export function App() {
       // la convention de nommage (personnage__vue[-sens][__élément]) range les fichiers par personnage
       const groups = [...groupCharacters(files)];
       const names: string[] = [];
+      const saved: Array<Promise<boolean>> = [];
       for (const [gi, [who, c]] of groups.entries()) {
         const views = new Map(c.views);
         // une planche de rotation (nommée, ou une seule image large) : découpée en face, trois-quarts, profil, dos
@@ -4859,10 +4870,23 @@ export function App() {
         // plusieurs personnages : côte à côte
         const at = groups.length > 1 ? { x: (f.width * (gi + 1)) / (groups.length + 1), y: f.height / 2 } : undefined;
         addLayer('photo', { src: extra.src, name, ratio, at, extra: { ...extra, link }, with: more });
+        // versée aussi dans la bibliothèque du groupe : elle apparaît dans la mosaïque, avec son anneau
+        if (online && imgs.length > 1)
+          saved.push(
+            addOrientedToLibrary(
+              name,
+              [...views].map(([view, f]) => ({ view, blob: f.blob, name: /\.[a-z0-9]+$/i.test(f.name) ? f.name.split('/').pop()! : `${view}.png` })),
+            ).then(
+              () => true,
+              () => false,
+            ),
+          );
         names.push(`« ${name} » (${imgs.map((v) => VIEW_NAMES[v.view]).join(', ')}${more.length ? ` + ${more.length} élément${more.length > 1 ? 's' : ''}` : ''})`);
       }
       if (!names.length) return void setToast('Aucune image trouvée : des PNG nommés personnage__face, personnage__profil… (voir le kit)');
-      setToast(`${names.join(', ')}. Change de vue dans l’onglet Forme ou Animation`);
+      const kept = (await Promise.all(saved)).filter(Boolean).length;
+      if (kept) refreshAdded();
+      setToast(`${names.join(', ')}${kept ? ', ajouté à la bibliothèque' : ''}. Tourne-le avec l’anneau à ses pieds`);
     } catch {
       setToast('Ce personnage ne peut pas être lu ici : un .zip d’images PNG ou JPEG, ou les images une à une');
     }
@@ -6922,22 +6946,42 @@ export function App() {
               </div>
               {(shelf === 'photos' || shelf === 'illustrations') && (
                 <div className="add-grid lib-import">
-                  <label className="file">
-                    <Icon name="import" />
-                    {shelf === 'photos' ? 'Importer une photo' : 'Importer une illustration'}
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        e.target.value = '';
-                        if (file) {
-                          setBubble(null);
-                          void importPhoto(file);
-                        }
-                      }}
-                    />
-                  </label>
+                  {shelf === 'photos' ? (
+                    <label className="file">
+                      <Icon name="import" />
+                      Importer une photo
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = '';
+                          if (file) {
+                            setBubble(null);
+                            void importPhoto(file);
+                          }
+                        }}
+                      />
+                    </label>
+                  ) : (
+                    <label className="file" title="Une image, ou une illustration orientée : des PNG ou un .zip nommés personnage__face, personnage__profil… (voir le kit), ou la planche de rotation">
+                      <Icon name="import" />
+                      Importer une illustration (PNG ou .zip)
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/jpeg,image/png,image/webp,image/gif,.zip,application/zip"
+                        onChange={(e) => {
+                          const list = [...(e.target.files ?? [])];
+                          e.target.value = '';
+                          if (list.length) {
+                            setBubble(null);
+                            importIllustrations(list);
+                          }
+                        }}
+                      />
+                    </label>
+                  )}
                   {shelf === 'illustrations' && (
                     <button
                       className="file"
@@ -6956,25 +7000,6 @@ export function App() {
                       <Icon name="import" />
                       Kit pour générer un personnage
                     </button>
-                  )}
-                  {shelf === 'illustrations' && (
-                    <label className="file" title="La planche de rotation, une archive .zip ou plusieurs images : face, trois-quarts, profil, dos (d’après leur nom, sinon dans cet ordre)">
-                      <Icon name="import" />
-                      Importer un personnage (plusieurs vues)
-                      <input
-                        type="file"
-                        multiple
-                        accept="image/jpeg,image/png,image/webp,image/gif,.zip,application/zip"
-                        onChange={(e) => {
-                          const list = [...(e.target.files ?? [])];
-                          e.target.value = '';
-                          if (list.length) {
-                            setBubble(null);
-                            void importCharacter(list);
-                          }
-                        }}
-                      />
-                    </label>
                   )}
                 </div>
               )}

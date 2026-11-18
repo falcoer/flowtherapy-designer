@@ -18,6 +18,9 @@ import { SearchIndex } from './search-index.js';
  * Accès à la bibliothèque sur disque : les YAML sont la source de vérité,
  * l'index SQLite et le cache de rendus se reconstruisent depuis eux.
  */
+/** Vues d'une illustration orientée. */
+export const ORIENTED_VIEWS = ['face', 'trois-quarts', 'profil', 'dos', 'trois-quarts-gauche', 'profil-gauche'];
+
 export class Library {
   readonly index: SearchIndex;
   private byKey = new Map<string, LibraryElement>();
@@ -59,7 +62,10 @@ export class Library {
         const el = parseYaml(LibraryElementSchema, await readFile(file, 'utf8'));
         // les chemins source sont relatifs au dossier de l'élément
         const rel = (p: string) => path.relative(this.root, path.resolve(path.dirname(file), p));
-        if (el.type === 'image') el.source = rel(el.source);
+        if (el.type === 'image') {
+          el.source = rel(el.source);
+          if (el.views) el.views = Object.fromEntries(Object.entries(el.views).map(([k, v]) => [k, typeof v === 'string' ? rel(v) : { ...v, file: rel(v.file) }]));
+        }
         if (el.type === 'font') el.files = el.files.map((f) => ({ ...f, path: rel(f.path) }));
         out.push(el);
       } catch (err) {
@@ -139,6 +145,30 @@ export class Library {
     }
     await this.reindex();
     return created.map((c) => this.byKey.get(`${c.type}/${c.id}`) ?? c);
+  }
+
+  /**
+   * Importe une illustration orientée : une image par vue, rangées dans images/<id>/<vue>.<ext>, et l'element.yaml
+   * qui les associe (la face, ou la première vue, sert d'image principale).
+   */
+  async importOriented(opts: { title: string; tags?: string[]; views: Array<{ view: string; data: Buffer; ext: string }> }) {
+    const views = opts.views.filter((v) => ORIENTED_VIEWS.includes(v.view) && ['.png', '.jpg', '.jpeg', '.webp'].includes(v.ext));
+    if (!views.length) throw new Error('Aucune vue reconnue');
+    const id = await this.uniqueId('images', slugify(opts.title) || 'personnage');
+    const dir = path.join(this.root, 'images', id);
+    await mkdir(dir, { recursive: true });
+    const map: Record<string, { file: string; width: number; height: number }> = {};
+    for (const v of views) {
+      const file = `${v.view}${v.ext === '.jpg' ? '.jpeg' : v.ext}`;
+      await writeFile(path.join(dir, file), v.data);
+      map[v.view] = { file, ...(await imageMeta(path.join(dir, file))) };
+    }
+    const main = map.face ?? Object.values(map)[0]!;
+    const tags = [...new Set([...(opts.tags ?? []).map((t) => t.trim()).filter(Boolean), 'personnage', 'oriente'])];
+    const image = { id, type: 'image', title: opts.title, source: main.file, meta: { width: main.width, height: main.height }, tags, views: map };
+    await writeFile(path.join(dir, 'element.yaml'), toYaml(image));
+    await this.reindex();
+    return this.byKey.get(`image/${id}`)!;
   }
 
   /** Enregistre une palette (couleurs choisies ou dégradé tracé) dans palettes/. */

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { fetchOrientedItems } from './server';
 import { RingIcon } from './ring-icon';
 
 /** Élément de la bibliothèque du groupe, tel que l'index de l'atelier le décrit. */
@@ -51,6 +52,7 @@ const FILTERS: Partial<Record<Shelf, Array<[string, string]>>> = {
     ['radio', 'Radio'],
   ],
   illustrations: [
+    ['personnage', 'Personnages'],
     ['alpaga', 'Alpagas'],
     ['paysage', 'Paysages'],
     ['affiche-psyche', 'Affiche psyché'],
@@ -74,6 +76,13 @@ export function loadIndex() {
 }
 /** Images de la bibliothèque, chargées à la première ouverture du tiroir. */
 export const loadLibrary = (): Promise<LibItem[]> => loadIndex().then((d) => d.items ?? []);
+
+let added: Promise<LibItem[]> | null = null;
+/** Illustrations orientées importées depuis l'atelier (sur le serveur), relues après chaque import. */
+const loadAdded = () => (added ??= fetchOrientedItems().catch(() => []));
+export const refreshAdded = () => {
+  added = null;
+};
 
 /** Rayon d'images de la bibliothèque : toucher pour poser au centre, glisser pour poser à l'endroit voulu. */
 /**
@@ -111,7 +120,11 @@ export function LibraryShelf({
   };
   const press = useRef<{ item: LibItem; x: number; y: number; drag: boolean } | null>(null);
   useEffect(() => {
-    void loadLibrary().then(setItems);
+    void Promise.all([loadLibrary(), loadAdded()]).then(([lib, more]) => {
+      // une illustration importée puis versée dans la bibliothèque au déploiement n'apparaît qu'une fois
+      const known = new Set(lib.map((x) => x.id));
+      setItems([...more.filter((x) => !known.has(x.id)), ...lib]);
+    });
   }, []);
   useEffect(() => setTag(null), [shelf]);
   const list = useMemo(() => (items ?? []).filter((x) => x.shelf === shelf && (!tag || x.tags.includes(tag))), [items, shelf, tag]);

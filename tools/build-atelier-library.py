@@ -181,7 +181,8 @@ def main():
         if el.get('views'):
             item['views'] = []
             for view, file in el['views'].items():
-                v = raster(f.parent / file, f'{id_}-{view}')
+                # une vue : son fichier, ou {file, width, height} (illustrations importées depuis l'atelier)
+                v = raster(f.parent / (file['file'] if isinstance(file, dict) else file), f'{id_}-{view}')
                 item['views'].append({'view': view, 'src': v['src'], 'thumb': v['thumb'], 'w': v['w'], 'h': v['h']})
         items.append(item)
     order = {'photos': 0, 'illustrations': 1, 'logos': 2}
