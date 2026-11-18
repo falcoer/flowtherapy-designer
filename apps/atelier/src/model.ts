@@ -28,7 +28,19 @@ export type Blend = 'smooth' | 'soft' | 'hard';
  * `role` : rôle de la couleur dans les variantes de l'activité (fond, texte…) ; changer de variante remplace la couleur du même rôle.
  * `from` : nom de l'objet ou du dessin importé qui a apporté la couleur dans le document.
  */
-export type Guide = { name: string; type: 'color'; color: string; role?: string; from?: string } | { name: string; type: 'gradient'; stops: string[]; blend?: Blend; shape?: GradStyle; role?: string; from?: string };
+export type Guide =
+  | { name: string; type: 'color'; color: string; role?: string; from?: string }
+  | { name: string; type: 'gradient'; stops: string[]; blend?: Blend; shape?: GradStyle; role?: string; from?: string }
+  | ImageGuide;
+/**
+ * Revêtement tiré d'une image ou d'une illustration : il prend la place d'une couleur ou d'un dégradé.
+ * `src` : l'image (adresse de la bibliothèque ou image posée sur la page) ; `thumb` : sa vignette pour les pastilles ;
+ * `tone` : sa teinte moyenne, prise là où il faut une seule couleur (pinceaux, lueurs, aperçus) ;
+ * `ar` : ses proportions (largeur / hauteur). Le repère de l'objet en règle le centre, l'orientation et l'échelle.
+ */
+export type ImageGuide = { name: string; type: 'image'; src: string; thumb?: string; tone?: string; ar?: number; role?: string; from?: string };
+/** Teintes moyennes des images déjà chargées (par adresse), quand le revêtement n'a pas encore la sienne. */
+export const imageTones = new Map<string, string>();
 
 /** Mode d'un dégradé : le long d'un axe, en cercle, autour d'un centre (angle), en losange. */
 export type GradMode = 'linear' | 'radial' | 'conic' | 'diamond';
@@ -647,6 +659,7 @@ export function shapePath(s: ShapeKind): Pt[] {
 export function guideColor(g: Guide | undefined, t = 0): string {
   if (!g) return '#888888';
   if (g.type === 'color') return g.color;
+  if (g.type === 'image') return g.tone ?? imageTones.get(g.src) ?? '#8a8278';
   const s = blendStops(g.stops, g.blend);
   if (s.length === 1) return s[0]![1];
   const x = Math.max(0, Math.min(1, t));

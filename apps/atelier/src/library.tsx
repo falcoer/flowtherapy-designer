@@ -71,7 +71,23 @@ export function loadIndex() {
 export const loadLibrary = (): Promise<LibItem[]> => loadIndex().then((d) => d.items ?? []);
 
 /** Rayon d'images de la bibliothèque : toucher pour poser au centre, glisser pour poser à l'endroit voulu. */
-export function LibraryShelf({ shelf, onInsert, onDragState }: { shelf: Shelf; onInsert: (item: LibItem, at?: { x: number; y: number }) => void; onDragState: (dragging: boolean) => void }) {
+/**
+ * `onDropAt` : une vignette lâchée ailleurs que sur le fond de la page (palette, attributs, forme) ; true si elle
+ * y a été prise (en revêtement). `onDragAt` : le doigt pendant le glisser (null à la fin), pour éclairer la cible.
+ */
+export function LibraryShelf({
+  shelf,
+  onInsert,
+  onDragState,
+  onDropAt,
+  onDragAt,
+}: {
+  shelf: Shelf;
+  onInsert: (item: LibItem, at?: { x: number; y: number }) => void;
+  onDragState: (dragging: boolean) => void;
+  onDropAt?: (item: LibItem, x: number, y: number) => boolean;
+  onDragAt?: (x: number | null, y?: number) => void;
+}) {
   const [items, setItems] = useState<LibItem[] | null>(null);
   const [tag, setTag] = useState<string | null>(null);
   const [ghost, setGhost] = useState<{ item: LibItem; x: number; y: number } | null>(null);
@@ -113,7 +129,10 @@ export function LibraryShelf({ shelf, onInsert, onDragState }: { shelf: Shelf; o
                 p.drag = true;
                 onDragState(true);
               }
-              if (p.drag) setGhost({ item: p.item, x: e.clientX, y: e.clientY });
+              if (p.drag) {
+                setGhost({ item: p.item, x: e.clientX, y: e.clientY });
+                onDragAt?.(e.clientX, e.clientY);
+              }
             }}
             onPointerUp={(e) => {
               const p = press.current;
@@ -122,6 +141,8 @@ export function LibraryShelf({ shelf, onInsert, onDragState }: { shelf: Shelf; o
               if (!p) return;
               if (!p.drag) return onInsert(p.item);
               onDragState(false);
+              onDragAt?.(null);
+              if (onDropAt?.(p.item, e.clientX, e.clientY)) return;
               const el = document.elementFromPoint(e.clientX, e.clientY);
               if (el?.tagName === 'CANVAS') onInsert(p.item, { x: e.clientX, y: e.clientY });
             }}
@@ -129,6 +150,7 @@ export function LibraryShelf({ shelf, onInsert, onDragState }: { shelf: Shelf; o
               press.current = null;
               setGhost(null);
               onDragState(false);
+              onDragAt?.(null);
             }}
           >
             <span className="lib-thumb">

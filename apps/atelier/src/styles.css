@@ -1617,6 +1617,7 @@ input[type='color'] { width: 40px; height: 36px; padding: 2px; border-radius: 10
 .go-line { stroke: #fff; stroke-width: 2.5; filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6)); }
 .go-tick { stroke: #fff; stroke-width: 2.5; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.6)); }
 .go-start { fill: #fff; stroke: rgba(0, 0, 0, 0.5); }
+.go-frame { fill: none; stroke: #fff; stroke-width: 1.6; stroke-dasharray: 6 4; filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.75)); }
 .go-pt { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; pointer-events: auto; touch-action: none; cursor: grab; border: 4px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35); }
 .go-pt.center { width: 22px; height: 22px; margin: -11px 0 0 -11px; background: rgba(255, 255, 255, 0.25); }
 .go-pt.center::after { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: #fff; }
@@ -3468,3 +3469,10 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .atelier .anim-corner.open::after { display: none; }
 .atelier .anim-corner.open::before { box-shadow: none; }
 .atelier .anim-corner.open.on::before { background: var(--accent); }
+
+/* revêtements tirés d'une image : boîte, rangée de la palette, cibles d'un dépôt */
+.image-dialog .id-view { width: 100%; max-height: 46dvh; border-radius: 12px; background-color: var(--line); box-shadow: inset 0 0 0 1px var(--line); }
+.image-dialog .id-hint { margin: 0; font-size: 12.5px; line-height: 1.4; color: var(--muted, #6b6577); }
+.pal-sec.coats .guide .sw { background-size: cover !important; }
+.pal-sec.coats .pal-empty { font-size: 12px; color: var(--muted, #6b6577); }
+.img-hot { outline: 2.5px solid var(--accent); outline-offset: 2px; border-radius: 12px; }

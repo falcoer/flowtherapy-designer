@@ -1,5 +1,6 @@
 import type { Format } from '@ftd/core';
 import { exportSize, formatOf, type Doc, type Layer } from './model';
+import { fillsReady } from './gradient';
 import { drawLampTint, drawLayers, forgetPaint, holdPins, linkShapes, pageBounds } from './scene';
 import { applySceneLook } from './scene-look';
 
@@ -20,6 +21,7 @@ export async function renderDoc(doc: Doc, f: Format, maxSide = 6000, width?: num
   c.height = Math.round(h * k0);
   const k = c.width / f.width;
   const d = docIn(doc, f);
+  await fillsReady(d.guides);
   let late = 0;
   const draw = () => {
     const ctx = c.getContext('2d')!;
@@ -55,6 +57,7 @@ export async function renderLayers(ls: Layer[], doc: Doc, f: Format, maxSide = 1
   c.width = Math.max(1, Math.round(w * k));
   c.height = Math.max(1, Math.round(h * k));
   const one: Doc = { ...doc, layers: ls.map((l) => ({ ...l, height: 0, inner: 0, visible: true })) };
+  await fillsReady(one.guides);
   let late = 0;
   const draw = () => {
     const ctx = c.getContext('2d')!;
