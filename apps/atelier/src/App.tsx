@@ -6590,7 +6590,7 @@ export function App() {
       )}
       {animated && !rendu && (
         <button
-          className={`anim-corner ${animMode ? 'on' : ''} ${tool === 'paint' || tool === 'stamp' || tool === 'mold' ? 'over-wheel' : ''}`}
+          className={`anim-corner ${animMode ? 'on' : ''} ${animMode && animBarOut && !friseShown ? 'open' : ''} ${tool === 'paint' || tool === 'stamp' || tool === 'mold' ? 'over-wheel' : ''}`}
           style={{ bottom: bandH + 14 }}
           onClick={() => {
             // replié : la lecture démarre et la barre se déploie ; déployé : lecture / pause
