@@ -5553,6 +5553,16 @@ export function App() {
                               setProjects((l) => l.map((x) => (gone.has(x.id) || x.campaign === id ? (({ campaign: _c, ...r }) => r)(x) : x)));
                               // la composition ouverte quitte aussi la campagne, sinon le prochain enregistrement l'y remettrait
                               setDoc((d) => (d.campaign === id ? (({ campaign: _c, ...r }) => r)(d) : d));
+                              // de même dans l'historique : annuler ne doit pas la ramener dans la campagne
+                              const strip = (x: string) => {
+                                if (!x.includes(id)) return x;
+                                const o = JSON.parse(x) as { campaign?: string };
+                                if (o.campaign !== id) return x;
+                                delete o.campaign;
+                                return JSON.stringify(o, compact);
+                              };
+                              past.current = past.current.map(strip);
+                              future.current = future.current.map(strip);
                               setCampaign('');
                               setSpace('campaigns');
                               setToast(`Campagne « ${followed.name} » supprimée${detached.length ? ` : ${detached.length} composition${detached.length > 1 ? 's passent' : ' passe'} hors campagne` : ''}`);

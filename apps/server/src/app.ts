@@ -782,6 +782,8 @@ export async function buildApp(opts: AppOptions) {
   // supprimer une campagne (responsables) : ses compositions passent hors campagne
   app.delete<{ Params: { id: string } }>('/api/campaigns/:id', { preHandler: needs('owner') }, async (req, reply) => {
     const team = req.team!.id;
+    // une programmation en cours chez Postiz se suivrait sur une campagne disparue
+    if ([...publishing].some((l) => l.startsWith(`${team}/${req.params.id}/`))) return reply.code(409).send({ error: 'Une publication de cette campagne est en cours de programmation : réessaie dans un instant' });
     try {
       accounts.deleteCampaign(team, req.params.id);
     } catch (err) {
