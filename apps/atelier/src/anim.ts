@@ -204,6 +204,14 @@ export function glyphCut(a: Anim): string {
   return g ? g.cut(a, g.glyphPhase ?? 0, () => g.glyphPhase ?? 0, { each: () => [] }) : SQUARE;
 }
 
+/** Os du sticker à l'instant t (Generator.skeleton), en coordonnées 0..1 de sa boîte ; null sans squelette. */
+export function animSkeleton(a: Anim, t = now): Array<[[number, number], [number, number]]> | null {
+  const g = generatorOf(a);
+  if (!g?.skeleton) return null;
+  const s = stateAt(g, a, t);
+  return g.skeleton(s.a, s.phase, s.progress, { each: s.each });
+}
+
 /**
  * Ce que le sticker fait d'un point de sa boîte (0..1, pris au repos) à l'instant t : son déplacement, en parts de la boîte,
  * et sa rotation. Le point suit l'os dont il est le plus proche au repos ; sans squelette, la déformation de la surface.

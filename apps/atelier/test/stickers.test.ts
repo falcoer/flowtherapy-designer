@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { actsOf, forPart, newAct, spanOf, withActs } from '../src/anim';
 import { animCut, animFollow, animOrder, posed, animRatio, cycleOf, ease, GENERATORS, generatorOf, gesturesOf, newAnim, poseOf, setAnimTiming, valueOf } from '../src/anim';
 import type { Layer } from '../src/model';
+import { bonesOf } from '../src/warp';
+import { setAnimTime } from '../src/anim';
 
 const layer = (p: Partial<Layer>): Layer => ({ id: 'a', name: 'a', kind: 'shape', anchor: { frame: 'page', point: 'c' } as Layer['anchor'], dx: 0, dy: 0, w: 0.5, h: 0.5, guide: 0, height: 0, visible: true, strokes: [], ...p }) as Layer;
 
@@ -336,6 +338,17 @@ describe('objets attachés à un sticker', () => {
     expect(at(ls, 1, 'free').dx).toBe(ls[4]!.dx);
     const both = ls.map((l) => (l.id === 'hat' ? { ...l, motion: [move] } : l));
     expect(at(both, 1, 'hat').dx - ls[2]!.dx).toBeCloseTo(shift, 5);
+  });
+  it('la vue « os seuls » montre le squelette de l’humanoïde, qui bouge avec le geste', () => {
+    setAnimTiming(tm);
+    const ls = scene([{ ...newAct(base, ges('wave'), 1, tm), len: 2 }]);
+    setAnimTime(0);
+    const rest = bonesOf(ls[0]!)!;
+    expect(rest).toHaveLength(14);
+    for (const bone of rest) for (const [u, v] of bone) expect(u >= 0 && u <= 1 && v >= 0 && v <= 1).toBe(true);
+    setAnimTime(2);
+    expect(bonesOf(ls[0]!)).not.toEqual(rest);
+    setAnimTime(0);
   });
   it('sans squelette, le point reste en place', () => {
     setAnimTiming(tm);

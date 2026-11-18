@@ -351,7 +351,7 @@ function framesOf(g: Progress, ctx?: Context): Frames {
   return { walk, walkOn, dance, danceOn, wave: once(g('wave'), WAVE_FRAMES), jump: once(g('jump'), JUMP_FRAMES) };
 }
 
-/** Les os à un instant (Generator.skeleton) : tête, torse, puis bras et jambes en deux os chacun. */
+/** Les os à un instant (Generator.skeleton) : tête, colonne, clavicules, bassin, puis bras et jambes en deux os chacun. */
 function skeleton(a: Anim, _phase: number, g: Progress, ctx?: Context): Array<[[number, number], [number, number]]> {
   const b = bodyOf(a);
   const j = jointsOf(b, poseOf(a, framesOf(g, ctx)));
@@ -360,6 +360,10 @@ function skeleton(a: Anim, _phase: number, g: Progress, ctx?: Context): Array<[[
   const bones: Array<[Pt, Pt]> = [
     [sMid, j.head],
     [hMid, sMid],
+    [sMid, j.shoulderL],
+    [sMid, j.shoulderR],
+    [hMid, j.hipL],
+    [hMid, j.hipR],
     [j.shoulderL, j.elbowL],
     [j.elbowL, j.handL],
     [j.shoulderR, j.elbowR],
