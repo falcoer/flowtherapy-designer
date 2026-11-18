@@ -16,7 +16,7 @@ import { animRatio, animTime, forPart, generatorOf, withActs, GENERATORS, glyphC
 import { RigOverlay } from './rig-ui';
 import { ViewRing } from './views-ui';
 import { assignViews, characterOf, groupCharacters, KEYS, leftViews, loadImage, parseName, readZip, showView, viewOfName, viewsOf, VIEW_NAMES } from './views';
-import { kitZip, splitSheet } from './charkit';
+import { clearBackground, kitZip, splitSheet } from './charkit';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
 import { MatterRow } from './matter-palette';
@@ -4842,6 +4842,8 @@ export function App() {
         for (const sh of sheets) for (const p of (await splitSheet(sh.blob)) ?? []) if (!views.has(viewOfName(p.name)!)) views.set(viewOfName(p.name)!, { name: p.name, blob: p.blob });
         for (const p of assignViews(c.loose.filter((x) => ![...views.values()].includes(x)))) if (!views.has(p.view)) views.set(p.view, p.file);
         if (!views.size) continue;
+        // vues générées sur fond blanc : le fond s'efface (pour la page comme pour la bibliothèque), le cadrage reste
+        for (const [k, f] of views) views.set(k, { ...f, blob: await clearBackground(f.blob) });
         // 1600 px par vue : plusieurs grandes images restent légères sur iPad
         const imgs: Array<{ view: string; src: string; ratio: number }> = [];
         for (const k of KEYS) {
@@ -4858,7 +4860,7 @@ export function App() {
           const pimgs: Array<{ view: string; src: string; ratio: number }> = [];
           for (const k of KEYS) {
             const f = pv.get(k);
-            if (f) pimgs.push({ view: k, ...(await loadImage(f.blob, 1600)) });
+            if (f) pimgs.push({ view: k, ...(await loadImage(await clearBackground(f.blob), 1600)) });
           }
           if (!pimgs.length) continue;
           const shown = pimgs.find((x) => x.view === extra.view) ?? pimgs[0]!;

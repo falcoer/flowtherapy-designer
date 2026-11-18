@@ -190,7 +190,7 @@ Fichier à enregistrer : <personnage>__<vue>__<élément>.png (par ex. lama-bett
 
 ---
 Using the attached character image only as a placement guide, draw ONLY the [ÉLÉMENT : microphone / guitar / hat / glasses], exactly where it belongs on this character in this view ([VUE : front / three-quarter facing right / side profile facing right / back]): same image size, same scale and same position as on the character.
-Do not draw the character itself: nothing but the [ÉLÉMENT] on a fully transparent background (or, if transparency is impossible, plain flat pure white), no shadow, no text.
+Do not draw the character itself: nothing but the [ÉLÉMENT] on a fully transparent background (or, if transparency is impossible, plain flat pure white: the atelier removes a plain white background on import), no shadow, no text.
 Same style, colors and line weight as the character.
 ---
 
@@ -349,19 +349,11 @@ function crc32(d: Uint8Array): number {
  * puis chaque bande de colonnes non vide devient une vue, recadrée au plus près, toutes à la même échelle.
  * Rend null quand l'image ne ressemble pas à une planche (moins de deux bandes).
  */
-export async function splitSheet(blob: Blob): Promise<Array<{ name: string; blob: Blob }> | null> {
-  const bmp = await createImageBitmap(blob);
-  const k = Math.min(1, 4800 / bmp.width);
-  const [W, H] = [Math.round(bmp.width * k), Math.round(bmp.height * k)];
-  const c = document.createElement('canvas');
-  c.width = W;
-  c.height = H;
-  const cx = c.getContext('2d', { willReadFrequently: true })!;
-  cx.drawImage(bmp, 0, 0, W, H);
-  bmp.close();
-  const img = cx.getImageData(0, 0, W, H);
-  const px = img.data;
-  // fond : la couleur des coins ; il s'efface par remplissage depuis les bords (le blanc d'un œil reste)
+/**
+ * Efface le fond uni d'une image : la couleur des coins, par remplissage depuis les bords (le blanc d'un œil, entouré
+ * de dessin, reste). Agit sur les pixels RGBA en place.
+ */
+function clearEdges(px: Uint8ClampedArray, W: number, H: number) {
   const bg = [0, 1, 2].map((i) => (px[i]! + px[(W - 1) * 4 + i]! + px[(H - 1) * W * 4 + i]! + px[(H * W - 1) * 4 + i]!) / 4);
   const near = (p: number) => px[p * 4 + 3]! < 16 || Math.abs(px[p * 4]! - bg[0]!) + Math.abs(px[p * 4 + 1]! - bg[1]!) + Math.abs(px[p * 4 + 2]! - bg[2]!) < 60;
   const seen = new Uint8Array(W * H);
@@ -379,6 +371,41 @@ export async function splitSheet(blob: Blob): Promise<Array<{ name: string; blob
     if (y > 0) stack.push(p - W);
     if (y < H - 1) stack.push(p + W);
   }
+}
+
+/**
+ * Une vue ou un élément détaché sur fond uni (blanc, le plus souvent) : le fond s'efface depuis les bords, l'image garde
+ * sa taille (le cadrage, commun à toutes les vues, ne bouge pas). Une image qui a déjà de la transparence reste telle quelle.
+ */
+export async function clearBackground(blob: Blob): Promise<Blob> {
+  const bmp = await createImageBitmap(blob);
+  const [W, H] = [bmp.width, bmp.height];
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const cx = c.getContext('2d', { willReadFrequently: true })!;
+  cx.drawImage(bmp, 0, 0);
+  bmp.close();
+  const img = cx.getImageData(0, 0, W, H);
+  for (let i = 3; i < img.data.length; i += 4) if (img.data[i]! < 250) return blob;
+  clearEdges(img.data, W, H);
+  cx.putImageData(img, 0, 0);
+  return new Promise<Blob>((ok, ko) => c.toBlob((b) => (b ? ok(b) : ko(new Error('png'))), 'image/png'));
+}
+
+export async function splitSheet(blob: Blob): Promise<Array<{ name: string; blob: Blob }> | null> {
+  const bmp = await createImageBitmap(blob);
+  const k = Math.min(1, 4800 / bmp.width);
+  const [W, H] = [Math.round(bmp.width * k), Math.round(bmp.height * k)];
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const cx = c.getContext('2d', { willReadFrequently: true })!;
+  cx.drawImage(bmp, 0, 0, W, H);
+  bmp.close();
+  const img = cx.getImageData(0, 0, W, H);
+  const px = img.data;
+  clearEdges(px, W, H);
   // bandes de colonnes qui portent du dessin
   const col = new Uint32Array(W);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (px[(y * W + x) * 4 + 3]! > 32) col[x]++;
