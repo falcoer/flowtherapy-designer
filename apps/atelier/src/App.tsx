@@ -5295,11 +5295,11 @@ export function App() {
             <button className={`btn small ${tool === 'mold' ? 'on' : ''}`} onClick={() => (tool === 'mold' ? leaveTool() : setTool('mold'))} title="Modeler (G) : tirer ou repousser le contour de l'objet">
               <Icon name="mold" />
             </button>
-            <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => pickTool(lastEdit.current)} title="Matériau (T) : le support de l'objet, ses bords, son vernis, son volume">
-              <Icon name="matter" />
-            </button>
             <button className={`btn small ${tool === 'paint' || tool === 'stamp' ? 'on' : ''}`} onClick={() => (tool === 'paint' || tool === 'stamp' ? leaveTool() : setTool(lastDeposit.current))} title="Éléments (B, S) : ce qu'on dépose sur l'objet, choisir un élément, un outil, un jeu de paramètres">
               <Icon name="brush" />
+            </button>
+            <button className={`btn small ${isEdit(tool) ? 'on' : ''}`} onClick={() => pickTool(lastEdit.current)} title="Matériau (T) : le support de l'objet, ses bords, son vernis, son volume">
+              <Icon name="matter" />
             </button>
           </aside>
 
