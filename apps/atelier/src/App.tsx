@@ -5340,7 +5340,7 @@ export function App() {
           )}
           {/* Maj : gros bouton en tête de la colonne de gauche (de droite pour un gaucher) */}
           <button
-            className={`shift-big ${shift ? 'on' : ''} ${shiftBtn.latched ? 'latched' : ''}`}
+            className={`corner-btn shift-big ${shift ? 'on' : ''} ${shiftBtn.latched ? 'latched' : ''}`}
             onPointerDown={(e) => {
               (e.currentTarget as Element).setPointerCapture(e.pointerId);
               const next = shiftDown(shiftBtn, performance.now());
@@ -5358,19 +5358,20 @@ export function App() {
             <span>maj</span>
           </button>
 
+          {/* ＋ : gros bouton en tête de la barre d'outils, comme Maj en face */}
+          <button
+            className={`corner-btn plus-big ${bubble === 'add' ? 'on' : ''}`}
+            onClick={() => {
+              // ajouter : les autres outils se rangent, le bas de l'écran se libère
+              if (bubble !== 'add') setTool('move');
+              setBubble(bubble === 'add' ? null : 'add');
+            }}
+            title="Ajouter une couche"
+            aria-label="Ajouter"
+          >
+            <Icon name="plus" />
+          </button>
           <aside className="side tools-bar">
-            <button
-              className={`btn small ${bubble === 'add' ? 'on' : ''}`}
-              onClick={() => {
-                // ajouter : les autres outils se rangent, le bas de l'écran se libère
-                if (bubble !== 'add') setTool('move');
-                setBubble(bubble === 'add' ? null : 'add');
-              }}
-              title="Ajouter une couche"
-            >
-              <Icon name="plus" />
-            </button>
-            <span className="side-sep" />
             {/* découper et modeler : deux gestes différents, deux entrées */}
             <button className={`btn small ${tool === 'cut' ? 'on' : ''}`} onClick={() => (tool === 'cut' ? leaveTool() : setTool('cut'))} title="Découper (C) : ciseaux ou scalpel">
               <Icon name={blade} />
@@ -6590,7 +6591,7 @@ export function App() {
       )}
       {animated && !rendu && (
         <button
-          className={`anim-corner ${animMode ? 'on' : ''} ${animMode && animBarOut && !friseShown ? 'open' : ''} ${tool === 'paint' || tool === 'stamp' || tool === 'mold' ? 'over-wheel' : ''}`}
+          className={`corner-btn anim-corner ${animMode ? 'on' : ''} ${animMode && animBarOut && !friseShown ? 'open' : ''} ${tool === 'paint' || tool === 'stamp' || tool === 'mold' ? 'over-wheel' : ''}`}
           style={{ bottom: bandH + 14 }}
           onClick={() => {
             // replié : la lecture démarre et la barre se déploie ; déployé : lecture / pause
