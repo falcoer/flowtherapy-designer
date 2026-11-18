@@ -7,7 +7,7 @@ const layer = (p: Partial<Layer>): Layer => ({ id: 'a', name: 'a', kind: 'shape'
 
 describe('catalogue des stickers', () => {
   it('chaque générateur se décrit entièrement', () => {
-    expect(GENERATORS.map((g) => g.kind)).toEqual(['countdown', 'bird', 'propeller', 'eye']);
+    expect(GENERATORS.map((g) => g.kind)).toEqual(['countdown', 'bird', 'propeller', 'eye', 'humanoid']);
     for (const g of GENERATORS) {
       const a = newAnim(g);
       expect(a.cycle).toBe(g.cycle);
@@ -202,5 +202,69 @@ describe('gestes posés à la demande', () => {
     expect(animOrder(a, 0.5)?.rot).toBeCloseTo(0);
     expect(animOrder(a, 1.25)?.rot).toBeCloseTo(Math.PI);
     expect(animOrder(a, 3)?.rot).toBeCloseTo(4 * Math.PI);
+  });
+});
+
+describe('humanoïde', () => {
+  const tm = { period: 1, count: 8 };
+  const man = generatorOf('humanoid')!;
+  const ges = (id: string) => man.gestures({ kind: 'humanoid' }).find((g) => g.id === id)!;
+  const empty = (over: Record<string, number | string> = {}) => ({ ...newAnim(man, over), acts: [] });
+  it('six pièces prédécoupées, chacune avec sa surface', () => {
+    setAnimTiming(tm);
+    const cuts = man.parts!.map((p) => animCut(empty({ part: p.id }), 0));
+    expect(cuts).toHaveLength(6);
+    expect(new Set(cuts).size).toBe(6);
+    for (const c of cuts) {
+      expect(c).not.toContain('NaN');
+      // une pièce = un seul contour simple
+      expect(c.match(/M/g)).toHaveLength(1);
+    }
+    expect(animCut(empty(), 0)).not.toContain('NaN');
+  });
+  it('les modèles et les types de pièces changent la silhouette', () => {
+    setAnimTiming(tm);
+    const all = man.presets!.map((p) => animCut(empty(p.set as Record<string, number | string>), 0));
+    expect(new Set(all).size).toBe(man.presets!.length);
+    for (const c of all) expect(c).not.toContain('NaN');
+    for (const p of man.params.filter((x) => x.type === 'choice')) {
+      const cuts = p.options!.map((o) => animCut(empty({ [p.key]: o.id }), 0));
+      expect(new Set(cuts).size).toBe(p.options!.length);
+    }
+  });
+  it('au départ il salue seulement ; marche, saut et danse se posent à la demande', () => {
+    setAnimTiming(tm);
+    expect(new Set(actsOf(newAnim(man), tm).map((x) => x.g))).toEqual(new Set(['wave']));
+    const a = newAnim(man, { part: 'armR' });
+    const rest = animCut({ ...a, acts: [] }, 0);
+    expect(animCut(a, 0)).toBe(rest);
+    expect(animCut(a, 1.5)).not.toBe(rest);
+    expect(animCut(a, 3.5)).toBe(rest);
+    // les jambes ne saluent pas
+    const left = newAnim(man, { part: 'legL' });
+    expect(animCut(left, 1.5)).toBe(animCut(left, 0));
+  });
+  it('marche et danse partent du repos et y reviennent', () => {
+    setAnimTiming(tm);
+    for (const [id, part] of [['walk', 'legL'], ['dance', 'armL']] as const) {
+      const base = empty({ part });
+      const a = { ...base, acts: [{ ...newAct(base, ges(id), 1, tm), len: 4 }] };
+      const rest = animCut(a, 0);
+      expect(animCut(a, 1)).toBe(rest);
+      const mid = [2.1, 2.3, 2.6, 3.4].map((t) => animCut(a, t));
+      expect(mid.some((c) => c !== rest)).toBe(true);
+      for (const c of mid) expect(c).not.toContain('NaN');
+      expect(animCut(a, 5.5)).toBe(rest);
+    }
+  });
+  it('le saut plie les jambes puis soulève l’objet', () => {
+    setAnimTiming(tm);
+    const base = empty({ part: 'legL' });
+    const a = { ...base, acts: [{ ...newAct(base, ges('jump'), 1, tm), len: 1 }] };
+    expect(animOrder(a, 0.5)?.dy ?? 0).toBeCloseTo(0);
+    expect(animCut(a, 1.15)).not.toBe(animCut(a, 0));
+    expect(animOrder(a, 1.55)!.dy!).toBeLessThan(-0.05);
+    expect(animOrder(a, 2.5)?.dy ?? 0).toBeCloseTo(0);
+    expect(animCut(a, 2.5)).toBe(animCut(a, 0));
   });
 });

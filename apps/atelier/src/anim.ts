@@ -108,6 +108,7 @@ export function actsOf(a: Anim, tm = timing): Act[] {
   const reps = Math.min(240, Math.ceil(tm.count / c - 1e-6));
   const acts: Act[] = [];
   for (const g of gesturesOf(a)) {
+    if (g.start === false) continue;
     const sp = spanOf(a, g);
     if (g.loop && sp.at === 0 && sp.len === 1) acts.push({ id: `${g.id}0`, g: g.id, at: 0, len: tm.count, cycle: c });
     else for (let i = 0; i < reps; i++) acts.push({ id: `${g.id}${i}`, g: g.id, at: (i + sp.at) * c, len: sp.len * c, ...(g.loop ? { cycle: sp.len * c } : {}) });
@@ -121,9 +122,10 @@ export const withActs = (a: Anim, tm = timing): Anim => (a.acts ? a : { ...a, ac
 export function newAct(a: Anim, g: Gesture, at: number, tm = timing): Act {
   const gen = generatorOf(a);
   const c = gen?.cycle ?? 1;
+  const loop = g.cycle ?? c;
   const A = Math.max(0, Math.min(tm.count - 0.05, at));
-  const len = Math.max(0.05, Math.min(tm.count - A, g.loop ? Math.max(1, c) : (g.len ?? 1) * c));
-  return { id: uid(), g: g.id, at: A, len, ...(g.loop ? { cycle: c } : {}) };
+  const len = Math.max(0.05, Math.min(tm.count - A, g.loop ? Math.max(1, 2 * loop) : (g.len ?? 1) * c));
+  return { id: uid(), g: g.id, at: A, len, ...(g.loop ? { cycle: loop } : {}) };
 }
 /** Le geste posé qui compte à un instant : le dernier commencé, sinon le premier à venir. */
 function current(acts: Act[], g: string, T: number): Act | undefined {

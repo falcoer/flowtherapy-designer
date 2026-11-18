@@ -98,6 +98,10 @@ export interface Gesture {
   /** Plage de départ du geste dans le cycle (début et durée, 0..1) : le cycle entier si absente. */
   at?: number;
   len?: number;
+  /** Geste en boucle : durée de départ d'une boucle, en périodes (celle du générateur si absente). */
+  cycle?: number;
+  /** `false` : le geste n'est pas posé au départ, il s'ajoute depuis la frise. */
+  start?: boolean;
 }
 
 /**
