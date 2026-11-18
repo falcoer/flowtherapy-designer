@@ -3284,3 +3284,19 @@ input.sp-editor-name:hover, input.sp-editor-name:focus { border-bottom-color: va
 .anim-track { left: 12px; right: 12px; }
 .anim-knob { top: 3px; bottom: auto; width: 22px; height: 22px; margin-left: -11px; }
 @media (max-width: 560px) { .anim-bar output { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; } .anim-bar label, .anim-bar button { flex: none; } }
+/* panneau Animation : la lecture et les réglages de la vidéo en tête, avec la règle, fixes au défilement des lignes */
+.fr-sticky { position: sticky; top: -8px; z-index: 3; background: var(--chrome-solid); padding-top: 2px; box-shadow: 0 1px 0 var(--line); }
+.anim-head { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding-bottom: 4px; font-size: 12px; }
+.anim-head button { width: 32px; height: 32px; border-radius: 16px; border: 0; display: grid; place-items: center; cursor: pointer; background: var(--accent-soft); color: var(--accent); }
+.anim-head button.on { background: var(--accent); color: #fff; }
+.anim-head output { min-width: 96px; font-variant-numeric: tabular-nums; opacity: 0.75; }
+.anim-head label { display: flex; align-items: center; gap: 4px; margin-left: 6px; }
+.anim-head input { width: 46px; padding: 2px 4px; border: 1px solid rgba(127,127,127,0.35); border-radius: 6px; background: transparent; color: inherit; font: inherit; font-variant-numeric: tabular-nums; }
+.anim-head .anim-bones { margin-left: auto; }
+/* barre d'animation autonome : toute la largeur de l'écran moins la roue de la brosse (et le bouton du coin) */
+@media (min-width: 561px) {
+  .anim-bar, .anim-bar.with-band { left: calc(max(12px, env(safe-area-inset-left, 0px)) + 176px + 12px); right: calc(max(12px, env(safe-area-inset-right, 0px)) + 52px); max-width: none; justify-content: flex-start; }
+  .hand-left .anim-bar, .hand-left .anim-bar.with-band { left: calc(max(12px, env(safe-area-inset-left, 0px)) + 52px); right: calc(max(12px, env(safe-area-inset-right, 0px)) + 176px + 12px); }
+  .anim-bar .anim-bones { margin-left: auto; }
+}
+.fr-head > .anim-head { flex: 1 1 auto; }

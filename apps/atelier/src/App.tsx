@@ -1071,6 +1071,8 @@ export function App() {
   /** Barre d'animation déployée depuis le bouton du coin (elle se replie en pause, après le délai de la brosse). */
   const [animBarOut, setAnimBarOut] = useState(false);
   const [animPoke, setAnimPoke] = useState(0);
+  /** Le panneau Animation est ouvert : ses commandes en tête remplacent la barre flottante. */
+  const [friseShown, setFriseShown] = useState(false);
   const totalRef = useRef(4);
   const timing = timingOf(doc.timing);
   const total = totalOf(timing);
@@ -4896,6 +4898,76 @@ export function App() {
     setToastUndo(false);
   };
 
+  /** Commandes de lecture : dans la barre d'animation, ou en tête du panneau Animation (la barre s'efface alors). */
+  const animTransport = (
+    <>
+          <button onClick={() => {
+        setAnimMode(true);
+        setAnimPlay((p) => !p);
+      }} title={animPlay ? 'Mettre les animations en pause' : 'Lire les animations'} aria-label={animPlay ? 'Pause' : 'Lecture'}>
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path d={animPlay ? 'M7 5h3.5v14H7zM13.5 5H17v14h-3.5z' : 'M8 5l11 7-11 7z'} fill="currentColor" />
+        </svg>
+      </button>
+      <button
+        onClick={() => {
+          // l'aperçu de la scène gardé en pause montre l'image d'avant : il est refait au nouvel instant
+          lookCache.current = null;
+          setAnimT(0);
+        }}
+        title="Revenir au début" aria-label="Revenir au début">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path d="M6 5h2.5v14H6zM19 5v14L9 12z" fill="currentColor" />
+        </svg>
+      </button>
+      <output title="Temps dans la vidéo, et la période en cours">
+        {(animT % total).toFixed(1)} / {total.toFixed(1)} s<span className="anim-per"> · {Math.min(timing.count, Math.floor((animT % total) / timing.period) + 1)}/{timing.count}</span>
+      </output>
+      <label title="Nombre de périodes de la vidéo : chaque objet cale ses cycles sur une fraction ou un multiple de la période (onglet Animation)">
+        Périodes
+        <input
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={120}
+          value={timing.count}
+          onChange={(e) => {
+            // borné avant de servir de diviseur : la durée de la vidéo reste la même, la période se resserre ou s'allonge
+            const v = Math.min(120, Math.round(Number(e.target.value)));
+            if (Number.isFinite(v) && v >= 1) update((d) => ({ ...d, timing: timingOf({ count: v, period: total / v }) }));
+          }}
+        />
+      </label>
+      <label title={`Durée de la vidéo, en secondes : la période vaut ${timing.period.toFixed(2)} s`}>
+        Durée
+        <input
+          type="number"
+          inputMode="decimal"
+          min={0.5}
+          max={600}
+          step={0.5}
+          value={Math.round(total * 100) / 100}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            if (Number.isFinite(v) && v > 0) update((d) => ({ ...d, timing: timingOf({ count: timing.count, period: v / timing.count }) }));
+          }}
+        />
+        s
+      </label>
+      {/* au bout de la barre : les os seuls, la chair cachée le temps de régler le mouvement */}
+      <button
+        className={`anim-bones ${bonesOn ? 'on' : ''}`}
+        onClick={() => setBonesOn((b) => !b)}
+        title={bonesOn ? 'Remettre la chair autour des os' : 'Os seuls : cacher la chair le temps de voir le squelette bouger'}
+        aria-label="Os seuls"
+        aria-pressed={bonesOn}
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M8.2 6.4a2.2 2.2 0 1 0-3 1.8 2.2 2.2 0 1 0 1.8 3l6.8 6.8a2.2 2.2 0 1 0 3 1.8 2.2 2.2 0 1 0-1.8-3L8.2 9.6" />
+        </svg>
+      </button>
+    </>
+  );
   return (
     <div className={`atelier ${space ? 'in-space' : ''} ${rendu ? 'rendu' : ''} ${tips ? '' : 'no-tips'} ${lefty ? 'hand-left' : 'hand-right'}`} style={bubbleLeft ? ({ '--bubble-left': `${bubbleLeft + 8}px` } as React.CSSProperties) : undefined}>
       <canvas
@@ -5400,6 +5472,8 @@ export function App() {
                     setAnimT(t);
                   }}
                   onSelect={setSelected}
+                  head={<div className="anim-head">{animTransport}</div>}
+                  onShown={setFriseShown}
                   onMotion={(id, motion, h) => {
                     lookCache.current = null;
                     patchLayer(id, { motion: motion.length ? motion : undefined }, h);
@@ -6529,74 +6603,13 @@ export function App() {
           </svg>
         </button>
       )}
-      {animated && !rendu && animMode && animBarOut && (
+      {animated && !rendu && animMode && animBarOut && !friseShown && (
         <div
           className={`anim-bar ${bandH ? 'with-band' : ''} ${tool === 'paint' || tool === 'stamp' || tool === 'mold' ? 'over-wheel' : ''}`}
           style={{ bottom: bandH + 14 }}
           onPointerDown={() => setAnimPoke((n) => n + 1)}
         >
-          <button onClick={() => setAnimPlay((p) => !p)} title={animPlay ? 'Mettre les animations en pause' : 'Lire les animations'} aria-label={animPlay ? 'Pause' : 'Lecture'}>
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path d={animPlay ? 'M7 5h3.5v14H7zM13.5 5H17v14h-3.5z' : 'M8 5l11 7-11 7z'} fill="currentColor" />
-            </svg>
-          </button>
-          <button
-            onClick={() => {
-              // l'aperçu de la scène gardé en pause montre l'image d'avant : il est refait au nouvel instant
-              lookCache.current = null;
-              setAnimT(0);
-            }}
-            title="Revenir au début" aria-label="Revenir au début">
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path d="M6 5h2.5v14H6zM19 5v14L9 12z" fill="currentColor" />
-            </svg>
-          </button>
-          <output title="Temps dans la vidéo, et la période en cours">
-            {(animT % total).toFixed(1)} / {total.toFixed(1)} s<span className="anim-per"> · {Math.min(timing.count, Math.floor((animT % total) / timing.period) + 1)}/{timing.count}</span>
-          </output>
-          <label title="Nombre de périodes de la vidéo : chaque objet cale ses cycles sur une fraction ou un multiple de la période (onglet Animation)">
-            Périodes
-            <input
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={120}
-              value={timing.count}
-              onChange={(e) => {
-                // borné avant de servir de diviseur : la durée de la vidéo reste la même, la période se resserre ou s'allonge
-                const v = Math.min(120, Math.round(Number(e.target.value)));
-                if (Number.isFinite(v) && v >= 1) update((d) => ({ ...d, timing: timingOf({ count: v, period: total / v }) }));
-              }}
-            />
-          </label>
-          <label title={`Durée de la vidéo, en secondes : la période vaut ${timing.period.toFixed(2)} s`}>
-            Durée
-            <input
-              type="number"
-              inputMode="decimal"
-              min={0.5}
-              max={600}
-              step={0.5}
-              value={Math.round(total * 100) / 100}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                if (Number.isFinite(v) && v > 0) update((d) => ({ ...d, timing: timingOf({ count: timing.count, period: v / timing.count }) }));
-              }}
-            />
-            s
-          </label>
-          {/* au bout de la barre : les os seuls, la chair cachée le temps de régler le mouvement */}
-          <button
-            className={`anim-bones ${bonesOn ? 'on' : ''}`}
-            onClick={() => setBonesOn((b) => !b)}
-            title={bonesOn ? 'Remettre la chair autour des os' : 'Os seuls : cacher la chair le temps de voir le squelette bouger'}
-            aria-label="Os seuls"
-            aria-pressed={bonesOn}
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M8.2 6.4a2.2 2.2 0 1 0-3 1.8 2.2 2.2 0 1 0 1.8 3l6.8 6.8a2.2 2.2 0 1 0 3 1.8 2.2 2.2 0 1 0-1.8-3L8.2 9.6" />
-            </svg>
-          </button>
+          {animTransport}
           {/* le déroulé : la position dans la vidéo, un repère au début de chaque période ; toucher pour s'y placer */}
           <div
             className="anim-track"
