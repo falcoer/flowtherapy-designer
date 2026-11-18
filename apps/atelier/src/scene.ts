@@ -1057,7 +1057,8 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
 }
 
 /** Vue « os seuls » : le contour en pointillé, les os en traits pleins, une pastille à chaque articulation. */
-function drawBones(ctx: CanvasRenderingContext2D, l: Layer, f: Format, path: Path2D, bones: Array<Array<[number, number]>>) {
+function drawBones(ctx: CanvasRenderingContext2D, l: Layer, f: Format, path: Path2D, sk: { lines: Array<Array<[number, number]>>; flesh?: number[] }) {
+  const bones = sk.lines;
   const b = layerBox(l, f);
   const m = Math.min(f.width, f.height);
   const ink = '#7a5cff';
@@ -1076,6 +1077,18 @@ function drawBones(ctx: CanvasRenderingContext2D, l: Layer, f: Format, path: Pat
   }
   const X = (u: number) => b.cx - b.w / 2 + u * b.w;
   const Y = (v: number) => b.cy - b.h / 2 + v * b.h;
+  // la chair de chaque os (le gras), en transparence : la peau et les objets attachés choisissent leur os d'après elle
+  if (sk.flesh) {
+    ctx.strokeStyle = 'rgba(122,92,255,0.16)';
+    bones.forEach((line, i) => {
+      const r = sk.flesh![i] ?? 0;
+      if (r <= 0) return;
+      ctx.lineWidth = 2 * r * b.h;
+      ctx.beginPath();
+      line.forEach(([u, v], k) => (k ? ctx.lineTo(X(u), Y(v)) : ctx.moveTo(X(u), Y(v))));
+      ctx.stroke();
+    });
+  }
   for (const [w, c] of [
     [m * 0.011, 'rgba(255,255,255,0.9)'],
     [m * 0.006, ink],

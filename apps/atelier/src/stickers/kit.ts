@@ -189,18 +189,20 @@ export interface Generator {
    * Absent, ou nul à cet instant : la surface reste fixe dans la boîte et la découpe bouge dessus.
    */
   warp?: (a: Anim, phase: number, g: Progress, ctx: Context) => Warp | null;
-  /**
-   * Os de la forme au repos (lignes brisées, coordonnées 0..1 de la boîte d'origine) : la vue « os seuls » les montre
-   * pliés par la même déformation que la surface (warp), la chair cachée.
-   */
-  bones?: (a: Anim) => Array<Array<[number, number]>>;
-  /**
-   * Squelette à un instant : ses os, toujours dans le même ordre, chacun de son attache à son bout (coordonnées 0..1 de la boîte).
-   * Un objet attaché au sticker suit l'os dont il est le plus proche au repos (un chapeau suit la tête).
-   */
   /** La découpe sort de la boîte de l'objet (cils d'un œil) : la teinte la suit hors de la boîte. Matière, peinture et relief restent dans la boîte. */
   spill?: (a: Anim) => boolean;
-  skeleton?: (a: Anim, phase: number, g: Progress, ctx: Context) => Array<[[number, number], [number, number]]>;
+  /**
+   * Squelette à un instant : ses os, toujours dans le même ordre, chacun de son attache à son bout (coordonnées 0..1 de la boîte).
+   * C'est le squelette commun : la vue des os le montre, un objet attaché suit l'os dont il est le plus proche au repos (un chapeau suit la tête),
+   * et la peau (skinWarp) le suit de la même façon.
+   */
+  skeleton?: (a: Anim, phase: number, g: Progress, ctx: Context) => Bone[];
+  /**
+   * Chair (le gras) autour de chaque os, dans l'ordre du squelette : son épaisseur de l'os au bord, en parts de la hauteur de la boîte.
+   * Un point choisit l'os dont la chair est la plus proche (pas seulement la ligne de l'os) : le ventre suit la colonne, pas la clavicule.
+   * La vue des os la montre en transparence. Absente : des os sans épaisseur.
+   */
+  flesh?: (a: Anim) => number[];
   /** Un objet attaché suit la surface pliée (warp) plutôt que l'os le plus proche (l'oiseau : ses os ne disent pas tout du battement). */
   surfaceFollow?: boolean;
   /** Proportions de la boîte (largeur / hauteur). */
@@ -272,51 +274,86 @@ export function cached(key: string, make: () => string): string {
   return d;
 }
 
-type Bone = [[number, number], [number, number]];
+/** Un os : de son attache à son bout (coordonnées 0..1 de la boîte). */
+export type Bone = [[number, number], [number, number]];
+
 /**
- * Déformation de la surface par ses os (Generator.warp d'un sticker articulé) : chaque point suit l'os dont il est le plus près
+ * Repère d'un os, au repos et à l'instant, mesuré à unités égales (x × largeur/hauteur de la boîte) : attache, direction, rotation,
+ * et sa chair (rayon). C'est la mécanique commune du squelette : la peau (skinWarp) et les objets attachés (anim.ts, animFollow) la partagent.
+ */
+export interface BoneFrame {
+  /** Attache et direction au repos, longueur au carré. */
+  p: [number, number];
+  v: [number, number];
+  len2: number;
+  /** Attache et direction à l'instant. */
+  s: [number, number];
+  w: [number, number];
+  /** Rotation de l'os depuis le repos (radians), et son cosinus, son sinus. */
+  rot: number;
+  c: number;
+  sn: number;
+  /** Chair autour de l'os (même unité). */
+  r: number;
+}
+/** Les repères des os `ids` (tous si absent) ; `flesh` : la chair de chaque os, dans l'ordre du squelette. */
+export function boneFrames(rest: Bone[], cur: Bone[], ratio: number, ids?: number[], flesh?: number[]): Array<BoneFrame & { i: number }> {
+  const r = ratio || 1;
+  return (ids ?? rest.map((_, i) => i))
+    .filter((i) => rest[i] && cur[i])
+    .map((i) => {
+      const [[ax, ay], [bx, by]] = rest[i]!;
+      const [[cx, cy], [dx, dy]] = cur[i]!;
+      const v: [number, number] = [(bx - ax) * r, by - ay];
+      const w: [number, number] = [(dx - cx) * r, dy - cy];
+      const rot = Math.atan2(w[1], w[0]) - Math.atan2(v[1], v[0]);
+      return { i, p: [ax * r, ay], v, len2: v[0] ** 2 + v[1] ** 2 || 1e-9, s: [cx * r, cy], w, rot, c: Math.cos(rot), sn: Math.sin(rot), r: Math.max(0, flesh?.[i] ?? 0) };
+    });
+}
+/** Place d'un point le long de l'os au repos (0..1), et sa distance au bord de la chair (négative dedans). */
+export function boneNear(F: BoneFrame, x: number, y: number): { k: number; d: number } {
+  const k = Math.max(0, Math.min(1, ((x - F.p[0]) * F.v[0] + (y - F.p[1]) * F.v[1]) / F.len2));
+  return { k, d: Math.hypot(x - F.p[0] - k * F.v[0], y - F.p[1] - k * F.v[1]) - F.r };
+}
+/** Le point emmené par l'os : il garde sa place le long de l'os (même s'il s'allonge) et son écart à lui, qui tourne avec lui. */
+export function boneCarry(F: BoneFrame, k: number, x: number, y: number): [number, number] {
+  const [ox, oy] = [x - F.p[0] - k * F.v[0], y - F.p[1] - k * F.v[1]];
+  return [F.s[0] + k * F.w[0] + ox * F.c - oy * F.sn, F.s[1] + k * F.w[1] + ox * F.sn + oy * F.c];
+}
+/** Les deux os les plus proches d'un point (chair comptée) : indices dans `frames`, places le long de l'os, distances. */
+export function nearestBones(frames: BoneFrame[], x: number, y: number) {
+  let [b1, b2] = [-1, -1];
+  let [d1, d2, k1, k2] = [Infinity, Infinity, 0, 0];
+  frames.forEach((F, i) => {
+    const { k, d } = boneNear(F, x, y);
+    if (d < d1) [b2, d2, k2, b1, d1, k1] = [b1, d1, k1, i, d, k];
+    else if (d < d2) [b2, d2, k2] = [i, d, k];
+  });
+  return { b1, d1, k1, b2, d2, k2 };
+}
+
+/**
+ * Déformation de la surface par ses os (Generator.warp d'un sticker articulé) : chaque point suit l'os dont la chair est la plus près
  * au repos, en gardant sa place le long de l'os et son écart à lui (comme un objet attaché) ; près d'une articulation,
  * il prend un peu des deux os, pour que la peau se plie au lieu de se déchirer. `only` : les os qui portent cette pièce.
- * `ratio` : largeur / hauteur de la boîte (les distances se mesurent à unités égales). Nul quand les os n'ont pas bougé.
+ * `ratio` : largeur / hauteur de la boîte (les distances se mesurent à unités égales). `flesh` : chair de chaque os (Generator.flesh).
+ * Nul quand les os n'ont pas bougé.
  */
-export function skinWarp(key: string, rest: Bone[], cur: Bone[], ratio: number, only?: number[], band = 0.035): Warp | null {
+export function skinWarp(key: string, rest: Bone[], cur: Bone[], ratio: number, only?: number[], band = 0.035, flesh?: number[]): Warp | null {
   const ids = (only ?? rest.map((_, i) => i)).filter((i) => rest[i] && cur[i]);
   const q = (v: number) => Math.round(v * 2000);
   const sig = (bs: Bone[]) => ids.map((i) => bs[i]!.flat().map(q).join(',')).join(';');
   const now = sig(cur);
   if (!ids.length || now === sig(rest)) return null;
   const r = ratio || 1;
-  // chaque os : son repère au repos et à l'instant (attache, direction, longueur), à unités égales
-  const frames = ids.map((i) => {
-    const [[ax, ay], [bx, by]] = rest[i]!;
-    const [[cx, cy], [dx, dy]] = cur[i]!;
-    const [p, v] = [[ax * r, ay], [(bx - ax) * r, by - ay]];
-    const [s, w] = [[cx * r, cy], [(dx - cx) * r, dy - cy]];
-    const rot = Math.atan2(w[1]!, w[0]!) - Math.atan2(v[1]!, v[0]!);
-    return { p, v, len2: v[0]! ** 2 + v[1]! ** 2 || 1e-9, s, w, c: Math.cos(rot), sn: Math.sin(rot) };
-  });
-  type F = (typeof frames)[number];
-  const near = (F: F, x: number, y: number) => {
-    const k = Math.max(0, Math.min(1, ((x - F.p[0]!) * F.v[0]! + (y - F.p[1]!) * F.v[1]!) / F.len2));
-    return { k, d: Math.hypot(x - F.p[0]! - k * F.v[0]!, y - F.p[1]! - k * F.v[1]!) };
-  };
-  const move = (F: F, k: number, x: number, y: number): [number, number] => {
-    const [ox, oy] = [x - F.p[0]! - k * F.v[0]!, y - F.p[1]! - k * F.v[1]!];
-    return [F.s[0]! + k * F.w[0]! + ox * F.c - oy * F.sn, F.s[1]! + k * F.w[1]! + ox * F.sn + oy * F.c];
-  };
+  const frames = boneFrames(rest, cur, r, ids, flesh);
   const map = (u: number, v: number): [number, number] => {
     const [x, y] = [u * r, v];
-    let [b1, b2] = [-1, -1];
-    let [d1, d2, k1, k2] = [Infinity, Infinity, 0, 0];
-    frames.forEach((F, i) => {
-      const { k, d } = near(F, x, y);
-      if (d < d1) [b2, d2, k2, b1, d1, k1] = [b1, d1, k1, i, d, k];
-      else if (d < d2) [b2, d2, k2] = [i, d, k];
-    });
-    let [X, Y] = move(frames[b1]!, k1, x, y);
+    const { b1, d1, k1, b2, d2, k2 } = nearestBones(frames, x, y);
+    let [X, Y] = boneCarry(frames[b1]!, k1, x, y);
     if (b2 >= 0 && d2 - d1 < band) {
       const t = 0.5 * (1 - (d2 - d1) / band);
-      const [X2, Y2] = move(frames[b2]!, k2, x, y);
+      const [X2, Y2] = boneCarry(frames[b2]!, k2, x, y);
       [X, Y] = [X + (X2 - X) * t, Y + (Y2 - Y) * t];
     }
     return [X / r, Y];
@@ -330,5 +367,5 @@ export function skinWarp(key: string, rest: Bone[], cur: Bone[], ratio: number, 
     out.push(1);
     return out;
   };
-  return { key: `${key}|${now}`, us: lines((p) => p[0]), vs: lines((p) => p[1]), map };
+  return { key: `${key}|${now}|${flesh ? ids.map((i) => q(flesh[i] ?? 0)).join(',') : ''}`, us: lines((p) => p[0]), vs: lines((p) => p[1]), map };
 }

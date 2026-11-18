@@ -278,24 +278,21 @@ export function warpFor(l: Layer, t?: number): Warp | null {
 }
 
 /**
- * Os d'une forme animée à l'instant courant (vue « os seuls »), en coordonnées 0..1 de sa boîte : ceux que son générateur
- * pose au repos, pliés par la même déformation que sa surface, ou son squelette articulé pris à l'instant. Null pour une forme sans os.
+ * Os d'une forme animée à l'instant courant (vue « os seuls »), en coordonnées 0..1 de sa boîte : son squelette pris à l'instant
+ * (Generator.skeleton), avec la chair de chaque os (Generator.flesh, en parts de la hauteur de la boîte). Null pour une forme sans os.
  */
-export function bonesOf(l: Layer): Array<Array<[number, number]>> | null {
+export function bonesOf(l: Layer): { lines: Array<Array<[number, number]>>; flesh?: number[] } | null {
   if (!l.anim || l.text || (l.cut && !carved(l))) return null;
-  const g = generatorOf(l.anim);
+  const sk = animSkeleton(l.anim);
+  if (!sk) return null;
+  // une forme modelée a pu agrandir sa boîte (Layer.molded.frame : la boîte actuelle dans le repère d'origine)
   const [a, b, c, d] = l.molded?.frame ?? [0, 0, 1, 1];
   const [W, H] = [c - a || 1, d - b || 1];
-  const sk = animSkeleton(l.anim);
-  if (sk) return sk.map((bone) => bone.map(([u, v]): [number, number] => [(u - a) / W, (v - b) / H]));
-  if (!g?.bones) return null;
-  const w = warpFor(l);
-  return g.bones(l.anim).map((line) =>
-    line.map(([u, v]): [number, number] => {
-      const [x, y] = [(u - a) / W, (v - b) / H];
-      return w ? w.map(x, y) : [x, y];
-    }),
-  );
+  // la chair, montrée une fois par sticker : sur sa première pièce (chaque pièce porte le même squelette)
+  const g = generatorOf(l.anim);
+  const first = l.anim.part === undefined || g?.parts?.[0]?.id === l.anim.part;
+  const flesh = first ? g?.flesh?.(l.anim)?.map((r) => r / H) : undefined;
+  return { lines: sk.map((bone) => bone.map(([u, v]): [number, number] => [(u - a) / W, (v - b) / H])), ...(flesh ? { flesh } : {}) };
 }
 
 /** Contours redécoupés finement (pas de 0,01 de la boîte) : un bord droit au repos se plie avec la forme. */

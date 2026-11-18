@@ -1,6 +1,6 @@
 import type { Format } from '@ftd/core';
 import { layerBox, type Layer } from './model';
-import { animatorFor, generatorOf, newAnim, spanOf, type Act, type ActState, type Anim, type Context, type Generator, type Gesture, type Progress, type Warp } from './stickers';
+import { animatorFor, boneCarry, boneFrames, generatorOf, nearestBones, newAnim, spanOf, type Act, type ActState, type Anim, type Bone, type Context, type Generator, type Gesture, type Progress, type Warp } from './stickers';
 
 export { ANIMATORS, GENERATORS, animatorFor, generatorOf, newAnim, forPart, spanOf, valueOf } from './stickers';
 export type { Act, Anim, Generator, Gesture, Param, Warp } from './stickers';
@@ -205,7 +205,7 @@ export function glyphCut(a: Anim): string {
 }
 
 /** Os du sticker à l'instant t (Generator.skeleton), en coordonnées 0..1 de sa boîte ; null sans squelette. */
-export function animSkeleton(a: Anim, t = now): Array<[[number, number], [number, number]]> | null {
+export function animSkeleton(a: Anim, t = now): Bone[] | null {
   const g = generatorOf(a);
   if (!g?.skeleton) return null;
   const s = stateAt(g, a, t);
@@ -224,28 +224,15 @@ export function animFollow(a: Anim, u: number, v: number, t = now): { dx: number
   if (g.skeleton && !g.surfaceFollow) {
     const rest = g.skeleton(s.a, 0, () => 0, { each: () => [] });
     const cur = g.skeleton(s.a, s.phase, s.progress, { each: s.each });
-    // distances mesurées dans un repère aux unités égales : la boîte n'est pas carrée
+    // le squelette commun (stickers/kit.ts) : le point suit l'os dont la chair est la plus proche au repos, comme la peau
     const r = g.ratio(s.a) || 1;
+    const frames = boneFrames(rest, cur, r, undefined, g.flesh?.(s.a));
     const [x, y] = [u * r, v];
-    let best = -1;
-    let dist = Infinity;
-    let along = 0;
-    rest.forEach(([p, q], i) => {
-      const [px, py, qx, qy] = [p[0] * r, p[1], q[0] * r, q[1]];
-      const len2 = (qx - px) ** 2 + (qy - py) ** 2 || 1e-9;
-      const k = Math.max(0, Math.min(1, ((x - px) * (qx - px) + (y - py) * (qy - py)) / len2));
-      const d = Math.hypot(x - px - k * (qx - px), y - py - k * (qy - py));
-      if (d < dist) [dist, best, along] = [d, i, k];
-    });
-    const [from, to] = [rest[best], cur[best]];
-    if (!from || !to) return null;
-    const rot = Math.atan2(to[1][1] - to[0][1], (to[1][0] - to[0][0]) * r) - Math.atan2(from[1][1] - from[0][1], (from[1][0] - from[0][0]) * r);
-    // le point garde sa place le long de l'os, même si l'os s'allonge ou raccourcit (paupière, goutte) ; son écart à l'os tourne avec lui
-    const on = (b: [[number, number], [number, number]]): [number, number] => [(b[0][0] + along * (b[1][0] - b[0][0])) * r, b[0][1] + along * (b[1][1] - b[0][1])];
-    const [fa, ta] = [on(from), on(to)];
-    const [ox, oy] = [x - fa[0], y - fa[1]];
-    const [c, sn] = [Math.cos(rot), Math.sin(rot)];
-    return { dx: (ta[0] + ox * c - oy * sn) / r - u, dy: ta[1] + ox * sn + oy * c - v, rot };
+    const { b1, k1 } = nearestBones(frames, x, y);
+    const F = frames[b1];
+    if (!F) return null;
+    const [X, Y] = boneCarry(F, k1, x, y);
+    return { dx: X / r - u, dy: Y - v, rot: F.rot };
   }
   const w = g.warp?.(s.a, s.phase, s.progress, { each: s.each });
   if (!w) return null;

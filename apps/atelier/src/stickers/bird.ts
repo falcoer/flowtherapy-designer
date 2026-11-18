@@ -274,7 +274,7 @@ function warp(a: Anim, _phase: number, g: Progress): Warp | null {
 const even = (n: number) => Array.from({ length: n + 1 }, (_, i) => i / n);
 
 /**
- * Os de l'oiseau au repos (Generator.bones) : la colonne de la tête au bout de la queue, et pour chaque aile
+ * Os de l'oiseau au repos, en lignes brisées (le squelette en est tiré, plié comme la surface) : la colonne de la tête au bout de la queue, et pour chaque aile
  * l'épaule, le coude (là où le battement plie) et le bout, un peu en arrière du bord d'attaque.
  */
 function bones(a: Anim): Array<Array<[number, number]>> {
@@ -477,7 +477,6 @@ export const bird: Generator = {
   gestures: () => [{ id: 'flap', name: 'Battement d’ailes', note: 'bat des ailes', loop: true, params: ['amp'] }],
   cut,
   warp,
-  bones,
   skeleton,
   surfaceFollow: true,
   focus,

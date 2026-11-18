@@ -3,6 +3,7 @@ import { actsOf, forPart, newAct, spanOf, withActs } from '../src/anim';
 import { animCut, animFollow, animOrder, posed, animRatio, cycleOf, ease, GENERATORS, generatorOf, gesturesOf, newAnim, poseOf, setAnimTiming, valueOf } from '../src/anim';
 import type { Layer } from '../src/model';
 import { bonesOf } from '../src/warp';
+import { boneCarry, boneFrames, boneNear, nearestBones, skinWarp, type Bone } from '../src/stickers/kit';
 import { ringsToPath } from '../src/cut';
 import { silhouetteRings } from '../src/silhouettes';
 import { animOf, animSkeleton } from '../src/anim';
@@ -370,10 +371,15 @@ describe('objets attachés à un sticker', () => {
     const ls = scene([{ ...newAct(base, ges('wave'), 1, tm), len: 2 }]);
     setAnimTime(0);
     const rest = bonesOf(ls[0]!)!;
-    expect(rest).toHaveLength(14);
-    for (const bone of rest) for (const [u, v] of bone) expect(u >= 0 && u <= 1 && v >= 0 && v <= 1).toBe(true);
+    expect(rest.lines).toHaveLength(14);
+    for (const bone of rest.lines) for (const [u, v] of bone) expect(u >= 0 && u <= 1 && v >= 0 && v <= 1).toBe(true);
+    // la chair de chaque os, montrée une fois par sticker (sur sa première pièce) : le tronc plus épais que l'avant-bras
+    const first = { ...ls[0]!, anim: { ...ls[0]!.anim!, part: generatorOf('humanoid')!.parts![0]!.id } };
+    const flesh = bonesOf(first)!.flesh!;
+    expect(flesh).toHaveLength(14);
+    expect(flesh[1]!).toBeGreaterThan(flesh[7]!);
     setAnimTime(2);
-    expect(bonesOf(ls[0]!)).not.toEqual(rest);
+    expect(bonesOf(ls[0]!)!.lines).not.toEqual(rest.lines);
     setAnimTime(0);
   });
   it('sans squelette, le point reste en place', () => {
@@ -460,5 +466,34 @@ describe('goutte qui s’étale en flaque', () => {
     expect(end.bottom).toBeLessThanOrEqual(1.001);
     expect(animCut(a, 3.5)).toBe(animCut(a, 2));
     for (const t of [1.1, 1.3, 1.6, 1.9]) expect(animCut(a, t)).not.toContain('NaN');
+  });
+});
+
+describe('squelette commun', () => {
+  // deux os horizontaux : un tronc épais en haut, un bras fin juste dessous qui se lève
+  const rest: Bone[] = [
+    [[0.1, 0.3], [0.9, 0.3]],
+    [[0.1, 0.5], [0.9, 0.5]],
+  ];
+  const cur: Bone[] = [rest[0]!, [[0.1, 0.5], [0.5, 0.1]]];
+  it('un point dans la chair du tronc suit le tronc, même plus près de la ligne du bras', () => {
+    // à 0,12 du tronc et 0,08 du bras : sans chair il suivrait le bras
+    const [x, y] = [0.5, 0.42];
+    expect(nearestBones(boneFrames(rest, cur, 1), x, y).b1).toBe(1);
+    expect(nearestBones(boneFrames(rest, cur, 1, undefined, [0.2, 0.02]), x, y).b1).toBe(0);
+  });
+  it('la peau et un objet attaché suivent un os de la même façon', () => {
+    const w = skinWarp('t', rest, cur, 1, [1], 0)!;
+    const F = boneFrames(rest, cur, 1, [1])[0]!;
+    const { k } = boneNear(F, 0.7, 0.55);
+    const [X, Y] = boneCarry(F, k, 0.7, 0.55);
+    const [mx, my] = w.map(0.7, 0.55);
+    expect(mx).toBeCloseTo(X, 9);
+    expect(my).toBeCloseTo(Y, 9);
+  });
+  it('l’humanoïde déclare la chair de ses os et sa peau en tient compte', () => {
+    const g = generatorOf('humanoid')!;
+    const a = newAnim(g);
+    expect(g.flesh!(a)).toHaveLength(g.skeleton!(a, 0, () => 0, { each: () => [] }).length);
   });
 });
