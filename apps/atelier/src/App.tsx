@@ -6993,7 +6993,7 @@ export function App() {
                           a.download = 'kit-personnage.zip';
                           a.click();
                           setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-                          setToast('Kit téléchargé : donne la planche et le prompt à GPT, puis importe le résultat ici');
+                          setToast('Kit téléchargé : commence par prompts/00-lisez-moi.txt, puis importe le résultat ici');
                         });
                       }}
                     >

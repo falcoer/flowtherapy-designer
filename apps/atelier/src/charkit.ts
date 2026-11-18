@@ -96,36 +96,131 @@ const canvas = (w: number, h: number) => {
 const png = (c: HTMLCanvasElement) => new Promise<Uint8Array>((ok, ko) => c.toBlob((b) => (b ? b.arrayBuffer().then((a) => ok(new Uint8Array(a))) : ko(new Error('png'))), 'image/png'));
 
 /** Le prompt à donner au générateur, avec la planche et (si on l'a) une image du personnage. */
-export const KIT_PROMPT = `KIT PERSONNAGE MULTI-ANGLE — Flow Therapy Designer
+/** Consignes communes à toutes les vues : la pose du gabarit, des membres lisibles, un fond facile à détourer. */
+const RULES = `A-pose: arms held away from the body at about 30 degrees, elbows almost straight, hands open and empty, nothing held in the hands; legs slightly apart, feet flat on the ground line.
+Hair, ears and accessories stay behind the shoulders, never over the arms. Clothes fit close to the body at the elbows and knees.
+Plain flat pure white background, no shadow, no text, no frame, no extra objects.`;
+
+/** Côtés visibles : en vue tournée, les membres du fond (plus sombres sur le gabarit) restent visibles. */
+const TURNED = `Both arms and both legs stay clearly visible: the far arm swings slightly back, the near arm slightly forward, the legs in a small stride (the darker limbs of the template are the far ones).`;
+
+const VIEW_PROMPTS: Record<string, [string, string, string]> = {
+  face: ['gabarit-face.png', 'front view, facing the viewer', ''],
+  'trois-quarts': ['gabarit-trois-quarts.png', 'three-quarter view, body turned 45 degrees toward the right side of the image', TURNED],
+  profil: ['gabarit-profil.png', 'side profile view, facing the right side of the image', TURNED],
+  dos: ['gabarit-dos.png', 'back view, seen from behind', ''],
+  'trois-quarts-gauche': ['gabarit-trois-quarts.png (retourné en miroir)', 'three-quarter view, body turned 45 degrees toward the LEFT side of the image (mirror of the template)', TURNED],
+  'profil-gauche': ['gabarit-profil.png (retourné en miroir)', 'side profile view, facing the LEFT side of the image (mirror of the template)', TURNED],
+};
+
+const viewPrompt = (key: string) => {
+  const [tpl, what, extra] = VIEW_PROMPTS[key]!;
+  return `VUE ${key.toUpperCase()} — à joindre : ${tpl}, plus la planche ou la face déjà obtenue
+Fichier à enregistrer : <personnage>__${key}.png
+
+---
+Same character as in the attached reference (same face, outfit, colors and proportions), only one full-body ${what}.
+Follow the attached template exactly for the pose, the proportions and the placement in the frame: same image size, head top and feet at the same heights as the template.
+${extra ? extra + '\n' : ''}${RULES}
+---
+${key.endsWith('-gauche') ? '\nÀ faire seulement si le personnage n’est pas symétrique (guitare d’un côté, mèche, texte sur le tee-shirt) : sinon l’atelier retourne la vue de droite tout seul.\n' : ''}`;
+};
+
+/** Les prompts du kit, un fichier par usage, numérotés dans l'ordre où on s'en sert. */
+export const KIT_PROMPTS: Array<[string, string]> = [
+  [
+    'prompts/00-lisez-moi.txt',
+    `KIT PERSONNAGE MULTI-ANGLE — Flow Therapy Designer
 ====================================================
 
-1. Dans GPT, joins « planche-rotation.png » (et une image de ton personnage si tu en as une), puis colle ce prompt :
+Les prompts sont en anglais : GPT suit mieux les consignes de dessin en anglais. Remplace ce qui est [ENTRE CROCHETS].
+
+01  La planche de rotation : les 4 vues d'un coup (le plus rapide).
+02  Un personnage à partir d'une photo ou d'un dessin existant.
+10–15  Une vue à la fois, quand la planche n'est pas fidèle (ou pour les vues tournées vers la gauche).
+20  Un élément détaché (micro, guitare, chapeau, lunettes), vue par vue, au même cadrage que le personnage.
+30  Corriger une vue : couleurs, proportions, membres cachés, objets dans les mains.
+31  Fond transparent : refaire une vue sur fond transparent.
+
+Ensuite, dans l'atelier : ＋ › Illustrations › « Importer une illustration (PNG ou .zip) ».
+Mets les images (ou la planche) dans un .zip nommé selon conventions.txt : le personnage est posé avec ses vues,
+rangé dans la bibliothèque, et tourne avec l'anneau à ses pieds.
+`,
+  ],
+  [
+    'prompts/01-planche-rotation.txt',
+    `PLANCHE DE ROTATION — à joindre : planche-rotation.png (et une image du personnage si tu en as une)
+Fichier à enregistrer : <personnage>__planche.png
 
 ---
 Character turnaround sheet of [DÉCRIS TON PERSONNAGE ICI, ou : the character in the attached reference image].
 Exactly 4 full-body views side by side, from left to right: front view, three-quarter view (turned toward the right), side profile view (facing right), back view.
 Follow the attached template exactly for the pose, the proportions and the placement of each view.
 Same character, same outfit, same colors and same scale in all 4 views; the tops of the heads aligned, all feet standing on the same ground line.
-A-pose: arms held away from the body at about 30 degrees, elbows almost straight, hands open and empty, nothing held in the hands; legs slightly apart, feet flat.
-In the three-quarter and side views both arms and both legs stay clearly visible: the far arm swings slightly back, the near arm slightly forward, the legs in a small stride (the darker limbs of the template are the far ones).
-Hair, ears and accessories stay behind the shoulders, never over the arms. Clothes fit close to the body at the elbows and knees.
-Plain flat pure white background, no shadow, no text, no frame, no extra objects, generous empty space between the views.
+In the three-quarter and side views ${TURNED.charAt(0).toLowerCase() + TURNED.slice(1)}
+${RULES}
+Generous empty space between the views.
+---
+`,
+  ],
+  [
+    'prompts/02-depuis-une-photo.txt',
+    `DEPUIS UNE PHOTO OU UN DESSIN — à joindre : la photo (ou le dessin) et planche-rotation.png
+Fichier à enregistrer : <personnage>__planche.png
+
+---
+Turn the person (or character) in the first attached image into a full-body illustrated character, [STYLE : flat colorful illustration / watercolor / psychedelic poster…], keeping the face, hairstyle, outfit and colors recognizable.
+Draw it as a turnaround sheet following the second attached template exactly: 4 full-body views side by side, from left to right: front, three-quarter (turned toward the right), side profile (facing right), back.
+Same character, same scale in all 4 views, heads aligned, feet on the same ground line.
+In the three-quarter and side views ${TURNED.charAt(0).toLowerCase() + TURNED.slice(1)}
+${RULES}
+---
+`,
+  ],
+  ['prompts/10-vue-face.txt', viewPrompt('face')],
+  ['prompts/11-vue-trois-quarts.txt', viewPrompt('trois-quarts')],
+  ['prompts/12-vue-profil.txt', viewPrompt('profil')],
+  ['prompts/13-vue-dos.txt', viewPrompt('dos')],
+  ['prompts/14-vue-trois-quarts-gauche.txt', viewPrompt('trois-quarts-gauche')],
+  ['prompts/15-vue-profil-gauche.txt', viewPrompt('profil-gauche')],
+  [
+    'prompts/20-element-detache.txt',
+    `ÉLÉMENT DÉTACHÉ (micro, guitare, chapeau, lunettes…) — à joindre : la vue du personnage (par ex. lama-betty__face.png)
+Fichier à enregistrer : <personnage>__<vue>__<élément>.png (par ex. lama-betty__face__micro.png), une image par vue
+
+---
+Using the attached character image only as a placement guide, draw ONLY the [ÉLÉMENT : microphone / guitar / hat / glasses], exactly where it belongs on this character in this view ([VUE : front / three-quarter facing right / side profile facing right / back]): same image size, same scale and same position as on the character.
+Do not draw the character itself: nothing but the [ÉLÉMENT] on a fully transparent background (or, if transparency is impossible, plain flat pure white), no shadow, no text.
+Same style, colors and line weight as the character.
 ---
 
-2. Les objets tenus (micro, guitare…) se génèrent à part, puis s'attachent à la main dans l'atelier.
-
-3. Une vue à la fois, si la planche n'est pas fidèle : joins le gabarit de la vue (gabarit-face.png, gabarit-trois-quarts.png,
-   gabarit-profil.png, gabarit-dos.png) et la planche déjà obtenue, puis :
+Recommence pour chaque vue où l'élément se voit. S'il manque une vue, l'atelier le cache dans cette vue.
+`,
+  ],
+  [
+    'prompts/30-corriger-une-vue.txt',
+    `CORRIGER UNE VUE — à joindre : la vue à corriger, la face (référence) et le gabarit de la vue
 
 ---
-Same character as in the attached sheet, only the [front / three-quarter / side profile / back] view, full body,
-in exactly the pose of the attached template, plain pure white background, no shadow, no text.
+Redraw the first attached image so that it matches the reference character exactly (second image): same face, outfit, colors and proportions.
+Fix: [CE QUI NE VA PAS : the far arm is hidden / the hands hold something / the colors differ / the head is too big / the feet are cut…].
+Keep exactly the pose of the attached template, the same image size and the same placement in the frame.
+${RULES}
+---
+`,
+  ],
+  [
+    'prompts/31-fond-transparent.txt',
+    `FOND TRANSPARENT — à joindre : la vue (ou la planche) sur fond blanc
+
+---
+Same image, unchanged, but on a fully transparent background: remove the white background and anything that is not the character, keep every hair, finger and edge sharp, no halo, no shadow. Export as PNG with transparency.
 ---
 
-4. Dans l'atelier : ＋ › Illustrations › « Importer un personnage (plusieurs vues) » :
-   la planche entière (découpée et détourée toute seule), les images une à une, ou un .zip nommé selon conventions.txt.
-   Chaque vue reçoit son squelette posé sur son gabarit ; « Caler sur le gabarit » le remet en place, les articulations se glissent au doigt.
-`;
+Facultatif : l'atelier efface tout seul un fond blanc uni depuis les bords. Ce prompt sert quand le fond n'est pas uni.
+`,
+  ],
+];
 
 /** La convention de nommage des fichiers d'un personnage (lue par parseName dans views.ts). */
 export const KIT_NAMING = `NOMMER LES ILLUSTRATIONS ORIENTÉES D'UN .ZIP — Flow Therapy Designer
@@ -172,7 +267,7 @@ AUSSI ACCEPTÉ
 - Des noms libres (image1.png…) : rangés dans l'ordre face, trois-quarts, profil, dos.
 `;
 
-/** L'archive du kit : gabarits des 4 vues, planche de rotation, prompt. */
+/** L'archive du kit : gabarits des 4 vues, planche de rotation, tous les prompts (dossier prompts/) et la convention de nommage. */
 export async function kitZip(): Promise<Blob> {
   const files: Array<{ name: string; data: Uint8Array }> = [];
   const [sheet, sx] = canvas(3200, 1200);
@@ -183,7 +278,7 @@ export async function kitZip(): Promise<Blob> {
     drawTemplate(cx, v, 0, 0, 1024, 1536, false);
     files.push({ name: `gabarit-${v}.png`, data: await png(c) });
   }
-  files.push({ name: 'prompt.txt', data: new TextEncoder().encode(KIT_PROMPT) });
+  for (const [name, text] of KIT_PROMPTS) files.push({ name, data: new TextEncoder().encode(text) });
   files.push({ name: 'conventions.txt', data: new TextEncoder().encode(KIT_NAMING) });
   return zipStore(files);
 }
