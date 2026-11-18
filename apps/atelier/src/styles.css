@@ -179,6 +179,17 @@ button:disabled { opacity: 0.35; cursor: default; }
 /* les autres éléments choisis (ensemble, Maj) : un liseré plus discret */
 .layer.picked { box-shadow: inset 3px 0 0 var(--accent); background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
 .layer.hidden { opacity: 0.45; }
+/* ensemble (pièces solidaires) : un en-tête, ses pièces en retrait le long d'un filet */
+.layer-set { display: flex; flex-direction: column; gap: 4px; border-radius: 13px; background: color-mix(in srgb, var(--accent-soft) 30%, transparent); padding-bottom: 4px; }
+.layer-group { display: flex; align-items: center; gap: 6px; padding: 6px 8px 2px 4px; border-radius: 13px 13px 6px 6px; cursor: pointer; color: var(--accent); font-size: 13px; font-weight: 600; }
+.layer-group.on { background: var(--accent-soft); }
+.layer-group.part .group-name { text-decoration: underline dotted; text-underline-offset: 3px; }
+.layer-group .group-main { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+.layer-group .group-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.layer-group small { color: var(--muted); font-weight: 400; font-size: 11px; }
+.group-fold { border: 0; background: none; color: inherit; font-size: 13px; width: 24px; height: 24px; padding: 0; cursor: pointer; }
+.layer.nested { margin-left: 14px; position: relative; }
+.layer.nested::before { content: ''; position: absolute; left: -8px; top: 0; bottom: 0; border-left: 2px solid color-mix(in srgb, var(--accent) 35%, transparent); }
 .thumb { width: 44px; height: 44px; border-radius: 9px; background: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 10px 10px; flex: none; }
 .layer-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .layer-name { font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

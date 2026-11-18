@@ -1344,6 +1344,8 @@ export function App() {
    * le choix par défaut ; sinon la liste exacte des éléments choisis (bâtie avec Maj), l'élément choisi compris.
    */
   const [picks, setPicks] = useState<string[] | null>(null);
+  /** Ensembles repliés dans la liste des objets. */
+  const [foldedGroups, setFoldedGroups] = useState<Set<string>>(() => new Set());
   /** Choisit un élément : son ensemble entier vient avec lui (avec Maj, voir pickWith). */
   const setSelected = useCallback((id: string | null) => {
     setSelectedRaw(id);
@@ -4906,14 +4908,80 @@ export function App() {
 
   // liste des objets, à gauche du panneau des attributs : l'objet choisi l'est aussi sur la page ;
   // deux touchers sur le nom le renomment (montrer/cacher, bibliothèque : menu de gauche ; dupliquer, corbeille : barre du haut)
-  const layersJsx = (
-    <div className="cp-layers">
-      <div className="layer-list">
-        {[...renderOrder(doc.layers)].reverse().map((l) => (
+  /**
+   * Liste des objets, du plus haut au plus bas. Les pièces d'un ensemble sont regroupées sous un en-tête,
+   * à la place de la plus haute d'entre elles, même si d'autres objets s'intercalent entre elles en hauteur.
+   */
+  const listRows = (() => {
+    const ord = [...renderOrder(doc.layers)].reverse();
+    const out: Array<{ group: string; pieces: Layer[] } | Layer> = [];
+    const seen = new Set<string>();
+    for (const l of ord) {
+      if (!l.link) {
+        out.push(l);
+        continue;
+      }
+      if (seen.has(l.link)) continue;
+      const pieces = ord.filter((x) => x.link === l.link);
+      seen.add(l.link);
+      if (pieces.length < 2) out.push(l);
+      else out.push({ group: l.link, pieces });
+    }
+    return out;
+  })();
+  const groupHead = (g: { group: string; pieces: Layer[] }) => {
+    const all = g.pieces.every((x) => pickedIds.has(x.id));
+    const some = g.pieces.some((x) => pickedIds.has(x.id));
+    const folded = foldedGroups.has(g.group);
+    // la pièce la plus basse porte l'ensemble : elle lui donne son nom
+    const base = g.pieces[g.pieces.length - 1]!;
+    return (
+      <div
+        key={`g-${g.group}`}
+        className={`layer-group ${all ? 'on' : some ? 'part' : ''}`}
+        onClick={(e) => {
+          if ((e.target as HTMLElement).closest('.group-fold')) return;
+          const ids = g.pieces.map((x) => x.id);
+          // l'en-tête choisit l'ensemble entier ; avec Maj, il l'ajoute au choix ou l'en retire
+          if (shiftHeld(shiftLatch, shiftKey, e.shiftKey)) {
+            const now = picked.map((x) => x.id);
+            const next = all ? now.filter((x) => !ids.includes(x)) : [...now, ...ids.filter((x) => !now.includes(x))];
+            if (!next.length) return setSelected(null);
+            choose(next, all ? (next.includes(selected ?? '') ? selected : next[0]!) : ids[0]!);
+            if (!all) setToast(`${next.length} éléments choisis : les réglages s’appliquent à chacun`);
+          } else setSelected(pickedIds.has(selected ?? '') && ids.includes(selected ?? '') ? selected : ids[0]!);
+        }}
+      >
+        <button
+          className="group-fold"
+          aria-expanded={!folded}
+          aria-label={folded ? 'Déplier l’ensemble' : 'Replier l’ensemble'}
+          onClick={() =>
+            setFoldedGroups((s) => {
+              const n = new Set(s);
+              if (n.has(g.group)) n.delete(g.group);
+              else n.add(g.group);
+              return n;
+            })
+          }
+        >
+          {folded ? '▸' : '▾'}
+        </button>
+        <span className="link-mark">
+          <Icon name="link" />
+        </span>
+        <span className="group-main">
+          <span className="group-name">{base.name}</span>
+          <small>Ensemble · {g.pieces.length} pièces</small>
+        </span>
+      </div>
+    );
+  };
+  const layerRow = (l: Layer, nested = false) => (
           <div
             key={l.id}
             data-layer={l.id}
-            className={`layer ${l.id === selected ? 'on' : pickedIds.has(l.id) ? 'picked' : ''} ${l.visible ? '' : 'hidden'} ${listDrag?.id === l.id ? 'dragging' : ''} ${listDrag?.over === l.id ? (listDrag.above ? 'drop-above' : 'drop-below') : ''}`}
+            className={`layer ${nested ? 'nested ' : ''}${l.id === selected ? 'on' : pickedIds.has(l.id) ? 'picked' : ''} ${l.visible ? '' : 'hidden'} ${listDrag?.id === l.id ? 'dragging' : ''} ${listDrag?.over === l.id ? (listDrag.above ? 'drop-above' : 'drop-below') : ''}`}
             onPointerDown={(e) => {
               // on glisse l'objet par sa vignette ; ailleurs, le doigt fait défiler la liste
               if ((e.target as HTMLElement).closest('button')) return;
@@ -4966,7 +5034,7 @@ export function App() {
             <LayerThumb layer={l} doc={doc} />
             <div className="layer-main">
               <span className="layer-name">
-                {l.link && (
+                {l.link && !nested && (
                   <span className="link-mark" title="Solidaire d'autres objets : gardez le doigt posé dessus pour le détacher">
                     <Icon name="link" />
                   </span>
@@ -4997,7 +5065,20 @@ export function App() {
               </span>
             </div>
           </div>
-        ))}
+  );
+  const layersJsx = (
+    <div className="cp-layers">
+      <div className="layer-list">
+        {listRows.map((r) =>
+          'group' in r ? (
+            <div key={`gr-${r.group}`} className="layer-set">
+              {groupHead(r)}
+              {!foldedGroups.has(r.group) && r.pieces.map((x) => layerRow(x, true))}
+            </div>
+          ) : (
+            layerRow(r)
+          ),
+        )}
       </div>
     </div>
   );
