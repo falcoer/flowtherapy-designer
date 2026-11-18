@@ -28,6 +28,7 @@ import { kitFromSvg, nearestOf, SAME_COLOR, type Kit } from './kits';
 import { KITS } from './kit-samples';
 import { blankBump, bumpHeights, dab, encodeBump, heightUnder, smoothBump } from './bump';
 import { currentPx, growPatch, localToPx, MOLD_UNIT, moldPatch, pristinePx, refit, unitPx, unmoldPatch } from './mold';
+import { pickStep, spreadPatch } from './pick';
 import { ensureFont, fontFamily, fontUses, loadFonts, onFontReady, swashPoint, swashWidth, TEXT_PRESETS, textCut, textEm, textEpoch, type Mold, type Swash, type TextPreset, type TextStyle } from './text';
 import { type SwashTool } from './textbar';
 import { ColorDialog, swatch } from './color-dialog';
@@ -1337,7 +1338,29 @@ export function App() {
       /* stockage indisponible */
     }
   };
-  const [selected, setSelected] = useState<string | null>('arche');
+  const [selected, setSelectedRaw] = useState<string | null>('arche');
+  /**
+   * Sélection de plusieurs éléments. null : l'élément choisi avec tout son ensemble (ses pièces solidaires),
+   * le choix par défaut ; sinon la liste exacte des éléments choisis (bâtie avec Maj), l'élément choisi compris.
+   */
+  const [picks, setPicks] = useState<string[] | null>(null);
+  /** Choisit un élément : son ensemble entier vient avec lui (avec Maj, voir pickWith). */
+  const setSelected = useCallback((id: string | null) => {
+    setSelectedRaw(id);
+    setPicks(null);
+  }, []);
+  /** Choisit exactement ces éléments ; `main` est celui dont les attributs s'affichent. */
+  const choose = (ids: string[], main: string | null) => {
+    setSelectedRaw(main);
+    setPicks(main ? ids : null);
+  };
+  /** Les éléments choisis, l'élément principal en premier. */
+  const pickedOf = (d: Doc, id: string | null = selected, list: string[] | null = picks): Layer[] => {
+    const me = d.layers.find((l) => l.id === id);
+    if (!me) return [];
+    if (!list) return [me, ...matesOf(d, me)];
+    return [me, ...d.layers.filter((l) => l.id !== me.id && list.includes(l.id))];
+  };
   // Scène › AF sélection : l'objet sélectionné devient l'objet net (sans pas d'annulation : c'est la sélection qui bouge)
   const afFollow = !!doc.scene?.camera?.follow;
   useEffect(() => {
@@ -2031,6 +2054,9 @@ export function App() {
     requestAnimationFrame(tick);
   };
   const matesOf = (d: Doc, l: Layer) => (l.link ? d.layers.filter((x) => x.link === l.link && x.id !== l.id) : []);
+  /** Les éléments choisis (l'élément principal en premier) et leurs identifiants. */
+  const picked = pickedOf(doc);
+  const pickedIds = new Set(picked.map((l) => l.id));
 
   // --- dessin ---
   useLayoutEffect(() => {
@@ -2133,10 +2159,15 @@ export function App() {
       ctx.setLineDash([6 * px, 5 * px]);
       ctx.strokeStyle = '#7a5cff';
       ctx.stroke(maskPath2D(sel, f));
-      // objets solidaires : pointillés plus fins
+      // les autres éléments choisis (pièces de l'ensemble, éléments ajoutés avec Maj) : pointillés plus fins ;
+      // une pièce de l'ensemble laissée hors du choix (Maj) : pointillés pâles
+      ctx.lineWidth = 1.2 * px;
+      ctx.setLineDash([3 * px, 4 * px]);
+      for (const m of picked.slice(1)) if (m.visible && m.kind !== 'surface') ctx.stroke(maskPath2D(m, f));
+      ctx.strokeStyle = 'rgba(122,92,255,0.35)';
       ctx.lineWidth = 1 * px;
-      ctx.setLineDash([2 * px, 4 * px]);
-      for (const m of matesOf(doc, sel)) if (m.visible) ctx.stroke(maskPath2D(m, f));
+      ctx.setLineDash([2 * px, 5 * px]);
+      for (const m of matesOf(doc, sel)) if (m.visible && !pickedIds.has(m.id)) ctx.stroke(maskPath2D(m, f));
       ctx.restore();
       if ((tool === 'move' || isEdit(tool)) && L.kind !== 'move') {
         const h = handlesOf(sel);
@@ -2607,25 +2638,29 @@ export function App() {
     // modelée : la boîte s'ajuste à la forme au repos (qui peut dépasser celle de l'instant)
     return { ...patch, cut, anim: { ...l.anim, carved: 1 }, ...(next.molded ? refit({ ...next, cut }, f, cut) : {}) };
   };
-  /** Copie de l'élément sélectionné (et de ses objets solidaires), décalée, posée juste au-dessus. */
+  /** Copie des éléments choisis (l'ensemble entier par défaut), décalée, posée juste au-dessus. */
   const duplicate = (id: string | null = selected, src: Doc = doc) => {
     const me = src.layers.find((x) => x.id === id);
     if (!me || me.kind === 'surface') return;
-    const group = [me, ...matesOf(src, me)];
-    const link = me.link ? uid() : undefined;
+    const group = pickedOf(src, id).filter((x) => x.kind !== 'surface');
+    // chaque ensemble copié garde ses liens entre ses pièces copiées, sous un nouveau nom de groupe
+    const links = new Map<string, string>();
+    for (const g of group) if (g.link && group.filter((x) => x.link === g.link).length > 1 && !links.has(g.link)) links.set(g.link, uid());
     const ids = new Map(group.map((g) => [g.id, uid()]));
     // la copie d'un sticker en pièces est un autre sticker : ses pièces se règlent entre elles, pas avec l'original
     const sets = new Map<string, string>();
     const reset = (a: Layer['anim']) => (a && typeof a.set === 'string' ? { anim: { ...a, set: sets.get(a.set) ?? (sets.set(a.set, uid()), sets.get(a.set)!) } } : {});
-    const copies = group.map((g) => ({ ...structuredClone(g), id: ids.get(g.id)!, name: `${g.name} (copie)`, dx: g.dx + 0.03, dy: g.dy + 0.03, pins: undefined, ...(link ? { link } : {}), ...reset(g.anim) }));
+    const copies = group.map((g) => ({ ...structuredClone(g), id: ids.get(g.id)!, name: `${g.name} (copie)`, dx: g.dx + 0.03, dy: g.dy + 0.03, pins: undefined, link: g.link ? links.get(g.link) : undefined, ...reset(g.anim) }));
     update((d) => {
       const at = Math.max(...group.map((g) => d.layers.findIndex((x) => x.id === g.id)));
       const layers = [...d.layers];
       layers.splice(at + 1, 0, ...copies);
       return { ...d, layers };
     });
-    setSelected(ids.get(me.id)!);
-    setToast(`« ${me.name} » dupliqué`);
+    // la copie est choisie comme l'était l'original
+    if (picks) choose([...ids.values()], ids.get(me.id)!);
+    else setSelected(ids.get(me.id)!);
+    setToast(group.length > 1 && (!me.link || group.some((g) => g.link !== me.link)) ? `${group.length} éléments dupliqués` : `« ${me.name} » dupliqué`);
   };
   /** Une couleur lâchée en (x, y) : l'objet visé sur la page ou dans le volet des attributs la prend comme fond. */
   /** L'objet sous un point de l'écran : sur la page, ou la ligne visée du volet des attributs (sinon l'objet ouvert). */
@@ -2648,8 +2683,18 @@ export function App() {
     if (under?.closest('.ap-ecard, .cp-attrs, [data-tint-zone], [data-tint], aside.coupe [data-drop^="edge-"]')) return null;
     const l = layerAtScreen(x, y);
     if (!l || l.kind === 'photo') return null;
-    const group = l.link && !shiftNow.current ? doc.layers.filter((m) => m.link === l.link && m.kind !== 'photo' && m.kind !== 'surface') : [];
+    const group = colorGroup(l);
     return group.length > 1 ? group.map((m) => m.id) : [l.id];
+  };
+  /**
+   * Ce qu'une couleur déposée sur `l` colore : les éléments choisis si `l` en fait partie, sinon tout son
+   * ensemble ; avec Maj, la pièce seule.
+   */
+  const colorGroup = (l: Layer) => {
+    if (shiftNow.current) return [];
+    const ok = (x: Layer) => x.kind !== 'photo' && x.kind !== 'surface';
+    if (pickedIds.has(l.id) && picked.length > 1) return picked.filter(ok);
+    return l.link ? doc.layers.filter((x) => x.link === l.link && ok(x)) : [];
   };
   const dropGuide = (i: number, x: number, y: number) => {
     setDragGuide(null);
@@ -2676,12 +2721,13 @@ export function App() {
     }
     if (l.kind === 'photo') return setToast('Une photo n’a pas de couleur de fond : peins-la ou donne-lui un style');
     // un ensemble (pièces solidaires) se colore en entier ; avec Maj, seule la pièce sous le doigt
-    const group = l.link && !shiftNow.current ? doc.layers.filter((x) => x.link === l.link && x.kind !== 'photo' && x.kind !== 'surface') : [];
+    const group = colorGroup(l);
     if (group.length > 1) {
       const ids = new Set(group.map((x) => x.id));
       update((d) => ({ ...d, layers: d.layers.map((x) => (ids.has(x.id) ? { ...x, guide: i } : x)) }));
-      setSelected(l.id);
+      if (!pickedIds.has(l.id)) setSelected(l.id);
       flashLink([...ids]);
+      if (!l.link || group.some((x) => x.link !== l.link)) return setToast(`Les ${ids.size} éléments choisis prennent la couleur « ${doc.guides[i]?.name} »`);
       return setToast(`L’ensemble (${ids.size} pièces) prend la couleur « ${doc.guides[i]?.name} » : avec Maj, seule la pièce visée`);
     }
     patchLayer(l.id, { guide: i });
@@ -2698,18 +2744,47 @@ export function App() {
     redraw();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragGuide, shift]);
+  /** Un toucher sur un élément déjà choisi attend le lâcher : resté sur place, c'était un simple toucher. */
+  const pressTap = useRef<{ id: number; x: number; y: number; t: number; then: () => void } | null>(null);
+  const pressLater = useRef(0);
   /**
-   * Met à la corbeille les éléments choisis (aujourd'hui un seul, demain une sélection multiple) avec leurs
-   * objets solidaires, sauf si Maj est tenu. Le fond n'est jamais supprimé. Annulable.
+   * Ce qu'un toucher sur l'élément `l` fait du choix ; renvoie les éléments choisis aussitôt (ceux qu'un glisser emporte).
+   * Sans Maj : l'élément avec tout son ensemble (pièces solidaires). Avec Maj : la pièce seule, puis chaque
+   * toucher ajoute un élément au choix ou l'en retire.
    */
-  const removeSelection = (ids: string[] = selected ? [selected] : []) => {
-    const picked = doc.layers.filter((x) => ids.includes(x.id) && x.kind !== 'surface');
-    if (!picked.length) return;
-    const gone = new Set(picked.flatMap((l) => [l.id, ...(shift ? [] : matesOf(doc, l).map((m) => m.id))]));
+  const pickOnPress = (l: Layer, withShift: boolean, e: { pointerId: number; clientX: number; clientY: number }): Layer[] => {
+    const current = pickedOf(doc).map((x) => x.id);
+    const step = pickStep({ main: selected, picks }, current, l.id, withShift);
+    pressTap.current = null;
+    if (step.now.picks) choose(step.now.picks, step.now.main);
+    else setSelected(step.now.main);
+    const tap = step.tap;
+    if (tap) pressTap.current = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), then: () => (tap.picks ? choose(tap.picks, tap.main) : setSelected(tap.main)) };
+    if (step.say === 'many') setToast(`${step.now.picks!.length} éléments choisis : les réglages s’appliquent à chacun`);
+    if (step.say === 'piece') setToast(`Maj : seule la pièce « ${l.name} » est choisie`);
+    return pickedOf(doc, step.now.main, step.now.picks);
+  };
+  /** Un simple toucher (ligne de la liste) : le choix tel qu'il est au lâcher. */
+  const pickTap = (l: Layer, withShift: boolean) => {
+    const step = pickStep({ main: selected, picks }, pickedOf(doc).map((x) => x.id), l.id, withShift);
+    const end = step.tap ?? step.now;
+    if (end.picks) choose(end.picks, end.main);
+    else setSelected(end.main);
+    if (step.say === 'many' && !step.tap) setToast(`${end.picks!.length} éléments choisis : les réglages s’appliquent à chacun`);
+  };
+  /**
+   * Met à la corbeille les éléments choisis (l'ensemble entier par défaut, les seuls éléments choisis avec Maj).
+   * Le fond n'est jamais supprimé. Annulable.
+   */
+  const removeSelection = (ids: string[] = picked.map((l) => l.id)) => {
+    const gonePicked = doc.layers.filter((x) => ids.includes(x.id) && x.kind !== 'surface');
+    if (!gonePicked.length) return;
+    const gone = new Set(gonePicked.map((l) => l.id));
     update((d) => ({ ...d, layers: d.layers.filter((x) => !gone.has(x.id) || x.kind === 'surface') }));
     if (selected && gone.has(selected)) setSelected(null);
-    const first = picked[0]!;
-    setToast(picked.length > 1 ? `${gone.size} éléments à la corbeille` : gone.size > 1 ? `« ${first.name} » et ses objets solidaires à la corbeille` : `« ${first.name} » à la corbeille`);
+    const first = doc.layers.find((x) => x.id === selected && gone.has(x.id)) ?? gonePicked[0]!;
+    const group = first.link ? doc.layers.filter((x) => x.link === first.link) : [first];
+    setToast(gone.size === 1 ? `« ${first.name} » à la corbeille` : group.length === gone.size && group.every((x) => gone.has(x.id)) ? `« ${first.name} » et ses objets solidaires à la corbeille` : `${gone.size} éléments à la corbeille`);
   };
   const removeRef = useRef(removeSelection);
   removeRef.current = removeSelection;
@@ -2764,6 +2839,7 @@ export function App() {
     const me = d.layers.find((x) => x.id === id);
     if (!me) return;
     live.current = { kind: null };
+    pressTap.current = null;
     setTrashHot(false);
     setDupHot(false);
     const ord = renderOrder(d.layers);
@@ -2817,6 +2893,8 @@ export function App() {
   // --- pointeurs ---
   const onDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     hideHover();
+    // un nouveau toucher : le choix laissé en attente par le toucher d'avant ne change plus
+    window.clearTimeout(pressLater.current);
     // aperçu de molette en cours : la vue montrée est appliquée avant de toucher la page
     const flushed = flushWheel();
     (e.target as Element).setPointerCapture(e.pointerId);
@@ -2975,7 +3053,9 @@ export function App() {
         live.current = { kind: null };
         // le premier toucher a pu poser un point de peinture : on le retire
         if (now - dotAt.current < 400) undo();
-        setSelected(hit.id);
+        // déjà choisi parmi d'autres : le choix reste entier, ses réglages s'appliqueront à chacun
+        if (pickedIds.has(hit.id)) setSelectedRaw(hit.id);
+        else setSelected(hit.id);
         setTool(lastEdit.current);
         // la vue se recadre sur l'objet, dans la place laissée libre par l'éditeur
         requestAnimationFrame(() => requestAnimationFrame(() => zoomOn(hit)));
@@ -3011,35 +3091,38 @@ export function App() {
         }
         if (near(h.rot)) {
           update((d) => d);
-          live.current = { kind: 'rotate', layer: sel.id, start: p, orig: structuredClone(sel), mates: shiftHeld(shiftLatch, shiftKey, e.shiftKey) ? [] : structuredClone(matesOf(doc, sel)) };
+          live.current = { kind: 'rotate', layer: sel.id, start: p, orig: structuredClone(sel), mates: structuredClone(pickedOf(doc).slice(1)) };
           return;
         }
         for (const c of h.corners)
           if (near(c.q)) {
             update((d) => d);
-            live.current = { kind: 'resize', layer: sel.id, start: p, orig: structuredClone(sel), opp: c.opp, centered: centeredOnAnchor(sel), mates: shiftHeld(shiftLatch, shiftKey, e.shiftKey) ? [] : structuredClone(matesOf(doc, sel)) };
+            live.current = { kind: 'resize', layer: sel.id, start: p, orig: structuredClone(sel), opp: c.opp, centered: centeredOnAnchor(sel), mates: structuredClone(pickedOf(doc).slice(1)) };
             return;
           }
       }
       const l = layerAt(p.x, p.y);
+      const withShift = shiftHeld(shiftLatch, shiftKey, e.shiftKey);
       if (!l || l.kind === 'surface') {
-        setSelected(l?.id ?? null);
+        // avec Maj, toucher le fond garde le choix en cours
+        if (!withShift) setSelected(l?.id ?? null);
         return;
       }
-      setSelected(l.id);
+      // le choix : toucher prend l'ensemble, Maj prend la pièce seule et ajoute ou retire des éléments
+      const now = pickOnPress(l, withShift, e);
       update((d) => d);
-      // Maj : la pièce solidaire part seule, sans se détacher (et le doigt gardé ne la détache pas)
-      const alone = shiftHeld(shiftLatch, shiftKey, e.shiftKey);
-      live.current = { kind: 'move', layer: l.id, start: p, orig: structuredClone(l), snap: null, mates: alone ? [] : structuredClone(matesOf(doc, l)) };
+      // les autres éléments choisis suivent l'élément tenu
+      live.current = { kind: 'move', layer: l.id, start: p, orig: structuredClone(l), snap: null, mates: structuredClone(now.filter((x) => x.id !== l.id)) };
       stopHold();
-      if (!alone) hold.current = { x: e.clientX, y: e.clientY, timer: window.setTimeout(() => ((hold.current = null), solidarize(l.id, p)), 600) };
-      else if (l.link) setToast('Maj : la pièce bouge seule et reste solidaire');
+      if (!withShift) hold.current = { x: e.clientX, y: e.clientY, timer: window.setTimeout(() => ((hold.current = null), solidarize(l.id, p)), 600) };
       return;
     }
     if (isEdit(t)) {
-      // Transformer : toucher une photo la sélectionne
+      // Transformer : toucher une photo la sélectionne (avec Maj : l'ajoute au choix ou l'en retire)
       const l = layerAt(p.x, p.y);
-      setSelected(l?.id ?? null);
+      const withShift = shiftHeld(shiftLatch, shiftKey, e.shiftKey);
+      if (l && l.kind !== 'surface') pickOnPress(l, withShift, e);
+      else if (!withShift) setSelected(l?.id ?? null);
       return;
     }
     if (t === 'cut' && subjectOn && subject.current) {
@@ -3658,6 +3741,14 @@ export function App() {
     }
     const remaining = pointers.current.size;
     const L = live.current;
+    // un simple toucher sur un élément déjà choisi : il quitte le choix (Maj) ou le choix revient à son ensemble
+    const pt = pressTap.current;
+    pressTap.current = null;
+    if (pt && pt.id === e.pointerId && e.type !== 'pointercancel' && L.kind !== 'view' && performance.now() - pt.t < 500 && Math.hypot(e.clientX - pt.x, e.clientY - pt.y) < 10) {
+      // attendu un instant : un second toucher (double toucher, l'éditeur s'ouvre) garde le choix entier
+      window.clearTimeout(pressLater.current);
+      pressLater.current = window.setTimeout(pt.then, 330);
+    }
     // simple toucher sur le fond : l'outil se range (un instant plus tard, pour laisser place au double toucher)
     const bt = bgTap.current;
     if (bt && bt.id === e.pointerId) {
@@ -4363,12 +4454,18 @@ export function App() {
     if (!l.text) return;
     // texte modelé : c'est une forme, ses lettres reviennent seulement avec « Revenir au texte »
     if (l.molded) return setToast('Ce texte est modelé : « Annuler le modelage » pour le modifier');
-    const t = { ...l.text, ...next };
+    // les autres textes choisis prennent la même typographie (chacun garde ses mots et ses modelages)
+    const { content: _c, swashes: _s, molds: _m, ...style } = next;
+    const others = l.id === picked[0]?.id && Object.keys(style).length ? picked.slice(1).filter((o) => o.text && !o.molded) : [];
+    patchMany([[l.id, textPatch(l, next)], ...others.map((o) => [o.id, textPatch(o, style)] as [string, Partial<Layer>])], history);
+  };
+  const textPatch = (l: Layer, next: Partial<TextStyle>): Partial<Layer> => {
+    const t = { ...l.text!, ...next };
     // enveloppe et prolongements : les lettres restent où elles sont, la boîte s'adapte autour
-    if ('warp' in next || 'swashes' in next || 'molds' in next) return patchLayer(l.id, placeText(l, t), history);
-    const [a, b] = [textCut(l.text), textCut(t)];
+    if ('warp' in next || 'swashes' in next || 'molds' in next) return placeText(l, t);
+    const [a, b] = [textCut(l.text!), textCut(t)];
     const k = l.h / (a.bh || 1);
-    patchLayer(l.id, resizeHeld(l, Math.max(0.01, b.bw * k), Math.max(0.01, b.bh * k), { text: t, cut: undefined }), history);
+    return resizeHeld(l, Math.max(0.01, b.bw * k), Math.max(0.01, b.bh * k), { text: t, cut: undefined });
   };
   /** Nouvelle boîte d'un texte dont les lettres ne bougent pas sur la page (seule l'encre autour change). */
   const placeText = (l0: Layer, t: TextStyle): Partial<Layer> => {
@@ -4575,7 +4672,24 @@ export function App() {
     }
   };
 
-  const patchLayer = (id: string, patch: Partial<Layer>, history = true) => {
+  const patchLayer = (id: string, patch: Partial<Layer>, history = true) => patchMany([[id, patch]], history);
+  /** Plusieurs objets modifiés d'un coup : un seul pas d'annulation. */
+  const patchMany = (list: Array<[string, Partial<Layer>]>, history = true) => {
+    const fn = (d0: Doc) => list.reduce((d, [id, patch]) => patchFn(id, patch)(d), d0);
+    if (history) update(fn);
+    else setDoc(fn);
+  };
+  /**
+   * Un réglage changé sur l'élément principal s'applique à chaque élément choisi : seul ce qui a changé
+   * passe aux autres (une largeur de bord changée garde la couleur de leur bord). La place, la taille,
+   * la découpe, le contenu d'un texte, la forme et l'animation restent ceux de chacun.
+   */
+  const patchPicked = (p: Partial<Layer>, history = true) => {
+    const main = picked[0];
+    if (!main) return;
+    patchMany([[main.id, p], ...picked.slice(1).map((o) => [o.id, spreadPatch(main, o, p)] as [string, Partial<Layer>]).filter(([, q]) => Object.keys(q).length)], history);
+  };
+  const patchFn = (id: string, patch: Partial<Layer>) => {
     // l'extrusion épaissit l'objet entier : toutes ses pièces solidaires la partagent
     const fn = (d: Doc) => {
       const me = d.layers.find((l) => l.id === id);
@@ -4597,8 +4711,7 @@ export function App() {
       // matière ou vernis liés à la palette : l'entrée et les autres objets liés suivent
       return 'material' in patch || 'fx' in patch ? syncRefs(next, id) : next;
     };
-    if (history) update(fn);
-    else setDoc(fn);
+    return fn;
   };
 
   /**
@@ -4614,6 +4727,14 @@ export function App() {
       const ids = new Set(mates.map((x) => x.id));
       return { ...d, layers: d.layers.map((x) => (ids.has(x.id) ? { ...x, ...heightPatch(Math.round((levelOf(x) + dv) * 1000) / 1000) } : x)) };
     });
+
+  /** Hauteur de l'élément principal ; les autres éléments choisis (avec Maj) montent ou descendent d'autant. */
+  const setPickedLevel = (l: Layer, v: number) => {
+    if (!picks || picked.length < 2) return setLevel(l, v);
+    const dv = v - levelOf(l);
+    const ids = new Set(picked.filter((x) => x.kind !== 'surface').map((x) => x.id));
+    setDoc((d) => ({ ...d, layers: d.layers.map((x) => (ids.has(x.id) ? { ...x, ...heightPatch(x.id === l.id ? v : Math.round((levelOf(x) + dv) * 1000) / 1000) } : x)) }));
+  };
 
   /**
    * Molette, trackpad : quand repeindre la page prend du temps (ordinateur sans carte graphique, page
@@ -4770,7 +4891,7 @@ export function App() {
           <div
             key={l.id}
             data-layer={l.id}
-            className={`layer ${l.id === selected ? 'on' : ''} ${l.visible ? '' : 'hidden'} ${listDrag?.id === l.id ? 'dragging' : ''} ${listDrag?.over === l.id ? (listDrag.above ? 'drop-above' : 'drop-below') : ''}`}
+            className={`layer ${l.id === selected ? 'on' : pickedIds.has(l.id) ? 'picked' : ''} ${l.visible ? '' : 'hidden'} ${listDrag?.id === l.id ? 'dragging' : ''} ${listDrag?.over === l.id ? (listDrag.above ? 'drop-above' : 'drop-below') : ''}`}
             onPointerDown={(e) => {
               // on glisse l'objet par sa vignette ; ailleurs, le doigt fait défiler la liste
               if ((e.target as HTMLElement).closest('button')) return;
@@ -4803,7 +4924,8 @@ export function App() {
                 if (listDrag?.over) dropLayer(l.id, listDrag.over, !!listDrag.above);
                 setListDrag(null);
               } else if (pr) {
-                setSelected(l.id);
+                // la liste suit la règle de la page : l'ensemble, ou avec Maj la pièce seule et plusieurs éléments
+                pickTap(l, shiftHeld(shiftLatch, shiftKey, e.shiftKey));
                 // deux touchers rapprochés sur le nom : on le renomme
                 const now = performance.now();
                 const last = listTap.current;
@@ -5416,13 +5538,13 @@ export function App() {
               </button>
               {sel.kind !== 'surface' && (
                 <div className="rail-height" title="Hauteur : au-dessus de 0 l'objet se soulève (ombre), en dessous il se creuse">
-                  <VSlider label="Hauteur" center value={0.5 + (sel.height - (sel.inner ?? 0)) / 2} onChange={(v) => setLevel(sel, Math.abs(v - 0.5) < 0.03 ? 0 : Math.round((v * 2 - 1) * 100) / 100)} />
+                  <VSlider label="Hauteur" center value={0.5 + (sel.height - (sel.inner ?? 0)) / 2} onChange={(v) => setPickedLevel(sel, Math.abs(v - 0.5) < 0.03 ? 0 : Math.round((v * 2 - 1) * 100) / 100)} />
                 </div>
               )}
               <button
                 className={`btn small ${sel.visible ? '' : 'on'}`}
                 aria-pressed={!sel.visible}
-                onClick={() => patchLayer(sel.id, { visible: !sel.visible })}
+                onClick={() => patchPicked({ visible: !sel.visible })}
                 title={sel.visible ? `Cacher « ${sel.name} »` : `Montrer « ${sel.name} » (caché)`}
                 aria-label={sel.visible ? 'Cacher' : 'Montrer'}
               >
@@ -5442,7 +5564,7 @@ export function App() {
               layer={sel}
               doc={doc}
               f={f}
-              patch={(p, h) => patchLayer(sel.id, p, h)}
+              patch={(p, h) => patchPicked(p, h)}
               onDoc={(fn) => update(fn)}
               onClose={() => setWizard(false)}
               onToast={(m, u) => {
@@ -5465,7 +5587,7 @@ export function App() {
               layer={sel}
               doc={doc}
               f={f}
-              patch={(p, h) => patchLayer(sel.id, p, h)}
+              patch={(p, h) => patchPicked(p, h)}
               targetAt={layerAtScreen}
               patchOther={(id, p) => patchLayer(id, p)}
               onDoc={update}
@@ -8078,3 +8200,4 @@ function EdgeControls({ layer: l, guides, pop, setPop, patch }: { layer: Layer; 
     </>
   );
 }
+
