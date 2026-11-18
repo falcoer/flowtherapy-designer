@@ -1,7 +1,7 @@
 import { ringsToPath } from '../cut';
 import type { Pt } from '../model';
 import { silhouetteRings } from '../silhouettes';
-import { cached, numOf, type Anim, type Generator, type Progress } from './kit';
+import { cached, numOf, type Anim, type Generator, type Progress, type Warp } from './kit';
 
 /**
  * Gestes de la forme « Goutte » (Generator.on = « shape:drop ») : la goutte s'affaisse au bas de sa boîte et s'étale en flaque,
@@ -71,6 +71,24 @@ function cut(a: Anim, _phase: number, g: Progress): string {
   return cached(`pd|${a.wide ?? ''}|${u}`, () => ringsToPath([ringAt(a, u)], 0.0006, 40));
 }
 
+const even = (n: number) => Array.from({ length: n + 1 }, (_, i) => i / n);
+/**
+ * Déformation de la surface (Generator.warp) : la boîte de la goutte s'écrase vers celle de la flaque, au même pas que son contour
+ * (la pointe plus vite que le ventre) ; la teinte, le dégradé, l'image et la peinture s'étalent avec l'eau.
+ */
+function warp(a: Anim, _phase: number, g: Progress): Warp | null {
+  const u = frameOf(g);
+  if (!u) return null;
+  const { rx, ry, cy } = puddleAt(a, u);
+  const e = smooth(u / 0.6);
+  const map = (x: number, y: number): [number, number] => {
+    const k = Math.min(1, e * (1 + 0.6 * (1 - y)));
+    const [X, Y] = [0.5 + (x - 0.5) * 2 * rx, cy - ry + y * 2 * ry];
+    return [x + (X - x) * k, y + (Y - y) * k];
+  };
+  return { key: `pw|${a.wide ?? ''}|${u}`, us: even(8), vs: even(16), map };
+}
+
 export const puddle: Generator = {
   kind: 'puddle',
   name: 'Goutte',
@@ -81,6 +99,7 @@ export const puddle: Generator = {
   params: [{ key: 'wide', name: 'Étalement', title: 'Largeur de la flaque, en largeurs de goutte', type: 'range', min: 1, max: 3, def: 2 }],
   gestures: () => [{ id: 'spread', name: 'Flaque', note: 'tombe et s’étale', params: ['wide'], len: 0.5, start: false }],
   cut,
+  warp,
   // un os de la pointe au ventre : un objet posé sur la goutte descend avec elle
   skeleton: (a, _phase, g) => {
     const r = ringAt(a, frameOf(g));

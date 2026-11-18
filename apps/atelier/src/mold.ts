@@ -2,7 +2,8 @@ import type { Format } from '@ftd/core';
 import { geomArea, pathToRings, ringsOfGeom, ringsToPath, simplifyRing, subtract, union, type Ring } from './cut';
 import type { Layer } from './model';
 import { cutOf } from './scene';
-import { moldPx, type Mold } from './text';
+import { moldNodes, moldPx, type Mold } from './text';
+import { restGrid } from './warp';
 
 /**
  * Outil Modeler : la découpe de n'importe quel objet se tire ou se repousse au stylet.
@@ -63,14 +64,29 @@ export function moldPatch(l: Layer, f: Format, base: Ring[], pristine: Ring[], m
     const [x0, y0, x1, y1] = [fr[0] * KX, fr[1] * KY, fr[2] * KX, fr[3] * KY];
     rings = rings.map((r) => r.map((p) => ({ x: Math.max(x0, Math.min(x1, p.x)), y: Math.max(y0, Math.min(y1, p.y)) })));
   }
-  return bake(l, f, rings, m.live ? 0.6 : 0.35);
+  // la surface suit : la grille posée sur la boîte d'origine bouge comme le contour (pas sur une photo, qui garde son cadre, ni sur un sticker, que son animation plie)
+  const mesh = l.kind === 'photo' || l.anim ? l.molded?.mesh : moveMesh(l, m);
+  return bake(l, f, rings, m.live ? 0.6 : 0.35, mesh);
+}
+
+/** La grille de la surface après le geste, dans le repère de la boîte d'origine. */
+function moveMesh(l: Layer, m: Mold): number[] | undefined {
+  if (m.smooth || m.orn) return l.molded?.mesh;
+  const { KX, KY } = space(l);
+  // une forme modelée avant la grille garde sa surface comme avant
+  const g = l.molded ? l.molded.mesh : restGrid();
+  if (!g) return undefined;
+  const px = new Float64Array(g.length);
+  for (let i = 0; i < g.length; i += 2) [px[i], px[i + 1]] = [g[i]! * KX, g[i + 1]! * KY];
+  const out = moldNodes(px, m);
+  return Array.from(out, (v, i) => Math.round((v / (i % 2 ? KY : KX)) * 1e4) / 1e4);
 }
 
 /**
  * Pose des contours (pixels de travail) comme nouvelle découpe : la boîte suit leur emprise et la
  * peinture reste en place sur la page (ses points sont repris dans la nouvelle boîte).
  */
-function bake(l: Layer, f: Format, rings: Ring[], eps: number): Partial<Layer> {
+function bake(l: Layer, f: Format, rings: Ring[], eps: number, mesh = l.molded?.mesh): Partial<Layer> {
   const { fr, KX, KY } = space(l);
   const keep = l.kind === 'photo';
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
@@ -85,7 +101,7 @@ function bake(l: Layer, f: Format, rings: Ring[], eps: number): Partial<Layer> {
   const b: Frame = keep ? fr : [x0 / KX, y0 / KY, x1 / KX, y1 / KY];
   const [bw, bh] = [(b[2] - b[0]) * KX || 1, (b[3] - b[1]) * KY || 1];
   const norm = rings.map((r) => simplifyRing(r, eps).map((p) => ({ x: (p.x - b[0] * KX) / bw, y: (p.y - b[1] * KY) / bh })));
-  return { cut: ringsToPath(norm, 1e-6, 55, false), molded: { cut: l.molded ? l.molded.cut : l.cut, frame: b }, ...(keep ? {} : { ...rebox(l, f, fr, b), strokes: restroke(l, fr, b) }) };
+  return { cut: ringsToPath(norm, 1e-6, 55, false), molded: { cut: l.molded ? l.molded.cut : l.cut, frame: b, ...(mesh ? { mesh } : {}) }, ...(keep ? {} : { ...rebox(l, f, fr, b), strokes: restroke(l, fr, b) }) };
 }
 
 /** Points de peinture du cadre `a` vers le cadre `b` (repère d'origine) : la peinture ne bouge pas sur la page. */
@@ -147,5 +163,5 @@ export function refit(l: Layer, f: Format, cut: string): Partial<Layer> {
   const b: Frame = [x0, y0, x1, y1];
   if (b.every((v, i) => Math.abs(v - fr[i]!) < 1e-9)) return { cut };
   const norm = rings.map((r) => r.map((p) => ({ x: (p.x - x0) / (x1 - x0), y: (p.y - y0) / (y1 - y0) })));
-  return { cut: ringsToPath(norm, 1e-6, 55, false), molded: { cut: l.molded?.cut, frame: b }, ...rebox(l, f, fr, b), strokes: restroke(l, fr, b) };
+  return { cut: ringsToPath(norm, 1e-6, 55, false), molded: { ...l.molded, cut: l.molded?.cut, frame: b }, ...rebox(l, f, fr, b), strokes: restroke(l, fr, b) };
 }

@@ -7,7 +7,7 @@ import { pathToRings, ringsToPath, simplifyRing, type Ring, insideRings } from '
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
 import { animCut, carved, generatorOf, posed } from './anim';
-import { bentCut, bonesOf, drawWarped, meshOf, surfaceWarp, type Mesh } from './warp';
+import { bentCut, bonesOf, drawWarped, meshOf, moldMesh, surfaceWarp, type Mesh } from './warp';
 export { restCut, surfaceWarp, warpFor } from './warp';
 import { EDGE_ELEMENTS, edgeStroke } from './elements';
 import { bevelLift, bevelSoftOf, blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
@@ -1470,24 +1470,70 @@ function drawMaterial(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Form
     }
   } else {
     const g = doc.guides[l.guide];
-    const shaped = shapedFill(ctx, g, { x0, y0, x1: x0 + b.w, y1: y0 + b.h }, l.grad);
-    if (shaped) ctx.fillStyle = shaped;
-    else if (g?.type === 'gradient') {
-      const grad = ctx.createLinearGradient(x0, y0, x0, y0 + b.h);
-      blendStops(g.stops, g.blend).forEach(([p, c]) => grad.addColorStop(p, c));
-      ctx.fillStyle = grad;
-    } else ctx.fillStyle = guideColor(g);
-    // lettres animées (chute, décrochage), forme animée sur place (goutte en flaque) : elles sortent de la boîte, la teinte les suit partout où la page les montre
-    // (un carré autour de l'objet qui couvre toute la page, même tourné ; la découpe limite le remplissage)
-    if (l.anim && (l.text || generatorOf(l.anim)?.on || generatorOf(l.anim)?.spill?.(l.anim))) {
-      const R = 2 * (f.width + f.height + b.w + b.h);
-      ctx.fillRect(b.cx - R, b.cy - R, 2 * R, 2 * R);
+    // forme modelée : le dégradé ou l'image posés sur la forme d'origine suivent la matière tirée
+    const mm = l.molded && g && g.type !== 'color' ? moldMesh(l) : null;
+    if (mm && !surfaceWarp(l)) drawMoldedFill(ctx, l, g!, mm, x0, y0, b.w, b.h);
+    else {
+      const shaped = shapedFill(ctx, g, { x0, y0, x1: x0 + b.w, y1: y0 + b.h }, l.grad);
+      if (shaped) ctx.fillStyle = shaped;
+      else if (g?.type === 'gradient') {
+        const grad = ctx.createLinearGradient(x0, y0, x0, y0 + b.h);
+        blendStops(g.stops, g.blend).forEach(([p, c]) => grad.addColorStop(p, c));
+        ctx.fillStyle = grad;
+      } else ctx.fillStyle = guideColor(g);
+      // lettres animées (chute, décrochage), forme animée sur place (goutte en flaque) : elles sortent de la boîte, la teinte les suit partout où la page les montre
+      // (un carré autour de l'objet qui couvre toute la page, même tourné ; la découpe limite le remplissage)
+      if (l.anim && (l.text || generatorOf(l.anim)?.on || generatorOf(l.anim)?.spill?.(l.anim))) {
+        const R = 2 * (f.width + f.height + b.w + b.h);
+        ctx.fillRect(b.cx - R, b.cy - R, 2 * R, 2 * R);
+      } else ctx.fillRect(x0, y0, b.w, b.h);
     }
-    else ctx.fillRect(x0, y0, b.w, b.h);
   }
   // peinture
   const paint = paintFor(l, doc, f, o.paintAt ?? o.scale, o.progressive ? { redraw: o.onImage, ms: 6 } : undefined);
   if (paint) ctx.drawImage(paint, x0, y0, b.w, b.h);
+}
+
+// la teinte d'une forme modelée, rendue à plat sur sa boîte d'origine avant d'être posée sur sa grille
+let moldBuffer: HTMLCanvasElement | null = null;
+const MOLD_MAX = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0 ? 1024 : 1536;
+/**
+ * Teinte (dégradé, image) d'une forme modelée : posée sur la boîte d'origine, emmenée par la grille du modelage (Layer.molded.mesh).
+ * Dessous, la teinte posée sur la boîte actuelle couvre ce que la grille, plus grossière que le contour, laisserait à nu.
+ */
+function drawMoldedFill(ctx: CanvasRenderingContext2D, l: Layer, g: Guide, mesh: Mesh, x0: number, y0: number, bw: number, bh: number) {
+  const fr = l.molded!.frame;
+  const [W, H] = [fr[2] - fr[0] || 1, fr[3] - fr[1] || 1];
+  // la boîte d'origine, dans le repère courant
+  const [pw, ph] = [bw / W, bh / H];
+  const [px0, py0] = [x0 - fr[0] * pw, y0 - fr[1] * ph];
+  const paint = (c: CanvasRenderingContext2D, X: number, Y: number, w: number, h: number) => {
+    const shaped = shapedFill(c, g, { x0: X, y0: Y, x1: X + w, y1: Y + h }, l.grad);
+    if (shaped) c.fillStyle = shaped;
+    else if (g.type === 'gradient') {
+      const grad = c.createLinearGradient(X, Y, X, Y + h);
+      blendStops(g.stops, g.blend).forEach(([p, col]) => grad.addColorStop(p, col));
+      c.fillStyle = grad;
+    } else c.fillStyle = guideColor(g);
+  };
+  paint(ctx, x0, y0, bw, bh);
+  ctx.fillRect(x0, y0, bw, bh);
+  const T = ctx.getTransform();
+  const px = Math.hypot(T.a, T.b);
+  const k = Math.min(px, MOLD_MAX / Math.max(pw, ph));
+  const iw = Math.max(1, Math.ceil(pw * k));
+  const ih = Math.max(1, Math.ceil(ph * k));
+  const c = (moldBuffer ??= document.createElement('canvas'));
+  if (c.width < iw || c.height < ih || c.width * c.height > 4 * iw * ih) {
+    c.width = iw;
+    c.height = ih;
+  }
+  const bx = c.getContext('2d')!;
+  bx.setTransform(1, 0, 0, 1, 0, 0);
+  bx.clearRect(0, 0, c.width, c.height);
+  paint(bx, 0, 0, iw, ih);
+  bx.fillRect(0, 0, iw, ih);
+  drawWarped(ctx, c, iw, ih, mesh, px0, py0, pw, ph, px);
 }
 
 /** Matière et peinture de la couche (effets de matière compris), son encre fraîche et son relief, dans sa boîte. */
@@ -1560,6 +1606,7 @@ function fxBuffer(l: Layer, doc: Doc, f: Format, o: DrawOptions): HTMLCanvasElem
     b.w,
     b.h,
     l.molded?.frame,
+    l.molded?.mesh ? moldMesh(l)?.key : 0,
     cutId(l),
     l.kind,
     l.text,

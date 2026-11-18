@@ -66,6 +66,30 @@ export function tipDist(x: number, y: number, R: number, tip: Mold['tip'], rot: 
   return Math.max(0, d) ** 2;
 }
 
+/**
+ * Le même geste sur des points libres (pixels du même repère) : les nœuds du maillage de la surface d'une forme modelée
+ * bougent exactement comme son contour, la teinte, le dégradé ou l'image suivent la matière tirée. Sans effet pour le lissage et les ornements.
+ */
+export function moldNodes(nodes: Float64Array, m: Mold): Float64Array {
+  const out = Float64Array.from(nodes);
+  if (m.smooth || m.orn) return out;
+  const R = Math.max(2, m.r);
+  for (let i = 1; i < m.pts.length; i++) {
+    const [ax, ay] = m.pts[i - 1]!;
+    const [bx, by] = m.pts[i]!;
+    const [dx, dy] = [bx - ax, by - ay];
+    if (!dx && !dy) continue;
+    for (let k = 0; k < out.length; k += 2) {
+      const d2 = tipDist(out[k]! - ax, out[k + 1]! - ay, R, m.tip, m.rot ?? 0);
+      if (d2 >= 1) continue;
+      const f = (1 - d2) ** 2 * (m.k ?? 1);
+      out[k] += dx * f;
+      out[k + 1] += dy * f;
+    }
+  }
+  return out;
+}
+
 function mold(rings: Ring[], m: Mold, X0: number, Y0: number, size: number, pristine: Ring[]): Ring[] {
   if (m.smooth) return regularize(rings, m.smooth * size, pristine);
   if (m.orn) return ornament(rings, m.orn, X0, Y0, size, !!m.live);

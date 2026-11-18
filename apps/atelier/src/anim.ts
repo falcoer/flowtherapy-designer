@@ -64,7 +64,7 @@ export function animOf(l: Layer): Anim | undefined {
  * Forme animée sculptée (découpée, modelée) qui garde son animation : son générateur plie la forme (Generator.warp),
  * et sa découpe a été ramenée sur la forme au repos (`anim.carved`). Les formes figées d'avant n'ont pas la marque.
  */
-export const carved = (l: Layer) => !!l.cut && !!l.anim && !l.text && !!l.anim.carved && !!generatorOf(l.anim)?.warp;
+export const carved = (l: Layer) => !!l.cut && !!l.anim && !l.text && !!l.anim.carved && !!generatorOf(l.anim)?.warp && !generatorOf(l.anim)?.on;
 /** L'objet bouge-t-il de lui-même (sticker, forme sculptée qui garde son animation) ? */
 const lives = (l: Layer) => !!l.anim && (!l.cut || carved(l));
 
@@ -192,11 +192,11 @@ export function animCut(a: Anim, t = now, host?: Context['host']): string {
   return g.cut(s.a, s.phase, s.progress, { each: s.each, host });
 }
 /** Déformation de la surface de la forme animée à l'instant t, si son générateur en a une (voir Generator.warp). */
-export function animWarp(a: Anim, t = now): Warp | null {
+export function animWarp(a: Anim, t = now, host?: Context['host']): Warp | null {
   const g = generatorOf(a);
   if (!g?.warp) return null;
   const s = stateAt(g, a, t);
-  return g.warp(s.a, s.phase, s.progress, { each: s.each });
+  return g.warp(s.a, s.phase, s.progress, { each: s.each, host });
 }
 /** Découpe de la vignette d'un générateur, figée à l'avancée qu'il choisit. */
 export function glyphCut(a: Anim): string {
@@ -221,7 +221,7 @@ export function animFollow(a: Anim, u: number, v: number, t = now): { dx: number
   if (!g) return null;
   const s = stateAt(g, a, t);
   // une surface qui se plie (oiseau) : le point suit la surface, prise à plat, plus fidèle que ses os
-  if (g.skeleton && !g.warp) {
+  if (g.skeleton && !g.surfaceFollow) {
     const rest = g.skeleton(s.a, 0, () => 0, { each: () => [] });
     const cur = g.skeleton(s.a, s.phase, s.progress, { each: s.each });
     // distances mesurées dans un repère aux unités égales : la boîte n'est pas carrée

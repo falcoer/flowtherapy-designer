@@ -201,6 +201,8 @@ export interface Generator {
   /** La découpe sort de la boîte de l'objet (cils d'un œil) : la teinte la suit hors de la boîte. Matière, peinture et relief restent dans la boîte. */
   spill?: (a: Anim) => boolean;
   skeleton?: (a: Anim, phase: number, g: Progress, ctx: Context) => Array<[[number, number], [number, number]]>;
+  /** Un objet attaché suit la surface pliée (warp) plutôt que l'os le plus proche (l'oiseau : ses os ne disent pas tout du battement). */
+  surfaceFollow?: boolean;
   /** Proportions de la boîte (largeur / hauteur). */
   ratio: (a: Anim) => number;
   /** Consigne de mouvement ajoutée au plan général, à une avancée du cycle. */
@@ -228,6 +230,11 @@ export interface Warp {
   us: number[];
   vs: number[];
   map: (u: number, v: number) => [number, number];
+  /**
+   * Morceau de la surface sous un point de la boîte au repos (une lettre) : la surface se déchire entre deux morceaux,
+   * une maille dont les coins vont à des morceaux différents n'est pas posée (elle ne porte rien, et tirée elle couvrirait ses voisines).
+   */
+  part?: (u: number, v: number) => number;
 }
 
 /** Valeur d'un paramètre : celle des données, sinon celle de départ. */
@@ -263,4 +270,65 @@ export function cached(key: string, make: () => string): string {
     cache.set(key, (d = make()));
   }
   return d;
+}
+
+type Bone = [[number, number], [number, number]];
+/**
+ * Déformation de la surface par ses os (Generator.warp d'un sticker articulé) : chaque point suit l'os dont il est le plus près
+ * au repos, en gardant sa place le long de l'os et son écart à lui (comme un objet attaché) ; près d'une articulation,
+ * il prend un peu des deux os, pour que la peau se plie au lieu de se déchirer. `only` : les os qui portent cette pièce.
+ * `ratio` : largeur / hauteur de la boîte (les distances se mesurent à unités égales). Nul quand les os n'ont pas bougé.
+ */
+export function skinWarp(key: string, rest: Bone[], cur: Bone[], ratio: number, only?: number[], band = 0.035): Warp | null {
+  const ids = (only ?? rest.map((_, i) => i)).filter((i) => rest[i] && cur[i]);
+  const q = (v: number) => Math.round(v * 2000);
+  const sig = (bs: Bone[]) => ids.map((i) => bs[i]!.flat().map(q).join(',')).join(';');
+  const now = sig(cur);
+  if (!ids.length || now === sig(rest)) return null;
+  const r = ratio || 1;
+  // chaque os : son repère au repos et à l'instant (attache, direction, longueur), à unités égales
+  const frames = ids.map((i) => {
+    const [[ax, ay], [bx, by]] = rest[i]!;
+    const [[cx, cy], [dx, dy]] = cur[i]!;
+    const [p, v] = [[ax * r, ay], [(bx - ax) * r, by - ay]];
+    const [s, w] = [[cx * r, cy], [(dx - cx) * r, dy - cy]];
+    const rot = Math.atan2(w[1]!, w[0]!) - Math.atan2(v[1]!, v[0]!);
+    return { p, v, len2: v[0]! ** 2 + v[1]! ** 2 || 1e-9, s, w, c: Math.cos(rot), sn: Math.sin(rot) };
+  });
+  type F = (typeof frames)[number];
+  const near = (F: F, x: number, y: number) => {
+    const k = Math.max(0, Math.min(1, ((x - F.p[0]!) * F.v[0]! + (y - F.p[1]!) * F.v[1]!) / F.len2));
+    return { k, d: Math.hypot(x - F.p[0]! - k * F.v[0]!, y - F.p[1]! - k * F.v[1]!) };
+  };
+  const move = (F: F, k: number, x: number, y: number): [number, number] => {
+    const [ox, oy] = [x - F.p[0]! - k * F.v[0]!, y - F.p[1]! - k * F.v[1]!];
+    return [F.s[0]! + k * F.w[0]! + ox * F.c - oy * F.sn, F.s[1]! + k * F.w[1]! + ox * F.sn + oy * F.c];
+  };
+  const map = (u: number, v: number): [number, number] => {
+    const [x, y] = [u * r, v];
+    let [b1, b2] = [-1, -1];
+    let [d1, d2, k1, k2] = [Infinity, Infinity, 0, 0];
+    frames.forEach((F, i) => {
+      const { k, d } = near(F, x, y);
+      if (d < d1) [b2, d2, k2, b1, d1, k1] = [b1, d1, k1, i, d, k];
+      else if (d < d2) [b2, d2, k2] = [i, d, k];
+    });
+    let [X, Y] = move(frames[b1]!, k1, x, y);
+    if (b2 >= 0 && d2 - d1 < band) {
+      const t = 0.5 * (1 - (d2 - d1) / band);
+      const [X2, Y2] = move(frames[b2]!, k2, x, y);
+      [X, Y] = [X + (X2 - X) * t, Y + (Y2 - Y) * t];
+    }
+    return [X / r, Y];
+  };
+  // maillage : régulier, plus une ligne par articulation (là où la peau se plie)
+  const lines = (pick: (p: [number, number]) => number) => {
+    const xs = [...Array.from({ length: 17 }, (_, i) => i / 16), ...ids.flatMap((i) => rest[i]!.map(pick))].filter((x) => x >= 0 && x <= 1).sort((a, b) => a - b);
+    const out = [0];
+    for (const x of xs) if (x - out[out.length - 1]! > 0.01) out.push(x);
+    if (1 - out[out.length - 1]! < 0.01) out.pop();
+    out.push(1);
+    return out;
+  };
+  return { key: `${key}|${now}`, us: lines((p) => p[0]), vs: lines((p) => p[1]), map };
 }

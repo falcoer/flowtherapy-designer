@@ -1,7 +1,7 @@
 import polygonClipping, { type Polygon } from 'polygon-clipping';
 import { ringsToPath } from '../cut';
 import type { Pt } from '../model';
-import { cached, frac, numOf, type Anim, type Generator, type Param, type Preset, type Context, type Progress } from './kit';
+import { cached, frac, numOf, skinWarp, type Anim, type Generator, type Param, type Preset, type Context, type Progress } from './kit';
 
 /**
  * Humanoïde vu de face : un squelette (tête, épaules, coudes, mains, hanches, genoux, pieds) habillé de chair,
@@ -376,6 +376,17 @@ function skeleton(a: Anim, _phase: number, g: Progress, ctx?: Context): Array<[[
   return bones.map(([p, q]) => [at(p), at(q)]);
 }
 
+/** Les os qui portent chaque pièce (dans l'ordre du squelette) : un bras se plie au coude, le torse suit colonne, clavicules et bassin. */
+const PART_BONES: Record<string, number[]> = { head: [0], torso: [1, 2, 3, 4, 5], armL: [6, 7], armR: [8, 9], legL: [10, 11], legR: [12, 13] };
+
+/** Déformation de la surface (Generator.warp) : la teinte, le dégradé, l'image et la peinture d'une pièce suivent ses os. */
+function warp(a: Anim, phase: number, g: Progress, ctx?: Context) {
+  const part = typeof a.part === 'string' ? a.part : '';
+  const rest = skeleton(a, 0, () => 0, { each: () => [] });
+  const cur = skeleton(a, phase, g, ctx);
+  return skinWarp(`hw|${part}|${KEYS.map((k) => a[k] ?? '').join('|')}`, rest, cur, BOX_W / BOX_H, PART_BONES[part]);
+}
+
 const KEYS = ['sex', 'heads', 'build', 'shoulders', 'legs', 'arms', 'headT', 'torsoT', 'limbT', 'stride', 'swing', 'waves'];
 
 function cut(a: Anim, _phase: number, g: Progress, ctx?: Context): string {
@@ -490,6 +501,7 @@ export const humanoid: Generator = {
   parts: PARTS,
   cut,
   skeleton,
+  warp,
   ratio: () => BOX_W / BOX_H,
   // le saut soulève l'objet entier : toutes les pièces montent ensemble
   order: (a, _phase, g) => ({ by: -0.22 * (0.3 + 0.7 * unit(a, 'leap', 0.5)) * jumpOf(Math.round(Math.max(0, Math.min(1, g('jump'))) * JUMP_FRAMES) / JUMP_FRAMES).air }),

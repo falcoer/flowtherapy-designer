@@ -479,6 +479,7 @@ export const bird: Generator = {
   warp,
   bones,
   skeleton,
+  surfaceFollow: true,
   focus,
   ratio: (a) => {
     const f = frameOf(morphOf(a));

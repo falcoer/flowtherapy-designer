@@ -2647,7 +2647,7 @@ export function App() {
    * ramenée sur la forme au repos et la forme garde son animation. Sans effet sur les autres formes.
    */
   const carve = (l: Layer, patch: Partial<Layer>, t?: number): Partial<Layer> => {
-    if (!patch.cut || !l.anim || l.text || !generatorOf(l.anim)?.warp || (l.cut && !l.anim.carved)) return patch;
+    if (!patch.cut || !l.anim || l.text || !generatorOf(l.anim)?.warp || generatorOf(l.anim)?.on || (l.cut && !l.anim.carved)) return patch;
     const next = { ...l, ...patch };
     const cut = restCut(next, patch.cut, t);
     // modelée : la boîte s'ajuste à la forme au repos (qui peut dépasser celle de l'instant)
