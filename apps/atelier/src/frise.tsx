@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, type PointerEvent as RPointerEvent } from 'react';
-import { ACCELS, actsOf, animOf, BRAKES, generatorOf, gesturesOf, moveName, newAct, newMove, withActs, type Accel, type Act, type Anim, type Brake, type Gesture, type Move, type Timing } from './anim';
+import { ACCELS, actsOf, animOf, BRAKES, generatorOf, gesturesOf, moveName, newAct, newAnim, newMove, withActs, type Accel, type Act, type Anim, type Brake, type Gesture, type Move, type Timing } from './anim';
 import { Fan } from './fan';
 import type { Layer } from './model';
 
@@ -35,6 +35,13 @@ export function scrub(e: RPointerEvent<HTMLElement>, total: number, seek: (t: nu
   el.addEventListener('pointercancel', end);
 }
 
+/** Vignette du squelette : une silhouette en os. */
+const RIG_ICON = (
+  <svg viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="4.5" r="2.2" />
+    <path d="M12 7v7M12 9l-4.5 3.5L6 16M12 9l4.5 3.5L18 16M12 14l-3 4.5V21M12 14l3 4.5V21" />
+  </svg>
+);
 const MOVE_ICON = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" />
@@ -42,7 +49,9 @@ const MOVE_ICON = (
 );
 
 /** Vignette d'un geste dans le choix : le sticker entier, pris au milieu du geste. Un texte (pas de forme à lui) garde une lettre. */
-function gestureIcon(a: Anim, g: Gesture, tm: Timing) {
+function gestureIcon(a0: Anim, g: Gesture, tm: Timing) {
+  // un objet habillé d'un squelette : la vignette montre l'humanoïde qui fait le geste
+  const a: Anim = a0.kind === 'rig' ? { ...newAnim(generatorOf('humanoid')!), acts: [] } : a0;
   const gen = generatorOf(a);
   if (gen && gen.on !== 'text')
     try {
@@ -72,6 +81,7 @@ export function Frise({
   onSeek,
   onMotion,
   onAnim,
+  onRig,
   settings,
   head,
   onShown,
@@ -87,6 +97,8 @@ export function Frise({
   onMotion: (id: string, motion: Move[], history: boolean) => void;
   /** Nouvelles données du sticker d'un objet (ses gestes posés). */
   onAnim: (id: string, anim: Anim, history: boolean) => void;
+  /** Pose (true) ou retire (false) un squelette dans l'objet (photo, forme) : on l'habille, ses gestes s'offrent ensuite ici. */
+  onRig?: (id: string, on: boolean) => void;
   /** Réglages du sticker : ceux du geste posé choisi, ou sans geste ceux de sa forme. */
   settings?: (act: Act | null) => React.ReactNode;
   /** Commandes de lecture (celles de la barre d'animation), en tête du panneau, fixes au défilement. */
@@ -299,9 +311,13 @@ export function Frise({
                     items={[
                       { key: '', icon: MOVE_ICON, label: 'Mouvement', hint: 'déplacer, tourner, grandir, monter' },
                       ...gestures.map((g) => ({ key: g.id, icon: a ? gestureIcon(a, g, timing) : null, label: g.name, hint: g.note })),
+                      // une photo, une forme sans animation : on peut y poser un squelette (l'habiller) ; puis l'en retirer
+                      ...(onRig && me && !a && (me.kind === 'photo' || (me.kind === 'shape' && !me.text)) ? [{ key: '#rig', icon: RIG_ICON, label: 'Squelette', hint: 'habiller un humanoïde avec cet objet' }] : []),
+                      ...(onRig && me && a?.kind === 'rig' ? [{ key: '#unrig', icon: RIG_ICON, label: 'Sans squelette', hint: 'retirer les os de l’objet' }] : []),
                     ]}
                     onPick={(k) => {
                       setMenu(false);
+                      if (k === '#rig' || k === '#unrig') return me && onRig?.(me.id, k === '#rig');
                       const g = gestures.find((x) => x.id === k);
                       if (g) addAct(g, Math.round(nowAt * 4) / 4);
                       else addMove(Math.floor(nowAt + 1e-6));

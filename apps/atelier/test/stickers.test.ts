@@ -6,7 +6,7 @@ import { bonesOf } from '../src/warp';
 import { boneCarry, boneFrames, boneNear, nearestBones, skinWarp, type Bone } from '../src/stickers/kit';
 import { ringsToPath } from '../src/cut';
 import { silhouetteRings } from '../src/silhouettes';
-import { animOf, animSkeleton } from '../src/anim';
+import { animOf, animSkeleton, animWarp, jointsText, newRig, RIG_JOINTS, rigJoints } from '../src/anim';
 import { setAnimTime } from '../src/anim';
 
 const layer = (p: Partial<Layer>): Layer => ({ id: 'a', name: 'a', kind: 'shape', anchor: { frame: 'page', point: 'c' } as Layer['anchor'], dx: 0, dy: 0, w: 0.5, h: 0.5, guide: 0, height: 0, visible: true, strokes: [], ...p }) as Layer;
@@ -495,5 +495,53 @@ describe('squelette commun', () => {
     const g = generatorOf('humanoid')!;
     const a = newAnim(g);
     expect(g.flesh!(a)).toHaveLength(g.skeleton!(a, 0, () => 0, { each: () => [] }).length);
+  });
+});
+
+describe('squelette posé dans un objet (habiller)', () => {
+  const tm = { period: 1, count: 4 };
+  const rigged = (acts: Array<{ g: string; at: number; len: number; cycle?: number }>, over: Record<string, number | string> = {}) => ({ ...newRig(0.6), acts: acts.map((x, i) => ({ id: `a${i}`, ...x })), ...over });
+  it('au repos, les os sont posés sur les articulations calées', () => {
+    setAnimTiming(tm);
+    const a = rigged([]);
+    const J = rigJoints(a);
+    const bones = animSkeleton(a, 0)!;
+    expect(bones).toHaveLength(14);
+    // la colonne va du bassin au cou
+    expect(bones[1]![0]![0]).toBeCloseTo(J[RIG_JOINTS.indexOf('pelvis')]![0], 9);
+    expect(bones[1]![1]![1]).toBeCloseTo(J[RIG_JOINTS.indexOf('neck')]![1], 9);
+  });
+  it('le salut de l’humanoïde lève un bras de l’objet, à la longueur de ses os à lui', () => {
+    setAnimTiming(tm);
+    const a = rigged([{ g: 'wave', at: 0, len: 2 }]);
+    const rest = animSkeleton(a, 0)!;
+    const up = animSkeleton(a, 1)!;
+    const moved = rest.map((b, i) => Math.hypot(up[i]![1][0] - b[1][0], up[i]![1][1] - b[1][1]));
+    // un avant-bras bouge nettement, les jambes non
+    expect(Math.max(moved[7]!, moved[9]!)).toBeGreaterThan(0.05);
+    expect(moved[11]!).toBeLessThan(0.01);
+    // chaque os garde sa longueur (à unités égales)
+    const r = 0.6;
+    const len = (b: [[number, number], [number, number]]) => Math.hypot((b[1][0] - b[0][0]) * r, b[1][1] - b[0][1]);
+    for (const i of [6, 7, 8, 9]) expect(len(up[i]!)).toBeCloseTo(len(rest[i]!), 2);
+  });
+  it('des articulations calées à la main déplacent les os, et la surface suit la marche', () => {
+    setAnimTiming(tm);
+    const J = rigJoints(rigged([]));
+    J[RIG_JOINTS.indexOf('handL')] = [0.1, 0.9];
+    const a = rigged([{ g: 'walk', at: 0, len: 4, cycle: 1 }], { j: jointsText(J) });
+    expect(animSkeleton(a, 0)![7]![1]).toEqual([0.1, 0.9]);
+    const w = animWarp(a, 0.3);
+    expect(w).not.toBeNull();
+    // un point du pied bouge, un point de la tête presque pas
+    const foot = J[RIG_JOINTS.indexOf('footL')]!;
+    const [fx, fy] = w!.map(foot[0], foot[1]);
+    expect(Math.hypot(fx - foot[0], fy - foot[1])).toBeGreaterThan(0.005);
+  });
+  it('un objet habillé garde sa découpe et son animation', () => {
+    setAnimTiming(tm);
+    const l = layer({ kind: 'photo', cut: 'M0.2 0L0.8 0L0.8 1L0.2 1Z', anim: rigged([{ g: 'dance', at: 0, len: 4, cycle: 2 }]) });
+    expect(animOf(l)?.kind).toBe('rig');
+    expect(bonesOf(l)?.flesh).toHaveLength(14);
   });
 });
