@@ -1,6 +1,7 @@
 import { RIG_BONES, RIG_JOINTS, TEMPLATE_WIDTH, templateJoints } from './anim';
 import { fitJoints } from './stickers';
-import { BASES, VIEWS, VIEW_NAMES, type ViewKind } from './views';
+import { BASES, VIEWS, VIEW_NAMES, viewsOf, type ViewKind } from './views';
+import type { Layer } from './model';
 import { contours, pathToRings, ringsToPath, type Ring } from './cut';
 
 /**
@@ -487,6 +488,48 @@ export async function silhouetteRig(src: string, view: string, ratio: number): P
   if (!cut) return {};
   const j = fitJoints(pathToRings(cut), ratio, view);
   return j ? { cut, j } : { cut };
+}
+
+/** Des articulations encore à leur place de départ (le gabarit de la vue), pas ajustées à la main. */
+function isTemplate(j: string | undefined, ratio: number, view: string): boolean {
+  if (!j) return true;
+  const P = j.split(';').map((s) => s.split(',').map(Number));
+  const T = templateJoints(ratio, view);
+  return P.length === T.length && P.every((p, i) => Math.abs(p[0]! - T[i]![0]) < 3e-3 && Math.abs(p[1]! - T[i]![1]) < 3e-3);
+}
+
+/**
+ * Un personnage posé avant que l'atelier détoure ses vues n'a pas de découpe : en mouvement, sa peau s'étire en pâte
+ * entre les os. La silhouette de chaque vue détourée, et son squelette calé dessus (celui ajusté à la main reste).
+ * Rien pour une image sans transparence.
+ */
+export async function rigSilhouettes(l: Layer): Promise<Map<string, { cut: string; j?: string }>> {
+  const out = new Map<string, { cut: string; j?: string }>();
+  const shown = typeof l.anim?.view === 'string' ? l.anim.view : 'face';
+  const list = viewsOf(l).length ? viewsOf(l) : [{ view: shown, src: l.src ?? '', ratio: l.w / l.h, cut: l.cut }];
+  for (const v of list) {
+    if (!v.src || v.cut) continue;
+    const r = await silhouetteRig(v.src, v.view, v.ratio).catch(() => ({}) as { cut?: string; j?: string });
+    if (r.cut) out.set(v.view, { cut: r.cut, j: r.j });
+  }
+  return out;
+}
+/** Le personnage avec les silhouettes trouvées : découpe et squelette de chaque vue, la vue montrée comprise. */
+export function withSilhouettes(l: Layer, found: Map<string, { cut: string; j?: string }>): Partial<Layer> | null {
+  if (!found.size || !l.anim) return null;
+  const shown = l.views?.length ? (l.view ?? 'face') : typeof l.anim.view === 'string' ? l.anim.view : 'face';
+  const keep = (j: string | undefined, fit: string | undefined, ratio: number, view: string) => (fit && isTemplate(j, ratio, view) ? fit : j);
+  const views = l.views?.map((v) => {
+    const u = v.view === shown ? undefined : found.get(v.view);
+    return u && !v.cut ? { ...v, cut: u.cut, j: keep(v.j, u.j, v.ratio, v.view) } : v;
+  });
+  const me = l.cut ? undefined : found.get(shown);
+  const j = me && keep(typeof l.anim.j === 'string' ? l.anim.j : undefined, me.j, l.w / l.h, shown);
+  return {
+    ...(views ? { views } : {}),
+    // la découpe posée sur la forme au repos : le squelette la plie (anim.carved)
+    ...(me ? { cut: me.cut, anim: { ...l.anim, carved: 1, ...(j ? { j } : {}) } } : {}),
+  };
 }
 
 export async function silhouetteCut(src: string, max = 360): Promise<string | undefined> {

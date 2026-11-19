@@ -117,6 +117,34 @@ function sideWalk(ctx: Context, left = false): { rot: number[]; bob: number } | 
   return { rot: left ? rot.map((x) => -x) : rot, bob: -0.012 * amp * Math.abs(Math.cos(s)) };
 }
 
+/**
+ * La marche sur place de l'humanoïde vue de côté (profil, trois-quarts, trois-quarts dos) : de face, le genou qui monte vient
+ * vers nous et la cuisse se raccourcit ; de côté, il monte vers l'avant. Une image ne se raccourcit pas sans s'écraser :
+ * la cuisse tourne donc vers l'avant, le tibia pend sous le genou, le bras opposé avance. `k` : part du mouvement vue de biais.
+ */
+function sideMarch(ctx: Context, left: boolean, k: number): { rot: number[]; bob: number } | null {
+  const on = ctx.each('walk').filter((s) => s.u > 0 && s.u < 1).pop();
+  if (!on) return null;
+  // la boucle part du repos et y revient sur un quart de boucle, comme celle de l'humanoïde
+  const env = Math.max(0, Math.min(1, on.turns / 0.25, (on.of - on.turns) / 0.25));
+  const amp = (0.3 + 0.7 * Math.max(0, Math.min(1, numOf(on.a, 'stride', 0.6)))) * env * k;
+  const s = Math.sin(2 * Math.PI * on.turns);
+  const rot = RIG_BONES.map(() => 0);
+  const knee = (thigh: number, shin: number, lift: number) => {
+    rot[thigh] = -1.0 * amp * lift;
+    rot[shin] = rot[thigh]! + 1.15 * amp * lift;
+  };
+  knee(10, 11, Math.max(0, s));
+  knee(12, 13, Math.max(0, -s));
+  const arm = (up: number, fore: number, sg: number) => {
+    rot[up] = 0.5 * amp * s * sg;
+    rot[fore] = rot[up]! - 0.3 * amp;
+  };
+  arm(6, 7, 1);
+  arm(8, 9, -1);
+  return { rot: left ? rot.map((x) => -x) : rot, bob: -0.01 * amp * Math.abs(s) };
+}
+
 /** Proportions de la boîte de l'objet (largeur / hauteur), gardées à la pose du squelette. */
 const ratioOf = (a: Anim) => Math.max(0.05, numOf(a, 'ratio', 1));
 
@@ -379,7 +407,12 @@ function skeleton(a: Anim, phase: number, g: Progress, ctx: Context): Bone[] {
   const len = (p: Pt, q: Pt, k: number) => Math.hypot((q[0] - p[0]) * k, q[1] - p[1]);
   const s = len(rest[IX.pelvis]!, rest[IX.neck]!, r) / Math.max(1e-6, len(hRest[IX.pelvis]!, hRest[IX.neck]!, HUM_RATIO));
   const out: Pt[] = rest.map((p) => eq(p, r));
-  const side = sideWalk(ctx, viewOfAnim(a).endsWith('-gauche'));
+  const view = viewOfAnim(a);
+  const left = view.endsWith('-gauche');
+  const base = view.replace(/-gauche$/, '');
+  const side = sideWalk(ctx, left) ?? (base === 'profil' ? sideMarch(ctx, left, 1) : base.includes('trois-quarts') ? sideMarch(ctx, left, 0.8) : null);
+  // allongement de chaque os (raccourci de perspective de l'humanoïde)
+  const ks = RIG_BONES.map(() => 1);
   const [pr, pc] = [eq(hRest[IX.pelvis]!, HUM_RATIO), eq(hCur[IX.pelvis]!, HUM_RATIO)];
   out[IX.pelvis] = side ? [out[IX.pelvis]![0], out[IX.pelvis]![1] + side.bob] : [out[IX.pelvis]![0] + (pc[0] - pr[0]) * s, out[IX.pelvis]![1] + (pc[1] - pr[1]) * s];
   for (const i of CHAIN) {
@@ -394,13 +427,26 @@ function skeleton(a: Anim, phase: number, g: Progress, ctx: Context): Bone[] {
     const toward = wrap(Math.atan2(v1[1], v1[0]) - Math.atan2(a1[1] - a0[1], a1[0] - a0[0]));
     const t = smooth(Math.abs(turn) / BIG_TURN);
     const rot = (side ? 0 : turn + (toward - turn) * t) + (side?.rot[i] ?? 0);
-    const k = Math.hypot(...v1) / Math.max(1e-9, Math.hypot(...v0));
+    // vu de côté, la marche tourne les membres au lieu de les raccourcir
+    const k = side ? 1 : Math.hypot(...v1) / Math.max(1e-9, Math.hypot(...v0));
+    ks[i] = k;
     const [dx, dy] = [(a1[0] - a0[0]) * k, (a1[1] - a0[1]) * k];
     const [cs, sn] = [Math.cos(rot), Math.sin(rot)];
     const P = out[IX[p]]!;
     out[IX[c]] = [P[0] + dx * cs - dy * sn, P[1] + dx * sn + dy * cs];
   }
-  return bonesOf(out.map(([x, y]) => [x / r, y]));
+  // un membre en raccourci (genou qui monte vers nous) : l'image ne s'écrase pas, l'os garde sa longueur et glisse vers
+  // son bout (la cuisse remonte sous la veste, le pied se lève)
+  return RIG_BONES.map(([p, c], i): Bone => {
+    const [P, C] = [out[IX[p]]!, out[IX[c]]!];
+    const L = Math.hypot((rest[IX[c]]![0] - rest[IX[p]]![0]) * r, rest[IX[c]]![1] - rest[IX[p]]![1]);
+    const n = Math.hypot(C[0] - P[0], C[1] - P[1]);
+    const Q: Pt = ks[i]! < 0.999 && n > 1e-9 ? [C[0] - ((C[0] - P[0]) / n) * L, C[1] - ((C[1] - P[1]) / n) * L] : P;
+    return [
+      [Q[0] / r, Q[1]],
+      [C[0] / r, C[1]],
+    ];
+  });
 }
 
 /**
@@ -427,8 +473,9 @@ function warp(a: Anim, phase: number, g: Progress, ctx: Context) {
 }
 
 /**
- * Ordre de pose des pièces (les premières dessous) : le tronc, puis les jambes et les bras par-dessus ;
- * tourné de côté, les membres du fond passent sous le tronc (à droite de l'image tourné vers la droite, à gauche de dos trois-quarts).
+ * Ordre de pose des pièces (les premières dessous) : les jambes sous le tronc (une cuisse qui remonte passe sous la veste),
+ * les bras par-dessus ; tourné de côté, les membres du fond passent sous le tronc (à droite de l'image tourné vers la droite,
+ * à gauche de dos trois-quarts).
  */
 function pieceOrder(view: string): number[] {
   const body = [1, 4, 5, 2, 3, 0];
@@ -440,7 +487,7 @@ function pieceOrder(view: string): number[] {
   if (far && left) far = far === 'L' ? 'R' : 'L';
   if (far === 'R') return [...legR, ...armR, ...body, ...legL, ...armL];
   if (far === 'L') return [...legL, ...armL, ...body, ...legR, ...armR];
-  return [...body, ...legL, ...legR, ...armL, ...armR];
+  return [...legL, ...legR, ...body, ...armL, ...armR];
 }
 const SQUARE_CUT = 'M0 0H1V1H0Z';
 
