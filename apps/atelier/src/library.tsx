@@ -122,9 +122,10 @@ export function LibraryShelf({
   const press = useRef<{ item: LibItem; x: number; y: number; drag: boolean } | null>(null);
   useEffect(() => {
     void Promise.all([loadLibrary(), loadAdded()]).then(([lib, more]) => {
-      // une illustration importée puis versée dans la bibliothèque au déploiement n'apparaît qu'une fois
-      const known = new Set(lib.map((x) => x.id));
-      setItems([...more.filter((x) => !known.has(x.id)), ...lib]);
+      // une illustration importée puis versée dans la bibliothèque au déploiement n'apparaît qu'une fois : celle du
+      // serveur, à jour (ses vues ont pu être rangées autrement depuis l'atelier)
+      const fresh = new Set(more.map((x) => x.id));
+      setItems([...more, ...lib.filter((x) => !fresh.has(x.id))]);
     });
   }, []);
   useEffect(() => setTag(null), [shelf]);

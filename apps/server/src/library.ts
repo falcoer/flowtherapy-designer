@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import path from 'node:path';
 import {
@@ -178,22 +178,32 @@ export class Library {
    */
   async relabelOriented(id: string, moves: Record<string, string>) {
     if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) throw new Error('Identifiant invalide');
-    const file = path.join(this.root, 'images', id, 'element.yaml');
-    const el = YAML.parse(await readFile(file, 'utf8')) as Record<string, unknown> & { views?: Record<string, { file: string; width: number; height: number }> };
+    const known = this.byKey.get(`image/${id}`);
+    if (known?.type !== 'image') throw new Error(`Image inconnue : ${id}`);
+    // l'element.yaml est rangé avec ses images, et leurs chemins y sont relatifs à son dossier
+    const dir = path.dirname(path.join(this.root, known.source));
+    const file = path.join(dir, 'element.yaml');
+    type View = string | { file: string; width: number; height: number };
+    const el = YAML.parse(await readFile(file, 'utf8')) as Record<string, unknown> & { source?: string; views?: Record<string, View> };
     if (!el?.views || typeof el.views !== 'object' || !Object.keys(el.views).length) throw new Error('Pas une illustration orientée');
     for (const [a, b] of Object.entries(moves)) {
       if (!ORIENTED_VIEWS.includes(a) || !ORIENTED_VIEWS.includes(b)) throw new Error(`Vue inconnue : ${ORIENTED_VIEWS.includes(a) ? b : a}`);
       if (!(a in el.views)) throw new Error(`Pas d’image pour la vue ${a}`);
     }
-    const views: typeof el.views = {};
+    const views: Record<string, View> = {};
     for (const [k, v] of Object.entries(el.views)) {
       const to = moves[k] ?? k;
       if (to in views) throw new Error(`Deux images pour la vue ${to}`);
       views[to] = v;
     }
     const ordered = Object.fromEntries(ORIENTED_VIEWS.filter((k) => k in views).map((k) => [k, views[k]!]));
+    // l'image principale suit la face ; une vue écrite en simple nom de fichier n'a pas ses dimensions : on les lit
     const main = ordered.face ?? Object.values(ordered)[0]!;
-    await writeFile(file, toYaml({ ...el, source: main.file, meta: { width: main.width, height: main.height }, views: ordered }));
+    const source = typeof main === 'string' ? main : main.file;
+    const meta = typeof main === 'string' ? await imageMeta(path.resolve(dir, main)) : { width: main.width, height: main.height };
+    await writeFile(file, toYaml({ ...el, source, meta, views: ordered }));
+    // une autre image principale : ses rendus en cache (rangés par élément) sont à refaire
+    if (source !== el.source) await rm(path.join(this.cacheRoot, 'images', id), { recursive: true, force: true });
     await this.reindex();
     return this.byKey.get(`image/${id}`)!;
   }
