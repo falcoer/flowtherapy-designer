@@ -275,7 +275,8 @@ export function fitJoints(rings: Array<Array<{ x: number; y: number }>>, ratio: 
           break;
         }
       }
-      const [S, E, H] = [J[IX[sh]]!, J[IX[el]]!, J[IX[hand]]!] as const;
+      let S = J[IX[sh]]!;
+      const [E, H] = [J[IX[el]]!, J[IX[hand]]!] as const;
       // en unités égales (x × r)
       const len = (p: Pt, q: Pt) => Math.hypot((q[0] - p[0]) * r, q[1] - p[1]);
       const L = len(S, E) + len(E, H);
@@ -295,6 +296,9 @@ export function fitJoints(rings: Array<Array<{ x: number; y: number }>>, ratio: 
       if (best < 0) continue;
       // l'axe le plus écarté longe le bord de la manche : on revient d'une demi-largeur vers le corps
       const th = Math.max(0, (best * Math.PI) / 180 - Math.atan2(half, L));
+      // l'épaule à la jointure du bras : le bras tourne autour du haut de la manche, pas d'un point du tronc (sinon la manche
+      // emporte un pan de veste et laisse un creux en se levant)
+      S = J[IX[sh]] = shoulderJoint(inside, S, th, side, L, s, r, rows);
       // la main : au bout de ce qui reste dans la silhouette, sans aller au-delà d'une fois et demie le gabarit
       let reach = 1;
       for (let k = 0; k <= 30; k++) {
@@ -309,6 +313,43 @@ export function fitJoints(rings: Array<Array<{ x: number; y: number }>>, ratio: 
     }
   }
   return jointsText(J);
+}
+
+/**
+ * Où le bras sort du tronc : on suit l'axe du bras depuis l'épaule du gabarit (dans le tronc) ; de part et d'autre de l'axe,
+ * la silhouette s'étend loin tant qu'on est dans le tronc, et seulement sur la largeur de la manche une fois le creux de
+ * l'aisselle passé. L'épaule se pose là, au milieu de la manche, un peu en retrait (le haut arrondi du bras). Sans creux
+ * d'aisselle (bras collé au corps), l'épaule reste où elle est.
+ */
+function shoulderJoint(inside: (x: number, y: number) => boolean, S: Pt, th: number, side: number, L: number, s: number, r: number, rows: number): Pt {
+  const u = [side * Math.sin(th), Math.cos(th)];
+  // la perpendiculaire, du côté du haut de l'épaule (le creux de l'aisselle est de l'autre côté)
+  const n = [side * Math.cos(th), -Math.sin(th)];
+  const at = (p: Pt, d: number[], t: number): Pt => [p[0] + (d[0]! * t) / r, p[1] + d[1]! * t];
+  const step = 0.5 / rows;
+  const cast = (p: Pt, d: number[], max: number) => {
+    let t = 0;
+    while (t < max && inside(...at(p, d, t + step))) t += step;
+    return t;
+  };
+  const far = 0.3 * s;
+  // la largeur de la manche, au milieu du bras
+  const mid = at(S, u, 0.5 * L);
+  if (!inside(...mid)) return S;
+  const w = cast(mid, n, far) + cast(mid, [-n[0]!, -n[1]!], far);
+  // une manche plus large que deux fois celle du gabarit : le bras est collé au corps, on ne voit pas où il en sort
+  if (!(w > 2 * step) || w > 4 * TEMPLATE_WIDTH[6]! * s) return S;
+  for (let k = 1; k <= 30; k++) {
+    const Q = at(S, u, (k / 30) * 0.6 * L);
+    if (!inside(...Q)) break;
+    const up = cast(Q, n, far);
+    const down = cast(Q, [-n[0]!, -n[1]!], far);
+    if (up + down < 1.6 * w) {
+      // au milieu de la manche, reculé d'un quart de sa largeur vers le corps
+      return at(at(Q, n, (up - down) / 2), u, -0.25 * w);
+    }
+  }
+  return S;
 }
 
 /** Les articulations écrites dans l'animation (au dix-millième). */

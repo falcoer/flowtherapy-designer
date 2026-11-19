@@ -15,7 +15,7 @@ import { meshOf, unwarp } from './warp';
 import { animRatio, animTime, forPart, generatorOf, withActs, GENERATORS, glyphCut, hasAnim, newAnim, newRig, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
 import { RigOverlay } from './rig-ui';
 import { ViewRing } from './views-ui';
-import { assignViews, characterOf, groupCharacters, KEYS, mirroredViews, loadImage, parseName, readZip, turnTo, viewOfName, viewsOf, VIEW_NAMES } from './views';
+import { assignViews, characterOf, groupCharacters, KEYS, mirroredViews, loadImage, parseName, readZip, ringViews, turnTo, viewOfName, viewsOf, VIEW_NAMES } from './views';
 import { clearBackground, kitZip, silhouetteCut, silhouetteRig, splitSheet } from './charkit';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
@@ -2915,11 +2915,21 @@ export function App() {
       const q = pageToLocal(l, f, A.x, A.y);
       pv = { u: Math.max(k.u0, Math.min(k.u1, q.x)), v: Math.max(k.v0, Math.min(k.v1, q.y)) };
     }
+    // illustration orientée : les coins s'écartent de l'anneau posé à ses pieds (il déborde la boîte entière de 5 % de
+    // chaque côté, plus sa poignée de 15 px), pour que l'un ne se prenne pas pour l'autre
+    const ring = ringViews(l).length >= 2;
+    const o0 = localToPage(l, f, 0, 0);
+    const o1 = localToPage(l, f, 1, 0);
+    const W = Math.hypot(o1.x - o0.x, o1.y - o0.y);
+    const ox = ring ? Math.max(0, 1.05 - k.u1, k.u0 + 0.05) * W + 44 / scale : 0;
+    const oy = ring ? 16 / scale : 0;
+    const [ex, ey] = [{ x: Math.cos(r), y: Math.sin(r) }, { x: -Math.sin(r), y: Math.cos(r) }];
+    const out = (q: Pt, sx: number, sy: number) => ({ x: q.x + (ex.x * sx * ox + ey.x * sy * oy), y: q.y + (ex.y * sx * ox + ey.y * sy * oy) });
     const corners = [
-      { q: tl, sx: -1, sy: -1, opp: { u: k.u1, v: k.v1 } },
-      { q: tr, sx: 1, sy: -1, opp: { u: k.u0, v: k.v1 } },
-      { q: br, sx: 1, sy: 1, opp: { u: k.u0, v: k.v0 } },
-      { q: bl, sx: -1, sy: 1, opp: { u: k.u1, v: k.v0 } },
+      { q: out(tl, -1, -1), sx: -1, sy: -1, opp: { u: k.u1, v: k.v1 } },
+      { q: out(tr, 1, -1), sx: 1, sy: -1, opp: { u: k.u0, v: k.v1 } },
+      { q: out(br, 1, 1), sx: 1, sy: 1, opp: { u: k.u0, v: k.v0 } },
+      { q: out(bl, -1, 1), sx: -1, sy: 1, opp: { u: k.u1, v: k.v0 } },
     ];
     return { k, tl, br, top, pv, corners, pivot: localToPage(l, f, pv.u, pv.v), rot: { x: top.x + Math.sin(r) * off, y: top.y - Math.cos(r) * off } };
   };
