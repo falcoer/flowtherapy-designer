@@ -3,16 +3,20 @@ import type { BoxMap } from './gradient-ui';
 import { RingBand, ringMid, RING_BOX } from './ring-icon';
 import type { Layer } from './model';
 import { cutOf } from './scene';
-import { baseOf, keyFor, leftViews, loadImage, nearestView, RING, ringViews, setView, showView, turnTo, turned, viewsOf, BASES, VIEW_NAMES, type ViewKind } from './views';
+import { refreshAdded } from './library';
+import { relabelLibraryViews } from './server';
+import { baseOf, keyFor, mirroredViews, loadImage, nearestView, relabelView, RING, ringViews, setView, showView, turnTo, turned, viewsOf, BASES, KEYS, VIEW_NAMES, type ViewKind } from './views';
 
 /**
  * Les vues d'un personnage en plusieurs angles, en rangée : toucher une vue la montre, ＋ ajoute l'image d'une vue
  * qui manque (image par image). Une photo habillée d'un squelette peut ainsi devenir un personnage à plusieurs vues.
+ * « Ranger » : une image générée sous un autre angle que prévu se range sous le bon (la bibliothèque suit).
  */
 export function ViewRow({ l, patch, onToast }: { l: Layer; patch: (p: Partial<Layer>, history?: boolean) => void; onToast?: (t: string) => void }) {
   const all = viewsOf(l);
   // un objet sans vues : un seul bouton, la rangée s'ouvre à la demande
   const [open, setOpen] = useState(false);
+  const [fix, setFix] = useState(false);
   if (!all.length && !open)
     return (
       <button className="view-open" onClick={() => setOpen(true)} title="Donner à l’objet plusieurs angles de vue : face, trois-quarts, profil, dos">
@@ -39,7 +43,7 @@ export function ViewRow({ l, patch, onToast }: { l: Layer; patch: (p: Partial<La
   const left = l.facing === 'gauche';
   const face = async () => {
     const to = left ? undefined : 'gauche';
-    const extra = to ? await leftViews(all) : [];
+    const extra = to ? await mirroredViews(all) : [];
     const views = [...all, ...extra].map((x) => (x.view === l.view ? { ...x, src: '' } : x));
     const next = { ...l, views, facing: to } as Layer;
     const want = keyFor(baseOf(l.view ?? 'face'), to);
@@ -47,6 +51,23 @@ export function ViewRow({ l, patch, onToast }: { l: Layer; patch: (p: Partial<La
     onToast?.(to ? 'Il regarde vers la gauche : profil et trois-quarts en miroir, s’ils n’ont pas leur propre vue' : 'Il regarde vers la droite');
   };
   const canTurn = all.some((x) => turned(x.view));
+  // une image rangée sous une autre vue : la page d'abord, puis l'illustration de la bibliothèque d'où vient l'objet
+  const relabel = async (from: string, to: string) => {
+    setFix(false);
+    const r = await relabelView(l, from, to);
+    if (!r) return;
+    patch(r.patch);
+    const name = VIEW_NAMES[to]!.toLowerCase();
+    const id = l.ref?.startsWith('image/') ? l.ref.slice('image/'.length) : null;
+    if (!id) return void onToast?.(`Image rangée en ${name}`);
+    try {
+      await relabelLibraryViews(id, r.moves);
+      refreshAdded();
+      onToast?.(`Image rangée en ${name}, dans la bibliothèque aussi`);
+    } catch {
+      onToast?.(`Image rangée en ${name} sur la page ; la bibliothèque n’a pas pu suivre`);
+    }
+  };
   return (
     <div className="view-row" role="group" aria-label="Vues du personnage">
       {canTurn && (
@@ -59,6 +80,20 @@ export function ViewRow({ l, patch, onToast }: { l: Layer; patch: (p: Partial<La
         // une vue tournée se montre dans le sens où regarde l'objet (celle de gauche si elle existe)
         const has = all.find((x) => x.view === keyFor(v, l.facing)) ?? all.find((x) => x.view === v);
         const on = all.length ? baseOf(l.view ?? 'face') === v : v === 'face';
+        if (has && fix)
+          return (
+            <label key={v} className="view-chip fix" title="Quel angle montre vraiment cette image ?">
+              {has.src ? <span className="view-thumb" style={{ backgroundImage: `url("${has.src}")` }} /> : <CutThumb d={has.cut ?? cutOf(l)} />}
+              {VIEW_NAMES[v]}
+              <select value={has.view} onChange={(e) => void relabel(has.view, e.target.value)} aria-label={`Ranger l’image de la vue ${VIEW_NAMES[v]!.toLowerCase()} sous une autre vue`}>
+                {KEYS.map((k) => (
+                  <option key={k} value={k}>
+                    {VIEW_NAMES[k]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          );
         if (has)
           return (
             <button key={v} className={`view-chip ${on ? 'on' : ''}`} onClick={() => patch(showView(l, has.view))} title={`Montrer la vue ${VIEW_NAMES[v].toLowerCase()}`}>
@@ -96,6 +131,20 @@ export function ViewRow({ l, patch, onToast }: { l: Layer; patch: (p: Partial<La
           </label>
         );
       })}
+      {all.length > 1 && (
+        <button
+          className={`view-chip ${fix ? 'on' : ''}`}
+          aria-pressed={fix}
+          onClick={() => {
+            setFix(!fix);
+            if (!fix) onToast?.('Touche une vue et choisis l’angle qu’elle montre vraiment');
+          }}
+          title="Une image n’est pas sous le bon angle ? La ranger sous le bon"
+        >
+          <span className="view-thumb">⇄</span>
+          Ranger
+        </button>
+      )}
     </div>
   );
 }

@@ -15,7 +15,7 @@ import { meshOf, unwarp } from './warp';
 import { animRatio, animTime, forPart, generatorOf, withActs, GENERATORS, glyphCut, hasAnim, newAnim, newRig, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
 import { RigOverlay } from './rig-ui';
 import { ViewRing } from './views-ui';
-import { assignViews, characterOf, groupCharacters, KEYS, leftViews, loadImage, parseName, readZip, showView, viewOfName, viewsOf, VIEW_NAMES } from './views';
+import { assignViews, characterOf, groupCharacters, KEYS, mirroredViews, loadImage, parseName, readZip, turnTo, viewOfName, viewsOf, VIEW_NAMES } from './views';
 import { clearBackground, kitZip, silhouetteCut, silhouetteRig, splitSheet } from './charkit';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
@@ -4785,10 +4785,11 @@ export function App() {
     if (it.views?.length) {
       // illustration orientée : toutes ses vues, montrée dans celle choisie sur l'anneau de la vignette
       const { ratio, ...extra } = characterOf(await Promise.all(it.views.map(async (v) => ({ view: v.view, src: v.src, ratio: v.w / v.h, ...(await silhouetteRig(v.src, v.view, v.w / v.h)) }))));
-      extra.views = [...extra.views!, ...(await leftViews(viewsOf({ ...extra, w: ratio, h: 1 } as Layer)))].map((v) => (v.view === extra.view ? { ...v, src: '' } : v));
-      const turn = it.view && it.view !== extra.view ? showView({ ...extra, w: ratio, h: 1 } as Layer, it.view) : {};
-      const shown = { ...extra, ...turn } as typeof extra;
-      addLayer('photo', { src: shown.src, name: it.title, ratio: turn.w ?? ratio, size, at, extra: { views: shown.views, view: shown.view, anim: shown.anim, cut: shown.cut }, ref: `image/${it.id}` });
+      extra.views = [...extra.views!, ...(await mirroredViews(viewsOf({ ...extra, w: ratio, h: 1 } as Layer)))].map((v) => (v.view === extra.view ? { ...v, src: '' } : v));
+      // tourné vers la vue choisie, sens compris (une vue de gauche regarde à gauche)
+      const turn: Partial<Layer> = it.view && it.view !== extra.view ? await turnTo({ ...extra, w: ratio, h: 1 } as Layer, it.view) : {};
+      const shown = { ...extra, ...turn } as typeof extra & Partial<Layer>;
+      addLayer('photo', { src: shown.src, name: it.title, ratio: turn.w ?? ratio, size, at, extra: { views: shown.views, view: shown.view, anim: shown.anim, cut: shown.cut, ...(turn.facing ? { facing: turn.facing } : {}) }, ref: `image/${it.id}` });
       setToast(`« ${it.title} » posé${client ? '' : ' au centre'} : tourne-le avec l’anneau à ses pieds`);
       return;
     }
@@ -4856,7 +4857,7 @@ export function App() {
         }
         const { ratio, ...extra } = characterOf(imgs);
         // vues tournées vers la gauche qui manquent : celles de droite en miroir
-        extra.views = [...extra.views!, ...(await leftViews(viewsOf({ ...extra, w: ratio, h: 1 } as Layer)))].map((v) => (v.view === extra.view ? { ...v, src: '' } : v));
+        extra.views = [...extra.views!, ...(await mirroredViews(viewsOf({ ...extra, w: ratio, h: 1 } as Layer)))].map((v) => (v.view === extra.view ? { ...v, src: '' } : v));
         // éléments détachés (micro, chapeau) : un objet par élément, attaché au personnage, avec ses propres vues
         const link = c.parts.size ? uid() : undefined;
         const more: Array<Partial<Layer>> = [];
@@ -4872,21 +4873,26 @@ export function App() {
           if (!pimgs.length) continue;
           const shown = pimgs.find((x) => x.view === extra.view) ?? pimgs[0]!;
           let pviews = pimgs.map((x) => ({ view: x.view, src: x.view === shown.view ? '' : x.src, ratio: x.ratio, ...(x.cut ? { cut: x.cut } : {}) }));
-          pviews = [...pviews, ...(await leftViews(viewsOf({ views: pviews, view: shown.view, src: shown.src, cut: shown.cut, w: shown.ratio, h: 1 } as Layer)))];
+          pviews = [...pviews, ...(await mirroredViews(viewsOf({ views: pviews, view: shown.view, src: shown.src, cut: shown.cut, w: shown.ratio, h: 1 } as Layer)))];
           more.push({ name: `${who || 'Personnage'} · ${part}`, src: shown.src, cut: shown.cut, views: pviews, view: shown.view, anim: undefined, link });
         }
         const name = who || (list.length === 1 ? list[0]!.name.replace(/\.[^.]+$/, '') : 'Personnage');
         // plusieurs personnages : côte à côte
         const at = groups.length > 1 ? { x: (f.width * (gi + 1)) / (groups.length + 1), y: f.height / 2 } : undefined;
-        addLayer('photo', { src: extra.src, name, ratio, at, extra: { ...extra, link }, with: more });
-        // versée aussi dans la bibliothèque du groupe : elle apparaît dans la mosaïque, avec son anneau
+        const lid = uid();
+        addLayer('photo', { src: extra.src, name, ratio, at, extra: { ...extra, link, id: lid }, with: more });
+        // versée aussi dans la bibliothèque du groupe : elle apparaît dans la mosaïque, avec son anneau ; l'objet posé
+        // s'en souvient, pour qu'une vue rangée autrement le soit aussi dans la bibliothèque
         if (online && imgs.length > 1)
           saved.push(
             addOrientedToLibrary(
               name,
               [...views].map(([view, f]) => ({ view, blob: f.blob, name: /\.[a-z0-9]+$/i.test(f.name) ? f.name.split('/').pop()! : `${view}.png` })),
             ).then(
-              () => true,
+              (id) => {
+                if (id) patchLayer(lid, { ref: `image/${id}` }, false);
+                return true;
+              },
               () => false,
             ),
           );

@@ -209,12 +209,18 @@ export async function addToLibrary(png: Blob, title: string, tags: string[]): Pr
 }
 
 /** Ajoute une illustration orientée (une image par vue) à la bibliothèque du groupe. */
-export async function addOrientedToLibrary(title: string, views: Array<{ view: string; blob: Blob; name: string }>, tags: string[] = []): Promise<void> {
+export async function addOrientedToLibrary(title: string, views: Array<{ view: string; blob: Blob; name: string }>, tags: string[] = []): Promise<string | undefined> {
   const fd = new FormData();
   fd.append('title', title);
   fd.append('tags', tags.join(','));
   for (const v of views) fd.append(v.view, v.blob, v.name);
-  await call<unknown>('/api/library/oriented', { method: 'POST', body: fd });
+  const r = await call<{ created?: { id?: string } }>('/api/library/oriented', { method: 'POST', body: fd });
+  return r.created?.id;
+}
+
+/** Range autrement les vues d'une illustration orientée de la bibliothèque (vue d'avant → vue d'après). */
+export async function relabelLibraryViews(id: string, moves: Record<string, string>): Promise<void> {
+  await call<unknown>(`/api/library/oriented/${encodeURIComponent(id)}/views`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ moves }) });
 }
 
 /**

@@ -16,6 +16,22 @@ async function setup(password?: string) {
 }
 
 describe('API', () => {
+  it('range autrement les vues d’une illustration orientée', async () => {
+    const { app, root } = await setup();
+    const sharp = (await import('sharp')).default;
+    const png = () => sharp({ create: { width: 10, height: 20, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+    const { Library } = await import('../src/library.js');
+    await new Library(root, await mkdtemp(path.join(os.tmpdir(), 'ftd-cache-'))).importOriented({ title: 'Lama', views: [{ view: 'face', data: await png(), ext: '.png' }, { view: 'trois-quarts', data: await png(), ext: '.png' }] });
+    await app.inject({ method: 'POST', url: '/api/library/reindex' });
+    const r = await app.inject({ method: 'POST', url: '/api/library/oriented/lama/views', payload: { moves: { 'trois-quarts': 'dos-trois-quarts' } } });
+    expect(r.statusCode).toBe(200);
+    expect(Object.keys(r.json().updated.views)).toEqual(['face', 'dos-trois-quarts']);
+    const listed = (await app.inject('/api/library?type=image&tags=oriente')).json();
+    expect(Object.keys(listed.find((e: { id: string }) => e.id === 'lama').views)).toEqual(['face', 'dos-trois-quarts']);
+    expect((await app.inject({ method: 'POST', url: '/api/library/oriented/lama/views', payload: { moves: { dos: 'face' } } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/api/library/oriented/lama/views', payload: {} })).statusCode).toBe(400);
+  });
+
   it('liste formats, bibliothèque et projets', async () => {
     const { app } = await setup();
     const formats = (await app.inject('/api/formats')).json();

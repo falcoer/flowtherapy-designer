@@ -171,6 +171,33 @@ export class Library {
     return this.byKey.get(`image/${id}`)!;
   }
 
+  /**
+   * Range autrement les images d'une illustration orientée (une image générée sous le mauvais angle) : `moves` dit
+   * vers quelle vue part l'image de chaque vue citée, un échange s'écrit dans les deux sens. Les fichiers restent ;
+   * seule l'association vue → fichier de l'element.yaml change, et l'image principale suit la face.
+   */
+  async relabelOriented(id: string, moves: Record<string, string>) {
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) throw new Error('Identifiant invalide');
+    const file = path.join(this.root, 'images', id, 'element.yaml');
+    const el = YAML.parse(await readFile(file, 'utf8')) as Record<string, unknown> & { views?: Record<string, { file: string; width: number; height: number }> };
+    if (!el?.views || typeof el.views !== 'object' || !Object.keys(el.views).length) throw new Error('Pas une illustration orientée');
+    for (const [a, b] of Object.entries(moves)) {
+      if (!ORIENTED_VIEWS.includes(a) || !ORIENTED_VIEWS.includes(b)) throw new Error(`Vue inconnue : ${ORIENTED_VIEWS.includes(a) ? b : a}`);
+      if (!(a in el.views)) throw new Error(`Pas d’image pour la vue ${a}`);
+    }
+    const views: typeof el.views = {};
+    for (const [k, v] of Object.entries(el.views)) {
+      const to = moves[k] ?? k;
+      if (to in views) throw new Error(`Deux images pour la vue ${to}`);
+      views[to] = v;
+    }
+    const ordered = Object.fromEntries(ORIENTED_VIEWS.filter((k) => k in views).map((k) => [k, views[k]!]));
+    const main = ordered.face ?? Object.values(ordered)[0]!;
+    await writeFile(file, toYaml({ ...el, source: main.file, meta: { width: main.width, height: main.height }, views: ordered }));
+    await this.reindex();
+    return this.byKey.get(`image/${id}`)!;
+  }
+
   /** Enregistre une palette (couleurs choisies ou dégradé tracé) dans palettes/. */
   async createPalette(opts: { title: string; colors: Array<{ hex: string; name?: string; role?: string }>; tags?: string[] }) {
     const parsed = LibraryElementSchema.parse({
