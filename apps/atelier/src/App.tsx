@@ -16,7 +16,7 @@ import { animRatio, animTime, forPart, generatorOf, withActs, GENERATORS, glyphC
 import { RigOverlay } from './rig-ui';
 import { ViewRing } from './views-ui';
 import { assignViews, characterOf, groupCharacters, KEYS, mirroredViews, loadImage, parseName, readZip, ringViews, turnTo, viewOfName, viewsOf, VIEW_NAMES } from './views';
-import { clearBackground, kitZip, silhouetteCut, silhouetteRig, splitSheet } from './charkit';
+import { clearBackground, kitZip, rigSilhouettes, silhouetteCut, silhouetteRig, splitSheet, withSilhouettes } from './charkit';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
 import { MatterRow } from './matter-palette';
@@ -412,6 +412,28 @@ export function App() {
   // la peinture en cache des couches retirées est lâchée (mémoire des canevas, limitée sur iPad)
   const layerIds = doc.layers.map((l) => l.id).join(' ');
   useEffect(() => prunePaints(layerIds.split(' ')), [layerIds]);
+  // personnage posé avant que l'atelier détoure ses vues (sans découpe) : en mouvement, sa peau s'étirait en pâte ;
+  // il reçoit une fois la silhouette de ses vues et un squelette calé dessus, hors historique
+  const unshaped = doc.layers
+    .filter((l) => l.kind === 'photo' && l.anim?.kind === 'rig' && !l.cut && l.src)
+    .map((l) => l.id)
+    .join(' ');
+  const shaping = useRef(new Set<string>());
+  useEffect(() => {
+    for (const id of unshaped.split(' ').filter(Boolean)) {
+      if (shaping.current.has(id)) continue;
+      shaping.current.add(id);
+      const l = docRef.current.layers.find((x) => x.id === id);
+      if (!l) continue;
+      void rigSilhouettes(l).then((found) =>
+        setDoc((d) => {
+          const me = d.layers.find((x) => x.id === id);
+          const patch = me && !me.cut ? withSilhouettes(me, found) : null;
+          return patch ? { ...d, layers: d.layers.map((x) => (x.id === id ? { ...x, ...patch } : x)) } : d;
+        }),
+      );
+    }
+  }, [unshaped]);
   // polices : la liste d'abord, puis les fichiers des polices utilisées par les textes
   useEffect(() => onFontReady(redraw), [redraw]);
   const usedFonts = doc.layers
