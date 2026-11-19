@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { zipStore } from '../src/charkit';
 import type { Layer } from '../src/model';
-import { assignViews, characterOf, groupCharacters, mirrorJoints, mirrorPath, nearestView, parseName, readZip, ringViews, setView, showView, turnTo, viewOfName, viewsOf } from '../src/views';
+import { assignViews, characterOf, groupCharacters, mirroredViews, mirrorJoints, mirrorPath, nearestView, parseName, readZip, relabelView, ringViews, setView, showView, turnTo, viewOfName, viewsOf } from '../src/views';
 import { animOf, animSkeleton, posed, rigJoints, RIG_JOINTS, setAnimTiming, templateJoints } from '../src/anim';
 
 const L = (extra: Partial<Layer>): Layer => ({ id: 'p', name: 'p', kind: 'photo', anchor: { frame: 'repartition', point: 'h1/2 v1/2' }, dx: 0, dy: 0, w: 0.3, h: 0.6, guide: 0, height: 0, visible: true, strokes: [], ...extra }) as Layer;
@@ -216,4 +216,72 @@ describe('personnage en plusieurs angles', () => {
     expect(p.facing).toBe('gauche');
     expect(p.view).toBe('dos-trois-quarts-gauche');
   });
+
+  it('le trois-quarts de droite se tire en miroir de celui de gauche quand il est seul', async () => {
+    const l = L({ kind: 'shape', cut: 'M0 0H0.4V1H0Z', view: 'face', views: [{ view: 'face', src: '', ratio: 0.5 }, { view: 'trois-quarts-gauche', src: '', ratio: 0.45, cut: 'M0 0H0.3V1H0Z' }] });
+    expect(ringViews(l)).toEqual(['face', 'trois-quarts', 'trois-quarts-gauche']);
+    const p = await turnTo(l, 'trois-quarts');
+    expect(p.view).toBe('trois-quarts');
+    expect(p.facing).toBeUndefined();
+    expect(p.cut).toBe('M 1 0 H 0.7 V 1 H 1 Z');
+    expect(p.views?.find((v) => v.view === 'trois-quarts')?.mirror).toBe(1);
+    const both = await mirroredViews(viewsOf(l));
+    expect(both.map((v) => v.view)).toEqual(['trois-quarts']);
+  });
+
+  it('lit « 3:4 » (Finder), « 3/4 » et « ¾ » comme 3-4', () => {
+    expect(viewOfName('alpaga 3:4 dos.png')).toBe('dos-trois-quarts');
+    expect(viewOfName('Alpaga ¾.png')).toBe('trois-quarts');
+    expect(parseName('lama__3:4-dos.png').view).toBe('dos-trois-quarts');
+    expect(parseName('lama__3/4.png')).toMatchObject({ who: 'lama', view: 'trois-quarts' });
+    expect(parseName('lama__trois quarts dos gauche.png').view).toBe('dos-trois-quarts-gauche');
+    expect(parseName('lama__34.png').view).toBe('trois-quarts');
+  });
+
+  it('range une image sous la vue qu’elle montre vraiment, les miroirs suivent', async () => {
+    // le cas du lama : son image de dos de biais rangée en trois-quarts de face, à côté d'un vrai trois-quarts de gauche
+    const cut = (x: number) => `M0 0H${x}V1H0Z`;
+    const l = L({
+      kind: 'shape',
+      view: 'trois-quarts',
+      cut: cut(0.35),
+      w: 0.6 * 0.35,
+      views: [
+        { view: 'face', src: '', ratio: 0.5, cut: cut(0.5) },
+        { view: 'trois-quarts', src: '', ratio: 0.35, cut: cut(0.35) },
+        { view: 'profil', src: '', ratio: 0.4, cut: cut(0.4) },
+        { view: 'dos', src: '', ratio: 0.55, cut: cut(0.55) },
+        { view: 'trois-quarts-gauche', src: '', ratio: 0.45, cut: cut(0.45) },
+      ],
+    });
+    const r = (await relabelView(l, 'trois-quarts', 'dos-trois-quarts'))!;
+    expect(r.moves).toEqual({ 'trois-quarts': 'dos-trois-quarts' });
+    const next = { ...l, ...r.patch } as Layer;
+    // l'image montrée reste montrée, à sa nouvelle place
+    expect(next.view).toBe('dos-trois-quarts');
+    expect(next.cut).toBe(cut(0.35));
+    const all = viewsOf(next);
+    expect(all.map((v) => [v.view, v.ratio, v.mirror ?? 0])).toEqual([
+      ['face', 0.5, 0],
+      ['trois-quarts', 0.45, 1],
+      ['profil', 0.4, 0],
+      ['dos-trois-quarts', 0.35, 0],
+      ['dos', 0.55, 0],
+      ['trois-quarts-gauche', 0.45, 0],
+      ['profil-gauche', 0.4, 1],
+      ['dos-trois-quarts-gauche', 0.35, 1],
+    ]);
+    expect(ringViews(next)).toEqual(['face', 'trois-quarts', 'profil', 'dos-trois-quarts', 'dos', 'dos-trois-quarts-gauche', 'profil-gauche', 'trois-quarts-gauche']);
+    // un échange : la face et le dos inversés
+    const s = (await relabelView(next, 'face', 'dos'))!;
+    expect(s.moves).toEqual({ face: 'dos', dos: 'face' });
+    const swapped = viewsOf({ ...next, ...s.patch } as Layer);
+    expect(swapped.find((v) => v.view === 'face')?.ratio).toBe(0.55);
+    expect(swapped.find((v) => v.view === 'dos')?.ratio).toBe(0.5);
+    // un miroir désigne l'image dont il est tiré : le trois-quarts de droite (miroir du gauche) rangé en profil
+    const m = (await relabelView(next, 'trois-quarts', 'profil'))!;
+    expect(m.moves).toEqual({ 'trois-quarts-gauche': 'profil-gauche' });
+    expect(await relabelView(next, 'face', 'face')).toBeNull();
+  });
 });
+

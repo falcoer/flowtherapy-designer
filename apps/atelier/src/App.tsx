@@ -15,7 +15,7 @@ import { meshOf, unwarp } from './warp';
 import { animRatio, animTime, forPart, generatorOf, withActs, GENERATORS, glyphCut, hasAnim, newAnim, newRig, setAnimTime, setAnimTiming, timingOf, totalOf, type Generator } from './anim';
 import { RigOverlay } from './rig-ui';
 import { ViewRing } from './views-ui';
-import { assignViews, characterOf, groupCharacters, KEYS, leftViews, loadImage, parseName, readZip, showView, viewOfName, viewsOf, VIEW_NAMES } from './views';
+import { assignViews, characterOf, groupCharacters, KEYS, mirroredViews, loadImage, parseName, readZip, ringViews, turnTo, viewOfName, viewsOf, VIEW_NAMES } from './views';
 import { clearBackground, kitZip, silhouetteCut, silhouetteRig, splitSheet } from './charkit';
 import { MaterialWizard, WandGlyph } from './material-wizard';
 import { EdgeRow } from './edge-palette';
@@ -2915,11 +2915,21 @@ export function App() {
       const q = pageToLocal(l, f, A.x, A.y);
       pv = { u: Math.max(k.u0, Math.min(k.u1, q.x)), v: Math.max(k.v0, Math.min(k.v1, q.y)) };
     }
+    // illustration orientée : les coins s'écartent de l'anneau posé à ses pieds (il déborde la boîte entière de 5 % de
+    // chaque côté, plus sa poignée de 15 px), pour que l'un ne se prenne pas pour l'autre
+    const ring = ringViews(l).length >= 2;
+    const o0 = localToPage(l, f, 0, 0);
+    const o1 = localToPage(l, f, 1, 0);
+    const W = Math.hypot(o1.x - o0.x, o1.y - o0.y);
+    const ox = ring ? Math.max(0, 1.05 - k.u1, k.u0 + 0.05) * W + 44 / scale : 0;
+    const oy = ring ? 16 / scale : 0;
+    const [ex, ey] = [{ x: Math.cos(r), y: Math.sin(r) }, { x: -Math.sin(r), y: Math.cos(r) }];
+    const out = (q: Pt, sx: number, sy: number) => ({ x: q.x + (ex.x * sx * ox + ey.x * sy * oy), y: q.y + (ex.y * sx * ox + ey.y * sy * oy) });
     const corners = [
-      { q: tl, sx: -1, sy: -1, opp: { u: k.u1, v: k.v1 } },
-      { q: tr, sx: 1, sy: -1, opp: { u: k.u0, v: k.v1 } },
-      { q: br, sx: 1, sy: 1, opp: { u: k.u0, v: k.v0 } },
-      { q: bl, sx: -1, sy: 1, opp: { u: k.u1, v: k.v0 } },
+      { q: out(tl, -1, -1), sx: -1, sy: -1, opp: { u: k.u1, v: k.v1 } },
+      { q: out(tr, 1, -1), sx: 1, sy: -1, opp: { u: k.u0, v: k.v1 } },
+      { q: out(br, 1, 1), sx: 1, sy: 1, opp: { u: k.u0, v: k.v0 } },
+      { q: out(bl, -1, 1), sx: -1, sy: 1, opp: { u: k.u1, v: k.v0 } },
     ];
     return { k, tl, br, top, pv, corners, pivot: localToPage(l, f, pv.u, pv.v), rot: { x: top.x + Math.sin(r) * off, y: top.y - Math.cos(r) * off } };
   };
@@ -4785,10 +4795,11 @@ export function App() {
     if (it.views?.length) {
       // illustration orientée : toutes ses vues, montrée dans celle choisie sur l'anneau de la vignette
       const { ratio, ...extra } = characterOf(await Promise.all(it.views.map(async (v) => ({ view: v.view, src: v.src, ratio: v.w / v.h, ...(await silhouetteRig(v.src, v.view, v.w / v.h)) }))));
-      extra.views = [...extra.views!, ...(await leftViews(viewsOf({ ...extra, w: ratio, h: 1 } as Layer)))].map((v) => (v.view === extra.view ? { ...v, src: '' } : v));
-      const turn = it.view && it.view !== extra.view ? showView({ ...extra, w: ratio, h: 1 } as Layer, it.view) : {};
-      const shown = { ...extra, ...turn } as typeof extra;
-      addLayer('photo', { src: shown.src, name: it.title, ratio: turn.w ?? ratio, size, at, extra: { views: shown.views, view: shown.view, anim: shown.anim, cut: shown.cut }, ref: `image/${it.id}` });
+      extra.views = [...extra.views!, ...(await mirroredViews(viewsOf({ ...extra, w: ratio, h: 1 } as Layer)))].map((v) => (v.view === extra.view ? { ...v, src: '' } : v));
+      // tourné vers la vue choisie, sens compris (une vue de gauche regarde à gauche)
+      const turn: Partial<Layer> = it.view && it.view !== extra.view ? await turnTo({ ...extra, w: ratio, h: 1 } as Layer, it.view) : {};
+      const shown = { ...extra, ...turn } as typeof extra & Partial<Layer>;
+      addLayer('photo', { src: shown.src, name: it.title, ratio: turn.w ?? ratio, size, at, extra: { views: shown.views, view: shown.view, anim: shown.anim, cut: shown.cut, ...(turn.facing ? { facing: turn.facing } : {}) }, ref: `image/${it.id}` });
       setToast(`« ${it.title} » posé${client ? '' : ' au centre'} : tourne-le avec l’anneau à ses pieds`);
       return;
     }
@@ -4856,7 +4867,7 @@ export function App() {
         }
         const { ratio, ...extra } = characterOf(imgs);
         // vues tournées vers la gauche qui manquent : celles de droite en miroir
-        extra.views = [...extra.views!, ...(await leftViews(viewsOf({ ...extra, w: ratio, h: 1 } as Layer)))].map((v) => (v.view === extra.view ? { ...v, src: '' } : v));
+        extra.views = [...extra.views!, ...(await mirroredViews(viewsOf({ ...extra, w: ratio, h: 1 } as Layer)))].map((v) => (v.view === extra.view ? { ...v, src: '' } : v));
         // éléments détachés (micro, chapeau) : un objet par élément, attaché au personnage, avec ses propres vues
         const link = c.parts.size ? uid() : undefined;
         const more: Array<Partial<Layer>> = [];
@@ -4872,21 +4883,26 @@ export function App() {
           if (!pimgs.length) continue;
           const shown = pimgs.find((x) => x.view === extra.view) ?? pimgs[0]!;
           let pviews = pimgs.map((x) => ({ view: x.view, src: x.view === shown.view ? '' : x.src, ratio: x.ratio, ...(x.cut ? { cut: x.cut } : {}) }));
-          pviews = [...pviews, ...(await leftViews(viewsOf({ views: pviews, view: shown.view, src: shown.src, cut: shown.cut, w: shown.ratio, h: 1 } as Layer)))];
+          pviews = [...pviews, ...(await mirroredViews(viewsOf({ views: pviews, view: shown.view, src: shown.src, cut: shown.cut, w: shown.ratio, h: 1 } as Layer)))];
           more.push({ name: `${who || 'Personnage'} · ${part}`, src: shown.src, cut: shown.cut, views: pviews, view: shown.view, anim: undefined, link });
         }
         const name = who || (list.length === 1 ? list[0]!.name.replace(/\.[^.]+$/, '') : 'Personnage');
         // plusieurs personnages : côte à côte
         const at = groups.length > 1 ? { x: (f.width * (gi + 1)) / (groups.length + 1), y: f.height / 2 } : undefined;
-        addLayer('photo', { src: extra.src, name, ratio, at, extra: { ...extra, link }, with: more });
-        // versée aussi dans la bibliothèque du groupe : elle apparaît dans la mosaïque, avec son anneau
+        const lid = uid();
+        addLayer('photo', { src: extra.src, name, ratio, at, extra: { ...extra, link, id: lid }, with: more });
+        // versée aussi dans la bibliothèque du groupe : elle apparaît dans la mosaïque, avec son anneau ; l'objet posé
+        // s'en souvient, pour qu'une vue rangée autrement le soit aussi dans la bibliothèque
         if (online && imgs.length > 1)
           saved.push(
             addOrientedToLibrary(
               name,
               [...views].map(([view, f]) => ({ view, blob: f.blob, name: /\.[a-z0-9]+$/i.test(f.name) ? f.name.split('/').pop()! : `${view}.png` })),
             ).then(
-              () => true,
+              (id) => {
+                if (id) patchLayer(lid, { ref: `image/${id}` }, false);
+                return true;
+              },
               () => false,
             ),
           );

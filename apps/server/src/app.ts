@@ -654,6 +654,17 @@ export async function buildApp(opts: AppOptions) {
     }
   });
 
+  /** Illustration orientée rangée autrement : { moves: { vue: nouvelle vue } }, un échange dans les deux sens. */
+  app.post<{ Params: { id: string }; Body: { moves?: Record<string, string> } }>('/api/library/oriented/:id/views', { preHandler: needs('editor') }, async (req, reply) => {
+    const moves = req.body?.moves;
+    if (!moves || typeof moves !== 'object' || !Object.keys(moves).length) return reply.code(400).send({ error: 'Rien à ranger' });
+    try {
+      return { updated: await lib.relabelOriented(req.params.id, moves) };
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  });
+
   app.post<{ Body: { title?: string; colors?: Array<{ hex: string; name?: string; role?: string }>; tags?: string[] } }>('/api/library/palettes', async (req, reply) => {
     try {
       const { title, colors, tags } = req.body ?? {};

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchOrientedItems } from './server';
 import { RingIcon } from './ring-icon';
+import { otherSide } from './views';
 
 /** Élément de la bibliothèque du groupe, tel que l'index de l'atelier le décrit. */
 export interface LibItem {
@@ -109,21 +110,22 @@ export function LibraryShelf({
   const [turned, setTurned] = useState<Record<string, string>>({});
   const pick = (it: LibItem): LibItem => {
     const want = turned[it.id];
-    // une vue de gauche sans image à elle : celle de droite, retournée (en miroir à la pose)
-    const v = it.views?.find((x) => x.view === want) ?? it.views?.find((x) => want && x.view === want.replace(/-gauche$/, ''));
+    // une vue tournée sans image à elle : celle de l'autre côté, retournée (en miroir à la pose)
+    const v = it.views?.find((x) => x.view === want) ?? it.views?.find((x) => want && x.view === otherSide(want));
     return v ? { ...it, view: want, thumb: v.thumb } : it;
   };
-  const mirrored = (it: LibItem) => !!turned[it.id]?.endsWith('-gauche') && !it.views?.some((x) => x.view === turned[it.id]);
+  const mirrored = (it: LibItem) => !!turned[it.id] && !!otherSide(turned[it.id]!) && !it.views?.some((x) => x.view === turned[it.id]);
   const ringOf = (it: LibItem) => {
     const has = new Set(it.views!.map((v) => v.view));
-    return [...has, ...['trois-quarts', 'profil', 'dos-trois-quarts'].filter((b) => has.has(b)).map((b) => `${b}-gauche`)];
+    return [...new Set([...has, ...[...has].map(otherSide).filter((k): k is string => !!k)])];
   };
   const press = useRef<{ item: LibItem; x: number; y: number; drag: boolean } | null>(null);
   useEffect(() => {
     void Promise.all([loadLibrary(), loadAdded()]).then(([lib, more]) => {
-      // une illustration importée puis versée dans la bibliothèque au déploiement n'apparaît qu'une fois
-      const known = new Set(lib.map((x) => x.id));
-      setItems([...more.filter((x) => !known.has(x.id)), ...lib]);
+      // une illustration importée puis versée dans la bibliothèque au déploiement n'apparaît qu'une fois : celle du
+      // serveur, à jour (ses vues ont pu être rangées autrement depuis l'atelier)
+      const fresh = new Set(more.map((x) => x.id));
+      setItems([...more, ...lib.filter((x) => !fresh.has(x.id))]);
     });
   }, []);
   useEffect(() => setTag(null), [shelf]);

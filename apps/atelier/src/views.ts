@@ -1,5 +1,6 @@
 import type { CharView, Layer } from './model';
-import { newRig, jointsText, rigJoints } from './stickers';
+import { pathToRings } from './cut';
+import { fitJoints, newRig, jointsText, rigJoints } from './stickers';
 
 /**
  * Personnage en plusieurs angles : la même illustration vue de face, de trois-quarts, de profil et de dos. Chaque vue
@@ -32,6 +33,8 @@ export const VIEW_NAMES: Record<string, string> = {
 export const turned = (v: string) => v.startsWith('profil') || v.startsWith('trois-quarts') || v.startsWith('dos-trois-quarts');
 /** La vue de base d'une vue (sans son sens). */
 export const baseOf = (v: string) => v.replace(/-gauche$/, '');
+/** La même vue de l'autre côté (trois-quarts ↔ trois-quarts-gauche), ou null pour la face et le dos. */
+export const otherSide = (v: string) => (!turned(v) ? null : v.endsWith('-gauche') ? baseOf(v) : `${v}-gauche`);
 /** La vue à montrer pour une vue de base et un sens. */
 export const keyFor = (base: string, facing?: string) => (facing === 'gauche' && turned(base) ? `${baseOf(base)}-gauche` : baseOf(base));
 const rank = (v: string) => {
@@ -39,9 +42,15 @@ const rank = (v: string) => {
   return i < 0 ? 99 : i;
 };
 
+/**
+ * « 3/4 », « 3:4 » (le « / » d'un nom de fichier du Finder est rangé en « : ») et « ¾ » s'écrivent « 3-4 », comme
+ * dans la convention.
+ */
+const quarters = (s: string) => s.replace(/¾/g, '3-4').replace(/(^|\D)3\s*[:∶⁄/]\s*4(?!\d)/g, (_, a: string) => `${a}3-4`);
+
 /** La vue que désigne un nom de fichier (face.png, 3-4.png, side.png, back.png…), ou null. */
 export function viewOfName(name: string): ViewKind | null {
-  const n = name
+  const n = quarters(name)
     .toLowerCase()
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
@@ -63,7 +72,11 @@ const TOKENS: Record<string, ViewKind> = {
 };
 /** La vue d'un mot de la convention (« profil », « profil-gauche », « side-left »…), sans deviner : null sinon. */
 export function viewOfToken(tok: string): ViewKind | null {
-  const t = tok.toLowerCase().replace(/_/g, '-').replace(/-(gauche|droite|left|right)$/, '');
+  const t = quarters(tok)
+    .toLowerCase()
+    .trim()
+    .replace(/[_\s]+/g, '-')
+    .replace(/-(gauche|droite|left|right)$/, '');
   return TOKENS[t] ?? null;
 }
 
@@ -230,7 +243,7 @@ export function parseName(path: string): { who: string; view: string | null; par
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .trim();
-  const segs = path.split('/').filter(Boolean);
+  const segs = quarters(path).split('/').filter(Boolean);
   const file = clean(segs.pop() ?? '').replace(/\.[a-z0-9]+$/, '');
   const folder = segs.length ? clean(segs[segs.length - 1]!) : '';
   let parts = file.split('__');
@@ -319,13 +332,16 @@ export async function mirrorView(v: CharView, key: string): Promise<CharView> {
   return { view: key, src, ratio: v.ratio, cut: v.cut && mirrorPath(v.cut), j: mirrorJoints(v.j), mirror: 1 };
 }
 
-/** Les vues tournées vers la gauche qui manquent, tirées de celles de droite en miroir. */
-export async function leftViews(all: CharView[]): Promise<CharView[]> {
+/**
+ * Les vues tournées qui manquent d'un côté, tirées en miroir de l'autre : la gauche depuis la droite, et la droite
+ * depuis la gauche quand seule celle de gauche a été dessinée.
+ */
+export async function mirroredViews(all: CharView[]): Promise<CharView[]> {
   const out: CharView[] = [];
-  for (const base of ['trois-quarts', 'profil', 'dos-trois-quarts']) {
-    const left = `${base}-gauche`;
-    const right = all.find((v) => v.view === base);
-    if (right && !all.some((v) => v.view === left)) out.push(await mirrorView(right, left));
+  for (const k of KEYS) {
+    const from = otherSide(k);
+    const src = from && all.find((v) => v.view === from && !v.mirror);
+    if (src && !all.some((v) => v.view === k)) out.push(await mirrorView(src, k));
   }
   return out;
 }
@@ -333,10 +349,10 @@ export async function leftViews(all: CharView[]): Promise<CharView[]> {
 /** Place de chaque vue sur l'anneau, en degrés : 0 devant (face), 90 tourné vers la droite, 180 dos, 270 vers la gauche. */
 export const RING: Record<string, number> = { face: 0, 'trois-quarts': 45, profil: 90, 'dos-trois-quarts': 135, dos: 180, 'dos-trois-quarts-gauche': 225, 'profil-gauche': 270, 'trois-quarts-gauche': 315 };
 
-/** Les vues qu'on peut montrer : celles qui existent, plus celles de gauche qu'un miroir peut tirer de celles de droite. */
+/** Les vues qu'on peut montrer : celles qui existent, plus celles qu'un miroir peut tirer de l'autre côté. */
 export function ringViews(l: Layer): string[] {
   const has = new Set(viewsOf(l).map((v) => v.view));
-  return Object.keys(RING).filter((k) => has.has(k) || (k.endsWith('-gauche') && has.has(baseOf(k))));
+  return Object.keys(RING).filter((k) => has.has(k) || has.has(otherSide(k) ?? ''));
 }
 
 /** La vue de l'anneau la plus proche d'un angle (degrés), parmi celles qu'on peut montrer. */
@@ -351,19 +367,62 @@ export function nearestView(keys: string[], deg: number): string | null {
 }
 
 /**
- * Tourne l'objet vers une vue de l'anneau : une vue de gauche qui manque est tirée en miroir de celle de droite,
+ * Tourne l'objet vers une vue de l'anneau : une vue tournée qui manque est tirée en miroir de celle de l'autre côté,
  * et le sens où il regarde suit (gauche, droite ; face et dos le gardent).
  */
 export async function turnTo(l: Layer, key: string): Promise<Partial<Layer>> {
   if (key === l.view) return {};
   let all = viewsOf(l);
   if (!all.some((v) => v.view === key)) {
-    const right = all.find((v) => v.view === baseOf(key));
-    if (!key.endsWith('-gauche') || !right) return {};
-    all = [...all, await mirrorView(right, key)];
+    const side = otherSide(key);
+    const other = side && (all.find((v) => v.view === side && !v.mirror) ?? all.find((v) => v.view === side));
+    if (!other) return {};
+    all = [...all, await mirrorView(other, key)];
   }
   const facing = turned(key) ? (key.endsWith('-gauche') ? 'gauche' : undefined) : l.facing;
   const views = all.map((x) => (x.view === l.view ? { ...x, src: '' } : x));
   const next = { ...l, views, facing } as Layer;
   return { views, facing, ...showView(next, key) };
 }
+
+/**
+ * Range l'image d'une vue sous une autre (GPT s'est trompé d'angle) : si la vue visée a déjà son image, les deux
+ * s'échangent. Une vue en miroir désigne l'image dont elle est tirée, et la vue visée se lit de l'autre côté.
+ * Les miroirs touchés sont refaits, et l'objet montre l'image déplacée à sa nouvelle place.
+ * `moves` : les images vraiment déplacées (vue d'avant → vue d'après), pour ranger aussi la bibliothèque.
+ */
+export async function relabelView(l: Layer, from: string, to: string): Promise<{ patch: Partial<Layer>; moves: Record<string, string> } | null> {
+  const all = viewsOf(l);
+  const src = all.find((v) => v.view === from);
+  if (!src || !(KEYS as readonly string[]).includes(to)) return null;
+  // un miroir : on range l'image dont il est tiré, vers la vue visée vue de l'autre côté
+  const a = src.mirror ? otherSide(from)! : from;
+  const b = src.mirror ? (otherSide(to) ?? to) : to;
+  if (a === b || !all.some((v) => v.view === a && !v.mirror)) return null;
+  const swap = all.some((v) => v.view === b && !v.mirror);
+  const moves: Record<string, string> = { [a]: b, ...(swap ? { [b]: a } : {}) };
+  const profile = (v: string) => baseOf(v) === 'profil';
+  const real = all
+    .filter((v) => !v.mirror)
+    .map((v) => {
+      const k = moves[v.view];
+      if (!k) return v;
+      // de face à profil (ou l'inverse), le squelette se recale sur la silhouette ; sinon il reste tel qu'ajusté
+      const j = profile(v.view) !== profile(k) && v.cut ? (fitJoints(pathToRings(v.cut), v.ratio, k) ?? v.j) : v.j;
+      return { ...v, view: k, j };
+    });
+  // les miroirs d'images qui n'ont pas bougé restent ; les autres se refont
+  const kept = all.filter((v) => v.mirror && !(v.view in moves) && !(otherSide(v.view)! in moves) && !real.some((r) => r.view === v.view));
+  const base = [...real, ...kept];
+  const views = [...base, ...(await mirroredViews(base))].sort((x, y) => rank(x.view) - rank(y.view));
+  // la vue à montrer : l'image montrée, là où elle est maintenant
+  const s = l.view ?? 'face';
+  const shownMirror = all.find((v) => v.view === s)?.mirror;
+  const at = shownMirror ? (otherSide(s)! in moves ? otherSide(moves[otherSide(s)!]!) ?? moves[otherSide(s)!]! : s) : (moves[s] ?? s);
+  const target = views.some((v) => v.view === at) ? at : b;
+  // un objet de passage, sans vue montrée : turnTo range tout et montre la vue visée (sens compris)
+  const next = { ...l, views, view: '' } as Layer;
+  const p = await turnTo(next, target);
+  return { patch: { views, ...p }, moves };
+}
+
