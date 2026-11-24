@@ -277,6 +277,18 @@ describe('dans le navigateur', () => {
         return {
           plainMid: at(plain, 0.5, 0.5), plainCorner: at(plain, 0.05, 0.05),
           invMid: at(inv, 0.5, 0.5), invCorner: at(inv, 0.05, 0.05), invEdge: at(inv, 0.98, 0.98),
+          // ensemble inversé : une seule plaque percée des deux fenêtres
+          ...(() => {
+            const a = shape([], { id: 'g1', invert: true, link: 'e', w: 0.2, h: 0.2, dx: -0.25 });
+            const b = shape([], { id: 'g2', invert: true, link: 'e', w: 0.2, h: 0.2, dx: 0.25 });
+            const c = document.createElement('canvas');
+            c.width = Math.round(f.width * k);
+            c.height = Math.round(f.height * k);
+            const ctx = c.getContext('2d');
+            ctx.setTransform(k, 0, 0, k, 0, 0);
+            scene.drawLayers(ctx, { ...doc, layers: [a, b] }, f, { scale: k, onImage: () => {} });
+            return { groupLeft: at(c, 0.25, 0.5), groupRight: at(c, 0.75, 0.5), groupMid: at(c, 0.5, 0.5) };
+          })(),
           flag: scene.invertOf(shape([], { invert: true })) ? 1 : 0,
           hollowWins: scene.invertOf(shape([], { invert: true, hollow: true })) ? 1 : 0,
         };
@@ -287,6 +299,9 @@ describe('dans le navigateur', () => {
       expect(r.invMid).toBe(0);
       expect(r.invCorner).toBeGreaterThan(200);
       expect(r.invEdge).toBeGreaterThan(200);
+      expect(r.groupLeft).toBe(0);
+      expect(r.groupRight).toBe(0);
+      expect(r.groupMid).toBeGreaterThan(200);
       expect(r.flag).toBe(1);
       expect(r.hollowWins).toBe(0);
     });

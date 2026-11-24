@@ -125,6 +125,7 @@ import {
   maskPath2D,
   maskRings,
   invertOf,
+  invertMates,
   paintTarget,
   tracePath,
 } from './scene';
@@ -2636,7 +2637,9 @@ export function App() {
       const rings = maskRings(l, f);
       // surface inversée : la plaque se touche, la fenêtre laisse passer jusqu'aux objets du dessous
       if (invertOf(l)) {
-        if (x >= 0 && y >= 0 && x <= f.width && y <= f.height && !insideRings(rings, x, y)) return l;
+        // un ensemble inversé n'a qu'une plaque : aucune de ses fenêtres ne la touche
+        const holes = invertMates(l, doc.layers).filter((m) => m.visible);
+        if (x >= 0 && y >= 0 && x <= f.width && y <= f.height && !holes.some((m) => insideRings(m === l ? rings : maskRings(m, f), x, y))) return l;
         continue;
       }
       // le bord ajouté (contour d'un titre…) fait partie de l'objet : le toucher le choisit
