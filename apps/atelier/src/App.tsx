@@ -4254,6 +4254,11 @@ export function App() {
   const finishPath = (line: Pt[]) => {
     const sel = doc.layers.find((l) => l.id === selected);
     if (!sel || sel.kind === 'surface' || line.length < 2) return redraw();
+    // un masque se coupe en deux fenêtres qui se couvriraient l'une l'autre
+    if (invertOf(sel)) {
+      setToast('Une surface inversée ne se découpe pas : décoche « Surface inversée » le temps de la couper');
+      return redraw();
+    }
     // on prolonge un peu les extrémités pour bien sortir de la forme
     const ext = (a: Pt, b: Pt) => {
       const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
@@ -4312,6 +4317,7 @@ export function App() {
    * scalpel : il reste en place, lié à son objet.
    */
   const detach = (l: Layer, piece: MultiPolygon, rest: MultiPolygon, label = 'morceau', how: 'scissors' | 'scalpel' = blade) => {
+    if (invertOf(l)) return void setToast('Une surface inversée ne se découpe pas : décoche « Surface inversée » le temps de la couper');
     const b = layerBox(l, f);
     const eps = 0.6 / (scale * Math.max(b.w, b.h));
     const pieceCut = ringsToPath(ringsOfGeom(piece), eps);

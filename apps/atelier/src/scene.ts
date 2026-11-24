@@ -12,7 +12,7 @@ import { drawFlatOnMesh, drawFlatPieces, pruneWarpSurfaces } from './warp-gl';
 import type { Warp } from './stickers';
 export { restCut, surfaceWarp, warpFor } from './warp';
 import { EDGE_ELEMENTS, edgeStroke } from './elements';
-import { bevelLift, bevelSoftOf, blendStops, BLEED, edgeLines, genPath, guideColor, layerBox, resolvePoint, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
+import { bevelLift, bevelSoftOf, blendStops, BLEED, DEFAULT_SHAPE, edgeLines, genPath, guideColor, layerBox, resolvePoint, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { keepLinks, type LinkShapes } from './links';
 import { fillEpoch, shapedFill } from './gradient';
@@ -845,7 +845,7 @@ const PLATE_PAD = 0.2;
  * posée sur toute la page (avec un large débord) et percée de la découpe de l'objet. Le bord et la lueur,
  * dessinés hors de la découpe de la plaque, tombent dans la fenêtre ; le volume monte depuis son bord.
  */
-export function plateOf(l: Layer, f: Format): Layer {
+export function plateOf(l: Layer, f: Format, guides?: Guide[]): Layer {
   const m = Math.min(f.width, f.height);
   // la plaque dépasse largement la page : son biseau, son bord et son ombre ne se voient qu'autour de la fenêtre
   const pad = Math.max(BLEED, PLATE_PAD) * m;
@@ -866,10 +866,19 @@ export function plateOf(l: Layer, f: Format): Layer {
   } catch {
     /* ancrage absent de ce format : centre */
   }
+  // le dégradé (ou l'image) garde sa place sur la page : son repère passe de la boîte de l'objet à celle de la plaque
+  const g = guides?.[l.guide];
+  const place = l.grad ?? (g?.type === 'gradient' || g?.type === 'image' ? { cx: DEFAULT_SHAPE.cx, cy: DEFAULT_SHAPE.cy, angle: DEFAULT_SHAPE.angle, spread: DEFAULT_SHAPE.spread } : undefined);
+  let grad = l.grad;
+  if (place) {
+    const c = localToPage(l, f, place.cx, place.cy);
+    grad = { cx: (c.x + pad) / W, cy: (c.y + pad) / H, angle: place.angle + ((l.rot ?? 0) * 180) / Math.PI, spread: (place.spread * Math.max(b.w, b.h)) / Math.max(W, H) };
+  }
   return {
     ...l,
     kind: 'shape',
     invert: undefined,
+    grad,
     dx: 0.5 - a.x,
     dy: 0.5 - a.y,
     grip: undefined,
@@ -928,7 +937,7 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     if (layers !== doc.layers) doc = { ...doc, layers };
   }
   // surfaces inversées : chacune devient sa plaque percée, dessinée comme n'importe quelle forme
-  if (doc.layers.some(invertOf)) doc = { ...doc, layers: doc.layers.map((l) => (invertOf(l) ? plateOf(l, f) : l)) };
+  if (doc.layers.some(invertOf)) doc = { ...doc, layers: doc.layers.map((l) => (invertOf(l) ? plateOf(l, f, doc.guides) : l)) };
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, f.width, f.height);
