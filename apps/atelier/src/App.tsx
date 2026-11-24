@@ -124,6 +124,7 @@ import {
   localRings,
   maskPath2D,
   maskRings,
+  invertOf,
   paintTarget,
   tracePath,
 } from './scene';
@@ -2633,6 +2634,11 @@ export function App() {
       const l = ord[i]!;
       if (!l.visible) continue;
       const rings = maskRings(l, f);
+      // surface inversée : la plaque se touche, la fenêtre laisse passer jusqu'aux objets du dessous
+      if (invertOf(l)) {
+        if (x >= 0 && y >= 0 && x <= f.width && y <= f.height && !insideRings(rings, x, y)) return l;
+        continue;
+      }
       // le bord ajouté (contour d'un titre…) fait partie de l'objet : le toucher le choisit
       const out = l.kind === 'surface' ? 0 : borderOut(l, f);
       if (insideRings(rings, x, y) || (out > 0 && nearRings(rings, x, y, out))) return l;
@@ -4033,7 +4039,7 @@ export function App() {
       const ctx = c.getContext('2d', { willReadFrequently: true })!;
       ctx.setTransform(w / b.w, 0, 0, h / b.h, (-(b.cx - b.w / 2) * w) / b.w, (-(b.cy - b.h / 2) * h) / b.h);
       // la couche seule, à plat : sans ombre ni liseré
-      drawLayers(ctx, { ...doc, layers: [{ ...l, height: 0, bevel: 0, border: undefined, hollow: undefined, rot: 0, visible: true }] }, f, { scale: scale * dpr, onImage: redraw });
+      drawLayers(ctx, { ...doc, layers: [{ ...l, height: 0, bevel: 0, border: undefined, hollow: undefined, invert: undefined, rot: 0, visible: true }] }, f, { scale: scale * dpr, onImage: redraw });
       analysisCache.current = { key, a: analyse(c) };
       mapCache.current = null;
     }
@@ -4059,7 +4065,7 @@ export function App() {
     ctx.fillRect(0, 0, c.width, c.height);
     ctx.setTransform(k, 0, 0, k, -(b.cx - b.w / 2 + crop.u0 * b.w) * k, -(b.cy - b.h / 2 + crop.v0 * b.h) * k);
     // la photo entière, à plat : le modèle voit tout le contexte, même hors de la découpe
-    const flat: Layer = { ...l, height: 0, bevel: 0, border: undefined, hollow: undefined, rot: 0, visible: true, ...(l.kind === 'photo' ? { cut: undefined, molded: undefined } : {}) };
+    const flat: Layer = { ...l, height: 0, bevel: 0, border: undefined, hollow: undefined, invert: undefined, rot: 0, visible: true, ...(l.kind === 'photo' ? { cut: undefined, molded: undefined } : {}) };
     drawLayers(ctx, { ...doc, layers: [flat] }, f, { scale: k, onImage: redraw });
     const S: NonNullable<typeof subject.current> = { layer: l.id, crop, zone, state: 'busy', strokes: first, mask: null, img: null, geom: null };
     subject.current = S;

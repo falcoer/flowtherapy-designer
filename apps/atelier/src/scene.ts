@@ -12,7 +12,7 @@ import { drawFlatOnMesh, drawFlatPieces, pruneWarpSurfaces } from './warp-gl';
 import type { Warp } from './stickers';
 export { restCut, surfaceWarp, warpFor } from './warp';
 import { EDGE_ELEMENTS, edgeStroke } from './elements';
-import { bevelLift, bevelSoftOf, blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
+import { bevelLift, bevelSoftOf, blendStops, BLEED, edgeLines, genPath, guideColor, layerBox, resolvePoint, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { keepLinks, type LinkShapes } from './links';
 import { fillEpoch, shapedFill } from './gradient';
@@ -834,6 +834,62 @@ function castShadow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format
   ctx.restore();
 }
 
+/** Surface inversée (masque) : une forme ou un texte dont la surface couvre la page, la découpe en fenêtre. */
+export const invertOf = (l: Layer) => !!l.invert && !l.hollow && (l.kind === 'shape' || l.kind === 'text');
+
+const plates = new Map<string, { key: string; cut: string }>();
+/** Débord de la plaque autour de la page, en fraction du petit côté (plus large que le biseau le plus large). */
+const PLATE_PAD = 0.2;
+/**
+ * Plaque d'une surface inversée : la même couche (teinte, matière, vernis, volume, bord, lueur, hauteur),
+ * posée sur toute la page (avec un large débord) et percée de la découpe de l'objet. Le bord et la lueur,
+ * dessinés hors de la découpe de la plaque, tombent dans la fenêtre ; le volume monte depuis son bord.
+ */
+export function plateOf(l: Layer, f: Format): Layer {
+  const m = Math.min(f.width, f.height);
+  // la plaque dépasse largement la page : son biseau, son bord et son ombre ne se voient qu'autour de la fenêtre
+  const pad = Math.max(BLEED, PLATE_PAD) * m;
+  const [W, H] = [f.width + 2 * pad, f.height + 2 * pad];
+  const b = layerBox(l, f);
+  const key = [cutId(l), b.cx, b.cy, b.w, b.h, l.rot ?? 0, f.width, f.height].join('|');
+  let cut = plates.get(l.id)?.key === key ? plates.get(l.id)!.cut : null;
+  if (!cut) {
+    const [x0, y0] = [-pad, -pad];
+    const q = (n: number) => +n.toFixed(5);
+    cut = RECT + maskRings(l, f).map((r) => (r.length > 2 ? `M${r.map((p) => `${q((p.x - x0) / W)} ${q((p.y - y0) / H)}`).join('L')}Z` : '')).join('');
+    if (plates.size > 64) plates.clear();
+    plates.set(l.id, { key, cut });
+  }
+  let a = { x: 0.5, y: 0.5 };
+  try {
+    a = resolvePoint(l.anchor.frame, l.anchor.point, f);
+  } catch {
+    /* ancrage absent de ce format : centre */
+  }
+  return {
+    ...l,
+    kind: 'shape',
+    invert: undefined,
+    dx: 0.5 - a.x,
+    dy: 0.5 - a.y,
+    grip: undefined,
+    w: W / m,
+    h: H / m,
+    rot: undefined,
+    pivot: undefined,
+    cut,
+    shape: undefined,
+    gen: undefined,
+    text: undefined,
+    anim: undefined,
+    molded: undefined,
+    bump: undefined,
+    strokes: [],
+    // rognage : seul le flou se garde (les dents et les flottants rongeraient aussi le tour de la page)
+    trim: l.trim && l.trim.blur > 0.01 ? { blur: l.trim.blur, float: 0, zigzag: 0 } : undefined,
+  };
+}
+
 /** Objet sans surface : seuls son bord et sa lueur se dessinent (le fond de la page garde toujours la sienne). */
 export const hollowOf = (l: Layer) => !!l.hollow && l.kind !== 'surface';
 
@@ -871,6 +927,8 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     const layers = posed(doc.layers, f);
     if (layers !== doc.layers) doc = { ...doc, layers };
   }
+  // surfaces inversées : chacune devient sa plaque percée, dessinée comme n'importe quelle forme
+  if (doc.layers.some(invertOf)) doc = { ...doc, layers: doc.layers.map((l) => (invertOf(l) ? plateOf(l, f) : l)) };
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, f.width, f.height);

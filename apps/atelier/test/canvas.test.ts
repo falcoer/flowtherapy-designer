@@ -258,6 +258,39 @@ describe('dans le navigateur', () => {
       expect(r.opaque).toBe(1);
     });
   });
+  describe('surface inversée', () => {
+    t('la surface couvre la page, la découpe devient une fenêtre', async () => {
+      const r = await run<Record<string, number>>(`
+        const k = 400 / f.width;
+        const draw = (l) => {
+          const c = document.createElement('canvas');
+          c.width = Math.round(f.width * k);
+          c.height = Math.round(f.height * k);
+          const ctx = c.getContext('2d');
+          ctx.setTransform(k, 0, 0, k, 0, 0);
+          scene.drawLayers(ctx, { ...doc, layers: [l] }, f, { scale: k, onImage: () => {} });
+          return c;
+        };
+        const at = (c, u, v) => c.getContext('2d').getImageData(Math.round(u * c.width), Math.round(v * c.height), 1, 1).data[3];
+        const plain = draw(shape([]));
+        const inv = draw(shape([], { invert: true, bevel: 0.3, height: 0.2 }));
+        return {
+          plainMid: at(plain, 0.5, 0.5), plainCorner: at(plain, 0.05, 0.05),
+          invMid: at(inv, 0.5, 0.5), invCorner: at(inv, 0.05, 0.05), invEdge: at(inv, 0.98, 0.98),
+          flag: scene.invertOf(shape([], { invert: true })) ? 1 : 0,
+          hollowWins: scene.invertOf(shape([], { invert: true, hollow: true })) ? 1 : 0,
+        };
+      `);
+      expect(r.plainMid).toBeGreaterThan(200);
+      expect(r.plainCorner).toBe(0);
+      // inversée : le milieu (la découpe) est vide, toute la page autour est couverte jusqu'au bord
+      expect(r.invMid).toBe(0);
+      expect(r.invCorner).toBeGreaterThan(200);
+      expect(r.invEdge).toBeGreaterThan(200);
+      expect(r.flag).toBe(1);
+      expect(r.hollowWins).toBe(0);
+    });
+  });
   describe('surface déformée gardée et posée en WebGL', () => {
     // un oiseau qui bat des ailes, peint d'un dégradé et d'un trait : sa surface se plie avec lui
     const setup = `
