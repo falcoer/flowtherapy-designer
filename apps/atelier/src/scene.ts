@@ -3,7 +3,7 @@ import { burnLayers, paintStroke, paintWash, type Target } from './brush';
 import type { Flames } from './fire';
 import { paintPass, passKind } from './fresh';
 import { drawBlurred, rng } from './brush';
-import { pathToRings, ringsToPath, simplifyRing, type Ring, insideRings } from './cut';
+import { pathToRings, ringsOfGeom, ringsToPath, simplifyRing, type Ring, insideRings, unionAll } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
 import { animCut, carved, generatorOf, posed } from './anim';
@@ -12,7 +12,7 @@ import { drawFlatOnMesh, drawFlatPieces, pruneWarpSurfaces } from './warp-gl';
 import type { Warp } from './stickers';
 export { restCut, surfaceWarp, warpFor } from './warp';
 import { EDGE_ELEMENTS, edgeStroke } from './elements';
-import { bevelLift, bevelSoftOf, blendStops, edgeLines, genPath, guideColor, layerBox, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
+import { bevelLift, bevelSoftOf, blendStops, BLEED, DEFAULT_SHAPE, edgeLines, genPath, guideColor, layerBox, resolvePoint, pinLine, type Pin, shapePath, volumeOn, type Doc, type EdgeElementStyle, type Stroke, type Guide, type Lamp, type Layer, type Pt, type ShapeKind } from './model';
 import type { Format } from '@ftd/core';
 import { keepLinks, type LinkShapes } from './links';
 import { fillEpoch, shapedFill } from './gradient';
@@ -834,6 +834,111 @@ function castShadow(ctx: CanvasRenderingContext2D, l: Layer, doc: Doc, f: Format
   ctx.restore();
 }
 
+/** Surface inversée (masque) : une forme ou un texte dont la surface couvre la page, la découpe en fenêtre. */
+export const invertOf = (l: Layer) => !!l.invert && !l.hollow && (l.kind === 'shape' || l.kind === 'text');
+
+const plates = new Map<string, { key: string; cut: string }>();
+/** Débord de la plaque autour de la page, en fraction du petit côté (plus large que le biseau le plus large). */
+const PLATE_PAD = 0.2;
+/**
+ * Plaque d'une surface inversée : la même couche (teinte, matière, vernis, volume, bord, lueur, hauteur),
+ * posée sur toute la page (avec un large débord) et percée de la découpe de l'objet. Le bord et la lueur,
+ * dessinés hors de la découpe de la plaque, tombent dans la fenêtre ; le volume monte depuis son bord.
+ */
+export function plateOf(l: Layer, f: Format, guides?: Guide[], mates: Layer[] = []): Layer {
+  const m = Math.min(f.width, f.height);
+  // la plaque dépasse largement la page : son biseau, son bord et son ombre ne se voient qu'autour de la fenêtre
+  const pad = Math.max(BLEED, PLATE_PAD) * m;
+  const [W, H] = [f.width + 2 * pad, f.height + 2 * pad];
+  const b = layerBox(l, f);
+  // un ensemble inversé : une seule plaque, percée des fenêtres de toutes ses pièces
+  const holes = [l, ...mates];
+  const key = [f.width, f.height, ...holes.map((x) => { const xb = layerBox(x, f); return [cutId(x), xb.cx, xb.cy, xb.w, xb.h, x.rot ?? 0].join(','); })].join('|');
+  let cut = plates.get(l.id)?.key === key ? plates.get(l.id)!.cut : null;
+  if (!cut) {
+    const [x0, y0] = [-pad, -pad];
+    const q = (n: number) => +n.toFixed(5);
+    // plusieurs pièces : la fenêtre est leur réunion (là où elles se chevauchent, le cache ne revient pas)
+    let rings = holes.flatMap((x) => maskRings(x, f));
+    if (holes.length > 1)
+      try {
+        rings = ringsOfGeom(unionAll(holes.map((x) => maskRings(x, f))));
+      } catch {
+        /* réunion impossible (contour dégénéré) : chaque fenêtre telle quelle */
+      }
+    cut = RECT + rings.map((r) => (r.length > 2 ? `M${r.map((p) => `${q((p.x - x0) / W)} ${q((p.y - y0) / H)}`).join('L')}Z` : '')).join('');
+    if (plates.size > 64) plates.clear();
+    plates.set(l.id, { key, cut });
+  }
+  let a = { x: 0.5, y: 0.5 };
+  try {
+    a = resolvePoint(l.anchor.frame, l.anchor.point, f);
+  } catch {
+    /* ancrage absent de ce format : centre */
+  }
+  // le dégradé (ou l'image) garde sa place sur la page : son repère passe de la boîte de l'objet à celle de la plaque
+  const g = guides?.[l.guide];
+  const place = l.grad ?? (g?.type === 'gradient' || g?.type === 'image' ? { cx: DEFAULT_SHAPE.cx, cy: DEFAULT_SHAPE.cy, angle: DEFAULT_SHAPE.angle, spread: DEFAULT_SHAPE.spread } : undefined);
+  let grad = l.grad;
+  if (place) {
+    const c = localToPage(l, f, place.cx, place.cy);
+    grad = { cx: (c.x + pad) / W, cy: (c.y + pad) / H, angle: place.angle + ((l.rot ?? 0) * 180) / Math.PI, spread: (place.spread * Math.max(b.w, b.h)) / Math.max(W, H) };
+  }
+  return {
+    ...l,
+    kind: 'shape',
+    invert: undefined,
+    grad,
+    dx: 0.5 - a.x,
+    dy: 0.5 - a.y,
+    grip: undefined,
+    w: W / m,
+    h: H / m,
+    rot: undefined,
+    pivot: undefined,
+    cut,
+    shape: undefined,
+    gen: undefined,
+    text: undefined,
+    anim: undefined,
+    molded: undefined,
+    bump: undefined,
+    // la peinture de la fenêtre ne passe pas sur la plaque ; celle du cache y est rangée à part
+    strokes: l.platePaint ?? [],
+    platePaint: undefined,
+    // rognage : seul le flou se garde (les dents et les flottants rongeraient aussi le tour de la page)
+    trim: l.trim && l.trim.blur > 0.01 ? { blur: l.trim.blur, float: 0, zigzag: 0 } : undefined,
+  };
+}
+
+/** Pièces inversées d'un même ensemble que `l` (objets solidaires), `l` compris : elles partagent une plaque. */
+export const invertMates = (l: Layer, layers: Layer[]) => (l.link ? layers.filter((x) => x.link === l.link && invertOf(x)) : [l]);
+
+/**
+ * Couches à dessiner : chaque surface inversée devient sa plaque ; les pièces inversées d'un ensemble
+ * n'en font qu'une, portée par la première et percée de toutes leurs fenêtres.
+ */
+export function platesOf(layers: Layer[], f: Format, guides?: Guide[]): Layer[] {
+  const out: Layer[] = [];
+  const done = new Set<string>();
+  for (const l of layers) {
+    if (!invertOf(l)) {
+      out.push(l);
+      continue;
+    }
+    if (l.link && done.has(l.link)) continue;
+    if (l.link) done.add(l.link);
+    const mates = invertMates(l, layers).filter((x) => x !== l && x.visible);
+    out.push(plateOf(l, f, guides, mates));
+  }
+  return out;
+}
+
+/** Pièce qui porte la plaque d'un ensemble inversé (la première de l'ensemble) : c'est elle qui garde la peinture du cache. */
+export const plateCarrier = (l: Layer, layers: Layer[]) => invertMates(l, layers)[0] ?? l;
+/** Plaque telle qu'elle se dessine (repère de la peinture du cache), pour la pièce qui la porte. */
+export const plateFor = (l: Layer, layers: Layer[], f: Format, guides?: Guide[]) => platesOf(layers, f, guides).find((x) => x.id === l.id) ?? plateOf(l, f, guides);
+
 /** Objet sans surface : seuls son bord et sa lueur se dessinent (le fond de la page garde toujours la sienne). */
 export const hollowOf = (l: Layer) => !!l.hollow && l.kind !== 'surface';
 
@@ -871,6 +976,8 @@ export function drawLayers(ctx: CanvasRenderingContext2D, doc: Doc, f: Format, o
     const layers = posed(doc.layers, f);
     if (layers !== doc.layers) doc = { ...doc, layers };
   }
+  // surfaces inversées : chacune devient sa plaque percée, dessinée comme n'importe quelle forme
+  if (doc.layers.some(invertOf)) doc = { ...doc, layers: platesOf(doc.layers, f, doc.guides) };
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, f.width, f.height);

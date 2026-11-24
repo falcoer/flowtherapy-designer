@@ -258,6 +258,75 @@ describe('dans le navigateur', () => {
       expect(r.opaque).toBe(1);
     });
   });
+  describe('surface inversée', () => {
+    t('la surface couvre la page, la découpe devient une fenêtre', async () => {
+      const r = await run<Record<string, number>>(`
+        const k = 400 / f.width;
+        const draw = (l) => {
+          const c = document.createElement('canvas');
+          c.width = Math.round(f.width * k);
+          c.height = Math.round(f.height * k);
+          const ctx = c.getContext('2d');
+          ctx.setTransform(k, 0, 0, k, 0, 0);
+          scene.drawLayers(ctx, { ...doc, layers: [l] }, f, { scale: k, onImage: () => {} });
+          return c;
+        };
+        const at = (c, u, v) => c.getContext('2d').getImageData(Math.round(u * c.width), Math.round(v * c.height), 1, 1).data[3];
+        const plain = draw(shape([]));
+        const inv = draw(shape([], { invert: true, bevel: 0.3, height: 0.2 }));
+        return {
+          plainMid: at(plain, 0.5, 0.5), plainCorner: at(plain, 0.05, 0.05),
+          invMid: at(inv, 0.5, 0.5), invCorner: at(inv, 0.05, 0.05), invEdge: at(inv, 0.98, 0.98),
+          // ensemble inversé : une seule plaque percée des deux fenêtres
+          ...(() => {
+            const a = shape([], { id: 'g1', invert: true, link: 'e', w: 0.2, h: 0.2, dx: -0.25 });
+            const b = shape([], { id: 'g2', invert: true, link: 'e', w: 0.2, h: 0.2, dx: 0.25 });
+            // deux pièces qui se chevauchent : la fenêtre est leur réunion, le chevauchement reste ouvert
+            const o1 = shape([], { id: 'o1', invert: true, link: 'u', w: 0.4, h: 0.3, dx: -0.08 });
+            const o2 = shape([], { id: 'o2', invert: true, link: 'u', w: 0.4, h: 0.3, dx: 0.08 });
+            const cu = document.createElement('canvas');
+            cu.width = Math.round(f.width * k);
+            cu.height = Math.round(f.height * k);
+            const ux = cu.getContext('2d');
+            ux.setTransform(k, 0, 0, k, 0, 0);
+            scene.drawLayers(ux, { ...doc, layers: [o1, o2] }, f, { scale: k, onImage: () => {} });
+            const c = document.createElement('canvas');
+            c.width = Math.round(f.width * k);
+            c.height = Math.round(f.height * k);
+            const ctx = c.getContext('2d');
+            ctx.setTransform(k, 0, 0, k, 0, 0);
+            scene.drawLayers(ctx, { ...doc, layers: [a, b] }, f, { scale: k, onImage: () => {} });
+            return { overlap: at(cu, 0.5, 0.5), groupLeft: at(c, 0.25, 0.5), groupRight: at(c, 0.75, 0.5), groupMid: at(c, 0.5, 0.5) };
+          })(),
+          // peinture du cache : posée sur la plaque, hors de la boîte de la forme
+          paintDiff: (() => {
+            const rgb = (c, u, v) => Array.from(c.getContext('2d').getImageData(Math.round(u * c.width), Math.round(v * c.height), 1, 1).data.slice(0, 3));
+            const plain = draw(shape([], { invert: true }));
+            const painted = draw(shape([], { invert: true, platePaint: [{ brush: 'acrylic', guide: 3, size: 0.03, opacity: 1, seed: 1, pts: line(0.2, 0.1, 0.9) }] }));
+            const m = Math.min(f.width, f.height);
+            const v = (0.2 * (f.height + 0.4 * m) - 0.2 * m) / f.height;
+            const [a, b] = [rgb(plain, 0.5, v), rgb(painted, 0.5, v)];
+            return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+          })(),
+          flag: scene.invertOf(shape([], { invert: true })) ? 1 : 0,
+          hollowWins: scene.invertOf(shape([], { invert: true, hollow: true })) ? 1 : 0,
+        };
+      `);
+      expect(r.plainMid).toBeGreaterThan(200);
+      expect(r.plainCorner).toBe(0);
+      // inversée : le milieu (la découpe) est vide, toute la page autour est couverte jusqu'au bord
+      expect(r.invMid).toBe(0);
+      expect(r.invCorner).toBeGreaterThan(200);
+      expect(r.invEdge).toBeGreaterThan(200);
+      expect(r.paintDiff).toBeGreaterThan(40);
+      expect(r.overlap).toBe(0);
+      expect(r.groupLeft).toBe(0);
+      expect(r.groupRight).toBe(0);
+      expect(r.groupMid).toBeGreaterThan(200);
+      expect(r.flag).toBe(1);
+      expect(r.hollowWins).toBe(0);
+    });
+  });
   describe('surface déformée gardée et posée en WebGL', () => {
     // un oiseau qui bat des ailes, peint d'un dégradé et d'un trait : sa surface se plie avec lui
     const setup = `

@@ -88,7 +88,7 @@ import {
   type ShapeKind,
   type Stroke,
 } from './model';
-import { type Ring, geomArea, insideRings, intersect, nearRings, ringsOfGeom, ringsToPath, simplifyRing, splitByCut, subtract } from './cut';
+import { type Ring, geomArea, insideRings, intersect, nearRings, ringsDistance, ringsOfGeom, ringsToPath, simplifyRing, splitByCut, subtract } from './cut';
 import { applySceneLook, lookOn } from './scene-look';
 import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, isMaterial, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
@@ -124,6 +124,10 @@ import {
   localRings,
   maskPath2D,
   maskRings,
+  invertOf,
+  invertMates,
+  plateCarrier,
+  plateFor,
   paintTarget,
   tracePath,
 } from './scene';
@@ -2633,11 +2637,31 @@ export function App() {
       const l = ord[i]!;
       if (!l.visible) continue;
       const rings = maskRings(l, f);
+      // surface inversée : la plaque se touche, la fenêtre laisse passer jusqu'aux objets du dessous
+      if (invertOf(l)) {
+        // un ensemble inversé n'a qu'une plaque : aucune de ses fenêtres ne la touche
+        const holes = invertMates(l, doc.layers).filter((m) => m.visible);
+        if (x >= 0 && y >= 0 && x <= f.width && y <= f.height && !holes.some((m) => insideRings(m === l ? rings : maskRings(m, f), x, y))) return l;
+        continue;
+      }
       // le bord ajouté (contour d'un titre…) fait partie de l'objet : le toucher le choisit
       const out = l.kind === 'surface' ? 0 : borderOut(l, f);
       if (insideRings(rings, x, y) || (out > 0 && nearRings(rings, x, y, out))) return l;
     }
     return null;
+  };
+  /** Repère où se peint une couche : la plaque pour le cache d'une surface inversée, la couche elle-même sinon. */
+  const paintGeo = (l: Layer) => (invertOf(l) ? plateFor(l, doc.layers, f, doc.guides) : l);
+  /** Pièce inversée d'un ensemble dont le contour passe au plus près de (x, y) : celle que l'on modèle. */
+  const nearestMate = (l: Layer, x: number, y: number) => {
+    let best = l;
+    let bd = Infinity;
+    for (const m of invertMates(l, doc.layers)) {
+      if (!m.visible) continue;
+      const d = ringsDistance(maskRings(m, f), x, y);
+      if (d < bd) [best, bd] = [m, d];
+    }
+    return best;
   };
   const toLocal = (l: Layer, x: number, y: number) => pageToLocal(l, f, x, y);
   /** Point de la surface sous le doigt : sur une forme qui se plie (aile qui bat), là où il est posé sur la forme au repos. */
@@ -3086,14 +3110,16 @@ export function App() {
       // parti près de l'objet choisi (dedans, sur son bord ou à portée de l'outil), le geste le modèle ;
       // parti sur un autre objet, loin du choisi, c'est cet autre objet qu'on modèle
       const reach = swash.r * MOLD_UNIT * Math.min(f.width, f.height) + (sel ? borderOut(sel, f) : 0);
-      const nearSel = !!sel && sel.kind !== 'surface' && (insideRings(maskRings(sel, f), p.x, p.y) || nearRings(maskRings(sel, f), p.x, p.y, reach));
+      const nearSel = !!sel && sel.kind !== 'surface' && (invertOf(sel) ? invertMates(sel, doc.layers) : [sel]).some((m) => insideRings(maskRings(m, f), p.x, p.y) || nearRings(maskRings(m, f), p.x, p.y, reach));
       const other = hit && hit.kind !== 'surface' && hit.id !== sel?.id ? hit : null;
       // un objet posé au-dessus du choisi, touché, passe devant (une image de fond choisie par mégarde
       // ne garde pas les gestes suivants)
       const ord = renderOrder(doc.layers);
       const above = !!other && !!sel && ord.indexOf(other) > ord.indexOf(sel);
-      const target = other && (above || !nearSel) ? other : sel && sel.kind !== 'surface' ? sel : null;
-      if (!target) return setToast('Choisis d’abord un objet à modeler');
+      const target0 = other && (above || !nearSel) ? other : sel && sel.kind !== 'surface' ? sel : null;
+      if (!target0) return setToast('Choisis d’abord un objet à modeler');
+      // ensemble inversé : un seul cache, plusieurs fenêtres ; le geste modèle la pièce dont le bord est le plus proche
+      const target = invertOf(target0) ? nearestMate(target0, p.x, p.y) : target0;
       if (target.id !== selected) setSelected(target.id);
       const loc = toLocal(target, p.x, p.y);
       // Relief : on sculpte la surface (bosses, creux), le contour ne bouge pas
@@ -3264,18 +3290,21 @@ export function App() {
     const under = layerAt(p.x, p.y);
     // Déborder : parti du fond tout près, le trait reste à l'objet choisi
     const spills = spill && (t === 'stamp' || (elDef.spill !== false && (brushKind === 'hair' || brushKind === 'branch' || brushKind === 'glitter')));
-    const target = sel && insideRings(maskRings(sel, f), p.x, p.y) ? sel : spills && sel && sel.kind !== 'surface' && (!under || under.kind === 'surface') ? sel : under;
-    if (!target) return;
-    if (target.id !== selected) setSelected(target.id);
+    const target1 = sel && !invertOf(sel) && insideRings(maskRings(sel, f), p.x, p.y) ? sel : spills && sel && sel.kind !== 'surface' && !invertOf(sel) && (!under || under.kind === 'surface') ? sel : under;
+    if (!target1) return;
+    // cache d'une surface inversée : la peinture va sur la plaque, portée par la première pièce de l'ensemble
+    const target = invertOf(target1) ? plateCarrier(target1, doc.layers) : target1;
+    if (target.id !== selected && target1.id !== selected) setSelected(target.id);
+    const geo = paintGeo(target);
     // une forme qui se plie (aile qui bat) garde son encre dans sa découpe : l'aperçu débordant ne suit pas le maillage
-    const sw = spills && target.kind !== 'surface' && !surfaceWarp(target) ? spillWindow(target, f, scale * dpr) : null;
-    const tg = sw?.t ?? paintTarget(target, f, scale * dpr);
+    const sw = spills && target.kind !== 'surface' && !invertOf(target) && !surfaceWarp(target) ? spillWindow(target, f, scale * dpr) : null;
+    const tg = sw?.t ?? paintTarget(geo, f, scale * dpr);
     const wet = document.createElement('canvas');
     wet.width = tg.pw;
     wet.height = tg.ph;
     const wetOf = (s: Stroke) => (sw ? inWin(s, sw.win) : s);
     const pr = pressure(e, null);
-    const q = toSurface(target, p.x, p.y);
+    const q = toSurface(geo, p.x, p.y);
     live.current = {
       kind: 'paint',
       layer: target.id,
@@ -3296,7 +3325,7 @@ export function App() {
               size: stampSize,
               opacity: 0.95,
               seed: Math.floor(Math.random() * 1e9),
-              pts: [{ ...q, p: pr, ...stampAngle(e, target) }],
+              pts: [{ ...q, p: pr, ...stampAngle(e, geo) }],
             }
           : {
               brush: brushKind,
@@ -3307,7 +3336,7 @@ export function App() {
               ...(tipOn(brushKind) ? { tip: brushTip } : {}),
               ...strokeParams(elDef, elP),
               ...(wetKind ? { wash: washFor(target.id, wetCtx) } : {}),
-              pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, target) } : {}), ...(leanOn(brushKind) ? brushLean(e, target) : {}) }],
+              pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, geo) } : {}), ...(leanOn(brushKind) ? brushLean(e, geo) : {}) }],
             },
     };
     // ramures, particules : tant que la pointe reste posée, les ramifications poussent, les grains voyagent
@@ -3607,7 +3636,7 @@ export function App() {
       return;
     }
     if (L.kind === 'paint' && L.stroke && L.layer) {
-      const l = doc.layers.find((x) => x.id === L.layer)!;
+      const l = paintGeo(doc.layers.find((x) => x.id === L.layer)!);
       const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
       const stamping = L.stroke.brush === 'stamp';
       const branching = L.stroke.brush === 'branch';
@@ -3946,12 +3975,13 @@ export function App() {
         L.branchFrame = 0;
         if (L.win && L.wtg) repaintBranch(L, L.wtg);
       }
-      const grown = L.win && L.wet && l0 && canSpill(s) ? growPatch({ ...l0, strokes: [...l0.strokes, s] }, f, inkRings(l0, f, s, doc.guides, scale * dpr, L.wet, L.win)) : {};
+      const onPlate = !!l0 && invertOf(l0);
+      const grown = !onPlate && L.win && L.wet && l0 && canSpill(s) ? growPatch({ ...l0, strokes: [...l0.strokes, s] }, f, inkRings(l0, f, s, doc.guides, scale * dpr, L.wet, L.win)) : {};
       // le canevas du geste (jusqu'à 2048 px quand l'encre déborde) n'est plus montré : sa mémoire est rendue
       if (L.wet) L.wet.width = L.wet.height = 0;
       // second moteur de la fiche : le même geste pose aussi son trait (étincelles d'un feu…)
       const extra = s.brush === 'stamp' ? [] : extraStrokes(elDef, s, elP);
-      update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, strokes: [...l.strokes, s, ...extra], ...grown } : l)) }));
+      update((d) => ({ ...d, layers: d.layers.map((l) => (l.id !== id ? l : onPlate ? { ...l, platePaint: [...(l.platePaint ?? []), s, ...extra] } : { ...l, strokes: [...l.strokes, s, ...extra], ...grown })) }));
       return;
     }
     if (L.kind === 'subject' && L.lasso) {
@@ -4033,7 +4063,7 @@ export function App() {
       const ctx = c.getContext('2d', { willReadFrequently: true })!;
       ctx.setTransform(w / b.w, 0, 0, h / b.h, (-(b.cx - b.w / 2) * w) / b.w, (-(b.cy - b.h / 2) * h) / b.h);
       // la couche seule, à plat : sans ombre ni liseré
-      drawLayers(ctx, { ...doc, layers: [{ ...l, height: 0, bevel: 0, border: undefined, hollow: undefined, rot: 0, visible: true }] }, f, { scale: scale * dpr, onImage: redraw });
+      drawLayers(ctx, { ...doc, layers: [{ ...l, height: 0, bevel: 0, border: undefined, hollow: undefined, invert: undefined, rot: 0, visible: true }] }, f, { scale: scale * dpr, onImage: redraw });
       analysisCache.current = { key, a: analyse(c) };
       mapCache.current = null;
     }
@@ -4059,7 +4089,7 @@ export function App() {
     ctx.fillRect(0, 0, c.width, c.height);
     ctx.setTransform(k, 0, 0, k, -(b.cx - b.w / 2 + crop.u0 * b.w) * k, -(b.cy - b.h / 2 + crop.v0 * b.h) * k);
     // la photo entière, à plat : le modèle voit tout le contexte, même hors de la découpe
-    const flat: Layer = { ...l, height: 0, bevel: 0, border: undefined, hollow: undefined, rot: 0, visible: true, ...(l.kind === 'photo' ? { cut: undefined, molded: undefined } : {}) };
+    const flat: Layer = { ...l, height: 0, bevel: 0, border: undefined, hollow: undefined, invert: undefined, rot: 0, visible: true, ...(l.kind === 'photo' ? { cut: undefined, molded: undefined } : {}) };
     drawLayers(ctx, { ...doc, layers: [flat] }, f, { scale: k, onImage: redraw });
     const S: NonNullable<typeof subject.current> = { layer: l.id, crop, zone, state: 'busy', strokes: first, mask: null, img: null, geom: null };
     subject.current = S;
@@ -4248,6 +4278,11 @@ export function App() {
   const finishPath = (line: Pt[]) => {
     const sel = doc.layers.find((l) => l.id === selected);
     if (!sel || sel.kind === 'surface' || line.length < 2) return redraw();
+    // un masque se coupe en deux fenêtres qui se couvriraient l'une l'autre
+    if (invertOf(sel)) {
+      setToast('Une surface inversée ne se découpe pas : décoche « Surface inversée » le temps de la couper');
+      return redraw();
+    }
     // on prolonge un peu les extrémités pour bien sortir de la forme
     const ext = (a: Pt, b: Pt) => {
       const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
@@ -4306,6 +4341,7 @@ export function App() {
    * scalpel : il reste en place, lié à son objet.
    */
   const detach = (l: Layer, piece: MultiPolygon, rest: MultiPolygon, label = 'morceau', how: 'scissors' | 'scalpel' = blade) => {
+    if (invertOf(l)) return void setToast('Une surface inversée ne se découpe pas : décoche « Surface inversée » le temps de la couper');
     const b = layerBox(l, f);
     const eps = 0.6 / (scale * Math.max(b.w, b.h));
     const pieceCut = ringsToPath(ringsOfGeom(piece), eps);
@@ -6228,10 +6264,10 @@ export function App() {
                     })()}
                   <button
                     className="btn small"
-                    disabled={!sel?.strokes.length}
+                    disabled={!sel?.strokes.length && !sel?.platePaint?.length}
                     onClick={() => {
-                      if (!sel?.strokes.length) return;
-                      update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === sel.id ? { ...l, strokes: [] } : l)) }));
+                      if (!sel?.strokes.length && !sel?.platePaint?.length) return;
+                      update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === sel.id ? { ...l, strokes: [], platePaint: undefined } : l)) }));
                       setToast(`Peinture de « ${sel.name} » effacée`);
                       setToastUndo(true);
                     }}

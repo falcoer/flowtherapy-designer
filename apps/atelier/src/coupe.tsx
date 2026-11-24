@@ -648,8 +648,14 @@ export function CoupePanel({
     }
     // sans bord, l'objet disparaîtrait : il prend un bord fin de sa propre teinte
     const edged = l.border && l.border.width > 0;
-    patch({ hollow: true, ...(edged ? {} : { border: { style: 'round' as const, ...borderDefaults('round', undefined, doc.guides), guide: l.guide, width: 0.012 } }) });
+    patch({ hollow: true, invert: undefined, ...(edged ? {} : { border: { style: 'round' as const, ...borderDefaults('round', undefined, doc.guides), guide: l.guide, width: 0.012 } }) });
     onToast(edged ? 'Sans surface : seul le bord se dessine' : 'Sans surface : un bord fin a été ajouté, à régler dans l’onglet Bord', true);
+  };
+  // surface inversée (masque) : la surface couvre la page, la découpe devient une fenêtre
+  const inverted = !!l.invert && !hollow && (l.kind === 'shape' || l.kind === 'text');
+  const setInvert = (on: boolean) => {
+    patch({ invert: on || undefined, ...(on ? { hollow: undefined } : {}) });
+    onToast(on ? 'Surface inversée : elle couvre la page, la découpe devient une fenêtre' : 'Surface remise dans la découpe', true);
   };
   /**
    * Menu de côté des onglets Forme, Texte et Image, toujours là (à droite sur tablette) : proportions libres,
@@ -668,6 +674,13 @@ export function CoupePanel({
             <span>Sans surface</span>
             <input type="checkbox" checked={hollow} onChange={(e) => setHollow(e.target.checked)} />
             <output>{hollow ? 'oui' : 'non'}</output>
+          </label>
+        )}
+        {(l.kind === 'shape' || l.kind === 'text') && (
+          <label className="cp-row" title="Surface inversée : la surface couvre toute la page sauf la découpe, qui devient une fenêtre sur ce qui est dessous (un masque). Teinte, matière, vernis, volume, bord et lueur se posent sur la plaque.">
+            <span>Surface inversée</span>
+            <input type="checkbox" checked={inverted} onChange={(e) => setInvert(e.target.checked)} />
+            <output>{inverted ? 'oui' : 'non'}</output>
           </label>
         )}
         {l.molded && unmold && (

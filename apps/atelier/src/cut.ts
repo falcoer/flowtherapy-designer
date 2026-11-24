@@ -218,6 +218,20 @@ export function insideRings(rings: Ring[], x: number, y: number): boolean {
 }
 
 /** Point à moins de `d` d'un des contours. */
+/** Distance de (x, y) au plus proche segment des contours. */
+export function ringsDistance(rings: Ring[], x: number, y: number): number {
+  let best = Infinity;
+  for (const pts of rings)
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const a = pts[j]!;
+      const b = pts[i]!;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+      best = Math.min(best, Math.hypot(a.x + t * dx - x, a.y + t * dy - y));
+    }
+  return best;
+}
 export function nearRings(rings: Ring[], x: number, y: number, d: number): boolean {
   const d2 = d * d;
   for (const pts of rings)

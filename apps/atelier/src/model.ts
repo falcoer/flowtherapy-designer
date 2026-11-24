@@ -283,6 +283,13 @@ export interface Layer {
    * la matière, la peinture et le volume restent sur l'objet, gardés de côté.
    */
   hollow?: boolean;
+  /**
+   * Surface inversée (masque) : la surface couvre toute la page sauf la découpe, qui devient une fenêtre
+   * sur ce qui est dessous. Teinte, matière, vernis, volume, bord et lueur se posent sur cette plaque.
+   */
+  invert?: boolean;
+  /** Peinture posée sur le cache d'une surface inversée : points dans le repère de la plaque (la page et son débord), elle reste en place quand la fenêtre bouge. */
+  platePaint?: Stroke[];
   /** Ombre intérieure (0..1). */
   inner?: number;
   /** Lueur autour de la découpe : style, guide, distance au bord et largeur (0..1). */
