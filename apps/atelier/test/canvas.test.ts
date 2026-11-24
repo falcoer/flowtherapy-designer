@@ -298,6 +298,16 @@ describe('dans le navigateur', () => {
             scene.drawLayers(ctx, { ...doc, layers: [a, b] }, f, { scale: k, onImage: () => {} });
             return { overlap: at(cu, 0.5, 0.5), groupLeft: at(c, 0.25, 0.5), groupRight: at(c, 0.75, 0.5), groupMid: at(c, 0.5, 0.5) };
           })(),
+          // peinture du cache : posée sur la plaque, hors de la boîte de la forme
+          paintDiff: (() => {
+            const rgb = (c, u, v) => Array.from(c.getContext('2d').getImageData(Math.round(u * c.width), Math.round(v * c.height), 1, 1).data.slice(0, 3));
+            const plain = draw(shape([], { invert: true }));
+            const painted = draw(shape([], { invert: true, platePaint: [{ brush: 'acrylic', guide: 3, size: 0.03, opacity: 1, seed: 1, pts: line(0.2, 0.1, 0.9) }] }));
+            const m = Math.min(f.width, f.height);
+            const v = (0.2 * (f.height + 0.4 * m) - 0.2 * m) / f.height;
+            const [a, b] = [rgb(plain, 0.5, v), rgb(painted, 0.5, v)];
+            return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+          })(),
           flag: scene.invertOf(shape([], { invert: true })) ? 1 : 0,
           hollowWins: scene.invertOf(shape([], { invert: true, hollow: true })) ? 1 : 0,
         };
@@ -308,6 +318,7 @@ describe('dans le navigateur', () => {
       expect(r.invMid).toBe(0);
       expect(r.invCorner).toBeGreaterThan(200);
       expect(r.invEdge).toBeGreaterThan(200);
+      expect(r.paintDiff).toBeGreaterThan(40);
       expect(r.overlap).toBe(0);
       expect(r.groupLeft).toBe(0);
       expect(r.groupRight).toBe(0);

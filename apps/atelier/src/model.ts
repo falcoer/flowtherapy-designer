@@ -288,6 +288,8 @@ export interface Layer {
    * sur ce qui est dessous. Teinte, matière, vernis, volume, bord et lueur se posent sur cette plaque.
    */
   invert?: boolean;
+  /** Peinture posée sur le cache d'une surface inversée : points dans le repère de la plaque (la page et son débord), elle reste en place quand la fenêtre bouge. */
+  platePaint?: Stroke[];
   /** Ombre intérieure (0..1). */
   inner?: number;
   /** Lueur autour de la découpe : style, guide, distance au bord et largeur (0..1). */

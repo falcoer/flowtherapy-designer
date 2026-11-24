@@ -126,6 +126,8 @@ import {
   maskRings,
   invertOf,
   invertMates,
+  plateCarrier,
+  plateFor,
   paintTarget,
   tracePath,
 } from './scene';
@@ -2648,6 +2650,8 @@ export function App() {
     }
     return null;
   };
+  /** Repère où se peint une couche : la plaque pour le cache d'une surface inversée, la couche elle-même sinon. */
+  const paintGeo = (l: Layer) => (invertOf(l) ? plateFor(l, doc.layers, f, doc.guides) : l);
   /** Pièce inversée d'un ensemble dont le contour passe au plus près de (x, y) : celle que l'on modèle. */
   const nearestMate = (l: Layer, x: number, y: number) => {
     let best = l;
@@ -3286,18 +3290,21 @@ export function App() {
     const under = layerAt(p.x, p.y);
     // Déborder : parti du fond tout près, le trait reste à l'objet choisi
     const spills = spill && (t === 'stamp' || (elDef.spill !== false && (brushKind === 'hair' || brushKind === 'branch' || brushKind === 'glitter')));
-    const target = sel && insideRings(maskRings(sel, f), p.x, p.y) ? sel : spills && sel && sel.kind !== 'surface' && (!under || under.kind === 'surface') ? sel : under;
-    if (!target) return;
-    if (target.id !== selected) setSelected(target.id);
+    const target1 = sel && !invertOf(sel) && insideRings(maskRings(sel, f), p.x, p.y) ? sel : spills && sel && sel.kind !== 'surface' && !invertOf(sel) && (!under || under.kind === 'surface') ? sel : under;
+    if (!target1) return;
+    // cache d'une surface inversée : la peinture va sur la plaque, portée par la première pièce de l'ensemble
+    const target = invertOf(target1) ? plateCarrier(target1, doc.layers) : target1;
+    if (target.id !== selected && target1.id !== selected) setSelected(target.id);
+    const geo = paintGeo(target);
     // une forme qui se plie (aile qui bat) garde son encre dans sa découpe : l'aperçu débordant ne suit pas le maillage
-    const sw = spills && target.kind !== 'surface' && !surfaceWarp(target) ? spillWindow(target, f, scale * dpr) : null;
-    const tg = sw?.t ?? paintTarget(target, f, scale * dpr);
+    const sw = spills && target.kind !== 'surface' && !invertOf(target) && !surfaceWarp(target) ? spillWindow(target, f, scale * dpr) : null;
+    const tg = sw?.t ?? paintTarget(geo, f, scale * dpr);
     const wet = document.createElement('canvas');
     wet.width = tg.pw;
     wet.height = tg.ph;
     const wetOf = (s: Stroke) => (sw ? inWin(s, sw.win) : s);
     const pr = pressure(e, null);
-    const q = toSurface(target, p.x, p.y);
+    const q = toSurface(geo, p.x, p.y);
     live.current = {
       kind: 'paint',
       layer: target.id,
@@ -3318,7 +3325,7 @@ export function App() {
               size: stampSize,
               opacity: 0.95,
               seed: Math.floor(Math.random() * 1e9),
-              pts: [{ ...q, p: pr, ...stampAngle(e, target) }],
+              pts: [{ ...q, p: pr, ...stampAngle(e, geo) }],
             }
           : {
               brush: brushKind,
@@ -3329,7 +3336,7 @@ export function App() {
               ...(tipOn(brushKind) ? { tip: brushTip } : {}),
               ...strokeParams(elDef, elP),
               ...(wetKind ? { wash: washFor(target.id, wetCtx) } : {}),
-              pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, target) } : {}), ...(leanOn(brushKind) ? brushLean(e, target) : {}) }],
+              pts: [{ ...q, p: pr, ...(tipOn(brushKind) ? { r: tipAngle(e, geo) } : {}), ...(leanOn(brushKind) ? brushLean(e, geo) : {}) }],
             },
     };
     // ramures, particules : tant que la pointe reste posée, les ramifications poussent, les grains voyagent
@@ -3629,7 +3636,7 @@ export function App() {
       return;
     }
     if (L.kind === 'paint' && L.stroke && L.layer) {
-      const l = doc.layers.find((x) => x.id === L.layer)!;
+      const l = paintGeo(doc.layers.find((x) => x.id === L.layer)!);
       const events = (e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) as PointerEvent[];
       const stamping = L.stroke.brush === 'stamp';
       const branching = L.stroke.brush === 'branch';
@@ -3968,12 +3975,13 @@ export function App() {
         L.branchFrame = 0;
         if (L.win && L.wtg) repaintBranch(L, L.wtg);
       }
-      const grown = L.win && L.wet && l0 && canSpill(s) ? growPatch({ ...l0, strokes: [...l0.strokes, s] }, f, inkRings(l0, f, s, doc.guides, scale * dpr, L.wet, L.win)) : {};
+      const onPlate = !!l0 && invertOf(l0);
+      const grown = !onPlate && L.win && L.wet && l0 && canSpill(s) ? growPatch({ ...l0, strokes: [...l0.strokes, s] }, f, inkRings(l0, f, s, doc.guides, scale * dpr, L.wet, L.win)) : {};
       // le canevas du geste (jusqu'à 2048 px quand l'encre déborde) n'est plus montré : sa mémoire est rendue
       if (L.wet) L.wet.width = L.wet.height = 0;
       // second moteur de la fiche : le même geste pose aussi son trait (étincelles d'un feu…)
       const extra = s.brush === 'stamp' ? [] : extraStrokes(elDef, s, elP);
-      update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, strokes: [...l.strokes, s, ...extra], ...grown } : l)) }));
+      update((d) => ({ ...d, layers: d.layers.map((l) => (l.id !== id ? l : onPlate ? { ...l, platePaint: [...(l.platePaint ?? []), s, ...extra] } : { ...l, strokes: [...l.strokes, s, ...extra], ...grown })) }));
       return;
     }
     if (L.kind === 'subject' && L.lasso) {
@@ -6256,10 +6264,10 @@ export function App() {
                     })()}
                   <button
                     className="btn small"
-                    disabled={!sel?.strokes.length}
+                    disabled={!sel?.strokes.length && !sel?.platePaint?.length}
                     onClick={() => {
-                      if (!sel?.strokes.length) return;
-                      update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === sel.id ? { ...l, strokes: [] } : l)) }));
+                      if (!sel?.strokes.length && !sel?.platePaint?.length) return;
+                      update((d) => ({ ...d, layers: d.layers.map((l) => (l.id === sel.id ? { ...l, strokes: [], platePaint: undefined } : l)) }));
                       setToast(`Peinture de « ${sel.name} » effacée`);
                       setToastUndo(true);
                     }}

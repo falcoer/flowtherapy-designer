@@ -903,7 +903,9 @@ export function plateOf(l: Layer, f: Format, guides?: Guide[], mates: Layer[] = 
     anim: undefined,
     molded: undefined,
     bump: undefined,
-    strokes: [],
+    // la peinture de la fenêtre ne passe pas sur la plaque ; celle du cache y est rangée à part
+    strokes: l.platePaint ?? [],
+    platePaint: undefined,
     // rognage : seul le flou se garde (les dents et les flottants rongeraient aussi le tour de la page)
     trim: l.trim && l.trim.blur > 0.01 ? { blur: l.trim.blur, float: 0, zigzag: 0 } : undefined,
   };
@@ -931,6 +933,11 @@ export function platesOf(layers: Layer[], f: Format, guides?: Guide[]): Layer[] 
   }
   return out;
 }
+
+/** Pièce qui porte la plaque d'un ensemble inversé (la première de l'ensemble) : c'est elle qui garde la peinture du cache. */
+export const plateCarrier = (l: Layer, layers: Layer[]) => invertMates(l, layers)[0] ?? l;
+/** Plaque telle qu'elle se dessine (repère de la peinture du cache), pour la pièce qui la porte. */
+export const plateFor = (l: Layer, layers: Layer[], f: Format, guides?: Guide[]) => platesOf(layers, f, guides).find((x) => x.id === l.id) ?? plateOf(l, f, guides);
 
 /** Objet sans surface : seuls son bord et sa lueur se dessinent (le fond de la page garde toujours la sienne). */
 export const hollowOf = (l: Layer) => !!l.hollow && l.kind !== 'surface';
