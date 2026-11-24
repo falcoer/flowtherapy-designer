@@ -88,7 +88,7 @@ import {
   type ShapeKind,
   type Stroke,
 } from './model';
-import { type Ring, geomArea, insideRings, intersect, nearRings, ringsOfGeom, ringsToPath, simplifyRing, splitByCut, subtract } from './cut';
+import { type Ring, geomArea, insideRings, intersect, nearRings, ringsDistance, ringsOfGeom, ringsToPath, simplifyRing, splitByCut, subtract } from './cut';
 import { applySceneLook, lookOn } from './scene-look';
 import { applyPixelFx, DRAW_FX, FX, FX_GROUPS, fxGuides, fxOf, isMaterial, MATERIALS, newFx, type Fx, type FxGroup, type FxId } from './fx';
 import { applyLook, lookGuides, lookOf, LOOKS, type LookId, type LookSettings } from './looks';
@@ -2648,6 +2648,17 @@ export function App() {
     }
     return null;
   };
+  /** Pièce inversée d'un ensemble dont le contour passe au plus près de (x, y) : celle que l'on modèle. */
+  const nearestMate = (l: Layer, x: number, y: number) => {
+    let best = l;
+    let bd = Infinity;
+    for (const m of invertMates(l, doc.layers)) {
+      if (!m.visible) continue;
+      const d = ringsDistance(maskRings(m, f), x, y);
+      if (d < bd) [best, bd] = [m, d];
+    }
+    return best;
+  };
   const toLocal = (l: Layer, x: number, y: number) => pageToLocal(l, f, x, y);
   /** Point de la surface sous le doigt : sur une forme qui se plie (aile qui bat), là où il est posé sur la forme au repos. */
   const toSurface = (l: Layer, x: number, y: number) => {
@@ -3095,14 +3106,16 @@ export function App() {
       // parti près de l'objet choisi (dedans, sur son bord ou à portée de l'outil), le geste le modèle ;
       // parti sur un autre objet, loin du choisi, c'est cet autre objet qu'on modèle
       const reach = swash.r * MOLD_UNIT * Math.min(f.width, f.height) + (sel ? borderOut(sel, f) : 0);
-      const nearSel = !!sel && sel.kind !== 'surface' && (insideRings(maskRings(sel, f), p.x, p.y) || nearRings(maskRings(sel, f), p.x, p.y, reach));
+      const nearSel = !!sel && sel.kind !== 'surface' && (invertOf(sel) ? invertMates(sel, doc.layers) : [sel]).some((m) => insideRings(maskRings(m, f), p.x, p.y) || nearRings(maskRings(m, f), p.x, p.y, reach));
       const other = hit && hit.kind !== 'surface' && hit.id !== sel?.id ? hit : null;
       // un objet posé au-dessus du choisi, touché, passe devant (une image de fond choisie par mégarde
       // ne garde pas les gestes suivants)
       const ord = renderOrder(doc.layers);
       const above = !!other && !!sel && ord.indexOf(other) > ord.indexOf(sel);
-      const target = other && (above || !nearSel) ? other : sel && sel.kind !== 'surface' ? sel : null;
-      if (!target) return setToast('Choisis d’abord un objet à modeler');
+      const target0 = other && (above || !nearSel) ? other : sel && sel.kind !== 'surface' ? sel : null;
+      if (!target0) return setToast('Choisis d’abord un objet à modeler');
+      // ensemble inversé : un seul cache, plusieurs fenêtres ; le geste modèle la pièce dont le bord est le plus proche
+      const target = invertOf(target0) ? nearestMate(target0, p.x, p.y) : target0;
       if (target.id !== selected) setSelected(target.id);
       const loc = toLocal(target, p.x, p.y);
       // Relief : on sculpte la surface (bosses, creux), le contour ne bouge pas
