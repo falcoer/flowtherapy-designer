@@ -3,7 +3,7 @@ import { burnLayers, paintStroke, paintWash, type Target } from './brush';
 import type { Flames } from './fire';
 import { paintPass, passKind } from './fresh';
 import { drawBlurred, rng } from './brush';
-import { pathToRings, ringsToPath, simplifyRing, type Ring, insideRings } from './cut';
+import { pathToRings, ringsOfGeom, ringsToPath, simplifyRing, type Ring, insideRings, unionAll } from './cut';
 import { isSilhouette, silhouetteRings } from './silhouettes';
 import { textCut, textEpoch } from './text';
 import { animCut, carved, generatorOf, posed } from './anim';
@@ -858,7 +858,15 @@ export function plateOf(l: Layer, f: Format, guides?: Guide[], mates: Layer[] = 
   if (!cut) {
     const [x0, y0] = [-pad, -pad];
     const q = (n: number) => +n.toFixed(5);
-    cut = RECT + holes.flatMap((x) => maskRings(x, f)).map((r) => (r.length > 2 ? `M${r.map((p) => `${q((p.x - x0) / W)} ${q((p.y - y0) / H)}`).join('L')}Z` : '')).join('');
+    // plusieurs pièces : la fenêtre est leur réunion (là où elles se chevauchent, le cache ne revient pas)
+    let rings = holes.flatMap((x) => maskRings(x, f));
+    if (holes.length > 1)
+      try {
+        rings = ringsOfGeom(unionAll(holes.map((x) => maskRings(x, f))));
+      } catch {
+        /* réunion impossible (contour dégénéré) : chaque fenêtre telle quelle */
+      }
+    cut = RECT + rings.map((r) => (r.length > 2 ? `M${r.map((p) => `${q((p.x - x0) / W)} ${q((p.y - y0) / H)}`).join('L')}Z` : '')).join('');
     if (plates.size > 64) plates.clear();
     plates.set(l.id, { key, cut });
   }

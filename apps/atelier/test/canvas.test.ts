@@ -281,13 +281,22 @@ describe('dans le navigateur', () => {
           ...(() => {
             const a = shape([], { id: 'g1', invert: true, link: 'e', w: 0.2, h: 0.2, dx: -0.25 });
             const b = shape([], { id: 'g2', invert: true, link: 'e', w: 0.2, h: 0.2, dx: 0.25 });
+            // deux pièces qui se chevauchent : la fenêtre est leur réunion, le chevauchement reste ouvert
+            const o1 = shape([], { id: 'o1', invert: true, link: 'u', w: 0.4, h: 0.3, dx: -0.08 });
+            const o2 = shape([], { id: 'o2', invert: true, link: 'u', w: 0.4, h: 0.3, dx: 0.08 });
+            const cu = document.createElement('canvas');
+            cu.width = Math.round(f.width * k);
+            cu.height = Math.round(f.height * k);
+            const ux = cu.getContext('2d');
+            ux.setTransform(k, 0, 0, k, 0, 0);
+            scene.drawLayers(ux, { ...doc, layers: [o1, o2] }, f, { scale: k, onImage: () => {} });
             const c = document.createElement('canvas');
             c.width = Math.round(f.width * k);
             c.height = Math.round(f.height * k);
             const ctx = c.getContext('2d');
             ctx.setTransform(k, 0, 0, k, 0, 0);
             scene.drawLayers(ctx, { ...doc, layers: [a, b] }, f, { scale: k, onImage: () => {} });
-            return { groupLeft: at(c, 0.25, 0.5), groupRight: at(c, 0.75, 0.5), groupMid: at(c, 0.5, 0.5) };
+            return { overlap: at(cu, 0.5, 0.5), groupLeft: at(c, 0.25, 0.5), groupRight: at(c, 0.75, 0.5), groupMid: at(c, 0.5, 0.5) };
           })(),
           flag: scene.invertOf(shape([], { invert: true })) ? 1 : 0,
           hollowWins: scene.invertOf(shape([], { invert: true, hollow: true })) ? 1 : 0,
@@ -299,6 +308,7 @@ describe('dans le navigateur', () => {
       expect(r.invMid).toBe(0);
       expect(r.invCorner).toBeGreaterThan(200);
       expect(r.invEdge).toBeGreaterThan(200);
+      expect(r.overlap).toBe(0);
       expect(r.groupLeft).toBe(0);
       expect(r.groupRight).toBe(0);
       expect(r.groupMid).toBeGreaterThan(200);
